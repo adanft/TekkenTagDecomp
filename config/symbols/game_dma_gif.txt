@@ -5,4 +5,5 @@
 // DMA and VU0 microcode helpers.
 Dma_SendChain = 0x00343028; // type:func
 Dma_Wait = 0x00343278; // type:func
-Vu0_LoadMicrocode = 0x003432A0; // type:func // guess
+Vu0_LoadMicrocode = 0x003432A0; // type:func
+Dma_SendNormal = 0x00343080; // type:func

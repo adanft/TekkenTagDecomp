@@ -34,6 +34,7 @@ options:
     - config/symbols/game_gfx.txt
     - config/symbols/game_zsort.txt
     - config/symbols/game_sound_if.txt
+    - config/symbols/game_gte.txt
     - config/symbols/game_screenshot.txt
     - config/symbols/game_movie.txt
     - config/symbols/game_effects.txt
@@ -116,14 +117,24 @@ segments:
       # .text), as in the original link: a boundary is the start of a function, a multiple of 8.
       - [0x1000, c, 340000]
       - [0x1B30, asm]
+      - [0x3E78, c, dma_gif]
+      - [0x7398, asm]
       - [0x18358, c, main]
       - [0x19A38, asm]
       - [0x1D2B0, c, rng_misc]
-      - [0x1E048, asm]
+      - [0x1E048, c, dma_spr]
+      - [0x1F808, c, memcard]
+      - [0x218B8, asm]
+      - [0x35520, c, 374520]
+      - [0x355E8, c, sound]
+      - [0x37C30, asm]
       - [0x57D00, c, pad]
       - [0x58948, c, file]
       - [0x59510, c, gfx]
       - [0x5A4C0, asm]
+      - [0x5AFC8, c, sound_if]
+      - [0x5B2B8, c, gte]
+      - [0x5CBF0, asm]
       - [0xD6700, data] # .data
       # .vudata 0x4F5F00: four VU microcode packets (DMA chains for VIF0/VIF1). configure.py builds this object
       # from the listings in src/vu0 and src/vu1 (scripts/vuasm.py) instead of the split file.
@@ -131,6 +142,8 @@ segments:
       - [0x1BBF70, data] # rest of .vudata: VIF1 code blocks copied and patched by the game (0x4FAF80)
       - [0x1BC880, .rodata, main]
       - [0x1BC9B4, rodata]
+      - [0x1C1780, .rodata, sound]
+      - [0x1C1D50, rodata]
       - [0x1CAD00, .rodata, pad]
       - [0x1CAE38, rodata]
       - [0x1CAE40, .rodata, file]

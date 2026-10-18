@@ -35,7 +35,9 @@ AS_FLAGS = "-EL -march=r5900 -mabi=eabi -G0 -no-pad-sections -Iinclude"
 # compiles to assembly here (-S); the project's gas assembles that behind include/gcc_prelude.inc, which encodes a
 # few instructions the way the game's assembler did.
 CC = "tools/compilers/ee-gcc2.9-991111-01/bin/ee-gcc"
-CC_FLAGS = "-O2 -fno-strength-reduce -ffast-math -Iinclude"
+# -fno-strict-aliasing: the compiler turns strict aliasing on at -O2, but the game reloads a 16-bit vector after
+# every store to a 32-bit one (the GTE-style math at 0x39A2B8); the earlier C files compile the same either way.
+CC_FLAGS = "-O2 -fno-strength-reduce -ffast-math -fno-strict-aliasing -Iinclude"
 # o64, not eabi: with eabi the modern gas expands address macros (la, addu with an immediate) to daddiu/daddu,
 # while the game's assembler wrote addiu/addu. The code is the same either way, so the object's ABI tag is set
 # to eabi64 afterwards (configure.py --eabi64), or the linker would refuse to mix it with the split files.

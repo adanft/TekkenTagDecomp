@@ -60,9 +60,9 @@ s32 Rng_GetSeed(void);
 void Rng_SetSeed(s32 seed);
 void srand(u32 seed);
 s32 Gfx_GetVSyncCount(void);
-void func_0039B628(Unk436530 *a, s32 x, s32 y, s32 z, s32 *ox, s32 *oy, s32 *oz);
-void func_0039BB70(Unk436530 *a);
-void func_0039BBC8(s32 *m);
+void Gte_ApplyMatrixXyz(Unk436530 *a, s32 x, s32 y, s32 z, s32 *ox, s32 *oy, s32 *oz);
+void Gte_SetRotMatrix(Unk436530 *a);
+void Gte_SetTransMatrix(s32 *m);
 void func_003ADA28(u8 *a, u8 *b, u32 *out);
 s32 func_003ADA68(u32 *set);
 s32 func_003ADA08(u32 *set, s32 i);
@@ -141,12 +141,12 @@ void Rng_Init(void) {
 void func_0035C400(s32 x, s32 y, s32 z) {
     s32 m[8];
 
-    func_0039B628(&D_00436530, x, y, z, &m[5], &m[6], &m[7]);
+    Gte_ApplyMatrixXyz(&D_00436530, x, y, z, &m[5], &m[6], &m[7]);
     m[5] += D_00436530.unk14[0];
     m[6] += D_00436530.unk14[1];
     m[7] += D_00436530.unk14[2];
-    func_0039BB70(&D_00436530);
-    func_0039BBC8(m);
+    Gte_SetRotMatrix(&D_00436530);
+    Gte_SetTransMatrix(m);
 }
 
 /* strcpy returning the end of the copy. */

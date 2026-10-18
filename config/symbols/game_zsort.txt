@@ -1,6 +1,4 @@
 // Game module zsort (docs/game_overview.md section 4; the range is provisional).
 // Naming rules: docs/decomp_guide.md, "Naming".
-// range: 0x003994C0 0x00399FD8
+// range: 0x003994C0 0x00399FC8
 
-// The last function of this range, next to `sound_if` (0x399FD8): the boundary is provisional.
-Snd_Nop = 0x00399FC8; // type:func

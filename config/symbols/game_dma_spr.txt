@@ -1,6 +1,8 @@
 // Game module dma_spr (docs/game_overview.md section 4; the range is provisional).
 // Naming rules: docs/decomp_guide.md, "Naming".
-// range: 0x0035D048 0x0035E878
+// range: 0x0035D048 0x0035E808
 
 // Scratchpad setup.
-Spr_Setup = 0x0035D480; // type:func // guess
+Spr_Setup = 0x0035D480; // type:func
+Spr_WaitIdle = 0x0035E610; // type:func
+Spr_WaitChannel = 0x0035E3E0; // type:func

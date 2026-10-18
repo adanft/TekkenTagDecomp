@@ -36,7 +36,7 @@ s32 sceGsSwapDBuff(GsDBuff *db, s32 id);
 s32 sceGsSyncV(s32 mode);
 void func_0039BC00(s32 x);
 s32 func_0039BC08(s16 *v, s32 *a, s32 *b, s32 *c);
-void func_0039BAE8(s16 *v, s32 arg);
+void Gte_RotMatrixZYX(s16 *v, s32 arg);
 void func_003430D8(void *dst, DmaPacketRef *ref);
 void func_00343128(void *dst, void *src, s32 qwc);
 void func_00343178(void *addr, s32 qwc);
@@ -145,7 +145,7 @@ void func_00398690(s16 x, s16 y, s16 z, s32 arg) {
     v[0] = x >> 4;
     v[1] = y >> 4;
     v[2] = z >> 4;
-    func_0039BAE8(v, arg);
+    Gte_RotMatrixZYX(v, arg);
 }
 
 void func_003986D8(s16 *v, s32 arg) {

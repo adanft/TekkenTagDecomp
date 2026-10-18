@@ -1,0 +1,25 @@
+// Game module gte (docs/game_overview.md section 4; the range is provisional: the same code continues into
+// `screenshot`).
+// Naming rules: docs/decomp_guide.md, "Naming".
+// range: 0x0039A2B8 0x0039BBF0
+
+// Fixed-point matrix and vector math in the style of the PlayStation GTE library.
+Gte_MulMatrix = 0x0039A2B8; // type:func
+Gte_MulMatrix0 = 0x0039A670; // type:func
+Gte_MulMatrix2 = 0x0039AA38; // type:func
+Gte_MulRotMatrix = 0x0039ADF0; // type:func
+Gte_ApplyMatrix = 0x0039B1E0; // type:func
+Gte_ApplyMatrixLV = 0x0039B310; // type:func
+Gte_ApplyRotMatrix = 0x0039B4C8; // type:func
+Gte_ApplyRotMatrixLV = 0x0039B600; // type:func
+Gte_ApplyMatrixXyz = 0x0039B628; // type:func
+Gte_CompMatrix = 0x0039B768; // type:func
+Gte_TransposeMatrix = 0x0039B800; // type:func
+Gte_RotMatrixX = 0x0039B8B8; // type:func
+Gte_RotMatrixY = 0x0039B918; // type:func
+Gte_RotMatrixZ = 0x0039B978; // type:func
+Gte_RotMatrixXYZ = 0x0039B9D8; // type:func
+Gte_RotMatrixYXZ = 0x0039BA60; // type:func
+Gte_RotMatrixZYX = 0x0039BAE8; // type:func
+Gte_SetRotMatrix = 0x0039BB70; // type:func
+Gte_SetTransMatrix = 0x0039BBC8; // type:func

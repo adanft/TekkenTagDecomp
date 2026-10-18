@@ -169,7 +169,7 @@ though an edge could still fall between two objects that are both inside the ran
 |---|---|---|---:|---|
 | `render_fighter_a` | 0x340000 | 0x3420C8 | 22 | sin/cos, VU0 matrices, fighter slots 0x879640; draw passes only |
 | `vu1_packet` | 0x3420C8 | 0x342E78 | 12 | VIF1 packets with VU1 DIRECT code, `.vudata` 0x4FAF80-0x4FB800 |
-| `dma_gif` | 0x342E78 | 0x346398 | 52 | `Dma_SendChain`, `Dma_Wait`, `Vu0_LoadMicrocode` [V]; GIF packets; reached by every mode |
+| `dma_gif` | 0x342E78 | 0x346398 | 52 | `Dma_SendChain`, `Dma_SendNormal`, `Dma_Wait`, `Vu0_LoadMicrocode` [V]; GIF packets; reached by every mode. `src/dma_gif.c` (one file for the range; from about 0x3453F0 the functions set up objects and side tables and may be another object [I]) |
 | `geometry` | 0x346398 | 0x34C508 | 53 | Inner/outer products, normalize, handler table `D_005193B8`; libvu0 (0x34A7A8-0x34B4E8) sits inside |
 | `scene3d` | 0x34C508 | 0x3543F0 | 89 | projections (RotTransPersN), matrices; modes 4, 5, 8, 11 |
 | `theater` | 0x3543F0 | 0x356A70 | 24 | modes 12-15, "THEATER", "MUSIC PLAYER" |
@@ -177,12 +177,12 @@ though an edge could still fall between two objects that are both inside the ran
 | `main` | 0x357358 | 0x358A38 | 40 | `Sys_BootIop`, `Sys_Init`, `main`, frame phases, `Mode_Dispatch`, per-player input (`Input_*`) [V start: first function after crt0; its `.rodata` (IRX paths, two jump tables) is the first of the executable, 0x4FB880]. `src/main.c` |
 | `battle_mode` | 0x358A38 | 0x35C2B0 | 67 | `Mode_Battle`, "GAME OVER", "A NEW CHALLENGER!" |
 | `rng_misc` | 0x35C2B0 | 0x35D048 | 47 | `Rng_*` [V], small helpers (strings, character tables, play counters, file loads by number). `src/rng_misc.c` |
-| `dma_spr` | 0x35D048 | 0x35E878 | 66 | scratchpad 0x70000000 setup (`Spr_Setup`), DMAC handler, toSPR waits; `sceOpen`/`sceClose` in one uncalled function 0x35D3C0; no `$gp` |
-| `memcard` | 0x35E878 | 0x3608B8 | 40 | `sceMc*` wrappers, `Mc_Update`, "BASLUS-20001TekkenTT"; no `$gp` |
+| `dma_spr` | 0x35D048 | 0x35E808 | 63 | file loads by number (0x35D048-0x35D458), scratchpad 0x70000000 setup (`Spr_Setup`), the scratchpad DMA state `gSprDma` shared with the DMAC handler (accessed `volatile`), toSPR / fromSPR waits; `sceOpen`/`sceClose` in one uncalled function 0x35D3C0. `src/dma_spr.c` [V end: the next three functions request memory card operations] |
+| `memcard` | 0x35E808 | 0x3608B8 | 43 | `Mc_Request` (0x35E808) and its callers, `sceMc*` wrappers, `Mc_Update`, "BASLUS-20001TekkenTT"; state `gMc` (`McState`, include/memcard.h); no `$gp`. `src/memcard.c` |
 | `font_tex` | 0x3608B8 | 0x3621F8 | 30 | VIF1 DIRECTHL image transfers, GIF tags; "YES NO" [I: font and texture upload] |
 | `fighter_setup` | 0x3621F8 | 0x3682F8 | 159 | fighter matrices (0x8794C0...), init functions of `Sys_Init` |
-| `battle_flow` | 0x3682F8 | 0x374520 | 144 | "ROUND %d", "K.O.", "READY!", "TAG BATTLE", "DRAW" [I: round flow and fight HUD] |
-| `sound` | 0x374520 | 0x376C30 | 69 | `sceSdRemote` callers, `Snd_PlaySe` 0x374CD8 (56 callers, many of them menu screens) |
+| `battle_flow` | 0x3682F8 | 0x3745E8 | 148 | "ROUND %d", "K.O.", "READY!", "TAG BATTLE", "DRAW" [I: round flow and fight HUD] |
+| `sound` | 0x3745E8 | 0x376C30 | 65 | `sceSdRemote` callers, `Snd_PlaySe` 0x374CD8 (56 callers, many of them menu screens), fighter voices (`Snd_PlayVoice`, voice sequences). `src/sound.c` [V start: its `.rodata` (0x500780-0x500D50, jump tables 16-aligned) cannot start at 0x500758, which belongs with the four functions 0x374520-0x3745E8 (`src/374520.c`) to the object before] |
 | `fight_misc` | 0x376C30 | 0x3790D8 | 30 | 64-bit division, atan2; modes 4, 5, 8, 11 |
 | `practice` | 0x3790D8 | 0x37BA88 | 43 | "FREESTYLE", "VS CPU", "(CPU)", "(YOU)", "TYPE %d", "RANDOM" |
 | `fighter_core` | 0x37BA88 | 0x38BF98 | 277 | largest `rand` user, no strings, handler table `D_00507A88`; reached only by modes 4, 5, 8, 11 [I: move interpreter, hits, AI] |
@@ -190,8 +190,9 @@ though an edge could still fall between two objects that are both inside the ran
 | `pad` | 0x396D00 | 0x397948 | 11 | `scePad*`, `sceMtap*` [V block]; `.rodata` 0x509D00-0x509E38. `src/pad.c` |
 | `file` | 0x397948 | 0x398510 | 29 | `File_*`, `Iop_*` [V block] (section 7); starts with the SIF command 0 handler; `.rodata` 0x509E40-0x50CE58 (file table, BGM tracks, two jump tables). `src/file.c` |
 | `gfx` | 0x398510 | 0x3994C0 | 51 | `Gfx_*` [V block]; 0x398510-0x398858 are small helpers (stubs, fixed-point sqrt/sin, DMA packet table `D_004362A0`) whose `.data` lies between `pad`'s and `gfx`'s, so they open this object [I]. `src/gfx.c` |
-| `zsort` | 0x3994C0 | 0x399FD8 | 15 | "(zs)list over" overflow `printf` + `exit` [I: z-sorted draw list] |
-| `sound_if` | 0x399FD8 | 0x39BBF0 | 30 | byte command queue (`D_005F61F0` write pointer, `D_005F61EC` count) sent with `sceSdRemote` by `Snd_Flush` [V]; only 0x399FD8-0x39A2B8 is sound (`Bgm_*`), the rest does not touch it [V, T11] |
+| `zsort` | 0x3994C0 | 0x399FC8 | 13 | "(zs)list over" overflow `printf` + `exit` [I: z-sorted draw list] |
+| `sound_if` | 0x399FC8 | 0x39A2B8 | 13 | byte command queue (`gSndQueue`, write pointer `gSndQueuePtr`, count `gSndQueueCount`) sent with `sceSdRemote` by `Snd_Flush`, `Bgm_*`; starts with the two empty stubs `Snd_Nop` (called before every libspu2 command) and 0x399FD0 [V]. `src/sound_if.c` |
+| `gte` | 0x39A2B8 | 0x39BBF0 | 19 | fixed-point matrix and vector math in the style of the PlayStation GTE library (`Gte_*`, current matrix `gGteRt`, sine table `gSinTable`) [V]; the same code continues into `screenshot` (geometry offset and screen, perspective transforms from 0x39BBF0) [I: end]. `src/gte.c` |
 | `screenshot` | 0x39BBF0 | 0x39C7B8 | 20 | `sceGsExecStoreImage` (`Scrn_Capture`) |
 | `movie` | 0x39C7B8 | 0x3A04B8 | 111 | `sceMpeg*`, IPU, a thread and an INTC handler (0x39CDC0), semaphore ring buffer 0x39F138-0x39FE00 [V for the calls] |
 | `effects` | 0x3A04B8 | 0x3A6460 | 58 | rand, sin/cos, projections; fight modes |
@@ -210,7 +211,7 @@ though an edge could still fall between two objects that are both inside the ran
 | `gallery_jpeg` | 0x3E55C8 | 0x3E8AD8 | 32 | `Mode_Gallery`, "JFIF" [I: screenshot JPEG codec] |
 | `tekken_bowl` | 0x3E8AD8 | 0x3F3320 | 136 | "THE KING OF IRONBOWL", "SPEED", "NICE COVER", "BONUS AT 200 PTS", "JUKEBOX" |
 
-42 modules cover the 2815 game functions. Sizes are uneven on purpose: `fighter_core`, `select_results`,
+43 modules cover the 2815 game functions. Sizes are uneven on purpose: `fighter_core`, `select_results`,
 `model_anim` and `fighter_setup` are several files each; split them when they are decompiled (T13-T18).
 
 ## 5. Important globals

@@ -34,7 +34,7 @@ extern u8 D_0043B7F8[];
 extern u8 D_00433400[];
 extern u8 D_00433440[];
 extern u8 D_004334C0[];
-extern s16 D_004FCE88[];
+extern s16 gSinTable[];
 extern s32 D_005F5C40[2];
 extern s32 D_005F5C48[2];
 extern u32 D_00415718[];
@@ -657,9 +657,9 @@ void func_00357DD8(void) {
     func_003A6C08();
 }
 
-/* Sine of a 16-bit angle from the table D_004FCE88, clamped to +-0xFFF, in 1.12 fixed point * 8. */
+/* Sine of a 16-bit angle from the table gSinTable, clamped to +-0xFFF, in 1.12 fixed point * 8. */
 s16 Math_Sin(u32 angle) {
-    s32 v = D_004FCE88[(angle >> 4) & 0xFFF];
+    s32 v = gSinTable[(angle >> 4) & 0xFFF];
 
     if (v >= 0x1000) {
         v = 0xFFF;
@@ -672,7 +672,7 @@ s16 Math_Sin(u32 angle) {
 
 /* Cosine: the sine table a quarter turn on. */
 s16 Math_Cos(s32 angle) {
-    s32 v = D_004FCE88[(((u32)angle << 16) >> 20) + 0x400];
+    s32 v = gSinTable[(((u32)angle << 16) >> 20) + 0x400];
 
     if (v >= 0x1000) {
         v = 0xFFF;

@@ -102,7 +102,7 @@ The EE library also knows 0x6240, 0x7600 and 0xE621, which the driver rejects as
 
 ## 4. The sound queue (command 0x7F0F)
 
-The EE writes byte codes to `D_00436500` (write pointer `D_005F61F0`, count `D_005F61EC`); `Snd_Flush`, called
+The EE writes byte codes to `gSndQueue` 0x436500 (write pointer `gSndQueuePtr`, count `gSndQueueCount`); `Snd_Flush`, called
 from `Frame_End` and before movie waits, appends 0xFF and sends the first 0x30 bytes when the count is non-zero
 [V]. The IOP walks at most 48 bytes until 0xFF; unknown codes (0x41-0x42, 0x46-0x4F, 0x52-0x5B) hang the loop
 [V]. All codes act on the BGM / stream engine:
@@ -169,7 +169,7 @@ command 0 (IOP 0x2B64) [V]. `Movie_PlayAudio(n)` (queue code 0x5C) plays the mov
 - SPU2 RAM: user area from 0x5010 [V: every address adds 0x5010]. Loads with `File_LoadSyncIop`: file 1 at 0x5010, file
   0x2D or 0xBB + 7n at 0x82D90, 0x158 + 3n at a caller-given address; character banks by `File_Request` to
   `Snd_GetBankAddr(slot)` [V].
-- `Snd_PlaySe(id, player)` -> `Snd_PlaySeEx`: the bank table `D_0042EBD8` (16 bytes per bank: descriptor array,
+- `Snd_PlaySe(id, player)` -> `Snd_PlaySeEx`: the bank table `gSndBankDefs` 0x42EBD8 (16 bytes per bank: descriptor array,
   kind at +8, first id at +0xA) gives an 8-byte descriptor `{u32 offset, u16 pitch, u8 volume, u8 category}`;
   address = bank base + offset + 0x40 (skips the VAG header) [V layout, I: header]. Volume = `((vol << 8) - 1) *
   scale >> 8 * SE option (0-10) / 10` [V]. `Snd_AllocVoice(category, player)` picks a voice from 0-21 (per-category jump table `jtbl_005007B0`;
@@ -178,10 +178,17 @@ command 0 (IOP 0x2B64) [V]. `Movie_PlayAudio(n)` (queue code 0x5C) plays the mov
   address) [V].
 - Units [I: libspu2]: pitch 0x1000 = 48 kHz (sample rate = 48000 * pitch / 0x1000); voice volume 0-0x3FFF per
   side; pan = different L/R volumes (only `Snd_SetPlayerVolume` sets them apart, scales 0-0x1000).
-- Voice slots `D_008A7920` (22 x 8 bytes: category, player, id, volume) [V]. `Snd_UpdateVoices` (every frame)
+- Voice slots `gSndVoices` 0x8A7920 (22 x 8 bytes: category, id, player, volume; `SndVoice` in include/sound.h) [V]. `Snd_UpdateVoices` (every frame)
   reads all key states with 0x6418 and frees a slot when its voice reports 0 (off) or 3 (released, envelope still
-  sounding) [V; I: state names]. The 22 states are copied to `D_008A78C0`.
+  sounding) [V; I: state names]. The 22 states are copied to `gSndKeyStatus`.
 - `Snd_StopCategory(c)` keys off every voice of category c; `Snd_StopAllSe` keys off voices 0-21 (command 5) [V].
+- Delayed effects (`Snd_QueueDelayed`, 24 slots `gSndDelayed`): an effect of `func_00374C28`'s set is queued and
+  replayed by `Snd_UpdateDelayed` at the frames and scales of the 3-step table `D_005007D8` (mode 2 of
+  `Snd_PlaySeEx`) [V code, I: echo].
+- Fighter voices: `Snd_PlayVoice(player, set, code)` picks a voice id from the fighter's voice set (`D_00501808`, 16
+  bytes per set: counts of four kinds, then the ids); `func_00376220` runs a voice sequence (`D_00501A78`, 4-byte
+  steps {frame, op, arg}) started by `Snd_StartVoiceSeq` from the move data (kind 8 entries) [V layout, I: names].
+- Every libspu2 command is preceded by a call to the empty stub `Snd_Nop` 0x399FC8 [V].
 
 ## 7. Callbacks and polling
 

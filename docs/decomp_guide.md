@@ -90,7 +90,7 @@ references (`"sceGsSyncPath: DMA ..."`); check each one, a string can also name 
 | | |
 |---|---|
 | Compiler | Sony ee-gcc `2.9-ee-991111-01` (decomp.me archive `ee-gcc2.9-991111-01`; `cc1` SHA-1 `4af299f2cebfa6043e876b34af7f8173d99c43c7`) |
-| Flags | `-O2 -fno-strength-reduce -ffast-math` |
+| Flags | `-O2 -fno-strength-reduce -ffast-math -fno-strict-aliasing` |
 | `-G` | `-G8`, the compiler's default (see "Small data" below for the open part) |
 | Language | C (the driver's `-lang-c`; the preprocessor is built into `cc1`) |
 | Driver use | `ee-gcc ... -S` only; the project's gas assembles the output behind `include/gcc_prelude.inc` |
@@ -139,6 +139,11 @@ The decomp.me archives `ee-gcc2.95.2-273a`, `2.95.2-274`, `2.95.3-*` (SN Systems
 is Sony's GNU toolchain, and the 991111-01 matches leave no room for them.
 
 The other compilers stay in `tools/compilers/` when installed for such checks; the build uses only 991111-01.
+
+**`-fno-strict-aliasing`** (T13 batch 2). This compiler turns strict aliasing on at `-O2`, but the game was built
+without it: `Gte_ApplyMatrix` (0x39B1E0) reloads the 16-bit input vector after every store to the 32-bit output
+vector, which only happens when the two may alias. Every C file of batch 1 compiles to the same assembly with and
+without the flag, so it is set for the whole build in `configure.py`.
 
 ## Assembler prelude (include/gcc_prelude.inc)
 
@@ -264,6 +269,77 @@ Tools:
 - A permuter run on `Pad_Update` (two hoisted `lui 0x51` in swapped saved registers) found nothing better than
   the base in 150,000 iterations.
 
+### Lessons from T13 batch 2 (2026-10-18)
+
+Order of statements:
+
+- **Write stores in their natural (field) order.** The scheduler moves the last store of a run of independent
+  stores to the front, so the assembly order is not the source order: `mc->unk1C = a; mc->unk48 = b; mc->op = 0x11;
+  mc->unk10 = c;` comes out as 0x10, 0x1C, 0x48, 0x0C (`func_0035EB20`). Clearing a struct field by field, then the
+  next one (`func_003455D0`, `func_00343F88`, `func_003456B0`, `Spr_Setup`), matched once written in field order;
+  copying the assembly order did not. When the order still differs, a permutation of the statements finds it fast.
+- An argument computed from a call (`rand()`) is evaluated after the plain field loads of the other arguments;
+  when the original loads `f->unk1E` / `f->unk2C` after the `rand()` call, the source put the value in a local
+  first (`code = t[...]; Snd_PlayVoice(f->unk1E, f->unk2C, code);`, `func_00376410`).
+
+Calls and returns:
+
+- A call whose value is dropped at the end of a function becomes `j f` (tail call), whatever the return types;
+  `return f(x);` keeps the `jal` and the epilogue. Several sound functions are non-void and return what they call,
+  with no value on the other paths (`s32 func_00374D90(...) { if (...) { ... return Snd_PlaySeEx(...); } }`, the
+  K&R style of implicit `int`); write them that way rather than as `void`.
+- A `return;` in the middle of a non-void function stops the tail call of the last call (`Snd_PlaySeEx` got a `jal`
+  until the early exit was a jump to the end of the function).
+- A function that returns the value of a request only on one path is `s32 r = f(); if (r == 0) {...} return r;`
+  (`func_0035EA08`); with `void` the compiler schedules the prologue differently.
+- A pointer to a global set before a call is kept in a saved register only when it is a copy of another local
+  (`McState *state = &gMc; ... sceMcInit(); mc = state;`, `Mc_Init`); `McState *mc = &gMc;` alone is rebuilt with
+  `lui / addiu` after the call. With the pointer used after a call (`SprDma *s = &gSprDma; f(); s->state`), the
+  address stays in `$s0` (`func_0035DC20`).
+
+Types and constants:
+
+- `x & 0xFFFFCFFF` (an unsigned literal) is built with `lui / ori`; `x & ~0x3000` (an `int`) with
+  `addiu -12289` (`func_0035E8D8`).
+- `lhu` on a signed field means the field is unsigned or only copied; `lh` for comparisons and arithmetic. An
+  argument loaded with `lhu` is an unsigned 16-bit field (`SndDelayed.id`).
+- `volatile`: a struct shared with an interrupt handler (`gSprDma`, its `pending` counter) is declared volatile; then
+  its address is built in a register (`lui / addiu`) and every field access stays in place (`func_0035DEF0`,
+  `func_0035DF68`, `func_0035E610`). For hardware registers, `*(volatile u32 *)0x1000A000` is reached through a
+  register built with `lui / ori`; a non-volatile `*(u32 *)0x1000A000` gets the assembler's absolute form (`lui $1,
+  0x1001` + `-0x6000`) but its loads can be merged.
+- A table of one entry still calls `rand()` for its index: `tbl[rand() % 1]` and `tbl[((rand() & 0xFF) * 1) >> 8]`
+  compile differently (scalar load after the call against a saved base address); `func_003769D0` uses both forms.
+- `seq[(s16)f->unk166]` is `sll 16 / sra 14` (index sign-extended, times 4).
+
+Objects and data:
+
+- A C file that emits a jump table makes its `.rodata` 16-aligned, so the object's `.rodata` starts on a 16-byte
+  boundary. `sound`'s first table could not be `D_00500758` (0x500758): that table and the four functions that read
+  it (0x374520-0x3745E8, `src/374520.c`) belong to the object before, and `sound.c` starts at `Snd_Init` with its
+  `.rodata` at 0x500780. All of `sound`'s `.rodata` tables have `force_not_migration` and are included in place;
+  the jump tables of functions still in assembly are included too (`INCLUDE_RODATA(..., jtbl_005007B0)`), so the
+  order holds whichever functions are C.
+- A table of 8 bytes or less in `.data` still needs an incomplete declaration (`extern s32 D_00415FE0[];`), or the
+  compiler reaches it through `$gp` (also for `D_00500CB0`-`D_00500CB8`, 4-byte words in `.rodata`).
+- A struct handed to a function at an offset of its parent (`p + 0x20`) is a member reached through a pointer
+  (`Unk3456B0Sub *s = &p->sub;`), not fields of the parent: the compiler then keeps `p + 0x20` in a register.
+
+Not matched yet (closest attempts in `#if 0`):
+
+- Identical `switch` case bodies are cross-jumped into one; the original keeps four copies (`Snd_AllocVoice`).
+- Scratchpad words reached by absolute address in every statement (`func_00342FB0`), register allocation
+  (`Snd_PlaySeEx`, `func_0035E8D8`, `func_0035D238`), a loop that copies the scratchpad header with four `ld`/`sd`
+  (`func_0035D588`, `func_0035D608`), DMA register waits that reload by absolute address (`func_0035E6B8`,
+  `func_0035E758`).
+
+Tools:
+
+- Short permuter runs (15-25 minutes, `-j2`-`-j4`) found matches for store order and register allocation
+  (`func_00374B48`, `Snd_StopAllSe`, `Snd_PlayVoice`, `func_00376150`, `func_0035E388`, `Mc_Init`); their output is
+  noisy (dead stores, `do {} while (0)`), so each was rewritten as plain C and checked again. `func_00376150`
+  matched with a mask variable (`s32 mask = 0xFFF; seq = *p & mask;`).
+
 ## Decompiled so far
 
 | File | Range | C / functions | Notes |
@@ -274,5 +350,12 @@ Tools:
 | `src/pad.c` | 0x396D00-0x397948 | 10 / 11 | libpad/libmtap set-up sequence, per-player input |
 | `src/file.c` | 0x397948-0x398510 | 27 / 29 | file requests, descrambling, IOP status |
 | `src/gfx.c` | 0x398510-0x3994C0 | 42 / 51 | GS set-up, VBlank handler, display packet, helpers |
+| `src/dma_gif.c` | 0x342E78-0x346398 | 29 / 52 | DMA kicks and waits, VU0 microcode upload, VU1 matrix packets, side tables |
+| `src/dma_spr.c` | 0x35D048-0x35E808 | 43 / 63 | file loads by number, scratchpad buffers and DMA, DMAC helpers |
+| `src/memcard.c` | 0x35E808-0x3608B8 | 35 / 43 | memory card requests, libmc call steps, state flags |
+| `src/374520.c` | 0x374520-0x3745E8 | 4 / 4 | the end of the object before `sound` |
+| `src/sound.c` | 0x3745E8-0x376C30 | 57 / 65 | SPU2 set-up, sound effect voices and banks, delayed effects, fighter voices |
+| `src/sound_if.c` | 0x399FC8-0x39A2B8 | 13 / 13 | sound byte-code queue (BGM, movie audio) |
+| `src/gte.c` | 0x39A2B8-0x39BBF0 | 19 / 19 | GTE-style fixed-point matrices and vectors |
 
 Functions left as `INCLUDE_ASM` carry their closest attempt above them in `#if 0` with a `NON_MATCHING:` note.

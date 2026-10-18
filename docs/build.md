@@ -34,7 +34,7 @@ assembles it in place. Data tables of the game stay in the split too: a table th
 
 Each C file is built in three steps, because the 1999 compiler driver cannot run its own assembler here:
 
-1. `ee-gcc -O2 -fno-strength-reduce -ffast-math -G8 -S` (the flags are in `configure.py`; `G_FLAGS` sets
+1. `ee-gcc -O2 -fno-strength-reduce -ffast-math -fno-strict-aliasing -G8 -S` (the flags are in `configure.py`; `G_FLAGS` sets
    another `-G` for a path prefix);
 2. the project's `as` with `-mabi=o64`, reading `include/gcc_prelude.inc` first (instructions the game's
    assembler encoded differently);

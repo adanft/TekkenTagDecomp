@@ -1,20 +1,34 @@
 // Game module sound (docs/game_overview.md section 4; the range is provisional).
 // Naming rules: docs/decomp_guide.md, "Naming".
-// range: 0x00374520 0x00376C30
+// range: 0x003745E8 0x00376C30
 
 // Sound (docs/systems/audio.md): sound effects on SPU2 core 1 voices 0-21 through libspu2 commands, BGM and
 // movie audio as byte codes queued for RSPU2DRV (command 0x7F0F).
-Snd_Init = 0x003745E8; // type:func // guess
+Snd_Init = 0x003745E8; // type:func
 Snd_InitSpu = 0x00374608; // type:func
-Snd_InitBanks = 0x00374748; // type:func // guess
-Snd_GetBankAddr = 0x00374790; // type:func // guess
-Snd_SetBankOwner = 0x003747A8; // type:func // guess
+Snd_InitBanks = 0x00374748; // type:func
+Snd_GetBankAddr = 0x00374790; // type:func
+Snd_SetBankOwner = 0x003747A8; // type:func
 Snd_AllocVoice = 0x00374808; // type:func // guess
 Snd_SetVoiceSlot = 0x00374A60; // type:func
 Snd_UpdateVoices = 0x00374A88; // type:func
-Snd_PlaySe = 0x00374CD8; // type:func // guess
+Snd_PlaySe = 0x00374CD8; // type:func
 Snd_PlaySeEx = 0x00374E90; // type:func // guess
 Snd_KeyOn = 0x003750E8; // type:func
-Snd_StopCategory = 0x003754A0; // type:func // guess
+Snd_StopCategory = 0x003754A0; // type:func
 Snd_StopAllSe = 0x00375550; // type:func
-Snd_SetPlayerVolume = 0x00375970; // type:func // guess
+Snd_SetPlayerVolume = 0x00375970; // type:func
+Snd_FindFreeVoice = 0x00374988; // type:func
+Snd_FindReusableVoice = 0x003749D0; // type:func
+Snd_FindCategoryVoice = 0x00374A18; // type:func
+Snd_FindBank = 0x00374B48; // type:func
+Snd_GetSe = 0x00374BA0; // type:func
+Snd_ClearVoices = 0x003747D0; // type:func
+Snd_GetDelaySteps = 0x003751C0; // type:func
+Snd_ClearDelayed = 0x003751D0; // type:func
+Snd_QueueDelayed = 0x00375208; // type:func
+Snd_UpdateDelayed = 0x00375290; // type:func
+Snd_PlayVoice = 0x00375AA8; // type:func
+Snd_StopVoiceSeq = 0x00376138; // type:func
+Snd_StartVoiceSeq = 0x00376208; // type:func
+Snd_StartMoveVoices = 0x00376150; // type:func

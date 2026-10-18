@@ -1,10 +1,11 @@
 // Game module sound_if (docs/game_overview.md section 4; the range is provisional).
 // Naming rules: docs/decomp_guide.md, "Naming".
-// range: 0x00399FD8 0x0039BBF0
+// range: 0x00399FC8 0x0039A2B8
 
 // Sound byte codes queued for RSPU2DRV: BGM and movie audio (docs/systems/audio.md).
+Snd_Nop = 0x00399FC8; // type:func
 Snd_InitDriver = 0x00399FD8; // type:func
-Snd_Flush = 0x0039A028; // type:func // guess
+Snd_Flush = 0x0039A028; // type:func
 Bgm_Play = 0x0039A0C0; // type:func // guess
 Bgm_PlayFlag = 0x0039A118; // type:func // guess
 Bgm_IsPlaying = 0x0039A120; // type:func // guess
