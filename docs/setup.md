@@ -44,3 +44,24 @@ Run it with the project's Python: `.venv/bin/python tools/decomp-permuter/permut
 
 Every required tool must show `OK`. Tools marked `later` (the game's compiler, objdiff, Ghidra, PCSX2) are set up
 in later steps and do not fail the check.
+
+## 5. Your disc
+
+The game files come from your own Tekken Tag Tournament disc (USA, SLUS-20001), as an ISO or a BIN/CUE dump:
+
+```sh
+.venv/bin/python scripts/setup_disc.py path/to/disc.cue     # or disc.bin, or disc.iso
+```
+
+The script reads the disc's file system itself (no extra tool), checks that `SLUS_200.01` is the unmodified USA
+executable (size and SHA-1) before writing anything, then copies every file of the disc into `iso/` (about
+640 MB). Any other file, game or region is refused with a message and exit code 1. Running it again skips files
+already there; `--force` rewrites them. `--save-iso out.iso` only converts a BIN/CUE into an ISO.
+
+`iso/` is ignored by git: nothing from the disc is ever committed.
+
+The script's tests build tiny disc images of their own and need no disc:
+
+```sh
+.venv/bin/python -m unittest discover -s tests -v
+```
