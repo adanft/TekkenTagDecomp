@@ -36,16 +36,31 @@ git -C tools/decomp-permuter checkout 059609d4aec73eb0650726772954e1ad575825f8
 
 Run it with the project's Python: `.venv/bin/python tools/decomp-permuter/permuter.py`.
 
-## 4. Check
+## 4. The game's compiler
+
+Sony's ee-gcc 2.9-ee-991111-01 for Linux (a 32-bit x86 build), as the decomp.me compiler archive:
+
+```sh
+mkdir -p tools/compilers/ee-gcc2.9-991111-01
+curl -L -o /tmp/ee-gcc2.9-991111-01.tar.xz \
+  https://github.com/decompme/compilers/releases/download/compilers/ee-gcc2.9-991111-01.tar.xz
+echo "ed684fd98f89d36b0121caab311052089103e3b36241fcef4338cc9ea41c75b8  /tmp/ee-gcc2.9-991111-01.tar.xz" | sha256sum -c
+tar xJf /tmp/ee-gcc2.9-991111-01.tar.xz -C tools/compilers/ee-gcc2.9-991111-01
+```
+
+The build runs `tools/compilers/ee-gcc2.9-991111-01/bin/ee-gcc` with `-S` only; the project's binutils assemble
+its output. Why this version: [decomp_guide.md](decomp_guide.md).
+
+## 5. Check
 
 ```sh
 .venv/bin/python scripts/check_tools.py
 ```
 
-Every required tool must show `OK`. Tools marked `later` (the game's compiler, objdiff, Ghidra, PCSX2) are set up
-in later steps and do not fail the check.
+Every required tool must show `OK`. Tools marked `later` (objdiff, Ghidra, PCSX2) are set up in later steps and
+do not fail the check.
 
-## 5. Your disc
+## 6. Your disc
 
 The game files come from your own Tekken Tag Tournament disc (USA, SLUS-20001), as an ISO or a BIN/CUE dump:
 
@@ -66,7 +81,7 @@ The script's tests build tiny disc images of their own and need no disc:
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-## 6. Build
+## 7. Build
 
 ```sh
 .venv/bin/python configure.py && ninja

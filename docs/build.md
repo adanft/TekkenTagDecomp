@@ -4,19 +4,40 @@
 .venv/bin/python configure.py && ninja
 ```
 
-`configure.py` needs `iso/SLUS_200.01` ([setup.md](setup.md), step 5). It runs splat on
-`config/SLUS_200.01.yaml` when the split is missing or older than the config (`--split` forces it) and writes
-`build.ninja`. ninja then:
+`configure.py` needs `iso/SLUS_200.01` ([setup.md](setup.md), step 6) and the game's compiler (step 4). It runs
+splat on `config/SLUS_200.01.yaml` when the split is missing or older than the config (`--split` forces it) and
+writes `build.ninja`. ninja then:
 
-1. assembles every file under `asm/` with the project's binutils (`include/macro.inc` defines splat's labels);
-2. links them with the generated `build/SLUS_200.01.ld` into `build/SLUS_200.01.elf`;
-3. flattens that with `objcopy -O binary` into `build/SLUS_200.01`;
-4. checks its SHA-1 against the original (`build/SLUS_200.01.ok` is written only on a match).
+1. assembles every split file under `asm/` with the project's binutils (`include/macro.inc` defines splat's
+   labels);
+2. compiles every C file the config links (a `c` subsegment) with ee-gcc and assembles the output (below);
+3. links everything with the generated `build/SLUS_200.01.ld` into `build/SLUS_200.01.elf`;
+4. flattens that with `objcopy -O binary` into `build/SLUS_200.01`;
+5. checks its SHA-1 against the original (`build/SLUS_200.01.ok` is written only on a match).
 
 The build counts only if ninja ends without `FAILED`. Editing the config or `configure.py` makes ninja run
 `configure.py` again by itself.
 
 `asm/`, `assets/`, `build/` and `build.ninja` are generated from the disc and ignored by git.
+
+## C files
+
+A C file covers one whole object: a `[offset, c, name]` subsegment in the config, compiled from `src/name.c`.
+Its start and the start of the next subsegment must be function starts at multiples of 16, because the
+generated linker script aligns every object to 16. Functions not decompiled yet stay in the file as
+`INCLUDE_ASM("asm/nonmatchings/name", func);`: splat writes one file per such function under
+`asm/nonmatchings/name/` (run `configure.py --split` after adding one) and the macro (`include/include_asm.h`)
+assembles it in place.
+
+Each C file is built in three steps, because the 1999 compiler driver cannot run its own assembler here:
+
+1. `ee-gcc -O2 -fno-strength-reduce -ffast-math -G8 -S` (the flags are in `configure.py`; `G_FLAGS` sets
+   another `-G` for a path prefix);
+2. the project's `as` with `-mabi=o64`, reading `include/gcc_prelude.inc` first (instructions the game's
+   assembler encoded differently);
+3. `configure.py --eabi64` sets the object's ABI tag to EABI64 like the split files, so the linker accepts both.
+
+Why these choices: [decomp_guide.md](decomp_guide.md).
 
 ## Why the whole file is split
 
@@ -47,5 +68,5 @@ constants such as 0xFFFF into labels that do not exist.
 
 ## Known assembler warnings
 
-`.end directive without a preceding .ent directive` (twice in `asm/1000.s`): two small functions that are also
+`.end directive without a preceding .ent directive` (twice in `asm/1B30.s`): two small functions that are also
 jump table targets get splat's `jlabel` instead of `glabel`. Harmless; the bytes are unchanged.

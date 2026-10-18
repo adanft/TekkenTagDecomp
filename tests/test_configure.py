@@ -54,6 +54,55 @@ class Objects(unittest.TestCase):
         self.assertEqual(configure.source_of("build/asm/data/D6700.data.o"), "asm/data/D6700.data.s")
         self.assertEqual(configure.source_of("build/asm/1000.o"), "asm/1000.s")
 
+    def test_source_of_c_file(self):
+        self.assertEqual(configure.source_of("build/src/340000.o"), "src/340000.c")
+        self.assertEqual(configure.source_of("build/src/sys/heap.o"), "src/sys/heap.c")
+
+
+class IncludedAsm(unittest.TestCase):
+    def test_in_order(self):
+        text = ('#include "common.h"\n'
+                'INCLUDE_ASM("asm/nonmatchings/340000", func_00340070);\n'
+                'void f(void) {}\n'
+                '  INCLUDE_ASM( "asm/nonmatchings/340000" , func_00340398 );\n')
+        self.assertEqual(configure.included_asm(text),
+                         ["asm/nonmatchings/340000/func_00340070.s", "asm/nonmatchings/340000/func_00340398.s"])
+
+    def test_ignores_comments_and_definitions(self):
+        text = ('/* INCLUDE_ASM("asm/x", in_comment); */\n'
+                '#define INCLUDE_ASM(FOLDER, NAME) x\n')
+        self.assertEqual(configure.included_asm(text), [])
+
+
+class GFlag(unittest.TestCase):
+    def test_default_and_prefix(self):
+        old = dict(configure.G_FLAGS)
+        try:
+            configure.G_FLAGS.clear()
+            configure.G_FLAGS["src/lib/"] = "-G0"
+            self.assertEqual(configure.g_flag("src/lib/dma.c"), "-G0")
+            self.assertEqual(configure.g_flag("src/340000.c"), configure.G_DEFAULT)
+        finally:
+            configure.G_FLAGS.clear()
+            configure.G_FLAGS.update(old)
+
+
+class SetEabi64(unittest.TestCase):
+    HEADER = b"\x7fELF\x01\x01\x01" + bytes(0x24 - 7) + (0x20922001).to_bytes(4, "little") + b"rest"
+
+    def test_sets_flags_only(self):
+        out = configure.set_eabi64(self.HEADER)
+        self.assertEqual(len(out), len(self.HEADER))
+        self.assertEqual(int.from_bytes(out[0x24:0x28], "little"), 0x20924001)
+        self.assertEqual(out[:0x24], self.HEADER[:0x24])
+        self.assertEqual(out[0x28:], b"rest")
+
+    def test_refuses_non_elf32(self):
+        with self.assertRaises(ValueError):
+            configure.set_eabi64(b"\x7fELF\x02\x01" + bytes(0x40))
+        with self.assertRaises(ValueError):
+            configure.set_eabi64(b"not an elf")
+
 
 if __name__ == "__main__":
     unittest.main()

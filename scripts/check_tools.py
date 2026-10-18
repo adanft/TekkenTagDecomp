@@ -19,6 +19,8 @@ VENV_PY = ROOT / ".venv" / "bin" / "python"
 BINUTILS = ROOT / "tools" / "binutils" / "mips-ps2-decompals-"
 PERMUTER = ROOT / "tools" / "decomp-permuter"
 PERMUTER_COMMIT = "059609d4aec73eb0650726772954e1ad575825f8"
+EE_GCC = ROOT / "tools" / "compilers" / "ee-gcc2.9-991111-01" / "bin" / "ee-gcc"
+EE_GCC_VERSION = "2.9-ee-991111-01"
 SPLAT_VERSION = "0.50.0"
 
 # R5900-only instructions: they assemble only with an assembler that knows the PS2's CPU.
@@ -98,6 +100,20 @@ def as_r5900():
     return ok, "assembles R5900 code" if ok else out
 
 
+def ee_gcc():
+    """The game's compiler: the pinned version, and it compiles C to assembly on this host."""
+    if not EE_GCC.exists():
+        return False, f"missing {EE_GCC.relative_to(ROOT)}"
+    ok, version = run([EE_GCC, "--version"])
+    if not ok or version != EE_GCC_VERSION:
+        return False, f"{version}, expected {EE_GCC_VERSION}"
+    with tempfile.TemporaryDirectory() as tmp:
+        src = Path(tmp) / "t.c"
+        src.write_text("int f(int a) { return a * 3; }\n")
+        ok, out = run([EE_GCC, "-O2", "-S", src, "-o", Path(tmp) / "t.s"])
+    return ok, version if ok else out
+
+
 def later(*names):
     """A tool installed in a later task: reports where it was found, never fails."""
     for name in names:
@@ -115,11 +131,10 @@ REQUIRED = [
     ("decomp-permuter", permuter),
     *[(f"binutils {n}", lambda n=n: binutil(n)) for n in ("as", "ld", "objcopy", "objdump", "readelf", "nm", "ar")],
     ("as -march=r5900", as_r5900),
+    ("ee-gcc", ee_gcc),
 ]
 
 LATER = [
-    ("ee-gcc (T05)", lambda: (True, "tools/compilers/") if (ROOT / "tools" / "compilers").is_dir()
-     else (None, "not installed yet")),
     ("objdiff", lambda: later("objdiff", "objdiff-cli")),
     ("Ghidra", lambda: later("ghidra", "ghidraRun")),
     ("PCSX2", lambda: later("pcsx2", "pcsx2-qt", "PCSX2")),

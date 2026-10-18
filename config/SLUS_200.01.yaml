@@ -49,7 +49,10 @@ segments:
     # .sbss starts at 0x5F6B00 and .bss ends at 0x1FCDEF0; configure.py aligns the bss to 64 like the original.
     bss_size: 0x19D7400
     subsegments:
-      - [0x1000, asm]
+      # C files cover whole objects. A boundary must be a multiple of 16 (the linker script aligns every object to
+      # 16) at the start of a function.
+      - [0x1000, c, 340000]
+      - [0x1B30, asm]
       - [0xD6700, data] # .data and .vudata (0x4F5F00)
       - [0x1BC880, rodata]
       - [0x2B6100, lit4]
