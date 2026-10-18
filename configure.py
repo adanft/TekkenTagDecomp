@@ -3,10 +3,11 @@
 
 Usage: .venv/bin/python configure.py [--split] && ninja
 
-Needs iso/SLUS_200.01 (scripts/setup_disc.py). splat runs when its output is missing or older than the config;
---split runs it again anyway (needed after adding an INCLUDE_ASM to a C file). ninja assembles every split file,
-compiles every C file the config links, links them with the generated linker script into build/SLUS_200.01.elf,
-flattens that with objcopy into build/SLUS_200.01 and compares its SHA-1 with the original.
+Needs iso/SLUS_200.01 (scripts/setup_disc.py). splat runs when its output is missing or older than the config or
+config/symbol_addrs.txt; --split runs it again anyway (needed after adding an INCLUDE_ASM to a C file). ninja
+assembles every split file, compiles every C file the config links, links them with the generated linker script
+into build/SLUS_200.01.elf, flattens that with objcopy into build/SLUS_200.01 and compares its SHA-1 with the
+original.
 """
 
 import argparse
@@ -18,6 +19,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 YAML = "config/SLUS_200.01.yaml"
+# What splat reads: a change to either reruns it.
+SPLIT_INPUTS = [YAML, "config/symbol_addrs.txt"]
 ORIGINAL = "iso/SLUS_200.01"
 ELF_SHA1 = "c7ad9a022bdc836827a0cc093f91b4281836f2bb"
 LD_SCRIPT = "build/SLUS_200.01.ld"
@@ -95,7 +98,8 @@ def set_eabi64(elf):
 
 def split(force):
     ld = ROOT / LD_SCRIPT
-    if not force and ld.exists() and ld.stat().st_mtime >= (ROOT / YAML).stat().st_mtime:
+    newest = max((ROOT / f).stat().st_mtime for f in SPLIT_INPUTS)
+    if not force and ld.exists() and ld.stat().st_mtime >= newest:
         return
     run([sys.executable, "-m", "splat", "split", YAML])
     ld.write_text(align_bss(ld.read_text()))
@@ -141,7 +145,7 @@ def write_ninja():
         "  description = CONFIGURE",
         "  generator = 1",
         "",
-        f"build build.ninja: configure | configure.py {YAML}",
+        f"build build.ninja: configure | configure.py {' '.join(SPLIT_INPUTS)}",
         "",
         "rule split",
         f"  command = {sys.executable} configure.py --split",
@@ -150,7 +154,7 @@ def write_ninja():
         # splat writes the linker script and the assembly (also the files INCLUDE_ASM pulls into C files), so a
         # missing one reruns it
         f"build {' '.join(LD_SCRIPTS)} {' '.join(source_of(o) for o in asm_objs)} "
-        f"{' '.join(f for o in c_objs for f in includes[o])}: split {YAML}",
+        f"{' '.join(f for o in c_objs for f in includes[o])}: split {' '.join(SPLIT_INPUTS)}",
         "",
     ]
     for obj in asm_objs:

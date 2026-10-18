@@ -3,6 +3,29 @@
 The goal is C that compiles to the same bytes as the original with the game's own compiler. How the build
 compiles a C file and links it: [build.md](build.md), "C files".
 
+## Matching loop
+
+1. Pick a function (`func_XXXXXXXX`) in a C file's range. Write the attempt above its `INCLUDE_ASM` line as
+   `#if 0` C `#else` INCLUDE_ASM(...) `#endif` while it does not match, so the build stays byte-identical.
+2. To test it, enable the C (drop the `#if 0` and the INCLUDE_ASM) and run
+   `.venv/bin/python scripts/fdiff.py func_XXXXXXXX` (a name or an address works too). It rebuilds and compares
+   the function's linked bytes with the original: `OK`, or both disassemblies aligned, with `!` on a different
+   instruction, `<` / `>` on one only in the original / the build, and `~` on a call or branch whose target
+   moved only because something before it changed size.
+3. For a near miss (registers, instruction order), put the attempt back in `#if 0` and run
+   `.venv/bin/python scripts/permute.py src/<file>.c func_XXXXXXXX` (setup in `build/permuter/<Func>/`, the
+   original from `asm/nonmatchings/`); add `--run -j8` to start decomp-permuter. A score of 0 ignores some
+   differences: apply the candidate by hand and check it with fdiff.
+4. When fdiff says OK, remove the `#if 0` / INCLUDE_ASM pair and run `.venv/bin/python configure.py && ninja`:
+   the build is the final word (SHA-1). `.venv/bin/python scripts/progress.py` prints the share of code in C.
+
+Names: `config/symbol_addrs.txt` (splat's format, read by splat and the scripts).
+`.venv/bin/python scripts/apply_names.py func_XXXXXXXX Name` sets a name there and replaces the placeholder in
+`src/` and `include/`; ninja then splits again (the asm files take the new names). `scripts/names_from_strings.py`
+prints names suggested by the strings a function references (`"sceGsSyncPath: DMA ..."`); check each one, a
+string can also name a callee. Library code is counted apart by `progress.py` once `config/library_ranges.txt`
+lists its ranges (`0xSTART 0xEND label`, one per line).
+
 ## Compiler
 
 | | |

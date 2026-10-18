@@ -1,0 +1,3 @@
+// Names of functions and data, read by splat (config/SLUS_200.01.yaml) and by the scripts.
+// One per line, splat's format: `name = 0xADDRESS; // type:func` (or `// type:data size:0x10`, ...).
+// Add or change names with scripts/apply_names.py, then run configure.py --split.

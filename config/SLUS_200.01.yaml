@@ -4,6 +4,7 @@ options:
   basename: SLUS_200.01
   target_path: iso/SLUS_200.01
   elf_path: build/SLUS_200.01.elf
+  symbol_addrs_path: config/symbol_addrs.txt
   base_path: ..
   platform: ps2
   compiler: EEGCC
