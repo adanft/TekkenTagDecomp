@@ -63,6 +63,8 @@ Verified:
   registers or syscalls) on both sides of its boundaries, except the libmpeg/libipu edge.
 - **`$gp`.** 1181 split functions use `%gp_rel`, all in the game blocks; none from 0x3F3320 on, none in libvu0 or crt0.
   The game was built with `-G8`; Sony's libraries were not.
+- **No VU code in `.text`.** `.vutext` is empty (size 0); the VU microcode is data in `.vudata`
+  ([systems/vu1/README.md](systems/vu1/README.md)).
 - **Entry point.** The ELF entry 0x3572A0 is crt0, so crt0.o was linked after the game objects that precede it.
 - **Syscall stubs.** 137 stubs at 0x3FFDC0-0x400640, each `addiu $v1, $zero, N; syscall; jr $ra; nop`, named
   after EE kernel call N (negative N: interrupt-context variant). N = 0x10 and 0x12 have two stubs; the second is

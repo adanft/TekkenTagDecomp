@@ -50,7 +50,9 @@ offset, so the flattened link is the original ELF byte for byte:
 |---|---|---|---|
 | 0x000000 | 0x33F000 | `header` | ELF header, program headers, zero padding (binary) |
 | 0x001000 | 0x340000 | `main` | `.text` |
-| 0x0D6700 | 0x415700 | `main` | `.data`, `.vudata` (0x4F5F00) |
+| 0x0D6700 | 0x415700 | `main` | `.data` |
+| 0x1B6F00 | 0x4F5F00 | `main` | `.vudata`: VU microcode packets, built from listings (below) |
+| 0x1BBF70 | 0x4FAF70 | `main` | rest of `.vudata` (VIF1 block template) |
 | 0x1BC880 | 0x4FB880 | `main` | `.rodata` |
 | 0x2B6100 | 0x5F5100 | `main` | `.lit4` (gp = 0x5FD0F0 = `.lit4` + 0x7FF0) |
 | 0x2B6C00 | 0x5F5C00 | `main` | `.sdata` |
@@ -66,6 +68,16 @@ Inside the loaded image, address = file offset + 0x33F000. Two details of the or
 
 The `trailer` segment has its own `exclusive_ram_id`: given address 0 in the global range, splat would turn
 constants such as 0xFFFF into labels that do not exist.
+
+## VU microcode
+
+The VU0 and VU1 microcode packets in `.vudata` (0x4F5F00-0x4FAF70) come from the listings in `src/vu0/` and
+`src/vu1/` ([systems/vu1/README.md](systems/vu1/README.md)). ninja assembles each packet listing with
+`scripts/vuasm.py` into `build/vu/*.bin`, and the object splat cuts from that range (`asm/data/vudata.data.s`) is
+built from `src/vu1/vudata.s` instead, which includes the binaries under the labels the code uses. A packet is
+rebuilt when any listing in its folder changes; run `configure.py` after adding a listing file.
+`.venv/bin/python scripts/vuasm.py` checks every packet of the original against a disassemble/assemble round
+trip and against the listings.
 
 ## Known assembler warnings
 

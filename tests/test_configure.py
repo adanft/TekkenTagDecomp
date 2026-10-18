@@ -59,6 +59,23 @@ class Objects(unittest.TestCase):
         self.assertEqual(configure.source_of("build/src/sys/heap.o"), "src/sys/heap.c")
 
 
+class VuMicrocode(unittest.TestCase):
+    def test_packets_object_is_built_from_the_wrapper(self):
+        self.assertEqual(configure.asm_source(configure.VU_SPLIT_ASM), configure.VU_ASM)
+        self.assertEqual(configure.asm_source("asm/data/D6700.data.s"), "asm/data/D6700.data.s")
+
+    def test_wrapper_includes_every_packet(self):
+        text = (ROOT / configure.VU_ASM).read_text()
+        for binary in configure.VU_PACKETS:
+            self.assertIn(f'.incbin "{binary}"', text)
+
+    def test_packet_depends_on_its_folder_listings(self):
+        listings = configure.vu_listings("src/vu1/vu1.vsm")
+        self.assertIn("src/vu1/vu1.vsm", listings)
+        self.assertIn("src/vu1/mesh.vsm", listings)
+        self.assertFalse([p for p in listings if not p.startswith("src/vu1/")])
+
+
 class IncludedAsm(unittest.TestCase):
     def test_in_order(self):
         text = ('#include "common.h"\n'

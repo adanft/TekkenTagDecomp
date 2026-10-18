@@ -48,6 +48,14 @@ G_DEFAULT = "-G8"
 E_FLAGS_OFFSET = 0x24
 EABI64_FLAGS = 0x20924001
 
+# The VU microcode packets in .vudata (0x4F5F00-0x4FAF70) are assembled from listings (scripts/vuasm.py,
+# docs/systems/vu1/README.md): the object splat cuts from that range is built from VU_ASM instead, which includes
+# the assembled packets. Listings include the program listings of their folder, so each packet depends on all of them.
+VU_SPLIT_ASM = "asm/data/vudata.data.s"
+VU_ASM = "src/vu1/vudata.s"
+VU_PACKETS = {"build/vu/vu0_full.bin": "src/vu0/vu0_full.vsm", "build/vu/vu0_small.bin": "src/vu0/vu0_small.vsm",
+              "build/vu/vu1.bin": "src/vu1/vu1.vsm"}
+
 # The original link aligned .sbss to 64 (0x5F6B00) after .sdata ends at 0x5F6AE4; splat's script only aligns to 16.
 BSS_SECTION = ".main_bss (NOLOAD) :"
 BSS_ALIGNED = ".main_bss ALIGN(64) (NOLOAD) :"
@@ -94,6 +102,16 @@ def set_eabi64(elf):
     if elf[:6] != b"\x7fELF\x01\x01":
         raise ValueError("not a 32-bit little-endian ELF file")
     return elf[:E_FLAGS_OFFSET] + EABI64_FLAGS.to_bytes(4, "little") + elf[E_FLAGS_OFFSET + 4:]
+
+
+def asm_source(src):
+    """The file an asm object is assembled from: the split file, or VU_ASM for the microcode packets."""
+    return VU_ASM if src == VU_SPLIT_ASM else src
+
+
+def vu_listings(packet):
+    """Listing files a packet's assembly reads: every .vsm in the packet listing's folder."""
+    return sorted(str(p.relative_to(ROOT)) for p in (ROOT / packet).parent.glob("*.vsm"))
 
 
 def split(force):
@@ -156,9 +174,17 @@ def write_ninja():
         f"build {' '.join(LD_SCRIPTS)} {' '.join(source_of(o) for o in asm_objs)} "
         f"{' '.join(f for o in c_objs for f in includes[o])}: split {' '.join(SPLIT_INPUTS)}",
         "",
+        "rule vuasm",
+        f"  command = {sys.executable} scripts/vuasm.py -o $out $in",
+        "  description = VUASM $out",
+        "",
     ]
+    for binary, listing in VU_PACKETS.items():
+        out.append(f"build {binary}: vuasm {listing} | scripts/vuasm.py {' '.join(vu_listings(listing))}")
     for obj in asm_objs:
-        out.append(f"build {obj}: as {source_of(obj)} | include/macro.inc")
+        src = asm_source(source_of(obj))
+        extra = f" {' '.join(VU_PACKETS)}" if src == VU_ASM else ""
+        out.append(f"build {obj}: as {src} | include/macro.inc{extra}")
     for obj in c_objs:
         src = source_of(obj)
         out.append(f"build {obj}: cc {src} | {headers} include/gcc_prelude.inc include/macro.inc "

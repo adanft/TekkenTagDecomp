@@ -54,7 +54,11 @@ segments:
       # 16) at the start of a function.
       - [0x1000, c, 340000]
       - [0x1B30, asm]
-      - [0xD6700, data] # .data and .vudata (0x4F5F00)
+      - [0xD6700, data] # .data
+      # .vudata 0x4F5F00: four VU microcode packets (DMA chains for VIF0/VIF1). configure.py builds this object
+      # from the listings in src/vu0 and src/vu1 (scripts/vuasm.py) instead of the split file.
+      - [0x1B6F00, data, vudata]
+      - [0x1BBF70, data] # rest of .vudata: VIF1 code blocks copied and patched by the game (0x4FAF80)
       - [0x1BC880, rodata]
       - [0x2B6100, lit4]
       - [0x2B6C00, sdata]
