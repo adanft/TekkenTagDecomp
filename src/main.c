@@ -64,7 +64,7 @@ s32 sceCdInit(s32 mode);
 s32 sceCdMmode(s32 media);
 s32 sceSifRebootIop(const char *img);
 s32 sceSifSyncIop(void);
-void sceSifLoadFileReset(void);
+s32 sceSifLoadFileReset(void);
 s32 sceSifLoadModule(const char *path, s32 argSize, s32 *args);
 void sceDmaReset(s32 mode);
 void sceVpu0Reset(void);
@@ -230,8 +230,6 @@ INCLUDE_RODATA("asm/nonmatchings/main", D_004FB8E8);
 INCLUDE_RODATA("asm/nonmatchings/main", D_004FB908);
 
 /* Reboots the IOP with IOPRP165.IMG and loads the six IOP modules (each retried until it loads). */
-#if 0
-/* NON_MATCHING: the module loop counter lives in v1 here, in a0 (reused for the path argument) in the original. */
 void Sys_BootIop(void) {
     s32 i;
 
@@ -253,9 +251,6 @@ void Sys_BootIop(void) {
         i++;
     } while ((u32)i < 6);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/main", Sys_BootIop);
-#endif
 
 /* Boot: IOP, DMA, VU0, GS path, graphics, sound, memory card, files, then the game's own initialisers; queues
  * mode 2 behind mode 0. */

@@ -95,14 +95,13 @@ void func_00398540(s32 x) {
 }
 
 /* Square root in 20.12 fixed point. */
-#if 0
-/* NON_MATCHING: matches only when compiled without instruction scheduling (-fno-schedule-insns -fno-schedule-insns2): the 4096.0f constant is loaded after the sqrt.s in the original. */
 s32 func_00398548(s32 x) {
-    return sqrtf(x * (1.0f / 4096.0f)) * 4096.0f;
+    f32 f = x * (1.0f / 4096.0f);
+
+    do {
+    } while (0); /* fake (decomp-permuter): keeps the 4096.0f load after the sqrt.s */
+    return sqrtf(f) * 4096.0f;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/gfx", func_00398548);
-#endif
 
 /* Sine in 20.12 fixed point of an angle in 1/4096 turns. */
 s32 func_00398588(s32 angle) {
@@ -347,17 +346,12 @@ void Gfx_SetFrameReady(void) {
 
 /* Waits until the VBlank handler has taken the frame (advancing the spin generator meanwhile), then restarts
  * Timer 0. */
-#if 0
-/* NON_MATCHING: the frame-ready flag is loaded into v1 in the original, v0 here. */
 void Gfx_WaitVSync(void) {
     do {
         Rng_SpinNext();
     } while (gFrameReady == 1);
     *(volatile u32 *)0x10000000 = 0;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/gfx", Gfx_WaitVSync);
-#endif
 
 void func_00398D20(void) {
     func_003990A8(Gfx_GetFieldParity());
@@ -382,21 +376,18 @@ INCLUDE_ASM("asm/nonmatchings/gfx", Gfx_ShowBuffer);
 #endif
 
 /* Starts the frame's display DMA chain on `channel`. */
-#if 0
-/* NON_MATCHING: the original indexes D_004364C0 with an integer (field == 0); here it becomes a conditional move. */
 void Gfx_KickDisplayChain(u32 channel) {
     void *chain;
 
     if (gGfx.unk26E) {
-        chain = (void *)D_004364C0[gGfx.unk26D][!gGfx.field];
+        s32 odd = !gGfx.field;
+
+        chain = (void *)D_004364C0[gGfx.unk26D][odd];
     } else {
         chain = Dma_GetPacket(0x10);
     }
     Dma_SendChain(channel, chain);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/gfx", Gfx_KickDisplayChain);
-#endif
 
 /* INTC VBLANK_START handler: swaps the buffers when a frame is ready, kicks the display DMA chain for the
  * current phase and counts the VBlank. */
@@ -545,43 +536,33 @@ void func_00399308(void) {
 }
 
 /* Display position: DX / DY of both DISPLAY registers. */
-#if 0
-/* NON_MATCHING: the bitfield read-modify-write order of DISPLAY differs (the original copies the masked values). */
 void Gfx_SetDisplayOffset(s32 dx, s32 dy) {
-    gGfx.dx = dx;
+    gGfx.display[1].DX = gGfx.dx = dx;
     gGfx.display[0].DX = dx;
-    gGfx.display[1].DX = dx;
+    gGfx.display[1].DY = gGfx.dy = dy;
     gGfx.display[0].DY = dy;
-    gGfx.display[1].DY = dy;
-    gGfx.dy = dy;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/gfx", Gfx_SetDisplayOffset);
-#endif
 
 void Gfx_GetDisplayOffset(s32 *dx, s32 *dy) {
     *dx = gGfx.dx;
     *dy = gGfx.dy;
 }
 
-#if 0
-/* NON_MATCHING: only a1/a2 are swapped for the D_008BD390 address. */
 void func_003993B0(void) {
     u32 base;
+    Unk8BD390 *rec;
 
     D_008BD310.unk60[D_008BD310.unk50] = 0;
     base = func_003639B8();
+    rec = &D_008BD390[0];
     D_008BD310.unk78 = 1;
-    D_008BD390[0].unk4 = 0;
-    base += D_008BD310.unk50 * 0x8000;
+    rec->unk4 = 0;
+    base += D_008BD310.unk50 * 0x2000 * 4;
     D_008BD310.unk44 = base;
     D_008BD310.unk58 = 0;
     D_008BD310.unk40 = base;
     D_008BD390[0].unk0 = base;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/gfx", func_003993B0);
-#endif
 
 void func_00399418(void) {
     u32 base;

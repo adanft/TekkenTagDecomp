@@ -208,11 +208,10 @@ s32 File_CompactQueue(void) {
 
 /* Queues a read of file `id` to `dest` (16-byte aligned; an SPU2 address when `toIop`). Id 0xFFF queues a
  * marker that reads nothing. Returns the request handle, -1 when every slot is taken. */
-#if 0
-/* NON_MATCHING: one pair swapped: the queue address (addiu) is scheduled after the toIop store in the original. */
 s32 File_Request(s32 id, u32 dest, s32 flags, s32 toIop) {
     FileReq *req;
     s32 i;
+    s32 handle;
 
     if (dest & 0xF) {
         exit(1);
@@ -244,14 +243,14 @@ s32 File_Request(s32 id, u32 dest, s32 flags, s32 toIop) {
     }
     req->flags = flags;
     req->toIop = toIop;
-    gFileQueue.busy = 1;
+    do { /* a macro in the original (found by decomp-permuter) */
+        gFileQueue.busy = 1;
+    } while (0);
     FlushCache(0);
+    handle = req->handle;
     gFilePending++;
-    return req->handle;
+    return handle;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/file", File_Request);
-#endif
 
 /* Frees request `handle`; a read the IOP is running is aborted. */
 s32 File_Release(s32 handle) {
@@ -297,13 +296,12 @@ s64 File_KeyNext(s64 key) {
 
 /* Once per frame: reads the IOP status, answers its SIF requests and steps the head request. Returns the number
  * of requests still queued. */
-#if 0
-/* NON_MATCHING: one pair swapped in state 2: the original computes both table addresses before loading the sector. */
 s32 File_Update(void) {
     FileReq *req;
     u32 *p;
     s64 key;
     s32 size;
+    s32 fsize;
     u32 count;
     u32 i;
     s32 ret;
@@ -321,8 +319,9 @@ s32 File_Update(void) {
             if (gIopStatus & 1) {
                 break;
             }
+            fsize = gFileTable[req->id].size;
             req->sector = gFileTable[req->id].sector;
-            req->size = gFileTable[req->id].size;
+            req->size = fsize;
             if (req->toIop == 0) {
                 ret = sceSdRemote(1, 0x204E, req->sector, req->dest, req->size, req->flags);
             } else {
@@ -364,10 +363,6 @@ s32 File_Update(void) {
     gFileQueue.busy = 0;
     return File_CompactQueue();
 }
-#else
-RODATA_ALIGN16();
-INCLUDE_ASM("asm/nonmatchings/file", File_Update);
-#endif
 
 /* Runs File_Update once per VSync until nothing is queued. */
 void File_WaitDone(s32 unused) {

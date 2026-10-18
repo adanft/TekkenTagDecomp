@@ -8,12 +8,19 @@ extern s32 D_005F6B38;
 extern s32 D_005F6B3C;
 extern s32 D_00415F80[];
 extern s32 D_00415FE0[];
+/* Fixed buffers in main RAM below the executable. */
+extern u8 D_200000[];
+extern u8 D_300000[];
 
 /* The scratchpad header (0x70000000): up to three buffers of `size` bytes after 0x70000100 (Spr_Setup). */
 typedef struct {
     /* 0x0 */ u32 buf[3];
     /* 0xC */ u16 size;
     /* 0xE */ u8 count;
+    /* 0xF */ u8 unkF;
+    /* 0x10 */ u32 unk10;
+    /* 0x14 */ u32 unk14;
+    /* 0x18 */ u32 unk18;
 } SprHeader;
 
 #define SPR ((SprHeader *)0x70000000)
@@ -71,6 +78,24 @@ void func_0035D958(volatile u32 *chan, s32 state);
 void func_0035DA08(void);
 void func_0035DEF0(void);
 s32 Spr_WaitIdle(void);
+s32 EnableDmac(s32 channel);
+void Dma_SendNormal(volatile u32 *chan, void *addr, u32 qwc);
+void Dma_AddRefTag(u8 **pkt, s32 i);
+void func_00343178(void *addr, s32 qwc);
+void func_0035DA70(void);
+void func_0035DA78(void);
+void func_0035DC20(void);
+void func_0035DF68(volatile SprDma *s);
+void func_0035DFA8(volatile SprDma *s);
+s32 func_0035DFF0(volatile SprDma *s);
+void func_0035E048(volatile SprDma *s);
+void func_0035E100(volatile SprDma *s);
+s32 func_0035E228(s32 channel);
+s32 func_0035E2E8(s32 channel);
+s32 iDisableDmac(s32 channel);
+s32 AddDmacHandler(s32 channel, s32 (*handler)(s32), s32 next);
+s32 DisableDmac(s32 channel);
+void func_0035E3B0(void);
 
 s32 func_0035D048(s32 n, u32 dest) {
     return func_0035CE40(D_004FBF50[n], dest);
@@ -98,7 +123,34 @@ s32 func_0035D0C8(s32 n, u32 dest) {
     return 1;
 }
 
+#if 0
+/* NON_MATCHING: the store of state 4 lands in the delay slot of the branch to the return; the original sets the
+ * return value there. */
+s32 func_0035D120(s32 abort) {
+    if (abort) {
+        if (D_005F6B3C == 3 && D_005F6B38 >= 0) {
+            File_Release(D_005F6B38);
+        }
+        return 1;
+    }
+    switch (D_005F6B3C) {
+    case 3:
+        if (File_CountQueued() > 0) {
+            return 0;
+        }
+        File_Release(D_005F6B38);
+        D_005F6B3C = 4;
+        return 1;
+    case 2:
+        return 0;
+    case 4:
+        return 1;
+    }
+    return 1;
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/dma_spr", func_0035D120);
+#endif
 
 s32 func_0035D1C8(s32 n) {
     return func_0035CED8(D_004FBF50[n]);
@@ -334,7 +386,47 @@ void func_0035D738(void) {
     }
 }
 
-INCLUDE_ASM("asm/nonmatchings/dma_spr", func_0035D790);
+/* Resets the scratchpad streaming: clears the header through toSPR DMA, stops the ring buffer and re-arms both
+ * channels, then restarts the stream (func_0035DA78). */
+void func_0035D790(s32 arg) {
+    s32 *busy;
+    volatile u32 *spr = (volatile u32 *)0x1000D400;
+    volatile u32 **pspr; /* fake (decomp-permuter): keeps spr in a register */
+    u128 tag;
+
+    gSprDma.unk20 = 0;
+    busy = (s32 *)&gSprDma.unk1C;
+    pspr = &spr;
+    if (*busy != 0) {
+        u8 *base = D_200000;
+
+        gSprDma.unk1C = 0;
+        gSprDma.unk20 = (u32)(base + 0x80000);
+    }
+    Dma_Wait(spr);
+    spr[0x20] = Spr_Setup(0, 0x100);
+    Dma_SendNormal(*pspr, &tag, 1);
+    func_0035E388(9);
+    Dma_Wait(spr);
+    *(volatile u32 *)0x1000E000 &= 0xFFFFFFFD;
+    Dma_Wait((volatile u32 *)0x10009000);
+    Dma_Wait((volatile u32 *)0x1000A000);
+    *(volatile u32 *)0x1000E010 = 2;
+    __asm__ volatile("sync");
+    __asm__ volatile("sync.p");
+    *(volatile u32 *)0x1000E010 = 4;
+    __asm__ volatile("sync");
+    __asm__ volatile("sync.p");
+    gSprDma.unk2 = 0;
+    gSprDma.unk3 = 0;
+    gSprDma.pending = 0;
+    gSprDma.unk0 = 0;
+    gSprDma.state = 0;
+    EnableDmac(1);
+    EnableDmac(2);
+    gSprDma.unk24 = arg;
+    func_0035DA78();
+}
 
 /* Waits until the toSPR channel has passed the tag the fromSPR side (0x70000014) is reading. */
 #if 0
@@ -382,15 +474,79 @@ void func_0035D958(volatile u32 *chan, s32 state) {
     }
 }
 
-INCLUDE_ASM("asm/nonmatchings/dma_spr", func_0035DA08);
+void func_0035DA08(void) {
+    u8 *base = (u8 *)Spr_Setup(0, 0x100);
+    u8 *pkt = base;
+
+    Dma_AddRefTag(&pkt, 0x10);
+    pkt -= 0x10;
+    ((u16 *)pkt)[1] = 0;
+    func_00343178(base, 8);
+    Dma_Wait((volatile u32 *)0x1000D000);
+}
 
 void func_0035DA70(void) {
     func_0035DA08();
 }
 
-INCLUDE_ASM("asm/nonmatchings/dma_spr", func_0035DA78);
+#if 0
 
-INCLUDE_ASM("asm/nonmatchings/dma_spr", func_0035DB90);
+/* NON_MATCHING: the original reloads 0x1000D010 by absolute address after each store to gSprDma; the compiler
+ * forwards the stored value (volatile instead builds the address in a register). */
+void func_0035DA78(void) {
+    volatile SprDma *s;
+    u8 *ring;
+    s32 size;
+    s32 i;
+
+    SPR->unk18 = 0x1000D000;
+    SPR->unk14 = 0x10009000;
+    s = &gSprDma;
+    SPR->unk10 = 0;
+    ring = D_300000;
+    size = 0x40000;
+    i = 0;
+    do {
+        i++;
+    } while (!((size >> i) & 1));
+    SPR->unkF = i;
+    Dma_Wait((volatile u32 *)0x1000D000);
+    Dma_Wait((volatile u32 *)0x10009000);
+    *(volatile u32 *)0x1000E050 = (u32)ring;
+    *(volatile u32 *)0x1000E040 = 0x3FFF0;
+    *(volatile u32 *)0x1000E000 = (*(volatile u32 *)0x1000E000 & 0xFFFFFFF3) | 8;
+    *(u32 *)0x1000D010 = *(volatile u32 *)0x1000E050;
+    s->pending++;
+    s->state = 1;
+    s->unk8 = *(u32 *)0x1000D010;
+    *(u32 *)0x10009030 = *(u32 *)0x1000D010;
+    func_0035DF68(s);
+}
+#else
+INCLUDE_ASM("asm/nonmatchings/dma_spr", func_0035DA78);
+#endif
+
+void func_0035DB90(void) {
+    volatile SprDma *s = &gSprDma;
+    u32 status;
+
+    func_0035DA70();
+    *(u32 *)0x70000018 = 0x1000D000;
+    do {
+        __asm__ volatile("di");
+        s++; /* fake (decomp-permuter): s set more than once, so the scheduler keeps the 0x1000D010 */
+        s--; /* load after the stores through it, as in the original */
+        __asm__ volatile("sync.p");
+        __asm__ volatile("mfc0 %0, $12" : "=r"(status));
+    } while (status & 0x10000);
+    s->pending++;
+    s->state = 2;
+    s->unkC = *(u32 *)0x1000D010;
+    func_0035DFA8(s);
+    __asm__ volatile("nop");
+    __asm__ volatile("sync.l");
+    __asm__ volatile("ei");
+}
 
 void func_0035DC20(void) {
     volatile SprDma *s = &gSprDma;
@@ -399,11 +555,96 @@ void func_0035DC20(void) {
     func_0035D958((volatile u32 *)0x10009000, s->state);
 }
 
+#if 0
+/* NON_MATCHING: the 0x1000D010 loads move in front of the gSprDma stores (see func_0035DDE0), and the registers of
+ * the set-up differ. */
+void func_0035DC58(void) {
+    volatile SprDma *s = &gSprDma;
+    SprHeader *spr = SPR;
+    u8 *ring;
+    s32 size;
+    s32 i;
+    s32 wait;
+    u32 status;
+
+    func_0035DC20();
+    size = s->unk20 != 0 ? 0x80000 : 0x100000;
+    spr->unk18 = 0x1000D000;
+    ring = D_200000;
+    spr->unk14 = 0x1000A000;
+    spr->unk10 = 0;
+    for (i = 0; !((size >> i) & 1); i++) {
+    }
+    spr->unkF = i;
+    Dma_Wait((volatile u32 *)0x1000D000);
+    Dma_Wait((volatile u32 *)0x1000A000);
+    *(volatile u32 *)0x1000E050 = (u32)ring;
+    *(volatile u32 *)0x1000E040 = size - 0x10;
+    *(volatile u32 *)0x1000E000 |= 0xC;
+    *(u32 *)0x1000D010 = (u32)ring;
+    wait = s->unk24;
+    do {
+        __asm__ volatile("di");
+        __asm__ volatile("sync.p");
+        __asm__ volatile("mfc0 %0, $12" : "=r"(status));
+    } while (status & 0x10000);
+    s->unk0 = 1;
+    s->pending++;
+    s->state = 3;
+    s->unk10 = *(u32 *)0x1000D010;
+    *(u32 *)0x1000A030 = *(u32 *)0x1000D010;
+    if (wait == 0 || s->unk2 >= 2) {
+        func_0035DFF0(s);
+    }
+    __asm__ volatile("nop");
+    __asm__ volatile("sync.l");
+    __asm__ volatile("ei");
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/dma_spr", func_0035DC58);
+#endif
 
-INCLUDE_ASM("asm/nonmatchings/dma_spr", func_0035DDE0);
+void func_0035DDE0(void) {
+    volatile SprDma *s = &gSprDma;
+    u32 status;
 
-INCLUDE_ASM("asm/nonmatchings/dma_spr", func_0035DE68);
+    s++; /* fake (decomp-permuter): s set more than once, so the scheduler keeps the 0x1000D010 load after the */
+    s--; /* stores through it, as in the original */
+    *(u32 *)0x70000018 = 0x1000D000;
+    do {
+        __asm__ volatile("di");
+        __asm__ volatile("sync.p");
+        __asm__ volatile("mfc0 %0, $12" : "=r"(status));
+    } while (status & 0x10000);
+    s->pending++;
+    s->state = 4;
+    s->unk14 = *(u32 *)0x1000D010;
+    func_0035E048(s);
+    __asm__ volatile("nop");
+    __asm__ volatile("sync.l");
+    __asm__ volatile("ei");
+}
+
+void func_0035DE68(void) {
+    volatile SprDma *s = &gSprDma;
+    u32 status;
+
+    s++; /* fake (decomp-permuter): s set more than once, so the scheduler keeps the 0x1000D010 load after the */
+    s--; /* stores through it, as in the original */
+    *(u32 *)0x70000018 = 0x1000D000;
+    do {
+        __asm__ volatile("di");
+        __asm__ volatile("sync.p");
+        __asm__ volatile("mfc0 %0, $12" : "=r"(status));
+    } while (status & 0x10000);
+    s->pending++;
+    s->state = 5;
+    s->unk18 = *(u32 *)0x1000D010;
+    func_0035E100(s);
+    __asm__ volatile("nop");
+    __asm__ volatile("sync.l");
+    __asm__ volatile("ei");
+}
 
 void func_0035DEF0(void) {
     if (gSprDma.state < 6) {
@@ -439,9 +680,35 @@ s32 func_0035DFF0(volatile SprDma *s) {
     }
 }
 
-INCLUDE_ASM("asm/nonmatchings/dma_spr", func_0035E048);
+void func_0035E048(volatile SprDma *s) {
+    volatile u32 *chan;
 
-INCLUDE_ASM("asm/nonmatchings/dma_spr", func_0035E100);
+    if (s->state >= 4 && s->unk2 >= 2 && s->unk3 >= 2) {
+        s->pending--;
+        if (s->state < 6) {
+            Dma_Wait((volatile u32 *)0x1000D000);
+            *(volatile u32 *)0x1000E000 = (*(volatile u32 *)0x1000E000 & 0xFFFFFFF3) | 8;
+        }
+        chan = (volatile u32 *)0x10009000;
+        Dma_SendChain(chan, (void *)s->unk14);
+        ((SprHeader *)func_0035D680())->unk14 = (u32)chan;
+    }
+}
+
+void func_0035E100(volatile SprDma *s) {
+    volatile u32 *chan;
+
+    if (s->state >= 5 && s->unk2 >= 3) {
+        s->pending--;
+        if (s->state < 6) {
+            Dma_Wait((volatile u32 *)0x1000D000);
+            *(volatile u32 *)0x1000E000 |= 0xC;
+        }
+        chan = (volatile u32 *)0x1000A000;
+        Dma_SendChain(chan, (void *)s->unk18);
+        ((SprHeader *)func_0035D680())->unk14 = (u32)chan;
+    }
+}
 
 s32 func_0035E198(void) {
     s32 r = 0;
@@ -452,11 +719,71 @@ s32 func_0035E198(void) {
     return r;
 }
 
-INCLUDE_ASM("asm/nonmatchings/dma_spr", func_0035E1C8);
+void func_0035E1C8(void) {
+    u32 status;
 
-INCLUDE_ASM("asm/nonmatchings/dma_spr", func_0035E228);
+    if (gSprDma.unk20 == 0) {
+        do {
+            __asm__ volatile("di");
+            __asm__ volatile("sync.p");
+            __asm__ volatile("mfc0 %0, $12" : "=r"(status));
+        } while (status & 0x10000);
+        func_0035DFF0(&gSprDma);
+        __asm__ volatile("nop");
+        __asm__ volatile("sync.l");
+        __asm__ volatile("ei");
+    }
+}
 
-INCLUDE_ASM("asm/nonmatchings/dma_spr", func_0035E2E8);
+s32 func_0035E228(s32 channel) {
+    volatile SprDma *s = &gSprDma;
+
+    if (channel == 1) {
+        s->unk2++;
+        switch (s->unk2) {
+        case 1:
+            func_0035DFA8(s);
+            break;
+        case 2:
+            func_0035DFF0(s);
+            func_0035E048(s);
+            break;
+        case 3:
+            func_0035E100(s);
+        default:
+            iDisableDmac(1);
+            break;
+        }
+        __asm__ volatile("sync.l");
+        __asm__ volatile("ei");
+        return 0;
+    }
+    return 0;
+}
+
+s32 func_0035E2E8(s32 channel) {
+    volatile SprDma *s = &gSprDma;
+
+    if (channel == 2) {
+        s->unk3++;
+        switch (s->unk3) {
+        case 1:
+            func_0035DF68(s);
+            break;
+        case 2:
+            func_0035E048(s);
+            break;
+        case 3:
+        default:
+            iDisableDmac(2);
+            break;
+        }
+        __asm__ volatile("sync.l");
+        __asm__ volatile("ei");
+        return 0;
+    }
+    return 0;
+}
 
 void func_0035E370(void) {
     *(u32 *)0x70000018 = 0x1000D400;
@@ -485,7 +812,43 @@ void Spr_WaitChannel(void) {
     }
 }
 
+#if 0
+/* NON_MATCHING: the stores are right; the scheduling of the scratchpad header stores between the gSprDma ones and
+ * the registers differ. */
+void func_0035E400(void) {
+    volatile u32 *chan = (volatile u32 *)0x1000D400;
+    SprHeader *spr = SPR;
+
+    gSprDma.unk0 = 0;
+    gSprDma.pending = 0;
+    gSprDma.unk2 = 0;
+    gSprDma.unk3 = 0;
+    gSprDma.state = 6;
+    gSprDma.unkC = 0;
+    gSprDma.unk10 = 0;
+    gSprDma.unk14 = 0;
+    spr->unk18 = (u32)chan;
+    spr->unk14 = 0;
+    spr->unk10 = 0;
+    spr->unkF = 0;
+    gSprDma.unk24 = 0;
+    gSprDma.unk18 = 0;
+    gSprDma.unk1C = 0;
+    gSprDma.unk20 = 0;
+    *(volatile u32 *)0x1000E000 &= 0xFFFFFFFD;
+    func_0035E3B0();
+    *(volatile u32 *)0x10008000 |= 0x40;
+    *(volatile u32 *)0x10009000 |= 0x40;
+    *(volatile u32 *)0x1000A000 &= 0xFFFFFFBF;
+    *chan |= 0x40;
+    AddDmacHandler(1, func_0035E228, 0);
+    DisableDmac(1);
+    AddDmacHandler(2, func_0035E2E8, 0);
+    DisableDmac(2);
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/dma_spr", func_0035E400);
+#endif
 
 void func_0035E518(volatile u32 *chan, void *tag) {
     u32 addr = ((u32)tag + 0x10000000) & 0x8FFFFFFF;

@@ -36,6 +36,28 @@ D_0050CD00 = 0x0050CD00; // size:0x118 force_not_migration:True
 gGteRt = 0x008BEFB0; // type:GteMatrix size:0x20
 gGteTmpMatrix = 0x008BEFD0; // type:GteMatrix size:0x20
 gGteTmpVector = 0x008BEFF0; // type:GteVector size:0x10
+// memcard .rodata (0x4FBFC0-0x4FC280): save file names and titles, reached only from .data.
+D_004FBFC0 = 0x004FBFC0; // size:0x10 force_not_migration:True
+D_004FBFD0 = 0x004FBFD0; // size:0x10 force_not_migration:True
+D_004FBFE0 = 0x004FBFE0; // size:0x10 force_not_migration:True
+D_004FBFF0 = 0x004FBFF0; // size:0x10 force_not_migration:True
+D_004FC000 = 0x004FC000; // size:0x10 force_not_migration:True
+D_004FC010 = 0x004FC010; // size:0x10 force_not_migration:True
+D_004FC020 = 0x004FC020; // size:0x10 force_not_migration:True
+D_004FC030 = 0x004FC030; // size:0x10 force_not_migration:True
+D_004FC040 = 0x004FC040; // size:0x10 force_not_migration:True
+D_004FC050 = 0x004FC050; // size:0x10 force_not_migration:True
+D_004FC060 = 0x004FC060; // size:0x10 force_not_migration:True
+D_004FC070 = 0x004FC070; // size:0x10 force_not_migration:True
+D_004FC080 = 0x004FC080; // size:0x10 force_not_migration:True
+D_004FC090 = 0x004FC090; // size:0x10 force_not_migration:True
+D_004FC0A0 = 0x004FC0A0; // size:0x10 force_not_migration:True
+D_004FC0B0 = 0x004FC0B0; // size:0x10 force_not_migration:True
+D_004FC220 = 0x004FC220; // size:0x10 force_not_migration:True
+D_004FC230 = 0x004FC230; // size:0x10 force_not_migration:True
+D_004FC240 = 0x004FC240; // size:0x10 force_not_migration:True
+// dma_gif .rodata (0x519340-0x5193B8): a GIF tag, then the jump table of func_00344318.
+D_00519340 = 0x00519340; // size:0x10 force_not_migration:True
 gSinTable = 0x004FCE88; // type:u16 size:0x2800
 // .rodata of the sound object (0x500780-0x500D50): every table is included in place from src/sound.c.
 D_00500780 = 0x00500780; // size:0x30 force_not_migration:True

@@ -340,21 +340,73 @@ Tools:
   noisy (dead stores, `do {} while (0)`), so each was rewritten as plain C and checked again. `func_00376150`
   matched with a mask variable (`s32 mask = 0xFFF; seq = *p & mask;`).
 
+### Lessons from T13 batch 3 (2026-10-18)
+
+Hardware registers and waits:
+
+- A wait on a DMA register whose load stays inside the loop in the assembler's absolute form (`lui v0, 0x1001` /
+  `lw v0, -0x3000(v0)` on every pass) is a non-volatile access in a loop written with `goto` (`wait: if (*(u32
+  *)0x1000D000 & 0x100) goto wait;`, `func_00343178`): a `while` loop lets loop.c hoist the load, and `volatile`
+  builds the address in a register with `lui / ori`.
+- The BC0F wait in front of a toSPR transfer is inline assembly (`1: nop` x5, `bc0f 1b`; gas fills the delay slot);
+  with the register writes after it inside `do { } while (0)` (a macro of the original) the registers come out as
+  in the original (`func_00343128`).
+- Interrupt-side code ends with `__asm__("nop"); __asm__("sync.l"); __asm__("ei");` when a `nop` precedes the `sync`
+  (`func_0035E1C8`); handlers that return 0 need `return 0;` inside the `if` as well as at the end, or the
+  `move v0, zero` is scheduled differently (`func_0035E228`, `func_0035E2E8`).
+- After stores through the `volatile` gSprDma pointer, the original loads 0x1000D010 (absolute form) in place; ours
+  moved in front of the stores, because the scheduler knows that a pointer set once to `&gSprDma` cannot alias a
+  constant address. decomp-permuter found `s++; s--;` (the pointer is then set more than once and its base is
+  unknown): `func_0035DB90`, `func_0035DDE0`, `func_0035DE68` match with it, marked `fake`. The original probably
+  reached the struct in a way the compiler could not trace; `func_0035DA78` and `func_0035DC58` still differ.
+
+Switches and jump tables:
+
+- A switch with a range of cases that do the same as `default` keeps them as cases: `case 3: default:` gives the
+  original's `slti 3 / beqz` ladder (`func_0035E2E8`); cases `-7 ... -3` that only `break` (`func_0035F180`).
+- If-converted returns (`movn`) instead of branches: write `if (c) return x; break;` per case rather than `return c
+  ? 0 : x;` (`func_003755C8`); a small switch inside an `if` gives the original `beq` ladder where two `if`s do not.
+- A C file that now emits a jump table itself loses the padding word the jump table's `.s` file carried: put
+  `RODATA_ALIGN8()` (include/include_asm.h) in front of the next `INCLUDE_RODATA` (`D_00500CB0` after
+  `func_003757B8`).
+- `memcard` and `dma_gif` got `.rodata` subsegments (0x4FBFC0-0x4FC280, 0x519340-0x5193B8). splat writes the file
+  of a rodata symbol only when the C file names it in an `INCLUDE_RODATA` line, so add the lines (and the
+  `force_not_migration` entries) before running `configure.py`. `asm/` is git-ignored: search it with `fd -I`.
+
+Calls and declarations:
+
+- A call whose argument register is set but that the callee ignores: the original called it with an argument.
+  Define the callee without a prototype (`void *func_00345780() { ... }`) so the caller can pass one
+  (`func_00346030`).
+- The return type of an SDK prototype changes register allocation in the caller: `s32 sceSifLoadFileReset(void)`
+  (not `void`) matched `Sys_BootIop`.
+- Stack slots of address-taken locals follow first use; a local copied from an address-taken one
+  (`func_00343CA8(&n, &segs, id); count = n;`) lives in a saved register as in the original.
+
+Accepted fakes from decomp-permuter, marked `fake` in the source: an empty `do { } while (0)` in
+`func_00398548` (keeps the 4096.0f load after `sqrt.s`), the address of a local taken in `func_0035D790`, the
+`s++; s--;` above. Other permuter finds were natural once rewritten: a block-local copy (`Gfx_KickDisplayChain`,
+`File_Update`), a chained assignment (`Gfx_SetDisplayOffset`), the declaration order of two locals
+(`func_0035C698`), a local loaded before a store (`func_0035C8D0`, `Str_ComparePrefix`).
+
+Assembler: `mfc1` gets a hazard `nop` from gas that the original does not have (`func_00346230`); the prelude needs
+an `mfc1` macro like the one for `mfc0`.
+
 ## Decompiled so far
 
 | File | Range | C / functions | Notes |
 |---|---|---:|---|
 | `src/340000.c` | 0x340000-0x340B30 | 2 / 11 | `func_00340000`, `func_00340AF0` |
-| `src/main.c` | 0x357358-0x358A38 | 33 / 40 | boot, main loop, frame phases, mode dispatch, input state |
-| `src/rng_misc.c` | 0x35C2B0-0x35D048 | 42 / 47 | RNG, string and table helpers, play counters |
+| `src/main.c` | 0x357358-0x358A38 | 34 / 40 | boot, main loop, frame phases, mode dispatch, input state |
+| `src/rng_misc.c` | 0x35C2B0-0x35D048 | 45 / 47 | RNG, string and table helpers, play counters |
 | `src/pad.c` | 0x396D00-0x397948 | 10 / 11 | libpad/libmtap set-up sequence, per-player input |
-| `src/file.c` | 0x397948-0x398510 | 27 / 29 | file requests, descrambling, IOP status |
-| `src/gfx.c` | 0x398510-0x3994C0 | 42 / 51 | GS set-up, VBlank handler, display packet, helpers |
-| `src/dma_gif.c` | 0x342E78-0x346398 | 29 / 52 | DMA kicks and waits, VU0 microcode upload, VU1 matrix packets, side tables |
-| `src/dma_spr.c` | 0x35D048-0x35E808 | 43 / 63 | file loads by number, scratchpad buffers and DMA, DMAC helpers |
-| `src/memcard.c` | 0x35E808-0x3608B8 | 35 / 43 | memory card requests, libmc call steps, state flags |
+| `src/file.c` | 0x397948-0x398510 | 29 / 29 | file requests, descrambling, IOP status |
+| `src/gfx.c` | 0x398510-0x3994C0 | 47 / 51 | GS set-up, VBlank handler, display packet, helpers |
+| `src/dma_gif.c` | 0x342E78-0x346398 | 37 / 52 | DMA kicks and waits, VU0 microcode upload, VU1 matrix packets, side tables; four handwritten VU0 routines stay in assembly |
+| `src/dma_spr.c` | 0x35D048-0x35E808 | 53 / 63 | file loads by number, scratchpad buffers and DMA, DMAC helpers |
+| `src/memcard.c` | 0x35E808-0x3608B8 | 42 / 43 | memory card requests, libmc call steps, state flags |
 | `src/374520.c` | 0x374520-0x3745E8 | 4 / 4 | the end of the object before `sound` |
-| `src/sound.c` | 0x3745E8-0x376C30 | 57 / 65 | SPU2 set-up, sound effect voices and banks, delayed effects, fighter voices |
+| `src/sound.c` | 0x3745E8-0x376C30 | 59 / 65 | SPU2 set-up, sound effect voices and banks, delayed effects, fighter voices |
 | `src/sound_if.c` | 0x399FC8-0x39A2B8 | 13 / 13 | sound byte-code queue (BGM, movie audio) |
 | `src/gte.c` | 0x39A2B8-0x39BBF0 | 19 / 19 | GTE-style fixed-point matrices and vectors |
 

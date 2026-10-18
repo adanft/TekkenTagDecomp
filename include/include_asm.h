@@ -37,6 +37,17 @@
     )
 #endif
 
+/* In front of an INCLUDE_RODATA whose data the compiler had placed on an 8-byte boundary (after a jump table that
+ * the C now emits itself, the table's .s file having carried the padding). */
+#ifndef RODATA_ALIGN8
+#define RODATA_ALIGN8() \
+    __asm__( \
+        ".section .rodata\n" \
+        "    .balign 8\n" \
+        ".section .text" \
+    )
+#endif
+
 /* In front of the INCLUDE_ASM of a function that owns a float constant of the file's .lit4 pool: emits the
  * constant under the label the function's .s file uses, in place, so the pool keeps its order. */
 #ifndef LIT4_WORD
@@ -74,6 +85,9 @@ __asm__(".include \"macro.inc\"\n");
 #endif
 #ifndef RODATA_ALIGN16
 #define RODATA_ALIGN16()
+#endif
+#ifndef RODATA_ALIGN8
+#define RODATA_ALIGN8()
 #endif
 #ifndef LIT4_WORD
 #define LIT4_WORD(NAME, HEX)

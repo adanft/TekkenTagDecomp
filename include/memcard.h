@@ -20,7 +20,8 @@ typedef struct {
     /* 0x2C */ s32 fd;
     /* 0x30 */ s32 unk30;
     /* 0x34 */ s32 unk34;
-    /* 0x38 */ u8 pad38[0x10];
+    /* 0x38 */ s32 unk38;
+    /* 0x3C */ u8 pad3C[0xC];
     /* 0x48 */ s32 unk48;
     /* 0x4C */ s32 type;      /* sceMcGetInfo */
     /* 0x50 */ s32 free;

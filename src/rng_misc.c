@@ -161,23 +161,20 @@ u8 *Str_Copy(u8 *dst, const u8 *src) {
 }
 
 /* -1 when `str` does not start with `prefix`, else 1 when `str` is longer, 0 when equal. */
-#if 0
-/* NON_MATCHING: the original loads *prefix again for the final compare (xor operands swapped). */
 s32 Str_ComparePrefix(u8 *str, u8 *prefix) {
-    if (*prefix != 0) {
+    u32 c = *prefix;
+
+    if (c != 0) {
         do {
-            if (*str != *prefix) {
+            if (*str != c) {
                 return -1;
             }
             prefix++;
             str++;
-        } while (*prefix != 0);
+        } while ((c = *prefix) != 0);
     }
     return *str != *prefix;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/rng_misc", Str_ComparePrefix);
-#endif
 
 /* `value` wrapped into [min, max]: below min gives max, above max gives min. */
 s32 func_0035C508(s32 min, s32 value, s32 max) {
@@ -266,11 +263,9 @@ s32 Rng_SpinNext(void) {
 }
 
 /* Copies `n` bytes as whole words from the word containing `src` to the word containing `dst`. */
-#if 0
-/* NON_MATCHING: the aligned destination and source pointers get swapped registers (a3/a1/v1). */
 u8 *func_0035C698(u8 *dst, u8 *src, s32 n) {
-    s32 *d = (s32 *)((s32)dst & -4);
     s32 *s = (s32 *)((s32)src & -4);
+    s32 *d = (s32 *)((s32)dst & -4);
 
     n = (n + ((s32)src & 3) + 3) >> 2;
     while (n > 0) {
@@ -279,9 +274,6 @@ u8 *func_0035C698(u8 *dst, u8 *src, s32 n) {
     }
     return dst + ((s32)dst & 3);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/rng_misc", func_0035C698);
-#endif
 
 s32 func_0035C6F0(s32 i) {
     return *D_00415CC0[i];
@@ -351,11 +343,10 @@ void func_0035C850(Fighter *o, s32 flag) {
 INCLUDE_ASM("asm/nonmatchings/rng_misc", func_0035C850);
 #endif
 
-#if 0
-/* NON_MATCHING: the tail is scheduled differently (character table load against the unk22 computation). */
 void func_0035C8D0(Fighter *o, s32 character, s32 costume) {
     s32 id = character * 8 + (costume & 7);
     Unk415840 *c;
+    u8 type;
 
     o->unk2A = character;
     o->unk26 = id;
@@ -364,16 +355,14 @@ void func_0035C8D0(Fighter *o, s32 character, s32 costume) {
         o->unk28 = 0x1C;
     }
     c = D_00415840[o->unk26];
+    type = c->unk6;
     o->unk22 = o->unk20 + o->unk0 * 2;
-    o->unk2C = c->unk6;
+    o->unk2C = type;
     if (gMode == 5) {
         o->unk22 = o->unk20;
     }
     func_00366380(o);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/rng_misc", func_0035C8D0);
-#endif
 
 u8 func_0035C970(u32 i) {
     if (i >= 0x110) {

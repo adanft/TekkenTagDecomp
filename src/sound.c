@@ -22,6 +22,11 @@ extern const SndDelayStep D_005007D8[3];
 extern const u32 D_00500CB0[];
 extern const u32 D_00500CB4[];
 extern const u32 D_00500CB8[];
+/* Per character: three voice effect ids (normal and alternative play). */
+extern const u16 D_005007F8[][3];
+extern const u16 D_00500878[][3];
+extern u16 D_005F5CB6;
+extern s32 D_005F5F44;
 /* Fighter voice data, outside this object's .rodata. */
 extern SndVoiceSet D_00501808[];
 
@@ -37,6 +42,7 @@ void Snd_KeyOn(s32 voice, u16 volume, u16 pitch, u32 addr);
 void Snd_StopCategory(s32 category);
 void Snd_StopAllSe(void);
 s32 func_003755C8(s32 id);
+s32 func_003757B8(s32 id);
 s32 Snd_QueueDelayed(s32 id, s32 player);
 void func_00365BB0(s32 id, s32 player);
 s32 func_003ABCC0(void);
@@ -674,14 +680,141 @@ void Snd_StopAllSe(void) {
 INCLUDE_RODATA("asm/nonmatchings/sound", D_005007F8);
 INCLUDE_RODATA("asm/nonmatchings/sound", D_00500808);
 INCLUDE_RODATA("asm/nonmatchings/sound", D_00500878);
-INCLUDE_RODATA("asm/nonmatchings/sound", jtbl_00500900);
 
-INCLUDE_ASM("asm/nonmatchings/sound", func_003755C8);
+/* Resolves the character-dependent voice ids (0x320 and up) to the effect of the current character
+ * (D_005F5CB6); 0x321 alternates between two effects. */
+s32 func_003755C8(s32 id) {
+    u32 chr = D_005F5CB6;
 
-INCLUDE_RODATA("asm/nonmatchings/sound", jtbl_00500920);
+    if (id < 0x320) {
+        return id;
+    }
+    if (id == 0x320) {
+        return 0;
+    }
+    if (chr > 20) {
+        chr = 0;
+    }
+    if (func_003ABCC0() != 0) {
+        id = func_003757B8(id);
+    }
+    if (func_003ABCC0() != 0) {
+        switch (id) {
+        case 0x321:
+            if (++D_005F5F44 & 1) {
+                return D_00500878[chr][1];
+            }
+            return D_00500878[chr][2];
+        case 0x322:
+            return D_00500878[chr][0];
+        }
+    }
+    switch (id) {
+    case 0x321:
+        if (++D_005F5F44 & 1) {
+            return D_005007F8[chr][1];
+        }
+        return D_005007F8[chr][2];
+    case 0x322:
+        return D_005007F8[chr][0];
+    case 0x323:
+        if (chr == 0) {
+            return 0x63;
+        }
+        break;
+    case 0x324:
+        if (chr == 9) {
+            return 0x85;
+        }
+        if (chr == 0xB) {
+            return 0x8C;
+        }
+        if (chr == 0x12) {
+            return 0xA4;
+        }
+        break;
+    case 0x325:
+        if (chr == 1 || chr == 0xF) {
+            return 0x67;
+        }
+        break;
+    case 0x326:
+        if (chr == 1) {
+            return 0x9A;
+        }
+        if (chr == 0xF) {
+            return 0x9A;
+        }
+        break;
+    }
+    return 0;
+}
 
-INCLUDE_ASM("asm/nonmatchings/sound", func_003757B8);
+/* Maps the ids of some fighter voices to their sound effects; other ids are returned as they are. */
+s32 func_003757B8(s32 id) {
+    switch (id) {
+    case 0x222:
+    case 0x2B6:
+    case 0x2E8:
+        id = 0xC2;
+        break;
+    case 0x223:
+    case 0x2B7:
+    case 0x2E9:
+        id = 0xC3;
+        break;
+    case 0x224:
+    case 0x2B8:
+    case 0x2EA:
+        id = 0xC4;
+        break;
+    case 0x225:
+    case 0x2B9:
+    case 0x2EB:
+        id = 0xC5;
+        break;
+    case 0x209:
+        id = 0xC6;
+        break;
+    case 0x20A:
+        id = 0xC7;
+        break;
+    case 0x20B:
+        id = 0xC8;
+        break;
+    case 0x20C:
+        id = 0xC9;
+        break;
+    case 0x20D:
+        id = 0xCA;
+        break;
+    case 0x20E:
+        id = 0xCB;
+        break;
+    case 0x210:
+        id = 0xCC;
+        break;
+    case 0x211:
+        id = 0xCD;
+        break;
+    case 0x212:
+        id = 0xCE;
+        break;
+    case 0x213:
+        id = 0xCF;
+        break;
+    case 0x214:
+        id = 0xD0;
+        break;
+    case 0x215:
+        id = 0xD1;
+        break;
+    }
+    return id;
+}
 
+/* 8-aligned after the jump table of func_003757B8 (0x500CAC). */
+RODATA_ALIGN8();
 INCLUDE_RODATA("asm/nonmatchings/sound", D_00500CB0);
 INCLUDE_RODATA("asm/nonmatchings/sound", D_00500CB4);
 INCLUDE_RODATA("asm/nonmatchings/sound", D_00500CB8);
@@ -758,7 +891,152 @@ void Snd_PlayVoice(s32 player, s32 set, u16 code) {
 
 INCLUDE_RODATA("asm/nonmatchings/sound", jtbl_00500CC0);
 
+#if 0
+s32 func_00374C60(s32 id, s32 player);
+void func_00375428(void);
+void func_00376220(Fighter *f, Fighter *other);
+s32 func_00376410(Fighter *f, Fighter *other);
+s32 func_003764D8(Fighter *f);
+void func_00376680(Fighter *f);
+void func_00376728(Fighter *f, Fighter *other);
+void func_00376790(Fighter *f, Fighter *other);
+void func_00376818(Fighter *f, Fighter *other);
+void func_003769D0(Fighter *f);
+void func_00376C78(s32 player);
+
+/* NON_MATCHING: first draft; the original keeps the three flags (voiced, hit, the code counter) in stack slots
+ * and calls func_003764D8 / func_003769D0 with an extra argument. */
+/* Per frame: runs the sound codes of the fighter's current move (up to three: voices, effects, voice sequences,
+ * hit effects on `other`), then the idle voices and the end-of-move effects. */
+void func_00375B60(Fighter *f, Fighter *other) {
+    s32 player = f->unk1E;
+    s32 set = f->unk2C;
+    s32 voiced = 0;
+    s32 oplayer = other->unk1E;
+    u16 *p = f->unkC0->unk1C;
+    s32 hit = 0;
+    s16 i;
+    u16 code;
+
+    D_005F5F50[player] = 0;
+    if (f->unk138 != 0) {
+        voiced = 1;
+        Snd_PlayVoice(player, set, (((rand() & 0xFF) * D_00501808[set].seq[2]) >> 8) | 0x4000);
+        f->unkB6 = 1;
+    }
+    if (other->unk3F4 == 0 && other->unk131 != 0) {
+        if (f->unkC0->unk28 < 0xB) {
+            func_00374C60(0x700A, player);
+        } else {
+            func_00374C60(0x700D, player);
+        }
+        hit = 1;
+    }
+    if (p != NULL && *p != 0xFFFF) {
+        i = 0;
+        code = *p;
+        do {
+            switch (code >> 12) {
+            case 2:
+                if (f->unkC4 == 1 && f->unk3F4 != 0 && D_005F5F48[player] == 0 && !voiced && f->unkB6 == 0) {
+                    Snd_PlayVoice(player, set, code);
+                    D_005F5F48[player] = D_00501808[set].unkC;
+                }
+                break;
+            case 3:
+                if (f->unkC4 == 1 && f->unk3F4 != 0 && D_005F5F48[player] == 0 && !voiced && f->unkB6 == 0) {
+                    voiced = 1;
+                    Snd_PlayVoice(player, set, code);
+                }
+                break;
+            case 4:
+                func_00374C60(code, player);
+                break;
+            case 5:
+                Snd_PlayVoice(player, set, code);
+                break;
+            case 1:
+            case 7:
+                if (f->unk132 != 0 && !hit) {
+                    if (other->unk130 != 0) {
+                        if (D_005F5F18[oplayer] != 0 && (u16)(other->unk2C - 0x10) < 2) {
+                            func_00376790(f, other);
+                            break;
+                        }
+                        if (f->unkC0->unk28 < 0xC) {
+                            func_00374C60(0x7010, oplayer);
+                        } else {
+                            func_00374C60(0x7010, oplayer);
+                        }
+                    } else {
+                        Snd_StopVoiceSeq(other);
+                        if (other->unk2C == 0x12 || other->unk2C == 0x1E || other->unk2C == 0x22) {
+                            func_00376728(f, other);
+                        } else if (D_005F5F18[oplayer] != 0 && (u16)(other->unk2C - 0x10) < 2) {
+                            func_00376818(f, other);
+                        } else if (code == 0x7000 || code == 0x7006 || code == 0x7007 || code == 0x7009) {
+                            ((void (*)(Fighter *, s32))func_003769D0)(f, (u16)other->unk2C);
+                        } else {
+                            func_00374C60(code, oplayer);
+                        }
+                    }
+                }
+                break;
+            case 8:
+                if ((code & 0xFFF) != 0 && f->unkDE != (code & 0xFFF)) {
+                    Snd_StartVoiceSeq(f, code & 0xFFF, f->unkC4 - 1);
+                }
+                break;
+            case 9:
+                func_00376578(f, other, code & 0xFFF);
+                break;
+            }
+            p++;
+            if (++i >= 3) {
+                break;
+            }
+            if (*p == 0xFFFF) {
+                break;
+            }
+            code = *p;
+        } while (1);
+    }
+    if (f->unk12F != 0) {
+        Snd_StopVoiceSeq(f);
+        func_00375428();
+    }
+    if (f->unkDC != -1) {
+        func_00376220(f, other);
+    } else {
+        if (!voiced && f->unkB6 == 0 && f->unk131 != 0) {
+            voiced = (s16)func_00376410(f, other);
+        }
+        if (D_005F5F48[player] == 0 && !voiced && f->unkCA != 0 && f->unkE0 == 0 && f->unk134 != 0) {
+            D_005F5F48[player] = ((s32 (*)(Fighter *, Fighter *))func_003764D8)(f, other);
+        }
+        if (D_005F5F50[player] == 0) {
+            if (f->unkC4 == f->unkC0->unk19 && f->unkC4 != 1) {
+                func_00374C60(0x1012, player);
+            }
+            if (f->unk136 != 0) {
+                func_00376C60(player);
+            }
+            if (f->unk137 != 0) {
+                func_00374C60(0x1322, player);
+            }
+        }
+        if (f->unkC4 == f->unkC0->unk2C - 1) {
+            func_00376680(f);
+        }
+    }
+    if (D_005F5F48[player] > 0) {
+        D_005F5F48[player]--;
+    }
+    func_00376C78(player);
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/sound", func_00375B60);
+#endif
 
 void func_003760E0(void) {
     Fighter *f = gFighters;
