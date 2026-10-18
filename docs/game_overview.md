@@ -256,18 +256,17 @@ Two generators [V]:
 For a deterministic port and replays: the boot seed (Timer 0) and the spin LCG depend on real time; the
 reseed adds the VBlank count. All three must become inputs or saved state (T26-T27).
 
-## 7. File loading (seed for T09)
+## 7. File loading
+
+Archive format, table fields and the extractor: [systems/files.md](systems/files.md).
 
 The game never calls `sceCdRead`, `sceCdSearchFile` or `sceCdSt*` [V: no callers; only `sceCdInit` and
 `sceCdMmode` in `Sys_BootIop`], and the name `TEKKEN.BIN` is not in the executable. Files are read on the IOP
 side through RSPU2DRV commands sent with `sceSdRemote` [V for the EE side; the IOP side is T11].
 
-- **File table** `D_00509E40` [V]: 748 entries of 16 bytes, `{u32 sector, u32 size, u32 unknown, u32 0xFFFF or
-  a small index}`, indexed by file id. Sectors increase monotonically from 0x4820; 144 entries repeat the
-  previous sector. Taken as absolute LSNs they run past the end of `TEKKEN.BIN` (LSN 24, 307,849 sectors on the
-  ISO), while `sector - 0x4820` fits it [I: sectors are relative to 0x4820, check against the disc in T09]. The
-  size is always larger than the gap to the next entry [I: compressed data with the unpacked size, or a
-  different unit; T09].
+- **File table** `D_00509E40` [V]: 748 entries of 16 bytes, `{u32 sector, u32 size + 0x350A, u32 check,
+  u32 id or 0xFFFF}`, indexed by file id. The IOP reads from `TEKKEN.BIN`'s own LSN + `sector - 0x4820`
+  (RSPU2DRV finds the LSN with `sceCdSearchFile`) [V]. Details in [systems/files.md](systems/files.md).
 - **Requests** [V]: `File_Request(id, dest, flags, toIop)` 0x397E78 (exits if `dest` is not 16-byte aligned;
   `dest` is turned into an uncached address unless `toIop`; id 0xFFF queues a marker that reads nothing) takes a
   free slot (`File_AllocRequest`; state 1 = free), queues it with state 2 (3 for id 0xFFF) and counts it in
@@ -303,5 +302,4 @@ Listings and boundaries: T10.
 - Runtime confirmation of the 59.94 Hz loop and of the 640x224 field-rendering setup [PCSX2].
 - What the IOP does for each `sceSdRemote` command number (0x2030, 0x2045, 0x204E, 0x2050, 0x2051, 0x205E):
   T11.
-- File table fields 3 and 4, the sector base and the size field: T09.
 - Identity of modes 3, 6, 7, 11, 12, 14 and of most functions in `fighter_core`, `scene3d`, `model_anim`.

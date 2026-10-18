@@ -601,6 +601,14 @@ File_KeySeed = 0x00398070; // type:func
 File_KeyNext = 0x003980D8; // type:func
 File_Release = 0x00397FB0; // type:func
 File_Update = 0x00398100; // type:func
+File_WaitDone = 0x003982C0; // type:func // guess
+File_IsBusy = 0x003982E8; // type:func // guess
+File_Exists = 0x00398358; // type:func
+File_GetSize = 0x00398378; // type:func
+File_LoadSync = 0x00398398; // type:func
+File_LoadSyncIop = 0x00398400; // type:func
+// LZ decompressor (flag byte, 11-bit distance, 5-bit length); only used on data inside the executable.
+Lz_Decompress = 0x00364448; // type:func
 // Random numbers.
 Rng_Reseed = 0x0035C370; // type:func
 Rng_Init = 0x0035C3C8; // type:func
