@@ -556,3 +556,77 @@ iSyncDCache = 0x00415530; // type:func // guess
 _InvalidDCache = 0x00415548; // type:func // guess
 InvalidDCache = 0x004155F0; // type:func // guess
 iInvalidDCache = 0x00415668; // type:func // guess
+
+// Game code (T08, docs/game_overview.md). Names without `// guess` were given after reading what the function
+// does; `// guess` names come from strings, callers or the libraries a function reaches.
+// librspu2 (Sony remote SPU2 library): init binds RPC 0x80000601 (RSPU2DRV); the call function takes (arg, command, ...).
+sceSdRemoteInit = 0x00404AD8; // type:func // guess
+sceSdRemote = 0x00404BB8; // type:func // guess
+// Boot, main loop and frame phases.
+Sys_BootIop = 0x00357358; // type:func
+Sys_Init = 0x00357430; // type:func
+Mode_SetDrawFlags = 0x003576C0; // type:func // guess
+Frame_PreUpdate = 0x00357888; // type:func // guess
+Mode_Dispatch = 0x003578F0; // type:func
+Frame_Begin = 0x00357B70; // type:func
+Frame_End = 0x00357BF0; // type:func
+// DMA, scratchpad and VU0 microcode helpers.
+Dma_SendChain = 0x00343028; // type:func
+Dma_Wait = 0x00343278; // type:func
+Vu0_LoadMicrocode = 0x003432A0; // type:func // guess
+Spr_Setup = 0x0035D480; // type:func // guess
+// Graphics core: GS setup, VBlank-start handler, frame pacing.
+Gfx_Init = 0x00398940; // type:func
+Gfx_SetFrameReady = 0x00398CD8; // type:func
+Gfx_WaitVSync = 0x00398CE8; // type:func
+Gfx_VSyncHandler = 0x00398E48; // type:func
+Gfx_SetPhase = 0x00398FB0; // type:func // guess
+Gfx_InstallVSyncHandler = 0x00398FC0; // type:func
+Gfx_GetVSyncCount = 0x00398908; // type:func
+// Pad and multitap.
+Pad_Init = 0x00396D00; // type:func
+Pad_ReadPort = 0x00396E10; // type:func // guess
+Pad_Update = 0x003970C8; // type:func
+Pad_GetPlayerInput = 0x003975C8; // type:func // guess
+Pad_End = 0x003978C0; // type:func
+// File loader (requests served by the IOP; first 2 KB of a file descrambled on the EE).
+File_SifCmdHandler = 0x003979C8; // type:func // guess
+File_SendSifCmd = 0x00397958; // type:func // guess
+File_RegisterIopFiles = 0x00397A00; // type:func // guess
+File_Init = 0x00397B40; // type:func
+File_WaitAll = 0x00397C70; // type:func // guess
+File_AllocRequest = 0x00397D48; // type:func
+File_Request = 0x00397E78; // type:func
+File_KeySeed = 0x00398070; // type:func
+File_KeyNext = 0x003980D8; // type:func
+File_Release = 0x00397FB0; // type:func
+File_Update = 0x00398100; // type:func
+// Random numbers.
+Rng_Reseed = 0x0035C370; // type:func
+Rng_Init = 0x0035C3C8; // type:func
+Rng_SpinNext = 0x0035C678; // type:func
+Rng_PickRandomEntry = 0x0035C7A8; // type:func // guess
+Rng_GetSeed = 0x003B4D30; // type:func // guess
+Rng_SetSeed = 0x003B4D40; // type:func // guess
+// Game modes (handlers of Mode_Dispatch's jump table) and mode change.
+Mode_Change = 0x003B90C0; // type:func
+Mode_Boot = 0x003B9628; // type:func // guess
+Mode_Transition = 0x003B9178; // type:func // guess
+Mode_Title = 0x003BCC88; // type:func // guess
+Mode_Battle = 0x0035A6A0; // type:func // guess
+Mode_CharSelect = 0x003CB900; // type:func // guess
+Mode_Options = 0x003B4B20; // type:func // guess
+Mode_Results = 0x003B6258; // type:func // guess
+Mode_Theater = 0x00354D68; // type:func // guess
+Mode_MusicPlayer = 0x00355D90; // type:func // guess
+Mode_Gallery = 0x003E5A98; // type:func // guess
+// Services run from Frame_End, text, sound.
+Mc_Init = 0x00360410; // type:func
+Mc_Update = 0x0035F370; // type:func // guess
+Movie_Update = 0x0039C838; // type:func // guess
+Movie_Open = 0x0039CDC0; // type:func // guess
+Movie_Close = 0x0039CF90; // type:func // guess
+Scrn_Capture = 0x0039C120; // type:func // guess
+Snd_Flush = 0x0039A028; // type:func // guess
+Snd_PlaySe = 0x00374CD8; // type:func // guess
+Text_Printf = 0x003C6C60; // type:func // guess

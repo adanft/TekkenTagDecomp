@@ -16,12 +16,12 @@ the call graph or the library's known API.
 
 | Class | Functions | Bytes | Named |
 |---|---:|---:|---:|
-| Game (Namco) | 2815 | 0xB0FB0 | 1 (`main`) |
-| Sony SDK (libvu0, crt0, libcdvd, libdma, libgraph, libmpeg, libipu, libkernl, libpkt, librspu2, libpad, libmtap, libmc) | 612 | 0x14E68 | 355 |
+| Game (Namco) | 2815 | 0xB0FB0 | 61 |
+| Sony SDK (libvu0, crt0, libcdvd, libdma, libgraph, libmpeg, libipu, libkernl, libpkt, librspu2, libpad, libmtap, libmc) | 612 | 0x14E68 | 357 |
 | newlib libm | 31 | 0x41E0 | 31 |
 | libgcc | 41 | 0x3434 | 41 |
 | newlib libc | 75 | 0x66B0 | 75 |
-| **Total** | **3574** | **0xD3ADC** | **503** |
+| **Total** | **3574** | **0xD3ADC** | **565** |
 
 The game is three blocks, 0x340000-0x3F3320 minus libvu0 and crt0, which the linker placed between game objects.
 Everything from 0x3F3320 to the end of `.text` is library code.
@@ -44,7 +44,7 @@ End addresses are excluded. "Named" counts the functions with a name in `config/
 | 0x3FF928 | 0x3FFDC0 | 4 | 4 | Sony libipu (`PsIIlibipu  1620`) | The four functions that save, restore, wait for and reset the IPU and its DMA channels (0x10002010 IPU_CTRL, 0x1000B000 / 0x1000B400); called from libmpeg wrappers; matches the tag order (mpeg, ipu, kernl). | Inferred (boundary) |
 | 0x3FFDC0 | 0x404508 | 256 | 196 | Sony libkernl (`PsIIlibkernl1620`) | 137 syscall stubs 0x3FFDC0-0x400640 (`addiu $v1, $zero, N; syscall`, N = 0x0 ... 0x7F); one-stub C wrappers (EnableIntc ...); newlib system call glue (TTY for fds 1/2, sbrk on EndOfHeap); "TTY: ..." DECI2 handler; Deci2Call wrappers with request numbers 1-9 and 0x10; SIF command/RPC (sceSifInitCmd: AddDmacHandler + sceSifSetDChain + SIF registers; sceSifBindRpc/CallRpc used by every IOP library); sceSifRebootIop ("rom0:UDNL "), sceSifLoadModule (the game loads its six `cdrom:\IRX\*.IRX` modules with it). | Verified |
 | 0x404508 | 0x404AD8 | 21 | 21 | Sony libpkt (`PsIIlibpkt  1620`) | Packet builders: DMA tags (cnt 0x10000000, ref 0x30000000, end 0x70000000), VIF DIRECT/DIRECTHL codes (0x50/0x51), GIF tag open/close, qword alignment; about 150 call sites in the game. Sits right after libkernl, as in the tag order. | Verified (block); names Inferred |
-| 0x404AD8 | 0x405008 | 6 | 0 | Sony librspu2 (`PsIIlibrspu21620`) | Binds RPC 0x80000601 (the RSPU2DRV module), "rSpuSetMultiVoiceAttr" in the RPC call function called from 31 places in the game's sound code; callback thread serving RPC 0x80000603. Function names not established. | Verified (block) |
+| 0x404AD8 | 0x405008 | 6 | 2 | Sony librspu2 (`PsIIlibrspu21620`) | Binds RPC 0x80000601 (the RSPU2DRV module), "rSpuSetMultiVoiceAttr" in the RPC call function called from 31 places in the game's sound code; callback thread serving RPC 0x80000603. Only the init and the call function are named (`sceSdRemoteInit`, `sceSdRemote`, guesses from the API shape). | Verified (block) |
 | 0x405008 | 0x406098 | 30 | 19 | Sony libpad (`PsIIlibpad  1630`) | "libpad: sceSifSetDma faild", "libpad: Module version mismatch" (scePadInit), "libpad: buffer addr is not 64 byte align" (scePadPortOpen); called from the game's pad code. | Verified (most names: Inferred) |
 | 0x406098 | 0x406560 | 7 | 6 | Sony libmtap (`PsIIlibmtap 1620`) | "libmtap: bind failed", "sceMtapPortOpen/PortClose/GetConnection/GetSlotNumber/ChangeSlot: rpc error"; 0x406098 is its empty debug-print stub. | Verified |
 | 0x406560 | 0x407640 | 22 | 5 | Sony libmc (`PsIIlibmc   1650`) | "bind error libmc", "libmc: too old release of mcserv.irx / mcman.irx" (sceMcInit); the rest are RPC calls made from the game's memory-card code. | Verified (block); names Inferred |
@@ -76,5 +76,6 @@ Inferred:
   machine). Expect some to be swapped with a neighbour of the same shape.
 - **libvu0 inside the game.** It has no version tag; it is identified by its code only (above).
 - **gp-free game code.** About 20 runs of 0x800 to 0x3800 bytes inside the game blocks do not use `$gp` (the
-  largest: 0x35D1C8-0x3608B8, the game's memory-card and pad wrappers with "BASLUS-20001TekkenTT" strings). They
-  call or are called by game code, so they count as game. Check each one when its module is mapped (T08).
+  largest: 0x35D1C8-0x3608B8, the game's DMA/scratchpad helpers and memory-card wrappers with
+  "BASLUS-20001TekkenTT" strings). They call or are called by game code, so they count as game; their modules
+  are in [game_overview.md](game_overview.md) section 4.
