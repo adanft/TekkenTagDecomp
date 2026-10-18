@@ -1,0 +1,69 @@
+name: Tekken Tag Tournament (USA) (SLUS-20001)
+sha1: c7ad9a022bdc836827a0cc093f91b4281836f2bb
+options:
+  basename: SLUS_200.01
+  target_path: iso/SLUS_200.01
+  elf_path: build/SLUS_200.01.elf
+  base_path: ..
+  platform: ps2
+  compiler: EEGCC
+
+  # _start loads gp with 0x5FD0F0 (also the gp value in .reginfo): .lit4 start + 0x7FF0.
+  gp_value: 0x005FD0F0
+  ld_gp_expression: main_LIT4_START + 0x7FF0
+
+  ld_script_path: build/SLUS_200.01.ld
+  ld_dependencies: False
+  ld_wildcard_sections: True
+  ld_bss_contains_common: True
+
+  create_asm_dependencies: False
+  generate_asm_macros_files: False
+  find_file_boundaries: False
+  o_as_suffix: True
+
+  undefined_funcs_auto_path: build/undefined_funcs_auto.txt
+  undefined_syms_auto_path: build/undefined_syms_auto.txt
+
+  string_encoding: ASCII
+  data_string_encoding: ASCII
+  rodata_string_guesser_level: 2
+  data_string_guesser_level: 2
+
+  section_order: [.text, .data, .rodata, .lit4, .sdata, .sbss, .bss]
+  auto_link_sections: [.data, .rodata, .lit4, .sdata, .sbss, .bss]
+
+# The whole file is split, so linking it and flattening it with objcopy gives back the original ELF byte for byte:
+# the ELF header and program headers, the loaded image (file offset + 0x33F000 = address) and the unloaded tail.
+segments:
+  - name: header
+    type: code
+    start: 0x0
+    vram: 0x0033F000
+    subsegments:
+      - [0x0, databin, elf_header]
+  - name: main
+    type: code
+    start: 0x1000
+    vram: 0x00340000
+    # .sbss starts at 0x5F6B00 and .bss ends at 0x1FCDEF0; configure.py aligns the bss to 64 like the original.
+    bss_size: 0x19D7400
+    subsegments:
+      - [0x1000, asm]
+      - [0xD6700, data] # .data and .vudata (0x4F5F00)
+      - [0x1BC880, rodata]
+      - [0x2B6100, lit4]
+      - [0x2B6C00, sdata]
+      - { type: sbss, vram: 0x005F6B00 }
+      - { type: bss, vram: 0x005F7180 }
+  # Not loaded: zero padding, .reginfo, the VU overlay sections (.DVP.*), section names and section headers.
+  # The generated linker script pads every segment to 16 bytes, so it starts after the 12 zero bytes that
+  # follow .sdata (0x2B7AE4). Its own RAM id keeps address 0 out of the range searched for pointers.
+  - name: trailer
+    type: code
+    start: 0x2B7AF0
+    vram: 0x0
+    exclusive_ram_id: elf_trailer
+    subsegments:
+      - [0x2B7AF0, databin, elf_trailer]
+  - [0x2BD980]

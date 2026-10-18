@@ -65,3 +65,11 @@ The script's tests build tiny disc images of their own and need no disc:
 ```sh
 .venv/bin/python -m unittest discover -s tests -v
 ```
+
+## 6. Build
+
+```sh
+.venv/bin/python configure.py && ninja
+```
+
+Splits the executable and rebuilds it byte for byte; see [build.md](build.md).

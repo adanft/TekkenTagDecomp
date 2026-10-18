@@ -14,6 +14,9 @@ build/
 *.ld
 !config/*.ld
 undefined_*.txt
+build.ninja
+.ninja_log
+.ninja_deps
 
 # Tools and environments
 .venv/
