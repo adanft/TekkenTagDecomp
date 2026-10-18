@@ -32,7 +32,8 @@ the whole `.text`.
 (`game_<module>.txt`, [game_overview.md](game_overview.md) section 4) and `data.txt` for everything after
 `.text`. Each file starts with its address ranges, `// range: 0xSTART 0xEND` (end excluded, one or more lines);
 ranges never overlap, so every address has one file. Entries are in splat's format, one per line:
-`Name = 0xADDRESS; // type:func` (or `// type:data size:0x10`, ...), with `// guess` last when the name is
+`Name = 0xADDRESS; // type:func` (data: `// size:0x10`, or `// type:s32 size:0x4` with a splat type or a
+capitalised struct name; splat rejects `type:data`), with `// guess` last when the name is
 inferred. An entry stays in the file whose range holds its address, even when its prefix names another module
 (module boundaries are provisional; a comment says so). Library files keep the order of the library's code,
 game files the address order.
@@ -65,7 +66,14 @@ references (`"sceGsSyncPath: DMA ..."`); check each one, a string can also name 
   newlib and libgcc their source names (`rand`, `__divdi3`). Never give library code a game-style name; an
   internal library function with no known name stays a placeholder.
 - **Data.** Globals are `g` + PascalCase (`gFrameCount`, `gFileTable`, [game_overview.md](game_overview.md)
-  section 5). Size and type go in the attributes (`// type:data size:0x18`) once known.
+  section 5). Size and type go in the attributes (`// size:0x18`, `// type:PadPort`) once known.
+- **Data tables stay in `INCLUDE_RODATA`; never transcribe game tables into C.** A table of game values (track
+  lists, lookup tables, string tables, float tables) comes from the user's executable at build time: declare it
+  `extern const` with its type and include it with `INCLUDE_RODATA("asm/nonmatchings/<file>", D_XXXXXXXX);`
+  where the compiler would have emitted it. A table only one C function reads needs
+  `force_not_migration:True` (and its `size:`) in `data.txt`, or splat folds it into that function's asm file
+  and writes no file to include. C keeps only code, the constants the compiler makes from it (float literals,
+  jump tables) and format strings inside functions.
 - **Structs.** A struct whose role is unknown is `UnkXXXXXX`, XXXXXX being the address (six hex digits) of the
   global or function that shows its layout (`Unk8BD0A0` for the struct at 0x8BD0A0); unknown fields are
   `unkXXX` by hex offset (`unk254`). Rename both once the role is Verified (`GfxState`, `vsyncCount`).
@@ -141,13 +149,15 @@ bytes:
 
 | Compiler writes | Original | Modern gas | Prelude |
 |---|---|---|---|
+| `mtc1 $4,$f0` / `cvt.s.w $f0,$f0` | no nop between | hazard nop | macro to `.word` (T13) |
+| `mfc0 $2,$12` / `and $2,$2,$3` | no nop between | hazard nop | macro to `.word` (T13) |
 | `move $4,$5` | `daddu` | `or` | macro to `daddu` |
 | `break 7` | code in bits 6-15 (`0x000001CD`) | code in bits 16-25 | `.word` |
 | `cvt.w.s $f2,$f1` | function 0x24 (`0x460008A4`) | refused for the R5900 | `.word` |
 | `sqrt.s $f12,$f12` | operand in the ft field (`0x460C0304`) | operand in fs | `.word` |
 
-The prelude is also read in front of `INCLUDE_ASM` code. `break`, `cvt.w.s` and `sqrt.s` become data, so gas
-never moves them into a delay slot; the compiler only emits them inside `.set noreorder` blocks or where nothing
+The prelude is also read in front of `INCLUDE_ASM` code. `break`, `cvt.w.s`, `sqrt.s`, `mtc1` and `mfc0` become
+data, so gas never moves them into a delay slot (for `mtc1` that is what the original shows); the compiler only emits them inside `.set noreorder` blocks or where nothing
 moves, so this has not mattered yet.
 
 The output is assembled with `-mabi=o64`: with `-mabi=eabi` gas expands address macros (`la`, `addu` with an
@@ -162,6 +172,17 @@ and the assembler. `func_00342360` stores to `D_0046B254` in `.data` with `lui /
 type larger than 8 bytes (or without a size). `-G8` is the build default; `G_FLAGS` in `configure.py` sets
 another value for a path prefix once a file shows which one it needs.
 
+T13 (`main`, `rng_misc`, `pad`, `file`, `gfx`) needed no `-G` other than 8. Every global there is reached through
+`$gp` when it is a scalar of up to 8 bytes in `.sdata`/`.sbss`, and with `lui` otherwise, with two patterns:
+
+- `D_005F5C10` lies in `.sdata` but `Sys_BootIop` takes its address with `lui / addiu`: declare it as an
+  incomplete array (`extern s32 D_005F5C10[];`), which is never small data.
+- The four draw-pass words at 0x5F6B00 are read through `$gp` at offsets 0, 4, 8 and 0xC: four separate
+  4-byte variables (`gDrawFighterCount`, `gDrawStagePass`, `gDrawModelPass`, `gDrawEffectPass`), not one
+  16-byte array (which `-G8` would reach with `lui`).
+- Tables in `.data`/`.rodata`/`.bss` of 8 bytes or less still need an incomplete or larger declaration
+  (`extern u64 D_00518BF8[];`), or the link fails with `relocation truncated to fit: R_MIPS_GPREL16`.
+
 ## Matching notes
 
 - Float constants fold bit-exactly in the compiler: `1.0f / 2046.0f` and `1.0f / 32767.0f` give the original
@@ -173,11 +194,85 @@ another value for a path prefix once a file shows which one it needs.
   (`v = cond ? a : b; g = v;`), not as two stores (`func_00342360`).
 - `sqrtf` needs a prototype (`float sqrtf(float);`); with `-ffast-math` the compiler inlines it.
 
+- `fdiff.py` prints OK only for identical instruction words (a relocated call or branch target, `~`, counts as
+  a difference) whose `$gp` loads and stores reach the same bytes and, where both sides name the address, the
+  same symbol: a float literal one ulp off (`3.1415925f` gives 0x40490FDA, the original 0x40490FD8 is
+  `3.141592f`) or two globals swapped at the same offset now fail. Data reached with `lui` (`.rodata` tables)
+  is not compared; `cmp -l build/SLUS_200.01 iso/SLUS_200.01` gives those addresses.
+
+### Lessons from T13 (2026-10-18)
+
+Objects and data:
+
+- The `main` segment uses `subalign: null`, so each object keeps its own section alignment, as in the original
+  link: `.text` objects start at any multiple of 8 (`main.c` at 0x357358 right after crt0, `file.c` at
+  0x397948, `gfx.c` at 0x398510). With splat's default `SUBALIGN(16)` a boundary had to be a multiple of 16.
+- A C file that emits `.rodata` (jump tables, string literals, `static const` tables) needs a `.rodata`
+  subsegment (`[offset, .rodata, name]`, with the dot) at the object's first rodata byte. splat then moves each
+  function's own rodata into its `INCLUDE_ASM` file, and a symbol used by several functions or only by `.data`
+  (the file table, the IRX path strings) is included with `INCLUDE_RODATA` at its place in the file.
+- The compiler aligns jump tables to 16 (`.align 4`); a jump table that comes from an `INCLUDE_ASM` file is only
+  8-aligned: put `RODATA_ALIGN16();` in front of the `INCLUDE_ASM` (`Pad_Update`, `File_Update`). Objects are
+  not padded at the end: the assembly chunk after a C file's `.rodata` starts where that file ends (0x509E38
+  after `pad.c`), and a C file's `.lit4` holds only its own constants (`[0x2B619C, .lit4, gfx]`).
+- Function-local `static const` tables are emitted in `.rodata` in front of their function, so their
+  `INCLUDE_RODATA` goes right before that function (`D_00509D18` before `Pad_ReadPort`). A table of 8 bytes or
+  less is small data under `-G8`, so a small table the original addresses with `lui` belongs to a larger object
+  (the actuator table is the tail of the 0x18-byte player/port struct `D_00509D00` in `pad.c`).
+
+Code shapes:
+
+- Tail calls (`j f` after the epilogue) come only from void functions calling void functions:
+  `return f(x);` in a function that returns a value is a `jal` plus the epilogue. A wrapper that returns
+  what it calls (`s32 f(s32 x) { return File_LoadSync(x); }`) keeps its frame.
+- `volatile` keeps a store out of the compiler's delay slots (`gFrameReady = 1` before `j $31`, since the flag
+  is cleared by the VBlank handler), and a `volatile` struct member is reached as `lui / addiu / lw 0x254(reg)`
+  instead of `lw %lo(gGfx+0x254)` (`Gfx_GetVSyncCount`).
+- A constant that needs `lui / ori` and is subtracted inside a loop shows as `subu` from a hoisted register only
+  when it comes from a variable (`s32 skip = 0xCF7 * 0x800; ... size - skip`, `File_RegisterIopFiles`);
+  written inline it becomes `addu` of the negated constant.
+- `slt $v1, $v1(0x7FF), $a0` + `movz` is `n = 0x800; if (size < 0x800) n = size;`; a ternary or
+  `if (size > 0x7FF) size = 0x800` folds to `slti` (MIN_EXPR).
+- A value stored to a field and then compared is read once only through a local (`type = rdata[1];
+  port->type = type; if (type == 0x53)`); otherwise the store forces a reload.
+- Two loops with the counter in different registers come from two counter variables (`i` / `j`,
+  `Pad_ReadPort`).
+- A struct copy of 16 bytes is two `ld`/`sd` pairs; the original's `lq` / `sq` plus a halfword store that stays
+  behind it comes from a union of `u128` and `u16[8]` (`Dma_AddRefTag`): through two unrelated pointer types
+  the scheduler moves the `sh` above the `sq`.
+- Different registers for the same values in the two arms of an `if` (no cross-jumped tail) come from
+  block-local variables in each arm (`func_00398858`); stores in each arm are emitted rotated (source
+  `p[6]; p[4]; p[2]` gives `0x10, 0x30, 0x20`).
+- `beq`/`bne` ladders before a jump table: a `switch` whose cases are laid out in source order; to get the
+  original layout, list the cases in the order of their code (`Mode_SetDrawFlags`: `case 4, 8, 11` before
+  `case 5`). `sltiu` on the selector means an unsigned parameter.
+- A register that is not v0 for a value copied after a call (`lhu v1` / `sh v1`) means the call's return value
+  is still live: the function returns it (`func_00398600`).
+- `di / sync.p / mfc0 / and / nop / bnez` is three separate `__asm__` statements in a `do { } while
+  (status & 0x10000)` loop (the compiler counts each asm statement as one instruction for the short-loop nops);
+  interrupt handlers end with `__asm__("sync.l"); __asm__("ei");` and a second `ei` lands in the `j $31` delay
+  slot, because the compiler emits `j $31` in reorder mode.
+- `func_00398548` (fixed-point sqrt) matches only with `-fno-schedule-insns -fno-schedule-insns2`: the constant
+  4096.0f is loaded after the `sqrt.s`. Its neighbour `func_00398588` is scheduled, so the flags were not set per
+  file; the cause is open.
+
+Tools:
+
+- splat 0.50 rejects `// type:data` (`Unrecognized symbol type`); `apply_names.py` writes new data entries with
+  no type, to be completed by hand with a splat type (`s32`, `u16`, ...) or a capitalised custom one
+  (`PadPort`).
+- A permuter run on `Pad_Update` (two hoisted `lui 0x51` in swapped saved registers) found nothing better than
+  the base in 150,000 iterations.
+
 ## Decompiled so far
 
-| Function | File | Notes |
-|---|---|---|
-| `func_00340000` | `src/340000.c` | fills 27 floats from a 0x30-byte record and calls `func_00357258` |
-| `func_00340AF0` | `src/340000.c` | point within a radius |
+| File | Range | C / functions | Notes |
+|---|---|---:|---|
+| `src/340000.c` | 0x340000-0x340B30 | 2 / 11 | `func_00340000`, `func_00340AF0` |
+| `src/main.c` | 0x357358-0x358A38 | 33 / 40 | boot, main loop, frame phases, mode dispatch, input state |
+| `src/rng_misc.c` | 0x35C2B0-0x35D048 | 42 / 47 | RNG, string and table helpers, play counters |
+| `src/pad.c` | 0x396D00-0x397948 | 10 / 11 | libpad/libmtap set-up sequence, per-player input |
+| `src/file.c` | 0x397948-0x398510 | 27 / 29 | file requests, descrambling, IOP status |
+| `src/gfx.c` | 0x398510-0x3994C0 | 42 / 51 | GS set-up, VBlank handler, display packet, helpers |
 
-`src/340000.c` covers 0x340000-0x340B30; the nine functions between those two are `INCLUDE_ASM`.
+Functions left as `INCLUDE_ASM` carry their closest attempt above them in `#if 0` with a `NON_MATCHING:` note.

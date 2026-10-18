@@ -11,5 +11,7 @@ typedef unsigned int u32;
 typedef long s64;
 typedef unsigned long u64;
 typedef float f32;
+/* 128-bit integer (lq / sq, por), Sony's u_long128. */
+typedef unsigned int u128 __attribute__((mode(TI)));
 
 #endif

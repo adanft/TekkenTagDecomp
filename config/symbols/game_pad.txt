@@ -1,13 +1,16 @@
 // Game module pad (docs/game_overview.md section 4; the range is provisional).
 // Naming rules: docs/decomp_guide.md, "Naming".
-// range: 0x00396D00 0x00397958
+// range: 0x00396D00 0x00397948
 
-// Pad and multitap.
+// Pads and multitap (libpad, libmtap): src/pad.c.
 Pad_Init = 0x00396D00; // type:func
-Pad_ReadPort = 0x00396E10; // type:func // guess
+Pad_ReadPort = 0x00396E10; // type:func
+Pad_ClearPort = 0x00397048; // type:func
 Pad_Update = 0x003970C8; // type:func
-Pad_GetPlayerInput = 0x003975C8; // type:func // guess
+Pad_AxisToFloat = 0x003975A8; // type:func
+Pad_GetPlayerInput = 0x003975C8; // type:func
+Pad_IsMultitap = 0x003977B8; // type:func
+Pad_GetPlayerMode = 0x003977C0; // type:func
+Pad_CountReady = 0x00397828; // type:func
+Pad_GetPortSlot = 0x00397898; // type:func
 Pad_End = 0x003978C0; // type:func
-
-// The last function of this range is a file loader handler: the boundary with `file` is provisional.
-File_SifCmd0Handler = 0x00397948; // type:func

@@ -161,7 +161,9 @@ jump tables in `.rodata`, `.lit4` floats, `$gp` statics) were merged into one ra
 were grouped by the libraries they call, their strings and the modes that reach them. `.sbss` addresses
 referenced grow with the code address over the whole game, so the ranges follow link (file) order. A module is
 one or more C files; boundaries are [I] (about one function either way) unless the row says otherwise. These
-are the starting point for the per-module C files.
+are the starting point for the per-module C files. The rows `main`, `rng_misc`, `pad`, `file` and `gfx` are the
+edges of their C files (T13): the build links them byte-identical, so the edges hold as object boundaries [V],
+though an edge could still fall between two objects that are both inside the range.
 
 | Module | Start | End | Funcs | Evidence |
 |---|---|---|---:|---|
@@ -172,9 +174,9 @@ are the starting point for the per-module C files.
 | `scene3d` | 0x34C508 | 0x3543F0 | 89 | projections (RotTransPersN), matrices; modes 4, 5, 8, 11 |
 | `theater` | 0x3543F0 | 0x356A70 | 24 | modes 12-15, "THEATER", "MUSIC PLAYER" |
 | `draw_list` | 0x356A70 | 0x357358 | 15 | GIF packet end/terminate, FlushCache; used by the draw passes; crt0 follows |
-| `main` | 0x357358 | 0x358A38 | 40 | `Sys_BootIop`, `Sys_Init`, `main`, frame phases, `Mode_Dispatch` [V start: first function after crt0] |
+| `main` | 0x357358 | 0x358A38 | 40 | `Sys_BootIop`, `Sys_Init`, `main`, frame phases, `Mode_Dispatch`, per-player input (`Input_*`) [V start: first function after crt0; its `.rodata` (IRX paths, two jump tables) is the first of the executable, 0x4FB880]. `src/main.c` |
 | `battle_mode` | 0x358A38 | 0x35C2B0 | 67 | `Mode_Battle`, "GAME OVER", "A NEW CHALLENGER!" |
-| `rng_misc` | 0x35C2B0 | 0x35D048 | 47 | `Rng_*` [V], small helpers |
+| `rng_misc` | 0x35C2B0 | 0x35D048 | 47 | `Rng_*` [V], small helpers (strings, character tables, play counters, file loads by number). `src/rng_misc.c` |
 | `dma_spr` | 0x35D048 | 0x35E878 | 66 | scratchpad 0x70000000 setup (`Spr_Setup`), DMAC handler, toSPR waits; `sceOpen`/`sceClose` in one uncalled function 0x35D3C0; no `$gp` |
 | `memcard` | 0x35E878 | 0x3608B8 | 40 | `sceMc*` wrappers, `Mc_Update`, "BASLUS-20001TekkenTT"; no `$gp` |
 | `font_tex` | 0x3608B8 | 0x3621F8 | 30 | VIF1 DIRECTHL image transfers, GIF tags; "YES NO" [I: font and texture upload] |
@@ -185,9 +187,9 @@ are the starting point for the per-module C files.
 | `practice` | 0x3790D8 | 0x37BA88 | 43 | "FREESTYLE", "VS CPU", "(CPU)", "(YOU)", "TYPE %d", "RANDOM" |
 | `fighter_core` | 0x37BA88 | 0x38BF98 | 277 | largest `rand` user, no strings, handler table `D_00507A88`; reached only by modes 4, 5, 8, 11 [I: move interpreter, hits, AI] |
 | `camera_stage` | 0x38BF98 | 0x396D00 | 105 | `sceVu0ViewScreenMatrix` (0x38DA28), camera/stage tables 0x433330 [I] |
-| `pad` | 0x396D00 | 0x397958 | 12 | `scePad*`, `sceMtap*` [V block] |
-| `file` | 0x397958 | 0x398940 | 56 | `File_*` [V block] (section 7) |
-| `gfx` | 0x398940 | 0x3994C0 | 23 | `Gfx_*` [V block] |
+| `pad` | 0x396D00 | 0x397948 | 11 | `scePad*`, `sceMtap*` [V block]; `.rodata` 0x509D00-0x509E38. `src/pad.c` |
+| `file` | 0x397948 | 0x398510 | 29 | `File_*`, `Iop_*` [V block] (section 7); starts with the SIF command 0 handler; `.rodata` 0x509E40-0x50CE58 (file table, BGM tracks, two jump tables). `src/file.c` |
+| `gfx` | 0x398510 | 0x3994C0 | 51 | `Gfx_*` [V block]; 0x398510-0x398858 are small helpers (stubs, fixed-point sqrt/sin, DMA packet table `D_004362A0`) whose `.data` lies between `pad`'s and `gfx`'s, so they open this object [I]. `src/gfx.c` |
 | `zsort` | 0x3994C0 | 0x399FD8 | 15 | "(zs)list over" overflow `printf` + `exit` [I: z-sorted draw list] |
 | `sound_if` | 0x399FD8 | 0x39BBF0 | 30 | byte command queue (`D_005F61F0` write pointer, `D_005F61EC` count) sent with `sceSdRemote` by `Snd_Flush` [V]; only 0x399FD8-0x39A2B8 is sound (`Bgm_*`), the rest does not touch it [V, T11] |
 | `screenshot` | 0x39BBF0 | 0x39C7B8 | 20 | `sceGsExecStoreImage` (`Scrn_Capture`) |

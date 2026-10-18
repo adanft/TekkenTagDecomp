@@ -1,36 +1,34 @@
 // Game module file (docs/game_overview.md section 4; the range is provisional).
 // Naming rules: docs/decomp_guide.md, "Naming".
-// range: 0x00397958 0x00398940
+// range: 0x00397948 0x00398510
 
-File_SendSifCmd = 0x00397958; // type:func // guess
-
-// File loader (requests served by the IOP; first 2 KB of a file descrambled on the EE).
-File_SifCmdHandler = 0x003979C8; // type:func // guess
+// File loader (requests served by the IOP, first 2 KB descrambled on the EE) and IOP status: src/file.c.
+File_SifCmd0Handler = 0x00397948; // type:func
+File_SendSifCmd = 0x00397958; // type:func
+File_SifCmdHandler = 0x003979C8; // type:func
 File_SifCmdBufferAddr = 0x003979E0; // type:func
-File_RegisterIopFiles = 0x00397A00; // type:func // guess
+File_RegisterIopFiles = 0x00397A00; // type:func
 File_Init = 0x00397B40; // type:func
-File_WaitAll = 0x00397C70; // type:func // guess
+File_WaitAll = 0x00397C70; // type:func
 File_AllocRequest = 0x00397D48; // type:func
+File_CompactQueue = 0x00397D80; // type:func
 File_Request = 0x00397E78; // type:func
 File_Release = 0x00397FB0; // type:func
 File_KeySeed = 0x00398070; // type:func
 File_KeyNext = 0x003980D8; // type:func
 File_Update = 0x00398100; // type:func
-File_WaitDone = 0x003982C0; // type:func // guess
-File_IsBusy = 0x003982E8; // type:func // guess
-File_GetMovieSector = 0x00398338; // type:func // guess
+File_WaitDone = 0x003982C0; // type:func
+File_IsBusy = 0x003982E8; // type:func
+File_CountQueued = 0x00398318; // type:func
+File_GetMovieSector = 0x00398338; // type:func
 File_Exists = 0x00398358; // type:func
 File_GetSize = 0x00398378; // type:func
 File_LoadSync = 0x00398398; // type:func
 File_LoadSyncIop = 0x00398400; // type:func
-
-// IOP status word (sceSdRemote 0x2030, refreshed by File_Update) and the EE-memory BGM source base.
-Iop_BgmBusy = 0x00398490; // type:func // guess
+File_IsMarkerReached = 0x00398460; // type:func
+Iop_BgmBusy = 0x00398490; // type:func
 Iop_GetStatus = 0x003984A0; // type:func
-Iop_StreamBusy = 0x003984E8; // type:func // guess
+File_WaitRelease = 0x003984A8; // type:func
+Iop_StreamBusy = 0x003984E8; // type:func
 Iop_SetEeStreamBase = 0x00398500; // type:func
 Iop_ClearEeStreamBase = 0x00398508; // type:func
-
-// Reads the VBlank count gGfx+0x254. The functions from 0x3988E0 on all read gGfx: the `gfx` module
-// likely starts there [I].
-Gfx_GetVSyncCount = 0x00398908; // type:func

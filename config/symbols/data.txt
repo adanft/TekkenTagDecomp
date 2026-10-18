@@ -1,3 +1,35 @@
 // Data after .text: .data, .vudata, .rodata, .lit4, .sdata, .sbss and .bss.
 // Naming rules: docs/decomp_guide.md, "Naming".
 // range: 0x00415700 0x02000000
+gDrawFighterCount = 0x005F6B00; // type:s32 size:0x4
+gDrawStagePass = 0x005F6B04; // type:s32 size:0x4 // guess
+gDrawModelPass = 0x005F6B08; // type:s32 size:0x4 // guess
+gDrawEffectPass = 0x005F6B0C; // type:s32 size:0x4 // guess
+gPadPorts = 0x008BCC80; // type:PadPort
+gMultitap = 0x005F6C5C; // type:s32 size:0x4
+gPadSlots = 0x00436280; // type:PadSlot
+gPadDmaBuffers = 0x008BC780; // type:u8
+gPlayerAxes = 0x00415778; // type:f32
+gPlayerAnalog = 0x004157B8; // type:u8
+gPlayerPressure = 0x004157C8; // type:u8
+gFileReqs = 0x008BCD40; // type:FileReq
+gFileQueue = 0x008BCF80; // type:FileQueue
+gFilePending = 0x005F6C64; // type:s32 size:0x4
+gIopStatus = 0x005F6C60; // type:s32 size:0x4
+gSifCmdPending = 0x005F61D0; // type:s32 size:0x4
+gEeStreamBase = 0x005F61D4; // type:u32 size:0x4
+gSifCmdBuffer = 0x008BD080; // type:u32
+gGfx = 0x008BD0A0; // type:GfxState
+gFrameReady = 0x005F6C70; // type:s32 size:0x4
+gRngSpin = 0x005F6B34; // type:s32 size:0x4
+gFrameCount = 0x005F5C18; // size:0x2
+gMode = 0x005F5C20; // type:s16 size:0x2
+gSubMode = 0x005F5C22; // type:s16 size:0x2
+gFighters = 0x00879640; // type:Fighter
+gFrameT0 = 0x005F5C08; // type:s32 size:0x4
+gFrameOverrun = 0x005F5C0C; // type:s32 size:0x4 // guess
+gFileTable = 0x00509E40; // type:FileEntry size:0x2EC0
+D_00509D00 = 0x00509D00; // size:0x18
+D_00509D18 = 0x00509D18; // size:0x10 force_not_migration:True
+D_00509DF8 = 0x00509DF8; // size:0x40 force_not_migration:True
+D_0050CD00 = 0x0050CD00; // size:0x118 force_not_migration:True

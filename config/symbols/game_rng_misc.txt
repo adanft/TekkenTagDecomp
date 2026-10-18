@@ -2,8 +2,13 @@
 // Naming rules: docs/decomp_guide.md, "Naming".
 // range: 0x0035C2B0 0x0035D048
 
-// Random numbers.
+// Random numbers and small helpers (strings, character tables, play counters): src/rng_misc.c.
 Rng_Reseed = 0x0035C370; // type:func
 Rng_Init = 0x0035C3C8; // type:func
+Str_Copy = 0x0035C488; // type:func
+Str_ComparePrefix = 0x0035C4C0; // type:func
+Math_Permille = 0x0035C558; // type:func
+Sort_PairsByValue = 0x0035C5D0; // type:func
 Rng_SpinNext = 0x0035C678; // type:func
-Rng_PickRandomEntry = 0x0035C7A8; // type:func // guess
+Rng_PickRandomEntry = 0x0035C7A8; // type:func
+Stat_Increment = 0x0035CB50; // type:func

@@ -2,12 +2,25 @@
 // Naming rules: docs/decomp_guide.md, "Naming".
 // range: 0x00357358 0x00358A38
 
-// Boot, main loop and frame phases.
+// Boot, main loop, frame phases, mode dispatch and per-player input: src/main.c.
 Sys_BootIop = 0x00357358; // type:func
 Sys_Init = 0x00357430; // type:func
-Mode_SetDrawFlags = 0x003576C0; // type:func // guess
+Mode_SetDrawFlags = 0x003576C0; // type:func
 main = 0x003577E8; // type:func
-Frame_PreUpdate = 0x00357888; // type:func // guess
+Frame_PreUpdate = 0x00357888; // type:func
 Mode_Dispatch = 0x003578F0; // type:func
 Frame_Begin = 0x00357B70; // type:func
 Frame_End = 0x00357BF0; // type:func
+Math_Sin = 0x00357F18; // type:func
+Math_Cos = 0x00357F58; // type:func
+Math_Atan2 = 0x00357FA0; // type:func
+Math_Isqrt = 0x00358090; // type:func
+Input_SetSide = 0x00358100; // type:func
+Input_BuildMapping = 0x00358180; // type:func
+Input_ResetMapping = 0x00358258; // type:func
+Input_MergePlayers = 0x003582B8; // type:func
+Input_MapButtons = 0x00358480; // type:func
+Pad_AddStickBits = 0x00358698; // type:func
+Pad_GetExtraButtons = 0x00358720; // type:func
+Input_Update = 0x00358758; // type:func
+Input_SkipPressed = 0x003589B8; // type:func

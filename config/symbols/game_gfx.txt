@@ -1,11 +1,23 @@
 // Game module gfx (docs/game_overview.md section 4; the range is provisional).
 // Naming rules: docs/decomp_guide.md, "Naming".
-// range: 0x00398940 0x003994C0
+// range: 0x00398510 0x003994C0
 
-// Graphics core: GS setup, VBlank-start handler, frame pacing.
+// Graphics core (GS setup, VBlank handler, frame pacing), DMA packet table helpers and fixed-point math helpers: src/gfx.c.
+Dma_GetPacket = 0x00398700; // type:func
+Dma_AddRefTag = 0x00398718; // type:func
+Dma_CloseCntTag = 0x00398750; // type:func
+Gfx_GetVSyncCount = 0x00398908; // type:func
 Gfx_Init = 0x00398940; // type:func
+Gfx_GetFieldParity = 0x00398CB0; // type:func
 Gfx_SetFrameReady = 0x00398CD8; // type:func
 Gfx_WaitVSync = 0x00398CE8; // type:func
+Gfx_ShowBuffer = 0x00398D40; // type:func
+Gfx_KickDisplayChain = 0x00398DD8; // type:func
 Gfx_VSyncHandler = 0x00398E48; // type:func
-Gfx_SetPhase = 0x00398FB0; // type:func // guess
+Gfx_SetPhase = 0x00398FB0; // type:func
 Gfx_InstallVSyncHandler = 0x00398FC0; // type:func
+Gfx_RemoveVSyncHandler = 0x00399050; // type:func
+Gfx_PutDispEnv = 0x003991F0; // type:func
+Gfx_SetDispEnv = 0x003991F8; // type:func
+Gfx_SetDisplayOffset = 0x00399328; // type:func
+Gfx_GetDisplayOffset = 0x00399390; // type:func
