@@ -1,0 +1,75 @@
+; Packet: the VIF1 DMA chain at 0x4F7A00 (D_004F7A00), sent once by Gfx_Init (call at 0x398AC0) [V].
+; It loads every VU1 microprogram, sets the double buffer (BASE 0, OFFSET 0x200: TOP alternates between 0x000
+; and 0x200), unpacks two quadwords of constants to VU1 memory 0..1 and runs the init program (MSCAL 0x4).
+;
+; The 16 MPG blocks are 15 programs (the batch renderer at 0x050 is 504 instructions, split by the assembler into
+; two MPG codes of 256 and 248). .DVP.overlay sections, unit 55299, name the same blocks ("unknvma" for the
+; second half of the split one).
+;
+; Common layout of a batch program (all but init, object, lights and sprites; docs/systems/vu1/README.md):
+;   entry       the first instruction kicks the previous batch's output (xgkick vi7), then xtop vi5 = TOP;
+;               the program ends with [E] followed by `b <entry>`, so every later MSCNT runs it again
+;   input       TOP+0 flags, TOP+1..4 four quadwords copied to the output (GIF tag and register writes [I]),
+;               TOP+5 the GIF tag of the vertices (NLOOP = vertex count, EOP clear = another segment follows),
+;               then the vertices
+;   output      TOP+0x106 (TOP+0xE1/0xE4 for the skinned programs): the copied header, then three quadwords per
+;               vertex: ST/Q, RGBA, XYZF2 with the ADC bit (bit 15 of w) set when the vertex must not close a
+;               triangle (outside the guard band, back face, or the input's own flag)
+
+.dmatag cnt 0x1
+.vif 0x00000000         ; NOP
+.vif 0x00000000         ; NOP
+.vif 0x01000404         ; STCYCL cl=4 wl=4
+.vif 0x20000000         ; STMASK
+.word 0x00000000
+.vif 0x05000000         ; STMOD 0x0
+.dmatag cnt 0x2da
+.vif 0x00000000         ; NOP
+.vif 0x00000000         ; NOP
+.vif 0x00000000         ; NOP
+.include "stub.vsm"
+.vif 0x00000000         ; NOP
+.include "init.vsm"
+.vif 0x00000000         ; NOP
+.include "object.vsm"
+.vif 0x00000000         ; NOP
+.include "mesh.vsm"
+.vif 0x00000000         ; NOP
+.include "skin2.vsm"
+.vif 0x00000000         ; NOP
+.include "skin2_depth.vsm"
+.vif 0x00000000         ; NOP
+.include "skin2_flat.vsm"
+.vif 0x00000000         ; NOP
+.include "projtex.vsm"
+.vif 0x00000000         ; NOP
+.include "lit_fast.vsm"
+.vif 0x00000000         ; NOP
+.include "strip.vsm"
+.vif 0x00000000         ; NOP
+.include "lights.vsm"
+.vif 0x00000000         ; NOP
+.include "skin2_lit.vsm"
+.vif 0x00000000         ; NOP
+.include "lattice.vsm"
+.vif 0x00000000         ; NOP
+.include "sprites.vsm"
+.vif 0x00000000         ; NOP
+.include "object2.vsm"
+.vif 0x13000000         ; FLUSHA
+.vif 0x03000000         ; BASE 0x0
+.vif 0x02000200         ; OFFSET 0x200
+.vif 0x6C020000         ; UNPACK V4-32 num=2 addr=0x0
+.word 0x3E800000   ; 0.25
+.word 0x3EA2F983   ; 0.318309873
+.word 0x437F0000   ; 255
+.word 0x3F000000   ; 0.5
+.word 0x3A002008   ; 0.000488758553
+.word 0x3A002008   ; 0.000488758553
+.word 0x380000FD   ; 3.05184985e-05
+.word 0x40400000   ; 3
+.vif 0x13000000         ; FLUSHA
+.vif 0x14000004         ; MSCAL 0x4
+.dmatag end 0x0
+.vif 0x00000000         ; NOP
+.vif 0x00000000         ; NOP

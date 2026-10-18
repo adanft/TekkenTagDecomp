@@ -1,0 +1,62 @@
+; VU1 program 0x320: two-matrix skinned batch without texture coordinates or clipping.
+; Selected by func_003D8158 (model_draw) for kind 1 [V]
+; Output 3 quadwords per vertex: ST = (0, 0, 0, 1), RGBA = I, XYZ. No guard-band test; one stage of
+; software pipelining (the transform of vertex n is stored while vertex n+1 is read). Role not identified.
+
+.mpg 0x320
+entry:
+    nop                                  | xgkick vi7
+    nop                                  | xtop vi5
+    nop                                  | iaddiu vi7, vi5, 0xe4
+    nop                                  | iaddiu vi6, vi5, 0xe1
+    nop                                  | iaddiu vi4, vi0, 0x8
+segment:
+    clipw.xyz vf31, vf0w                 | lq.xyzw vf24, 1(vi5)
+    muli.xyzw vf20, vf1, i               | lq.xyzw vf25, 2(vi5)
+    nop                                  | lq.xyzw vf26, 3(vi5)
+    nop                                  | lq.xyzw vf27, 4(vi5)
+    clipw.xyz vf31, vf0w                 | sq.xyzw vf24, 3(vi6)
+    ftoi0.xyzw vf20, vf20                | sq.xyzw vf25, 4(vi6)
+    nop                                  | sq.xyzw vf26, 5(vi6)
+    nop                                  | sq.xyzw vf27, 6(vi6)
+    clipw.xyz vf31, vf0w                 | ilw.x vi9, 5(vi5)
+    nop                                  | lq.xyzw vf24, 5(vi5)
+    nop                                  | nop
+    nop                                  | nop
+    nop                                  | iand vi8, vi9, vi12
+    nop                                  | sq.xyzw vf24, 7(vi6)
+    nop                                  | ibeq vi8, vi0, batch_end
+    nop                                  | iaddiu vi5, vi5, 0x6
+vertex:
+    ftoi4.xyzw vf16, vf16                | ilw.z vi10, 0(vi5)
+    nop                                  | ilw.w vi11, 0(vi5)
+    nop                                  | lq.xyzw vf14, 3(vi5)
+    nop                                  | lq.xyzw vf15, 4(vi5)
+    nop                                  | lqd.xyzw vf10, (--vi10) ; pre-decrement: matrix at index - 1
+    nop                                  | lq.xyzw vf11, 1(vi10)
+    nop                                  | lq.xyzw vf12, 2(vi10)
+    nop                                  | lq.xyzw vf13, 3(vi10)
+    mulax.xyzw acc, vf10, vf14x          | lqd.xyzw vf24, (--vi11)
+    madday.xyzw acc, vf11, vf14y         | lq.xyzw vf25, 1(vi11)
+    maddaz.xyzw acc, vf12, vf14z         | lq.xyzw vf26, 2(vi11)
+    maddaw.xyzw acc, vf13, vf14w         | lq.xyzw vf27, 3(vi11)
+    maddax.xyzw acc, vf24, vf15x         | sq.xyzw vf16, 2(vi6)
+    madday.xyzw acc, vf25, vf15y         | sq.xyzw vf0, 0(vi6)
+    maddaz.xyzw acc, vf26, vf15z         | sq.xyzw vf20, 1(vi6)
+    maddw.xyzw vf16, vf27, vf15w         | isubiu vi8, vi8, 0x1
+    nop                                  | iaddiu vi5, vi5, 0x5
+    nop                                  | iadd vi6, vi6, vi4
+    nop                                  | ibne vi8, vi0, vertex
+    nop                                  | iaddiu vi4, vi0, 0x3
+    nop                                  | ibgez vi9, segment
+    nop                                  | iaddiu vi4, vi0, 0x8
+batch_end:
+    ftoi4.xyzw vf16, vf16                | nop
+    nop                                  | nop
+    nop                                  | sq.xyzw vf0, 0(vi6) ; ST = (0, 0, 0, 1)
+    nop                                  | sq.xyzw vf20, 1(vi6)
+    nop                                  | sq.xyzw vf16, 2(vi6)
+    nop                                  | nop [E]
+    nop                                  | nop
+    nop                                  | b entry
+    nop                                  | nop

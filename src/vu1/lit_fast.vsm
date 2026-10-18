@@ -1,0 +1,78 @@
+; VU1 program 0x3E8: rigid lit batch, software pipelined, no guard-band test.
+; Caller not found (no MSCAL/MSCALF 0x3E8 in the code; possibly in data).
+; Lighting as mesh.vsm (lit); ST/Q pass-through.
+
+.mpg 0x3e8
+entry:
+    nop                                  | xgkick vi7
+    nop                                  | xtop vi5
+    nop                                  | iaddiu vi7, vi5, 0x106
+    nop                                  | iaddiu vi6, vi5, 0x100
+    nop                                  | iaddiu vi2, vi0, 0x8
+    nop                                  | iaddiu vi3, vi0, 0x3
+segment:
+    nop                                  | lq.xyzw vf24, 1(vi5)
+    nop                                  | lq.xyzw vf25, 2(vi5)
+    nop                                  | lq.xyzw vf26, 3(vi5)
+    nop                                  | lq.xyzw vf27, 4(vi5)
+    nop                                  | sq.xyzw vf24, 6(vi6)
+    nop                                  | sq.xyzw vf25, 7(vi6)
+    nop                                  | sq.xyzw vf26, 8(vi6)
+    nop                                  | sq.xyzw vf27, 9(vi6)
+    nop                                  | ilw.x vi9, 5(vi5)
+    nop                                  | lq.xyzw vf24, 5(vi5)
+    nop                                  | lq.xyzw vf14, 8(vi5)
+    nop                                  | nop
+    nop                                  | iand vi8, vi9, vi12
+    nop                                  | sq.xyzw vf24, 10(vi6)
+    nop                                  | ibeq vi8, vi0, batch_end
+    nop                                  | iaddiu vi5, vi5, 0x6
+vertex:
+    mulq.xyz vf17, vf16, q               | div q, vf0w, vf15w
+    nop                                  | move.w vf17, vf0
+    mulq.xyz vf23, vf23, q               | isubiu vi8, vi8, 0x1
+    maxx.xyz vf19, vf19, vf0x            | move.xyzw vf16, vf15
+    miniz.xyzw vf20, vf20, vf9z          | iaddiu vi4, vi3, 0x0
+    ftoi4.xyzw vf17, vf17                | move.w vf19, vf1
+    mulax.xyzw acc, vf10, vf14x          | sq.xyzw vf23, 0(vi6)
+    madday.xyzw acc, vf11, vf14y         | move.w vf16, vf1
+    maddaz.xyzw acc, vf12, vf14z         | iaddiu vi3, vi2, 0x0
+    maddw.xyzw vf15, vf13, vf14w         | sq.xyzw vf17, 2(vi6)
+    ftoi0.xyzw vf21, vf20                | move.xyzw vf23, vf22
+    mulax.xyzw acc, vf5, vf19x           | lq.xyzw vf18, 1(vi5)
+    madday.xyzw acc, vf6, vf19y          | iaddiu vi2, vi0, 0x3
+    maddaz.xyzw acc, vf7, vf19z          | lq.xyzw vf14, 5(vi5)
+    maddw.xyzw vf20, vf8, vf19w          | sq.xyzw vf21, 1(vi6) ; light colours + ambient
+    mulax.xyzw acc, vf2, vf18x           | lq.xyzw vf22, 0(vi5) ; light directions . normal
+    madday.xyzw acc, vf3, vf18y          | iadd vi6, vi6, vi4
+    maddz.xyzw vf19, vf4, vf18z          | ibne vi8, vi0, vertex
+    muli.w vf20, vf20, i                 | iaddiu vi5, vi5, 0x3
+    nop                                  | ibgez vi9, segment
+    nop                                  | iaddiu vi2, vi0, 0x8
+batch_end:
+    maxx.xyz vf19, vf19, vf0x            | move.w vf19, vf1
+    miniz.xyzw vf21, vf20, vf9z          | nop
+    mulq.xyz vf17, vf16, q               | nop
+    mulq.xyz vf23, vf23, q               | div q, vf0w, vf15w
+    mulax.xyzw acc, vf5, vf19x           | move.w vf17, vf0
+    madday.xyzw acc, vf6, vf19y          | move.w vf15, vf1
+    maddaz.xyzw acc, vf7, vf19z          | nop
+    maddw.xyzw vf20, vf8, vf19w          | nop
+    ftoi4.xyzw vf17, vf17                | nop
+    ftoi0.xyzw vf21, vf21                | move.w vf15, vf0
+    mulq.xyz vf15, vf15, q               | nop
+    muli.w vf20, vf20, i                 | nop
+    nop                                  | sq.xyzw vf23, 0(vi6)
+    nop                                  | sq.xyzw vf21, 1(vi6)
+    ftoi4.xyzw vf17, vf15                | sq.xyzw vf17, 2(vi6)
+    miniz.xyzw vf20, vf20, vf9z          | nop
+    mulq.xyz vf22, vf22, q               | nop
+    nop                                  | iaddiu vi6, vi6, 0x3
+    nop                                  | sq.xyzw vf17, 2(vi6)
+    ftoi0.xyzw vf21, vf20                | nop
+    nop                                  | nop
+    nop                                  | nop
+    nop                                  | sq.xyzw vf22, 0(vi6)
+    nop                                  | sq.xyzw vf21, 1(vi6)
+    nop                                  | b entry [E]
+    nop                                  | nop

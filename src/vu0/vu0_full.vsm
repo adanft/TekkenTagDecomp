@@ -1,0 +1,38 @@
+; Packet: the VIF0 DMA chain at 0x4F5F00 (D_004F5F00) and its byte-identical copy at 0x4F6C80
+; (D_004F6C80); both are assembled from this listing.
+; It loads the four VU0 microprograms that light and transform skinned vertices for the EE's vertex loop (one
+; vcallms per vertex).
+;
+; Sent by    Gfx_Init (call at 0x398A98) once, then Vu0_LoadMicrocode (0x3432A0) every frame: D_004F6C80 when a byte
+;            of fighter data (0x885007) is 0 and func_003BB4D8 or func_003ABCD0 returns non-zero,
+;            D_004F5F00 otherwise (identical bytes, so the choice has no effect) [V]
+; Programs   0x000 skin_diffuse   0x04A skin_specular   0x0EA skin_gloss   0x186 skin_envmap
+;            (vcallms takes byte addresses: 0x0, 0x250, 0x750, 0xC30)
+; The .DVP.overlay sections of the executable name the same blocks: .DVP.overlay..<VMA>.<unit>.<line>.<n>,
+; unit 55283 (D_004F5F00) and 111347 (D_004F6C80); .DVP.ovlytab gives each block's data address in .vudata (LMA) and
+; byte address in micro memory (VMA).
+
+.dmatag cnt 0x1
+.vif 0x00000000         ; NOP
+.vif 0x00000000         ; NOP
+.vif 0x01000404         ; STCYCL cl=4 wl=4
+.vif 0x20000000         ; STMASK
+.word 0x00000000
+.vif 0x05000000         ; STMOD 0x0
+.dmatag cnt 0xd3
+.vif 0x00000000         ; NOP
+.vif 0x00000000         ; NOP
+.vif 0x00000000         ; NOP
+.include "skin_diffuse.vsm"
+.vif 0x00000000         ; NOP
+.include "skin_specular.vsm"
+.vif 0x00000000         ; NOP
+.include "skin_gloss.vsm"
+.vif 0x00000000         ; NOP
+.include "skin_envmap.vsm"
+.dmatag end 0x0
+.vif 0x00000000         ; NOP
+.vif 0x00000000         ; NOP
+.dmatag end 0x0
+.vif 0x00000000         ; NOP
+.vif 0x00000000         ; NOP

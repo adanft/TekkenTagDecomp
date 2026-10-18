@@ -1,0 +1,88 @@
+; VU1 program 0x564: two-matrix skinned batch with lighting.
+; Selected by func_003D8158 (model_draw) for kinds 0 and >= 4 [V]
+; Bone blocks hold the position matrix at -1..2 and the light directions at +3..+5 (relative to the 1-based
+; address, pre-decremented); normals of both bones are blended, lit with vf5..vf8, plus fog. No guard-band test;
+; pipelined.
+
+.mpg 0x564
+entry:
+    nop                                  | xgkick vi7
+    nop                                  | xtop vi5
+    nop                                  | iaddiu vi7, vi5, 0xe4
+    nop                                  | iaddiu vi6, vi5, 0xe1
+    nop                                  | iaddiu vi4, vi0, 0x8
+    nop                                  | fcset 0x0
+segment:
+    nop                                  | lq.xyzw vf24, 1(vi5)
+    nop                                  | lq.xyzw vf25, 2(vi5)
+    nop                                  | lq.xyzw vf26, 3(vi5)
+    nop                                  | lq.xyzw vf27, 4(vi5)
+    nop                                  | sq.xyzw vf24, 3(vi6)
+    nop                                  | sq.xyzw vf25, 4(vi6)
+    nop                                  | sq.xyzw vf26, 5(vi6)
+    nop                                  | ilw.x vi9, 5(vi5)
+    nop                                  | lq.xyzw vf24, 5(vi5)
+    nop                                  | nop
+    nop                                  | sq.xyzw vf27, 6(vi6)
+    nop                                  | iand vi8, vi9, vi12
+    nop                                  | sq.xyzw vf24, 7(vi6)
+    nop                                  | ibeq vi8, vi0, batch_end
+    nop                                  | iaddiu vi5, vi5, 0x6
+vertex:
+    nop                                  | ilw.z vi10, 0(vi5)
+    nop                                  | ilw.w vi11, 0(vi5)
+    ftoi0.xyzw vf20, vf19                | lq.xyzw vf18, 1(vi5)
+    maxx.w vf16, vf16, vf0x              | lq.xyzw vf19, 2(vi5)
+    nop                                  | lq.xyzw vf2, 3(vi10) ; bone A light directions
+    nop                                  | lq.xyzw vf3, 4(vi10)
+    nop                                  | lq.xyzw vf4, 5(vi10)
+    ftoi4.xyzw vf17, vf16                | lq.xyzw vf28, 3(vi11) ; bone B light directions
+    mulax.xyzw acc, vf2, vf18x           | lq.xyzw vf29, 4(vi11)
+    madday.xyzw acc, vf3, vf18y          | lq.xyzw vf30, 5(vi11)
+    maddaz.xyzw acc, vf4, vf18z          | lq.xyzw vf14, 3(vi5)
+    maddax.xyzw acc, vf28, vf19x         | lqd.xyzw vf10, (--vi10)
+    madday.xyzw acc, vf29, vf19y         | lq.xyzw vf11, 1(vi10)
+    maddz.xyzw vf19, vf30, vf19z         | lq.xyzw vf12, 2(vi10)
+    mulx.w vf18, vf0, vf0x               | lq.xyzw vf13, 3(vi10)
+    mulax.xyzw acc, vf10, vf14x          | lq.xyzw vf15, 4(vi5)
+    madday.xyzw acc, vf11, vf14y         | lqd.xyzw vf24, (--vi11)
+    maxx.xyz vf19, vf19, vf0x            | lq.xyzw vf25, 1(vi11)
+    maddaz.xyzw acc, vf12, vf14z         | lq.xyzw vf26, 2(vi11)
+    maddaw.xyzw acc, vf13, vf14w         | lq.xyzw vf27, 3(vi11)
+    maddax.xyzw acc, vf24, vf15x         | move.w vf19, vf0
+    madday.xyzw acc, vf25, vf15y         | sq.xyzw vf22, 0(vi6)
+    maddaz.xyzw acc, vf26, vf15z         | sq.xyzw vf20, 1(vi6)
+    maddw.xyzw vf16, vf27, vf15w         | sq.xyzw vf17, 2(vi6)
+    mulax.xyzw acc, vf5, vf19x           | lq.xy vf22, 0(vi5)
+    madday.xyzw acc, vf6, vf19y          | isubiu vi8, vi8, 0x1
+    add.xyz vf18, vf0, vf8               | nop
+    maddz.xyz vf19, vf7, vf19z           | div q, vf0w, vf16w
+    nop                                  | iaddiu vi5, vi5, 0x5
+    mulw.z vf22, vf1, vf0w               | nop
+    adda.xyzw acc, vf0, vf18             | iadd vi6, vi6, vi4
+    maddi.xyzw vf19, vf19, i             | iaddiu vi4, vi0, 0x3
+    nop                                  | nop
+    addax.w acc, vf6, vf0x               | nop
+    madd.w vf16, vf5, vf16               | nop
+    mulq.xyz vf22, vf22, q               | nop
+    mulq.xyz vf16, vf16, q               | nop
+    miniz.xyz vf19, vf19, vf9z           | ibne vi8, vi0, vertex
+    miniz.w vf16, vf16, vf9z             | nop
+    nop                                  | ibgez vi9, segment
+    nop                                  | iaddiu vi4, vi0, 0x8
+batch_end:
+    maxx.w vf16, vf16, vf0x              | nop
+    ftoi0.xyzw vf20, vf19                | nop
+    nop                                  | nop
+    nop                                  | nop
+    ftoi4.xyzw vf17, vf16                | nop
+    nop                                  | nop
+    nop                                  | sq.xyzw vf22, 0(vi6)
+    nop                                  | sq.xyzw vf20, 1(vi6)
+    nop                                  | sq.xyzw vf17, 2(vi6)
+    nop                                  | nop
+    nop                                  | nop
+    nop                                  | nop [E]
+    nop                                  | nop
+    nop                                  | b entry
+    nop                                  | nop

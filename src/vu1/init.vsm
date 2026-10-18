@@ -1,0 +1,46 @@
+; VU1 program 0x004: initialisation, run once by MSCAL 0x4 at the end of the boot packet.
+; Clears vf1..vf31 and vi1..vi14, then sets the registers every other program relies on:
+;   vf1  = (1, 1, 1, 1)          I = 128 (alpha of computed colours)
+;   vf9  = memory 0 = (0.25, 1/pi, 255, 0.5)       env-map scale, atan scale, colour clamp, 0.5 bias
+;   vf31 = memory 1 = (1/2046, 1/2046, 1/32767, 3)  scale of x, y, z to the guard band [-1, 1] (after -1)
+;   vi12 = 0x7FFF (NLOOP mask)     vi13 = 0x8000 (ADC bit of XYZF2.w)
+
+.mpg 0x4
+    mulx.xyzw vf1, vf0, vf0x             | iaddiu vi1, vi0, 0x0
+    mulx.xyzw vf2, vf0, vf0x             | iaddiu vi2, vi0, 0x0
+    mulx.xyzw vf3, vf0, vf0x             | iaddiu vi3, vi0, 0x0
+    mulx.xyzw vf4, vf0, vf0x             | iaddiu vi4, vi0, 0x0
+    mulx.xyzw vf5, vf0, vf0x             | iaddiu vi5, vi0, 0x0
+    mulx.xyzw vf6, vf0, vf0x             | iaddiu vi6, vi0, 0x0
+    mulx.xyzw vf7, vf0, vf0x             | iaddiu vi7, vi0, 0x0
+    mulx.xyzw vf8, vf0, vf0x             | iaddiu vi8, vi0, 0x0
+    mulx.xyzw vf9, vf0, vf0x             | iaddiu vi9, vi0, 0x0
+    mulx.xyzw vf10, vf0, vf0x            | iaddiu vi10, vi0, 0x0
+    mulx.xyzw vf11, vf0, vf0x            | iaddiu vi11, vi0, 0x0
+    mulx.xyzw vf12, vf0, vf0x            | iaddiu vi12, vi0, 0x0
+    mulx.xyzw vf13, vf0, vf0x            | iaddiu vi13, vi0, 0x0
+    mulx.xyzw vf14, vf0, vf0x            | iaddiu vi14, vi0, 0x0
+    mulx.xyzw vf15, vf0, vf0x            | nop
+    mulx.xyzw vf16, vf0, vf0x            | nop
+    mulx.xyzw vf17, vf0, vf0x            | nop
+    mulx.xyzw vf18, vf0, vf0x            | nop
+    mulx.xyzw vf19, vf0, vf0x            | nop
+    mulx.xyzw vf20, vf0, vf0x            | nop
+    mulx.xyzw vf21, vf0, vf0x            | nop
+    mulx.xyzw vf22, vf0, vf0x            | nop
+    mulx.xyzw vf23, vf0, vf0x            | nop
+    mulx.xyzw vf24, vf0, vf0x            | nop
+    mulx.xyzw vf25, vf0, vf0x            | nop
+    mulx.xyzw vf26, vf0, vf0x            | nop
+    mulx.xyzw vf27, vf0, vf0x            | nop
+    mulx.xyzw vf28, vf0, vf0x            | nop
+    mulx.xyzw vf29, vf0, vf0x            | nop
+    mulx.xyzw vf30, vf0, vf0x            | nop
+    mulx.xyzw vf31, vf0, vf0x            | loi 0x437F0000 [I]   ; 255; I = 255 (replaced below)
+    nop                                  | xtop vi5          ; vi5 = TOP
+    nop                                  | loi 0x43000000 [I]   ; 128; I = 128
+    addw.xyzw vf1, vf1, vf0w             | lq.xyzw vf9, 0(vi0) ; vf1 = (1, 1, 1, 1); vf9 = memory 0
+    nop                                  | lq.xyzw vf31, 1(vi0) ; vf31 = memory 1
+    nop                                  | iaddiu vi12, vi0, 0x7fff ; vi12 = NLOOP mask
+    nop                                  | iaddiu vi13, vi12, 0x1 [E] ; vi13 = ADC bit
+    nop                                  | nop

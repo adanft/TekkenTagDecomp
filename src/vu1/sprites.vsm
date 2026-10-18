@@ -1,0 +1,124 @@
+; VU1 program 0x708: sprites built from points (quads around a centre) [I].
+; Called by func_003E6DA0 (MSCAL 0x708, then MSCNT 0x17000000 per batch) [V]
+; Constants are read from VU1 memory 0.. with vi14 (lqi); each batch (xtop vi2) is expanded into a GIF packet at
+; TOP+0x40 (8 groups of 4 quads, two axis vectors vf10/vf11 around each centre) and kicked at the end (xgkick vi3).
+; The detailed role of the per-point words (vi8/vi9 indices, vf30 scale) is not established.
+
+.mpg 0x708
+    sub.w vf23, vf0, vf0                 | iaddiu vi14, vi0, 0x0 ; constants from memory 0 (vi14)
+    mulx.zw vf10, vf0, vf0x              | lqi.xyzw vf28, (vi14++)
+    mulx.zw vf11, vf0, vf0x              | lqi.xyzw vf2, (vi14++)
+    nop                                  | lqi.xyzw vf3, (vi14++)
+    sub.w vf24, vf23, vf0                | lqi.xyzw vf4, (vi14++)
+    sub.w vf23, vf23, vf0                | lqi.xyzw vf13, (vi14++)
+    nop                                  | lqi.xyzw vf15, (vi14++)
+    nop                                  | lqi.xyzw vf14, (vi14++)
+    ftoi4.w vf24, vf24                   | lqi.xyzw vf19, (vi14++)
+    ftoi4.w vf23, vf23                   | ilwr.x vi7, (vi14)
+    addy.z vf31, vf0, vf15y              | ilwr.y vi6, (vi14)
+    nop                                  | lqi.zw vf30, (vi14++)
+batch:
+    nop                                  | xtop vi2          ; vi2 = TOP
+    nop                                  | iaddiu vi5, vi0, 0x7
+    nop                                  | iaddiu vi3, vi2, 0x40 ; packet at TOP + 0x40
+    nop                                  | iaddiu vi4, vi3, 0x1
+    nop                                  | sq.xyzw vf14, 0(vi3)
+    nop                                  | sqi.xyzw vf28, (vi4++)
+    nop                                  | sqi.xyzw vf2, (vi4++)
+    nop                                  | sqi.xyzw vf3, (vi4++)
+    nop                                  | sqi.xyzw vf4, (vi4++)
+    nop                                  | sqi.xyzw vf19, (vi4++)
+group:
+    mulx.xyzw vf29, vf0, vf0x            | lqi.xyz vf20, (vi2++)
+    itof0.w vf20, vf13                   | lqi.xyzw vf21, (vi2++)
+    addw.xy vf10, vf0, vf0w              | ilwr.z vi8, (vi2)
+    addw.y vf11, vf0, vf0w               | ilwr.w vi9, (vi2)
+    subw.x vf11, vf0, vf0w               | lqi.xy vf12, (vi2++)
+    itof0.xyz vf20, vf20                 | lqi.xyzw vf17, (vi2++)
+    itof4.xyzw vf21, vf21                | iadd vi8, vi8, vi7
+    nop                                  | iand vi8, vi8, vi6
+    itof0.xy vf12, vf12                  | iaddiu vi10, vi0, 0x5
+    sub.xz vf16, vf15, vf20              | iaddiu vi11, vi14, 0xc
+find:
+    nop                                  | isub vi1, vi8, vi9
+    nop                                  | nop
+    nop                                  | iblez vi1, found
+    nop                                  | nop
+    addx.xyzw vf27, vf21, vf0x           | mfir.x vf22, vi9
+    add.xyzw vf20, vf20, vf29            | lqi.xyzw vf5, (vi11++)
+    nop                                  | lqi.xyzw vf6, (vi11++)
+    nop                                  | iadd vi8, vi0, vi1
+    itof0.x vf22, vf22                   | mtir vi9, vf17x
+    nop                                  | isubiu vi10, vi10, 0x1
+    addax.xyzw acc, vf6, vf0x            | nop
+    madd.xyzw vf21, vf21, vf5            | ibgtz vi10, find
+    mulx.xyzw vf29, vf27, vf22x          | mr32.xyzw vf17, vf17
+found:
+    mulz.xz vf16, vf16, vf30z            | mfir.x vf22, vi8
+    nop                                  | nop
+    nop                                  | iaddiu vi10, vi0, 0x80
+    nop                                  | iaddiu vi11, vi0, 0x20
+    ftoi0.xz vf16, vf16                  | fmand vi8, vi10
+    itof0.x vf22, vf22                   | fmand vi9, vi11
+    adda.xyzw acc, vf20, vf29            | ibeq vi8, vi0, L073E
+    nop                                  | nop
+    msubaw.x acc, vf1, vf30w             | nop
+L073E:
+    itof0.xz vf16, vf16                  | ibeq vi9, vi0, build
+    nop                                  | nop
+    msubaw.z acc, vf1, vf30w             | nop
+build:
+    mul.xy vf10, vf10, vf12              | lq.xz vf18, 8(vi14)
+    mul.xy vf11, vf11, vf12              | nop
+    maddaw.xz acc, vf16, vf30w           | lq.xyzw vf5, 0(vi14)
+    maddax.xyzw acc, vf21, vf22x         | lq.xyzw vf6, 1(vi14)
+    maddw.xz vf18, vf18, vf0w            | lq.xyzw vf7, 2(vi14)
+    maddx.xyzw vf20, vf0, vf0x           | lq.xyzw vf8, 3(vi14)
+    nop                                  | iaddiu vi10, vi0, 0x3
+    nop                                  | iaddiu vi11, vi14, 0x9
+quad:
+    mulax.xyzw acc, vf5, vf18x           | move.xyzw vf17, vf1
+    madday.xyzw acc, vf6, vf20y          | lq.xyzw vf16, 5(vi14)
+    maddaz.xyzw acc, vf7, vf18z          | lq.xyzw vf12, 6(vi14)
+    maddw.xyzw vf27, vf8, vf0w           | lq.xyzw vf21, 7(vi14)
+    nop                                  | nop
+    nop                                  | nop
+    addax.w acc, vf20, vf0x              | nop
+    msub.w vf29, vf15, vf27              | div q, vf0w, vf27w
+    sub.xyz vf23, vf27, vf10             | nop
+    add.xyz vf26, vf27, vf10             | nop
+    sub.xyz vf24, vf27, vf11             | nop
+    ftoi0.w vf29, vf29                   | nop
+    add.xyz vf25, vf27, vf11             | nop
+    suba.xyz acc, vf0, vf17              | nop
+    mulq.xyz vf23, vf23, q               | nop
+    mulq.xyz vf26, vf26, q               | mtir vi8, vf29w
+    mulq.xyz vf24, vf24, q               | nop
+    mulq.xyz vf25, vf25, q               | lq.xyzw vf17, 4(vi14)
+    madd.xyz vf22, vf31, vf23            | nop
+    madd.xyz vf27, vf31, vf26            | ibgez vi8, store
+    ftoi4.xyz vf23, vf23                 | lqi.xz vf18, (vi11++)
+    nop                                  | iadd vi8, vi0, vi0
+store:
+    ftoi4.xyz vf24, vf24                 | iswr.w vi8, (vi4)
+    clipw.xyz vf22, vf0w                 | sqi.xyz vf13, (vi4++)
+    clipw.xyz vf27, vf0w                 | sqi.xyzw vf17, (vi4++)
+    ftoi4.xyz vf25, vf25                 | sqi.xyzw vf23, (vi4++)
+    ftoi4.xyz vf26, vf26                 | sqi.xyzw vf16, (vi4++)
+    nop                                  | sqi.xyzw vf24, (vi4++)
+    nop                                  | sqi.xyzw vf12, (vi4++)
+    nop                                  | fcand vi1, 0xfff
+    nop                                  | isub vi1, vi0, vi1
+    add.xz vf18, vf18, vf20              | iswr.w vi1, (vi4)
+    nop                                  | sqi.xyz vf25, (vi4++)
+    nop                                  | sqi.xyzw vf21, (vi4++)
+    nop                                  | iswr.w vi1, (vi4)
+    nop                                  | sqi.xyz vf26, (vi4++)
+    nop                                  | ibne vi10, vi0, quad
+    nop                                  | isubiu vi10, vi10, 0x1
+    nop                                  | ibne vi5, vi0, group
+    nop                                  | isubiu vi5, vi5, 0x1
+    nop                                  | xgkick vi3 [E]    ; send this batch's packet
+    nop                                  | nop
+    nop                                  | b batch
+    nop                                  | nop

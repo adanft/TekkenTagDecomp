@@ -1,0 +1,97 @@
+; VU1 program 0x640: rigid batch deformed by a 2x2x2 lattice [I].
+; Selected by func_00356A78 (draw_list) for kind 3 [V]
+; The input position (in a cube of half-size w) gives the eight trilinear weights (x +- w)(y +- w)(z +- w); the
+; deformed position is the weighted sum of the eight corners vf5..vf8, vf28..vf30, vf21 (loaded by object.vsm),
+; then transformed by vf10..vf13. Colour = I * (1, 1, 1, vf8.w); guard-band clip; fog.
+
+.mpg 0x640
+entry:
+    nop                                  | xgkick vi7
+    nop                                  | xtop vi5
+    nop                                  | iaddiu vi7, vi5, 0x106
+    nop                                  | iaddiu vi6, vi5, 0x103
+    nop                                  | iaddiu vi4, vi0, 0x8
+    nop                                  | fcset 0x0
+segment:
+    muli.xyzw vf22, vf1, i               | ilw.x vi10, 0(vi5)
+    nop                                  | lq.xyzw vf20, 1(vi5)
+    nop                                  | lq.xyzw vf25, 2(vi5)
+    nop                                  | lq.xyzw vf26, 3(vi5)
+    muli.w vf22, vf8, i                  | lq.xyzw vf19, 4(vi5)
+    nop                                  | sq.xyzw vf20, 3(vi6)
+    nop                                  | sq.xyzw vf25, 4(vi6)
+    nop                                  | sq.xyzw vf26, 5(vi6)
+    ftoi0.xyzw vf22, vf22                | ilw.x vi9, 5(vi5)
+    nop                                  | lq.xyzw vf23, 5(vi5)
+    nop                                  | sq.xyzw vf19, 6(vi6)
+    nop                                  | lq.xyzw vf14, 9(vi5)
+    nop                                  | iand vi8, vi9, vi12
+    nop                                  | sq.xyzw vf23, 7(vi6)
+    nop                                  | ibeq vi8, vi0, batch_end
+    nop                                  | iaddiu vi5, vi5, 0x6
+vertex:
+    subw.xyzw vf15, vf14, vf0w           | sq.xyzw vf22, 1(vi6) ; p - w
+    addw.xyzw vf16, vf14, vf0w           | sq.xyzw vf24, 0(vi6) ; p + w
+    nop                                  | nop
+    clipw.xyz vf17, vf1w                 | mtir vi2, vf18w
+    mula.x acc, vf0, vf0                 | sq.xyz vf18, 2(vi6)
+    sub.z vf16, vf0, vf16                | nop
+    msuby.x vf17, vf16, vf16y            | nop
+    mulx.y vf17, vf16, vf15x             | fcand vi1, 0x3ffff
+    mula.x acc, vf0, vf0                 | isub vi1, vi0, vi1
+    msuby.x vf18, vf15, vf15y            | iand vi1, vi1, vi13
+    mulx.y vf18, vf15, vf16x             | ior vi1, vi1, vi2
+    mulz.xy vf19, vf17, vf16z            | isw.w vi1, 2(vi6)
+    mulz.xy vf17, vf17, vf15z            | nop
+    nop                                  | nop
+    mulz.xy vf20, vf18, vf16z            | nop
+    mulz.xy vf18, vf18, vf15z            | nop
+    nop                                  | nop
+    mulax.xyzw acc, vf5, vf17x           | nop               ; weighted sum of the eight corners
+    madday.xyzw acc, vf6, vf17y          | nop
+    maddax.xyzw acc, vf7, vf18x          | nop
+    madday.xyzw acc, vf8, vf18y          | nop
+    maddax.xyzw acc, vf28, vf19x         | nop
+    madday.xyzw acc, vf29, vf19y         | nop
+    maddax.xyzw acc, vf30, vf20x         | nop
+    maddy.xyz vf14, vf21, vf20y          | nop
+    nop                                  | nop
+    nop                                  | nop
+    nop                                  | nop
+    mulax.xyzw acc, vf10, vf14x          | nop
+    madday.xyzw acc, vf11, vf14y         | nop
+    maddaz.xyzw acc, vf12, vf14z         | isubiu vi8, vi8, 0x1
+    maddw.xyzw vf15, vf13, vf0w          | lq.xyzw vf24, 1(vi5) ; local -> screen
+    nop                                  | lq.xyzw vf14, 7(vi5)
+    nop                                  | nop
+    addax.w acc, vf6, vf0x               | nop
+    madd.w vf16, vf5, vf15               | div q, vf0w, vf15w
+    nop                                  | nop
+    nop                                  | move.z vf24, vf1
+    nop                                  | nop
+    miniz.w vf16, vf16, vf9z             | nop
+    nop                                  | nop
+    subaw.xyz acc, vf0, vf0w             | nop
+    mulq.xyz vf16, vf15, q               | iaddiu vi5, vi5, 0x4
+    maxx.w vf16, vf16, vf0x              | iadd vi6, vi6, vi4
+    mulq.xyz vf24, vf24, q               | iaddiu vi4, vi0, 0x3
+    nop                                  | nop
+    madd.xyz vf17, vf31, vf16            | ibne vi8, vi0, vertex
+    ftoi4.xyzw vf18, vf16                | nop
+    nop                                  | ibgez vi9, segment
+    nop                                  | iaddiu vi4, vi0, 0x8
+batch_end:
+    clipw.xyz vf17, vf1w                 | sq.xyzw vf24, 0(vi6)
+    nop                                  | sq.xyz vf18, 2(vi6)
+    nop                                  | mtir vi2, vf18w
+    nop                                  | sq.xyzw vf22, 1(vi6)
+    nop                                  | fcand vi1, 0x3ffff
+    nop                                  | isub vi1, vi0, vi1
+    nop                                  | iand vi1, vi1, vi13
+    nop                                  | ior vi1, vi1, vi2
+    nop                                  | isw.w vi1, 2(vi6)
+    nop                                  | nop
+    nop                                  | nop [E]
+    nop                                  | nop
+    nop                                  | b entry
+    nop                                  | nop

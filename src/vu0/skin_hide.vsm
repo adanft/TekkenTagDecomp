@@ -1,0 +1,9 @@
+; VU0 program 0x0EA of the mode-5 packet (vcallms 0x750): marks the vertex as not drawn.
+; Caller      func_003437B8 [V]
+; Only stores memory 1 (the ADC word) into XYZF.w: in mode 5 the gloss pass draws nothing [I].
+
+.mpg 0xea
+    nop                                  | lq.w vf22, 1(vi0) ; XYZF.w = ADC word
+    nop                                  | nop
+    nop                                  | nop [E]
+    nop                                  | nop

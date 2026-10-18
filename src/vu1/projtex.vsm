@@ -1,0 +1,66 @@
+; VU1 program 0x3A2: rigid batch with projected texture coordinates.
+; Selected by func_00356A78 (draw_list) for kind 5 [V]
+; ST/Q = (vf28..vf30 * position + vf21) / w [I: a projected texture such as a shadow or spotlight]; colour = I;
+; software pipelined (two vertices in flight).
+
+.mpg 0x3a2
+entry:
+    nop                                  | xgkick vi7
+    nop                                  | xtop vi5
+    nop                                  | iaddiu vi7, vi5, 0x106
+    nop                                  | iaddiu vi6, vi5, 0x100
+    nop                                  | iaddiu vi2, vi0, 0x8
+    nop                                  | iaddiu vi3, vi0, 0x3
+    nop                                  | fcset 0x0
+segment:
+    nop                                  | lq.xyzw vf14, 1(vi5)
+    muli.w vf20, vf1, i                  | lq.xyzw vf27, 2(vi5)
+    nop                                  | lq.xyzw vf23, 3(vi5)
+    nop                                  | lq.xyzw vf19, 4(vi5)
+    nop                                  | sq.xyzw vf14, 6(vi6)
+    ftoi0.xyzw vf20, vf20                | sq.xyzw vf27, 7(vi6)
+    nop                                  | sq.xyzw vf23, 8(vi6)
+    nop                                  | ilw.x vi9, 5(vi5)
+    nop                                  | lq.xyzw vf24, 5(vi5)
+    nop                                  | sq.xyzw vf19, 9(vi6)
+    addw.xyzw vf27, vf0, vf0w            | lq.xyzw vf14, 9(vi5)
+    nop                                  | iand vi8, vi9, vi12
+    nop                                  | sq.xyzw vf24, 10(vi6)
+    nop                                  | ibeq vi8, vi0, batch_end
+    nop                                  | iaddiu vi5, vi5, 0x6
+vertex:
+    mulax.xyzw acc, vf10, vf14x          | isubiu vi8, vi8, 0x1
+    madday.xyzw acc, vf11, vf14y         | iaddiu vi4, vi3, 0x0
+    maddaz.xyzw acc, vf12, vf14z         | iaddiu vi3, vi2, 0x0
+    maddw.xyzw vf15, vf13, vf0w          | iaddiu vi2, vi0, 0x3 ; local -> screen
+    clipw.xyz vf18, vf0w                 | sq.xyz vf17, 2(vi6)
+    mulw.z vf24, vf1, vf0w               | sq.xyzw vf26, 0(vi6)
+    mulax.xyzw acc, vf28, vf14x          | sq.xyzw vf20, 1(vi6) ; projection matrix vf28..vf30
+    madday.xyzw acc, vf29, vf14y         | div q, vf0w, vf15w
+    maddaz.xyzw acc, vf30, vf14z         | fcand vi1, 0x3ffff
+    maddw.xy vf24, vf21, vf0w            | isub vi1, vi0, vi1 ; + vf21
+    mula.xyzw acc, vf31, vf16            | lq.xyzw vf14, 7(vi5)
+    msubw.xyzw vf18, vf27, vf1w          | iaddiu vi5, vi5, 0x4
+    ftoi4.xyzw vf17, vf16                | iand vi11, vi1, vi13
+    mulw.xyzw vf26, vf25, vf0w           | isw.w vi11, 2(vi6)
+    mulq.xyz vf16, vf15, q               | ibne vi8, vi0, vertex
+    mulq.xyz vf25, vf24, q               | iadd vi6, vi6, vi4
+    nop                                  | ibgez vi9, segment
+    nop                                  | iaddiu vi2, vi0, 0x8
+batch_end:
+    clipw.xyz vf18, vf0w                 | sq.xyz vf17, 2(vi6)
+    nop                                  | sq.xyzw vf26, 0(vi6)
+    mula.xyzw acc, vf31, vf16            | sq.xyzw vf20, 1(vi6)
+    msubw.xyzw vf18, vf27, vf1w          | nop
+    ftoi4.xyzw vf17, vf16                | fcand vi1, 0x3ffff
+    nop                                  | isub vi1, vi0, vi1
+    nop                                  | isw.w vi1, 2(vi6)
+    clipw.xyz vf18, vf0w                 | iadd vi6, vi6, vi3
+    nop                                  | sq.xyz vf17, 2(vi6)
+    nop                                  | sq.xyzw vf25, 0(vi6)
+    nop                                  | sq.xyzw vf20, 1(vi6)
+    nop                                  | fcand vi1, 0x3ffff
+    nop                                  | isub vi1, vi0, vi1
+    nop                                  | isw.w vi1, 2(vi6)
+    nop                                  | b entry [E]
+    nop                                  | nop

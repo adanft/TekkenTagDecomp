@@ -1,0 +1,114 @@
+; VU0 program 0x186 (vcallms 0xC30): skinned vertex with environment-mapped texture coordinates.
+; Caller      func_003438B8 [V] (writes vf24 instead of the record's +0x00 as ST)
+;
+; VU0 calling convention (the EE loops func_003435C0, func_003436B8, func_003437B8, func_003438B8 [V]):
+;   one vertex per vcallms; the EE loads the vertex record (address a1) into registers first:
+;     +0x00            vf7    copied to the output as is (ST), except by the environment map program
+;     +0x10..+0x1C     vi2..vi5  VU0 data addresses (quadwords) of up to four bone blocks; a 0 ends the list
+;     +0x20 + 0x20*i   vf2..vf5   influence i: normal, already scaled by its weight [I]
+;     +0x30 + 0x20*i   vf26..vf29 influence i: position, w = weight [I]
+;   vf8..vf11  light colour matrix (3 light colours and the ambient row), loaded once per model (0x34346C)
+;   vf6, vi6   specular parameters (func_003436B8, func_003437B8 only): vf6.x intensity, vi6 & 0xFF exponent steps
+;   results    vf20 RGBA (integers), vf22 XYZF (12.4 fixed point; w = 0x8000 when the triangle is not drawn),
+;              written by the EE after the call as three quadwords (ST, RGBA, XYZF2) of a GIF packet
+; VU0 data memory (quadwords, vi0-relative) [I from the loads; written by the EE, e.g. func_00342E38]:
+;   0  vf31: x, y, z scale to the guard band [-1, 1]; w = 255 (colour clamp)
+;   1  w: the word stored in XYZF.w when the triangle is clipped (ADC, bit 15)
+;   4..7   world -> screen matrix (gloss program)
+;   8..10  light directions in world space; 11 eye vector
+;   252..255  environment map matrix (D_00433400, copied by the EE at 0x343444 [V])
+;   bone block: rows 0..3 bone -> screen, rows 4..7 bone -> world, rows 8..10 light directions in bone space
+;
+; The first part, common to the four programs, blends up to four bones: for each bone block vi2..vi5 (stopping at
+; the first 0) it adds
+;   rows 4..6 (bone -> world) * normal_i to vf25
+;   rows 0..3 * position_i to vf22 (vf21 holds the pending term)
+; vf1 = (1, 1, 1, 1) and vf21 = 0 are set on the way.
+;
+; Then: colour = 128 (all channels), ST/Q in vf24 = environment map matrix (memory 252..255) * normalised
+; normal, scaled by q for the perspective-correct STQ [I].
+
+.mpg 0x186
+    mulx.xyzw vf1, vf0, vf0x             | lq.xyzw vf12, 4(vi2)
+    nop                                  | lq.xyzw vf13, 5(vi2)
+    nop                                  | lq.xyzw vf14, 6(vi2)
+    mulx.xyzw vf21, vf0, vf0x            | lq.xyzw vf15, 0(vi2)
+    mulax.xyzw acc, vf12, vf2x           | lq.xyzw vf16, 1(vi2)
+    madday.xyzw acc, vf13, vf2y          | lq.xyzw vf17, 2(vi2)
+    maddz.xyzw vf25, vf14, vf2z          | lq.xyzw vf18, 3(vi2)
+    mulax.xyzw acc, vf15, vf26x          | lq.xyzw vf12, 4(vi3)
+    madday.xyzw acc, vf16, vf26y         | lq.xyzw vf13, 5(vi3)
+    maddaz.xyzw acc, vf17, vf26z         | ibeq vi3, vi0, blend_done
+    maddw.xyzw vf22, vf18, vf26w         | lq.xyzw vf14, 6(vi3)
+    nop                                  | lq.xyzw vf15, 0(vi3)
+    mulax.xyzw acc, vf12, vf3x           | lq.xyzw vf16, 1(vi3)
+    madday.xyzw acc, vf13, vf3y          | lq.xyzw vf17, 2(vi3)
+    maddz.xyzw vf19, vf14, vf3z          | lq.xyzw vf18, 3(vi3)
+    mulax.xyzw acc, vf15, vf27x          | lq.xyzw vf12, 4(vi4)
+    madday.xyzw acc, vf16, vf27y         | lq.xyzw vf13, 5(vi4)
+    maddaz.xyzw acc, vf17, vf27z         | lq.xyzw vf14, 6(vi4)
+    add.xyzw vf25, vf25, vf19            | ibeq vi4, vi0, blend_done
+    maddw.xyzw vf21, vf18, vf27w         | nop
+    mulax.xyzw acc, vf12, vf4x           | lq.xyzw vf15, 0(vi4)
+    madday.xyzw acc, vf13, vf4y          | lq.xyzw vf16, 1(vi4)
+    maddz.xyzw vf19, vf14, vf4z          | lq.xyzw vf17, 2(vi4)
+    add.xyzw vf22, vf22, vf21            | lq.xyzw vf18, 3(vi4)
+    mulax.xyzw acc, vf15, vf28x          | lq.xyzw vf12, 4(vi5)
+    madday.xyzw acc, vf16, vf28y         | lq.xyzw vf13, 5(vi5)
+    maddaz.xyzw acc, vf17, vf28z         | lq.xyzw vf14, 6(vi5)
+    add.xyzw vf25, vf25, vf19            | ibeq vi5, vi0, blend_done
+    maddw.xyzw vf21, vf18, vf28w         | nop
+    mulax.xyzw acc, vf12, vf5x           | lq.xyzw vf15, 0(vi5)
+    madday.xyzw acc, vf13, vf5y          | lq.xyzw vf16, 1(vi5)
+    maddz.xyzw vf19, vf14, vf5z          | lq.xyzw vf17, 2(vi5)
+    add.xyzw vf22, vf22, vf21            | lq.xyzw vf18, 3(vi5)
+    mulax.xyzw acc, vf15, vf29x          | nop
+    madday.xyzw acc, vf16, vf29y         | nop
+    add.xyzw vf25, vf25, vf19            | nop
+    maddaz.xyzw acc, vf17, vf29z         | nop
+    maddw.xyzw vf21, vf18, vf29w         | nop
+blend_done:
+    addw.xyzw vf1, vf1, vf0w             | loi 0x43000000 [I]   ; 128
+    nop                                  | lq.xyzw vf26, 11(vi0)
+    mul.yz vf12, vf25, vf25              | nop
+    add.xyzw vf22, vf22, vf21            | lq.xyzw vf31, 0(vi0)
+    muli.xyzw vf20, vf1, i               | nop               ; colour = 128
+    mulax.x acc, vf25, vf25x             | nop
+    madday.x acc, vf1, vf12y             | nop
+    maddz.x vf12, vf1, vf12z             | div q, vf0w, vf22w
+    ftoi0.xyzw vf20, vf20                | lq.xyzw vf15, 252(vi0) ; env map matrix (memory 252..255)
+    sub.w vf19, vf22, vf7                | lq.xyzw vf16, 253(vi0) ; w - vf7.w (depth bias)
+    add.z vf7, vf0, vf22                 | lq.xyzw vf17, 254(vi0)
+    nop                                  | lq.xyzw vf18, 255(vi0)
+    nop                                  | lq.z vf13, 1(vi0)
+    nop                                  | nop
+    mulq.xyz vf22, vf22, q               | rsqrt q, vf0w, vf12x ; q = 1/|N|
+    mulq.w vf13, vf1, q                  | nop               ; vf13.w = 1/w
+    nop                                  | nop
+    nop                                  | nop
+    mula.xyz acc, vf22, vf31             | nop
+    msubw.xyz vf23, vf1, vf1w            | nop
+    nop                                  | move.w vf22, vf0
+    nop                                  | nop
+    nop                                  | nop
+    clipw.xyz vf23, vf0w                 | nop
+    ftoi4.w vf22, vf22                   | nop
+    nop                                  | nop
+    adda.xyz acc, vf0, vf26              | nop
+    maddq.xyz vf25, vf25, q              | div q, vf0w, vf19w ; N/|N| + E (memory 11)
+    mulw.z vf13, vf13, vf13w             | fcand vi1, 0x3ffff
+    mulw.z vf24, vf1, vf13w              | nop               ; Q = 1/w
+    addaw.xyzw acc, vf0, vf1w            | nop
+    maddax.xyzw acc, vf15, vf25x         | nop
+    madday.xyzw acc, vf16, vf25y         | nop
+    maddz.xy vf24, vf17, vf25z           | nop               ; ST = matrix * (N + E) + 1 [I]
+    mulq.z vf22, vf7, q                  | nop
+    nop                                  | nop
+    nop                                  | nop
+    mulz.xy vf24, vf24, vf13z            | ibeq vi1, vi0, done ; * memory 1.z / w
+    ftoi4.xyz vf22, vf22                 | nop
+    nop                                  | lq.w vf22, 1(vi0) ; ADC: do not draw
+    nop                                  | nop
+done:
+    nop                                  | nop [E]
+    nop                                  | nop

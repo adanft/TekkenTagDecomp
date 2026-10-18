@@ -1,0 +1,83 @@
+; VU1 program 0x258: two-matrix skinned batch, constant colour.
+; Selected by func_003D8158 (model_draw) for kind 3, written as MSCALF 0x258 [V]
+; Vertex input (5 quadwords): +0 S T, z/w = 1-based VU1 addresses of the two bone matrices (vi10, vi11),
+; +3 position for bone A, +4 position for bone B (weights folded in [I]).
+; position = M_A * p_A + M_B * p_B; colour = I (128); ST/Q pass-through; guard-band clip -> ADC.
+
+.mpg 0x258
+entry:
+    nop                                  | xgkick vi7        ; send the previous batch
+    nop                                  | xtop vi5
+    nop                                  | iaddiu vi7, vi5, 0xe1
+    nop                                  | iaddiu vi6, vi5, 0xe1
+    nop                                  | fcset 0x0
+segment:
+    nop                                  | lq.xyzw vf24, 1(vi5)
+    muli.xyzw vf20, vf1, i               | lq.xyzw vf25, 2(vi5)
+    nop                                  | lq.xyzw vf26, 3(vi5)
+    nop                                  | lq.xyzw vf27, 4(vi5)
+    nop                                  | sq.xyzw vf24, 0(vi6)
+    ftoi0.xyzw vf20, vf20                | sq.xyzw vf25, 1(vi6)
+    nop                                  | sq.xyzw vf26, 2(vi6)
+    nop                                  | sq.xyzw vf27, 3(vi6)
+    nop                                  | ilw.x vi9, 5(vi5)
+    nop                                  | lq.xyzw vf24, 5(vi5)
+    nop                                  | lq.z vf23, 4(vi0)
+    nop                                  | nop
+    nop                                  | iand vi8, vi9, vi12
+    nop                                  | sq.xyzw vf24, 4(vi6)
+    nop                                  | iaddiu vi5, vi5, 0x6
+    nop                                  | ibeq vi8, vi0, batch_end
+    nop                                  | iaddiu vi6, vi6, 0x5
+vertex:
+    nop                                  | ilw.z vi10, 0(vi5) ; vi10, vi11: bone matrices (1-based)
+    nop                                  | ilw.w vi11, 0(vi5)
+    nop                                  | lq.xyzw vf14, 3(vi5)
+    nop                                  | lq.xyzw vf15, 4(vi5)
+    nop                                  | isubiu vi10, vi10, 0x1
+    nop                                  | isubiu vi11, vi11, 0x1
+    nop                                  | lq.xyzw vf10, 0(vi10) ; bone A matrix
+    nop                                  | lq.xyzw vf11, 1(vi10)
+    nop                                  | lq.xyzw vf12, 2(vi10)
+    nop                                  | lq.xyzw vf13, 3(vi10)
+    mulax.xyzw acc, vf10, vf14x          | lq.xyzw vf24, 0(vi11)
+    madday.xyzw acc, vf11, vf14y         | lq.xyzw vf25, 1(vi11)
+    maddaz.xyzw acc, vf12, vf14z         | lq.xyzw vf26, 2(vi11)
+    maddaw.xyzw acc, vf13, vf14w         | lq.xyzw vf27, 3(vi11)
+    maddax.xyzw acc, vf24, vf15x         | nop               ; M_A * p_A + M_B * p_B
+    madday.xyzw acc, vf25, vf15y         | nop
+    maddaz.xyzw acc, vf26, vf15z         | nop
+    maddw.xyzw vf16, vf27, vf15w         | nop
+    nop                                  | lq.xyzw vf22, 0(vi5)
+    nop                                  | isubiu vi8, vi8, 0x1
+    mulw.z vf22, vf1, vf0w               | nop
+    nop                                  | div q, vf0w, vf16w ; q = 1/w
+    nop                                  | nop
+    nop                                  | nop
+    nop                                  | nop
+    nop                                  | nop
+    nop                                  | nop
+    mula.w acc, vf0, vf5                 | nop
+    mulq.xyz vf16, vf16, q               | nop
+    mulq.xyz vf22, vf22, q               | nop
+    subaw.xyz acc, vf0, vf0w             | nop
+    nop                                  | nop
+    madd.xyz vf17, vf31, vf16            | sq.xyzw vf22, 0(vi6)
+    ftoi4.xyzw vf16, vf16                | sq.xyzw vf20, 1(vi6)
+    nop                                  | nop
+    nop                                  | nop
+    clipw.xyz vf17, vf0w                 | iaddiu vi5, vi5, 0x5
+    nop                                  | sq.xyz vf16, 2(vi6)
+    nop                                  | iaddiu vi3, vi6, 0x0
+    nop                                  | iaddiu vi6, vi6, 0x3
+    nop                                  | fcand vi1, 0x3ffff ; guard band -> ADC
+    nop                                  | isub vi1, vi0, vi1
+    nop                                  | ibne vi8, vi0, vertex
+    nop                                  | isw.w vi1, 2(vi3)
+    nop                                  | ibgez vi9, segment ; EOP clear: next segment
+    nop                                  | nop
+batch_end:
+    nop                                  | nop [E]
+    nop                                  | nop
+    nop                                  | b entry
+    nop                                  | nop

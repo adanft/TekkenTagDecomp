@@ -1,0 +1,7 @@
+; VU1 program 0x000: ends at once.
+; An MSCAL to 0 is harmless. MSCALF 0x0 codes are frequent in the disc's model data (several thousand in VIF
+; context [I]); whether they run this stub or are patched before use is not established.
+
+.mpg 0x0
+    nop                                  | nop [E]
+    nop                                  | nop

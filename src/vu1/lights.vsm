@@ -1,0 +1,12 @@
+; VU1 program 0x55A: loads the light colour matrix from memory 126..129 into vf5..vf8; vi7 = 0x320.
+; Called by MSCAL 0x55A at the end of the VIF1 template at 0x4FAF80 (.vudata, after the microcode packets): the
+; game copies it to the scratchpad, patches it (func_003424A8, vu1_packet) and sends it; it unpacks 0x85
+; quadwords to VU1 memory 0 first [V].
+
+.mpg 0x55a
+    nop                                  | lq.xyzw vf5, 126(vi0) ; light colour matrix from memory 126..129
+    nop                                  | lq.xyzw vf6, 127(vi0)
+    nop                                  | lq.xyzw vf7, 128(vi0)
+    nop                                  | lq.xyzw vf8, 129(vi0)
+    nop                                  | iaddiu vi7, vi0, 0x320 [E] ; next kick address
+    nop                                  | nop

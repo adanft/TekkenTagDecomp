@@ -1,0 +1,23 @@
+; VU1 program 0x780: the same code as object.vsm (per-object constants from TOP).
+; Caller not found; a second copy at a different address [I: kept for a separate set of chains].
+
+.mpg 0x780
+    nop                                  | xtop vi5          ; vi5 = TOP
+    nop                                  | lq.xyzw vf10, 0(vi5)
+    nop                                  | lq.xyzw vf11, 1(vi5)
+    nop                                  | lq.xyzw vf12, 2(vi5)
+    nop                                  | lq.xyzw vf13, 3(vi5)
+    nop                                  | lq.xyzw vf2, 4(vi5)
+    nop                                  | lq.xyzw vf3, 5(vi5)
+    nop                                  | lq.xyzw vf4, 6(vi5)
+    nop                                  | lq.xyzw vf5, 8(vi5)
+    nop                                  | lq.xyzw vf6, 9(vi5)
+    nop                                  | lq.xyzw vf7, 10(vi5)
+    nop                                  | lq.xyzw vf8, 11(vi5)
+    nop                                  | lq.xyzw vf28, 12(vi5)
+    nop                                  | lq.xyzw vf29, 13(vi5)
+    addw.z vf31, vf0, vf7w               | lq.xyzw vf30, 14(vi5) ; vf31.z = vf7.w
+    nop                                  | lq.xyzw vf21, 15(vi5)
+    nop                                  | iaddiu vi7, vi0, 0x306 ; first kick address
+    nop                                  | nop [E]
+    nop                                  | nop

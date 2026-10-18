@@ -1,0 +1,540 @@
+; VU1 program 0x050 (two MPG blocks, 0x050..0x257): rigid mesh batch with per-segment variants.
+; Selected by func_00356A78 (draw_list) as the default (kinds 0, 1, 2, 4), written as MSCALF 0x50 [V]
+;
+; Per segment, TOP+0 x (vi10) picks the vertex loop; the tests run in this order:
+;   0x008 envmap_reflect   ST from the eye vector reflected about the normal (eye position vf21)
+;   0x002 envmap_add       ST = input ST + 0.25 * (vf28..vf30 * normal) (scroll/offset [I])
+;   0x001 envmap           ST = 0.25 * (vf28..vf30 * normal) + 0.5 (sphere map [I])
+;   0x010 prelit           colour from the vertex (no lighting)
+;   0x004 or 0x400 envmap_atan  ST from the atan of the reflection vector (panoramic map [I])
+;   0x020 tinted           colour = vertex colour + vf8
+;   0x040 lit              directional lighting (also the default when no flag matches)
+;   0x100 flat_depth       z from the MAC sign test, different clip mask (0x1F7DF) [I]
+; Vertex input (4 quadwords from TOP+6): +0 colour (integers), +1 S T 1, +2 normal, +3 position.
+; Lighting: colour = vf5..vf8 * max(vf2..vf4 * normal, 0), alpha from the vertex, clamped to 255. Fog in XYZF2.w
+; from w (vf5.w, vf6.w), clamped to 0..255.
+
+.mpg 0x50
+entry:
+    nop                                  | xgkick vi7        ; send the previous batch
+    nop                                  | xtop vi5          ; vi5 = TOP
+    nop                                  | iaddiu vi7, vi5, 0x106 ; vi7 = output (kicked next time)
+    nop                                  | iaddiu vi6, vi5, 0x106
+segment:
+    clipw.xyz vf31, vf0w                 | ilw.x vi10, 0(vi5) ; vi10 = segment flags
+    nop                                  | lq.xyzw vf20, 1(vi5)
+    nop                                  | lq.xyzw vf25, 2(vi5)
+    nop                                  | lq.xyzw vf26, 3(vi5)
+    clipw.xyz vf31, vf0w                 | lq.xyzw vf19, 4(vi5)
+    nop                                  | sq.xyzw vf20, 0(vi6) ; copy 4 header quadwords
+    nop                                  | sq.xyzw vf25, 1(vi6)
+    nop                                  | sq.xyzw vf26, 2(vi6)
+    clipw.xyz vf31, vf0w                 | ilw.x vi9, 5(vi5) ; vi9 = vertex GIF tag (NLOOP, EOP)
+    nop                                  | lq.xyzw vf24, 5(vi5) ; copied as well
+    nop                                  | sq.xyzw vf19, 3(vi6)
+    nop                                  | lq.xyzw vf14, 9(vi5)
+    nop                                  | lq.xyzw vf18, 8(vi5)
+    nop                                  | iand vi8, vi9, vi12 ; vi8 = vertex count
+    nop                                  | sq.xyzw vf24, 4(vi6)
+    nop                                  | ibeq vi8, vi0, batch_end ; empty segment
+    nop                                  | iaddiu vi5, vi5, 0x6
+    nop                                  | iaddiu vi6, vi6, 0x5
+    nop                                  | iaddiu vi2, vi0, 0x8
+    nop                                  | iand vi11, vi10, vi2
+    nop                                  | nop
+    nop                                  | ibne vi11, vi0, envmap_reflect
+    nop                                  | iaddiu vi2, vi0, 0x2
+    nop                                  | iand vi11, vi10, vi2
+    nop                                  | nop
+    nop                                  | ibne vi11, vi0, envmap_add
+    nop                                  | iaddiu vi2, vi0, 0x1
+    nop                                  | iand vi11, vi10, vi2
+    nop                                  | nop
+    nop                                  | ibne vi11, vi0, envmap
+    nop                                  | iaddiu vi2, vi0, 0x10
+    nop                                  | iand vi11, vi10, vi2
+    nop                                  | nop
+    nop                                  | ibne vi11, vi0, prelit
+    nop                                  | iaddiu vi2, vi0, 0x4
+    nop                                  | iand vi11, vi10, vi2
+    nop                                  | nop
+    nop                                  | ibne vi11, vi0, envmap_atan
+    nop                                  | iaddiu vi2, vi0, 0x400
+    nop                                  | iand vi11, vi10, vi2
+    nop                                  | nop
+    nop                                  | ibne vi11, vi0, envmap_atan
+    nop                                  | iaddiu vi2, vi0, 0x20
+    nop                                  | iand vi11, vi10, vi2
+    nop                                  | nop
+    nop                                  | ibne vi11, vi0, tinted
+    nop                                  | iaddiu vi2, vi0, 0x40
+    nop                                  | iand vi11, vi10, vi2
+    nop                                  | nop
+    nop                                  | ibne vi11, vi0, lit
+    nop                                  | iaddiu vi2, vi0, 0x100
+    nop                                  | iand vi11, vi10, vi2
+    nop                                  | nop
+    nop                                  | ibne vi11, vi0, flat_depth
+    nop                                  | nop
+lit:
+    mulax.xyzw acc, vf2, vf18x           | isubiu vi8, vi8, 0x1 ; light directions . normal
+    madday.xyzw acc, vf3, vf18y          | nop
+    maddz.xyzw vf19, vf4, vf18z          | nop
+    mulax.xyzw acc, vf10, vf14x          | nop               ; local -> screen
+    madday.xyzw acc, vf11, vf14y         | lq.xyzw vf26, 0(vi5)
+    maddaz.xyzw acc, vf12, vf14z         | nop
+    maddw.xyzw vf15, vf13, vf0w          | lq.xyzw vf24, 1(vi5)
+    maxx.xyzw vf19, vf19, vf0x           | lq.xyzw vf14, 7(vi5) ; N.L clamped at 0
+    mul.w vf20, vf0, vf8                 | nop
+    addax.w acc, vf6, vf0x               | nop
+    madd.w vf16, vf5, vf15               | div q, vf0w, vf15w ; fog = vf5.w * w + vf6.w
+    mulax.xyzw acc, vf5, vf19x           | nop               ; light colours
+    madday.xyzw acc, vf6, vf19y          | move.z vf24, vf1
+    maddz.xyz vf20, vf7, vf19z           | nop
+    miniz.w vf16, vf16, vf9z             | nop
+    itof0.xyzw vf18, vf26                | nop               ; vertex colour to float
+    subaw.xyz acc, vf0, vf0w             | nop
+    mulq.xyz vf16, vf15, q               | nop
+    mulq.xyz vf24, vf24, q               | move.xyz vf26, vf1
+    maxx.w vf16, vf16, vf0x              | nop
+    nop                                  | mr32.w vf26, vf0
+    madd.xyz vf17, vf31, vf16            | nop               ; guard band: xyz * vf31 - 1
+    mula.xyzw acc, vf20, vf18            | sq.xyzw vf24, 0(vi6) ; light * vertex colour
+    ftoi4.xyzw vf16, vf16                | lq.xyzw vf18, 6(vi5) ; 12.4 fixed point
+    madd.xyzw vf20, vf26, vf8            | iaddiu vi5, vi5, 0x4 ; + ambient (vf8.xyz)
+    clipw.xyz vf17, vf1w                 | iaddiu vi3, vi6, 0x0 ; clip test
+    nop                                  | iaddiu vi6, vi6, 0x3
+    nop                                  | mtir vi2, vf16w   ; fog -> vi2
+    miniz.xyz vf20, vf20, vf9z           | sq.xyz vf16, 2(vi3)
+    nop                                  | fcand vi1, 0x3ffff ; out of the guard band?
+    nop                                  | isub vi1, vi0, vi1 ; -> 0x8000 or 0
+    nop                                  | iand vi1, vi1, vi13
+    ftoi0.xyzw vf20, vf20                | ior vi1, vi1, vi2
+    nop                                  | isw.w vi1, 2(vi3) ; ADC | fog
+    nop                                  | nop
+    nop                                  | ibne vi8, vi0, lit
+    nop                                  | sq.xyzw vf20, 1(vi3)
+    nop                                  | ibgez vi9, segment ; EOP clear: next segment
+    nop                                  | nop
+batch_end:
+    nop                                  | nop [E]           ; end; MSCNT restarts at entry
+    nop                                  | nop
+    nop                                  | b entry
+    nop                                  | nop
+prelit:
+    mulax.xyzw acc, vf10, vf14x          | lq.xyzw vf20, 0(vi5)
+    madday.xyzw acc, vf11, vf14y         | nop
+    maddaz.xyzw acc, vf12, vf14z         | isubiu vi8, vi8, 0x1
+    maddw.xyzw vf15, vf13, vf0w          | lq.xyzw vf24, 1(vi5)
+    nop                                  | lq.xyzw vf14, 7(vi5)
+    nop                                  | sq.xyzw vf20, 1(vi6)
+    addax.w acc, vf6, vf0x               | nop
+    madd.w vf16, vf5, vf15               | div q, vf0w, vf15w
+    nop                                  | nop
+    nop                                  | move.z vf24, vf1
+    nop                                  | nop
+    miniz.w vf16, vf16, vf9z             | nop
+    nop                                  | nop
+    subaw.xyz acc, vf0, vf0w             | nop
+    mulq.xyz vf16, vf15, q               | nop
+    maxx.w vf16, vf16, vf0x              | nop
+    mulq.xyz vf24, vf24, q               | nop
+    nop                                  | nop
+    madd.xyz vf17, vf31, vf16            | nop
+    ftoi4.xyzw vf16, vf16                | nop
+    nop                                  | sq.xyzw vf24, 0(vi6)
+    nop                                  | iaddiu vi5, vi5, 0x4
+    clipw.xyz vf17, vf1w                 | iaddiu vi3, vi6, 0x0
+    nop                                  | mtir vi2, vf16w
+    nop                                  | sq.xyz vf16, 2(vi3)
+    nop                                  | iaddiu vi6, vi6, 0x3
+    nop                                  | fcand vi1, 0x3ffff
+    nop                                  | isub vi1, vi0, vi1
+    nop                                  | iand vi1, vi1, vi13
+    nop                                  | ior vi1, vi1, vi2
+    nop                                  | ibne vi8, vi0, prelit
+    nop                                  | isw.w vi1, 2(vi3)
+    nop                                  | ibgez vi9, segment
+    nop                                  | nop
+    nop                                  | nop [E]
+    nop                                  | nop
+    nop                                  | b entry
+    nop                                  | nop
+tinted:
+    mulax.xyzw acc, vf10, vf14x          | lq.xyzw vf20, 0(vi5)
+    madday.xyzw acc, vf11, vf14y         | nop
+    maddaz.xyzw acc, vf12, vf14z         | isubiu vi8, vi8, 0x1
+    maddw.xyzw vf15, vf13, vf0w          | lq.xyzw vf24, 1(vi5)
+    itof0.xyzw vf20, vf20                | lq.xyzw vf14, 7(vi5)
+    nop                                  | nop
+    addax.w acc, vf6, vf0x               | nop
+    madd.w vf16, vf5, vf15               | div q, vf0w, vf15w
+    add.xyz vf20, vf20, vf8              | nop
+    nop                                  | move.z vf24, vf1
+    nop                                  | nop
+    miniz.w vf16, vf16, vf9z             | nop
+    miniz.xyz vf20, vf20, vf9z           | nop
+    subaw.xyz acc, vf0, vf0w             | nop
+    mulq.xyz vf16, vf15, q               | nop
+    maxx.w vf16, vf16, vf0x              | nop
+    mulq.xyz vf24, vf24, q               | nop
+    nop                                  | nop
+    madd.xyz vf17, vf31, vf16            | nop
+    ftoi4.xyzw vf16, vf16                | iaddiu vi5, vi5, 0x4
+    ftoi0.xyzw vf20, vf20                | sq.xyzw vf24, 0(vi6)
+    nop                                  | iaddiu vi3, vi6, 0x0
+    clipw.xyz vf17, vf1w                 | iaddiu vi6, vi6, 0x3
+    nop                                  | mtir vi2, vf16w
+    nop                                  | sq.xyzw vf20, 1(vi3)
+    nop                                  | sq.xyz vf16, 2(vi3)
+    nop                                  | fcand vi1, 0x3ffff
+    nop                                  | isub vi1, vi0, vi1
+    nop                                  | iand vi1, vi1, vi13
+    nop                                  | ior vi1, vi1, vi2
+    nop                                  | ibne vi8, vi0, tinted
+    nop                                  | isw.w vi1, 2(vi3)
+    nop                                  | ibgez vi9, segment
+    nop                                  | nop
+    nop                                  | nop [E]
+    nop                                  | nop
+    nop                                  | b entry
+    nop                                  | nop
+flat_depth:
+    mulax.xyzw acc, vf10, vf14x          | lq.xyzw vf20, 0(vi5)
+    madday.xyzw acc, vf11, vf14y         | nop
+    maddaz.xyzw acc, vf12, vf14z         | isubiu vi8, vi8, 0x1
+    maddw.xyzw vf15, vf13, vf0w          | lq.xyzw vf24, 1(vi5)
+    nop                                  | lq.xyzw vf14, 7(vi5)
+    nop                                  | sq.xyzw vf20, 1(vi6)
+    nop                                  | iaddiu vi3, vi0, 0x10
+    subx.xyzw vf0, vf15, vf0x            | div q, vf0w, vf15w
+    addw.xyzw vf22, vf0, vf0w            | nop
+    nop                                  | move.z vf24, vf1
+    nop                                  | nop
+    nop                                  | fmand vi2, vi3    ; MAC flags
+    nop                                  | mfir.z vf19, vi2
+    mulx.xy vf19, vf0, vf0x              | nop
+    mulq.xyz vf16, vf15, q               | nop
+    mulq.xyz vf24, vf24, q               | nop
+    itof0.z vf19, vf19                   | nop
+    nop                                  | nop
+    mula.xyz acc, vf31, vf16             | nop
+    msubaw.xyz acc, vf22, vf0w           | move.z vf16, vf0
+    maddw.xyz vf17, vf19, vf0w           | sq.xyzw vf24, 0(vi6)
+    nop                                  | nop
+    nop                                  | nop
+    ftoi4.xyzw vf16, vf16                | nop
+    clipw.xyz vf17, vf0w                 | iaddiu vi5, vi5, 0x4
+    nop                                  | iaddiu vi3, vi6, 0x0
+    nop                                  | iaddiu vi6, vi6, 0x3
+    nop                                  | sq.xyz vf16, 2(vi3)
+    nop                                  | fcand vi1, 0x1f7df ; clip mask without some planes
+    nop                                  | isub vi1, vi0, vi1
+    nop                                  | ibne vi8, vi0, flat_depth
+    nop                                  | isw.w vi1, 2(vi3)
+    nop                                  | ibgez vi9, segment
+    nop                                  | nop
+    nop                                  | nop [E]
+    nop                                  | nop
+    nop                                  | b entry
+    nop                                  | nop
+envmap_reflect:
+    sub.xyz vf22, vf21, vf14             | nop
+    mulax.xyzw acc, vf10, vf14x          | lq.xyzw vf20, 0(vi5)
+    madday.xyzw acc, vf11, vf14y         | isubiu vi8, vi8, 0x1
+    maddaz.xyzw acc, vf12, vf14z         | lq.xyzw vf18, 2(vi5)
+    mulw.y vf22, vf22, vf31w             | nop
+    maddw.xyzw vf15, vf13, vf0w          | nop
+    itof0.w vf20, vf20                   | nop
+    addw.x vf23, vf0, vf3w               | move.xyzw vf27, vf1
+    subw.z vf23, vf0, vf2w               | erleng.xyz p, vf22 ; P = 1/|eye - position|
+    addw.x vf19, vf0, vf2w               | div q, vf0w, vf15w
+    mul.w vf20, vf20, vf8                | nop
+    addw.z vf19, vf0, vf3w               | nop
+    nop                                  | nop
+    addax.w acc, vf6, vf0x               | nop
+    ftoi0.w vf20, vf20                   | nop
+    madd.w vf16, vf5, vf15               | nop
+    mulq.xyz vf16, vf15, q               | nop
+    nop                                  | nop
+    mulax.xz acc, vf23, vf22x            | sq.xyzw vf20, 1(vi6)
+    maddz.xz vf22, vf19, vf22z           | nop
+    mula.xyzw acc, vf31, vf16            | nop
+    msubw.xyzw vf17, vf27, vf0w          | nop
+    miniz.w vf16, vf16, vf9z             | nop
+    mulax.xz acc, vf23, vf18x            | nop
+    nop                                  | nop
+    clipw.xyz vf17, vf1w                 | nop
+    maxx.w vf16, vf16, vf0x              | nop
+    nop                                  | nop
+    nop                                  | lq.xyzw vf14, 7(vi5)
+    nop                                  | fcand vi1, 0x3ffff
+    ftoi4.xyzw vf16, vf16                | isub vi1, vi0, vi1
+    nop                                  | iand vi1, vi1, vi13
+    nop                                  | mfp.x vf26, p
+    nop                                  | nop
+    nop                                  | mtir vi2, vf16w
+    nop                                  | sq.xyz vf16, 2(vi6)
+    mulx.xyz vf25, vf22, vf26x           | nop
+    nop                                  | iaddiu vi3, vi1, 0x0
+    nop                                  | ior vi1, vi1, vi2
+    nop                                  | isw.w vi1, 2(vi6)
+.vif 0x00000000         ; NOP
+.mpg 0x150
+    mul.yz vf26, vf25, vf18              | ibne vi3, vi0, reflect_store
+    nop                                  | nop
+    nop                                  | nop
+    mulax.x acc, vf25, vf18x             | nop
+    madday.x acc, vf1, vf26y             | nop
+    maddz.x vf26, vf1, vf26z             | nop
+    add.xyz vf18, vf18, vf18             | nop
+    nop                                  | nop
+    nop                                  | nop
+    suba.xyz acc, vf0, vf25              | nop
+    maddax.xyz acc, vf18, vf26x          | nop
+    maddw.xyz vf26, vf1, vf0w            | nop
+    nop                                  | nop
+    mulq.z vf24, vf1, q                  | nop
+    mulq.w vf26, vf9, q                  | nop
+    mulz.y vf26, vf1, vf26z              | nop
+    nop                                  | nop
+    nop                                  | nop
+    nop                                  | nop
+reflect_store:
+    mulw.xy vf24, vf26, vf26w            | iaddiu vi5, vi5, 0x4
+    nop                                  | iaddiu vi3, vi6, 0x0
+    nop                                  | iaddiu vi6, vi6, 0x3
+    nop                                  | ibne vi8, vi0, envmap_reflect
+    nop                                  | sq.xyzw vf24, 0(vi3)
+    nop                                  | ibgez vi9, segment
+    nop                                  | nop
+    nop                                  | nop [E]
+    nop                                  | nop
+    nop                                  | b entry
+    nop                                  | nop
+envmap:
+    mulax.xyzw acc, vf10, vf14x          | lq.xyzw vf18, 2(vi5)
+    madday.xyzw acc, vf11, vf14y         | lq.xyzw vf24, 1(vi5)
+    maddaz.xyzw acc, vf12, vf14z         | isubiu vi8, vi8, 0x1
+    maddw.xyzw vf15, vf13, vf0w          | nop
+    muli.xyzw vf20, vf1, i               | nop
+    nop                                  | nop
+    addax.w acc, vf6, vf0x               | nop
+    madd.w vf16, vf5, vf15               | div q, vf0w, vf15w
+    mulax.xyzw acc, vf28, vf18x          | lq.xyzw vf14, 7(vi5)
+    madday.xyzw acc, vf29, vf18y         | move.z vf24, vf1
+    maddz.xyzw vf25, vf30, vf18z         | nop
+    miniz.w vf16, vf16, vf9z             | nop
+    mul.w vf20, vf20, vf8                | nop
+    subaw.xyz acc, vf0, vf0w             | nop
+    mulq.xyz vf16, vf15, q               | nop
+    maxx.w vf16, vf16, vf0x              | nop
+    mulx.xy vf25, vf25, vf9x             | nop
+    nop                                  | nop
+    madd.xyz vf17, vf31, vf16            | nop
+    ftoi4.xyzw vf16, vf16                | nop
+    addw.xy vf24, vf25, vf9w             | iaddiu vi5, vi5, 0x4
+    ftoi0.xyzw vf20, vf20                | iaddiu vi3, vi6, 0x0
+    clipw.xyz vf17, vf1w                 | iaddiu vi6, vi6, 0x3
+    nop                                  | mtir vi2, vf16w
+    mulq.xyz vf24, vf24, q               | sq.xyz vf16, 2(vi3)
+    nop                                  | sq.xyzw vf20, 1(vi3)
+    nop                                  | fcand vi1, 0x3ffff
+    nop                                  | isub vi1, vi0, vi1
+    nop                                  | sq.xyzw vf24, 0(vi3)
+    nop                                  | iand vi1, vi1, vi13
+    nop                                  | ior vi1, vi1, vi2
+    nop                                  | ibne vi8, vi0, envmap
+    nop                                  | isw.w vi1, 2(vi3)
+    nop                                  | ibgez vi9, segment
+    nop                                  | nop
+    nop                                  | nop [E]
+    nop                                  | nop
+    nop                                  | b entry
+    nop                                  | nop
+envmap_add:
+    mulax.xyzw acc, vf10, vf14x          | lq.xyzw vf18, 2(vi5)
+    madday.xyzw acc, vf11, vf14y         | lq.xyzw vf24, 1(vi5)
+    maddaz.xyzw acc, vf12, vf14z         | isubiu vi8, vi8, 0x1
+    maddw.xyzw vf15, vf13, vf0w          | nop
+    muli.xyzw vf20, vf1, i               | nop
+    nop                                  | nop
+    addax.w acc, vf6, vf0x               | nop
+    madd.w vf16, vf5, vf15               | div q, vf0w, vf15w
+    mulax.xyzw acc, vf28, vf18x          | lq.xyzw vf14, 7(vi5)
+    madday.xyzw acc, vf29, vf18y         | move.z vf24, vf1
+    maddz.xyzw vf25, vf30, vf18z         | nop
+    miniz.w vf16, vf16, vf9z             | nop
+    mul.w vf20, vf20, vf8                | nop
+    subaw.xyz acc, vf0, vf0w             | nop
+    mulq.xyz vf16, vf15, q               | nop
+    maxx.w vf16, vf16, vf0x              | nop
+    mulx.xy vf25, vf25, vf9x             | nop
+    nop                                  | nop
+    madd.xyz vf17, vf31, vf16            | nop
+    ftoi4.xyzw vf16, vf16                | nop
+    add.xy vf24, vf25, vf24              | iaddiu vi5, vi5, 0x4
+    ftoi0.xyzw vf20, vf20                | iaddiu vi3, vi6, 0x0
+    clipw.xyz vf17, vf1w                 | iaddiu vi6, vi6, 0x3
+    nop                                  | mtir vi2, vf16w
+    mulq.xyz vf24, vf24, q               | sq.xyz vf16, 2(vi3)
+    nop                                  | sq.xyzw vf20, 1(vi3)
+    nop                                  | fcand vi1, 0x3ffff
+    nop                                  | isub vi1, vi0, vi1
+    nop                                  | sq.xyzw vf24, 0(vi3)
+    nop                                  | iand vi1, vi1, vi13
+    nop                                  | ior vi1, vi1, vi2
+    nop                                  | ibne vi8, vi0, envmap_add
+    nop                                  | isw.w vi1, 2(vi3)
+    nop                                  | ibgez vi9, segment
+    nop                                  | nop
+    nop                                  | nop [E]
+    nop                                  | nop
+    nop                                  | b entry
+    nop                                  | nop
+envmap_atan:
+    sub.xyzw vf22, vf21, vf14            | nop
+    mulax.xyzw acc, vf10, vf14x          | lq.xyzw vf18, 2(vi5)
+    madday.xyzw acc, vf11, vf14y         | nop
+    maddaz.xyzw acc, vf12, vf14z         | isubiu vi8, vi8, 0x1
+    maddw.xyzw vf15, vf13, vf0w          | erleng.xyz p, vf22 ; P = 1/|eye - position|
+    muli.xyzw vf20, vf1, i               | nop
+    addw.x vf14, vf0, vf3w               | nop
+    subw.z vf14, vf0, vf2w               | nop
+    addw.x vf17, vf0, vf2w               | div q, vf0w, vf15w
+    ftoi0.xyzw vf20, vf20                | nop
+    addw.z vf17, vf0, vf3w               | move.z vf24, vf1
+    addax.w acc, vf6, vf0x               | nop
+    madd.w vf16, vf5, vf15               | nop
+    nop                                  | sq.xyzw vf20, 1(vi6)
+    nop                                  | nop
+    mulq.xyz vf16, vf15, q               | nop
+    nop                                  | nop
+    nop                                  | nop
+    subaw.xyz acc, vf0, vf0w             | nop
+    nop                                  | nop
+    miniz.w vf16, vf16, vf9z             | nop
+    madd.xyz vf17, vf31, vf16            | iaddiu vi2, vi0, 0x400
+    nop                                  | iand vi11, vi10, vi2
+    nop                                  | isub vi11, vi2, vi11
+    maxx.w vf16, vf16, vf0x              | nop
+    clipw.xyz vf17, vf0w                 | nop
+    nop                                  | lq.xyzw vf14, 7(vi5)
+    nop                                  | nop
+    ftoi4.xyzw vf16, vf16                | mfp.w vf22, p
+    nop                                  | fcand vi1, 0x3ffff
+    nop                                  | isub vi1, vi0, vi1
+    nop                                  | iand vi1, vi1, vi13
+    mulw.xyz vf22, vf22, vf22w           | mtir vi2, vf16w
+    nop                                  | iaddiu vi3, vi1, 0x0
+    nop                                  | ior vi1, vi1, vi2
+    nop                                  | isw.w vi1, 2(vi6)
+    mul.yz vf26, vf18, vf22              | ibne vi3, vi0, atan_store
+    nop                                  | sq.xyz vf16, 2(vi6)
+    nop                                  | nop
+    mulax.x acc, vf18, vf22x             | nop
+    madday.x acc, vf1, vf26y             | nop
+    maddz.x vf26, vf1, vf26z             | nop
+    add.xyz vf18, vf18, vf18             | nop
+    nop                                  | nop
+    nop                                  | nop
+    nop                                  | nop
+    mulax.xyz acc, vf18, vf26x           | nop
+    msub.xyz vf18, vf1, vf22             | nop
+    nop                                  | nop
+    nop                                  | nop
+    nop                                  | nop
+    abs.xyzw vf26, vf18                  | nop
+    subz.xyzw vf0, vf26, vf26z           | nop
+    nop                                  | nop
+    nop                                  | nop
+    nop                                  | iaddiu vi2, vi0, 0x80
+    nop                                  | fmand vi1, vi2
+    nop                                  | nop
+    nop                                  | ibne vi1, vi0, atan_xy
+    nop                                  | nop
+    nop                                  | eatanxz.xz p, vf26 ; P = atan(z/x)
+    sub.xyzw vf0, vf18, vf0              | nop
+    nop                                  | nop
+    nop                                  | nop
+    nop                                  | iaddiu vi2, vi0, 0x20
+    nop                                  | fmand vi1, vi2
+    nop                                  | nop
+    nop                                  | nop
+    nop                                  | iaddiu vi2, vi0, 0x80
+    nop                                  | fmand vi3, vi2
+    nop                                  | waitp
+    nop                                  | mfp.x vf18, p
+    nop                                  | nop
+    nop                                  | nop
+    nop                                  | nop
+    muly.x vf18, vf18, vf9y              | nop
+    nop                                  | nop
+    nop                                  | nop
+    nop                                  | nop
+    nop                                  | b atan_sign
+    nop                                  | nop
+atan_xy:
+    addx.y vf26, vf0, vf26x              | nop
+    addz.x vf26, vf0, vf26z              | nop
+    nop                                  | nop
+    nop                                  | nop
+    nop                                  | nop
+    nop                                  | eatanxy.xy p, vf26 ; P = atan(y/x)
+    subx.xyzw vf0, vf18, vf0x            | nop
+    nop                                  | nop
+    nop                                  | nop
+    nop                                  | iaddiu vi2, vi0, 0x20
+    nop                                  | fmand vi1, vi2
+    nop                                  | nop
+    nop                                  | nop
+    nop                                  | iaddiu vi2, vi0, 0x80
+    nop                                  | fmand vi3, vi2
+    nop                                  | waitp
+    nop                                  | mfp.x vf18, p
+    nop                                  | nop
+    nop                                  | nop
+    nop                                  | nop
+    mulay.x acc, vf18, vf9y              | nop
+    msubw.x vf18, vf1, vf9w              | nop
+    nop                                  | nop
+    nop                                  | nop
+    nop                                  | nop
+    sub.x vf18, vf0, vf18                | nop
+    nop                                  | nop
+    nop                                  | nop
+atan_sign:
+    nop                                  | ibeq vi3, vi0, atan_sign2
+    nop                                  | nop
+    sub.x vf18, vf1, vf18                | nop
+    nop                                  | nop
+    nop                                  | nop
+    nop                                  | nop
+atan_sign2:
+    nop                                  | ibeq vi1, vi0, atan_scale
+    nop                                  | nop
+    sub.x vf18, vf0, vf18                | nop
+    nop                                  | nop
+atan_scale:
+    mulaw.xy acc, vf18, vf9w             | nop
+    maddw.xy vf24, vf1, vf9w             | nop
+    nop                                  | iaddiu vi2, vi0, 0x80
+    nop                                  | nop
+    nop                                  | fmand vi1, vi2
+    sub.y vf24, vf0, vf24                | iadd vi1, vi1, vi11
+    nop                                  | nop
+    nop                                  | ibeq vi1, vi0, atan_store
+    nop                                  | nop
+    addw.x vf24, vf24, vf0w              | nop
+atan_store:
+    mulq.xyz vf24, vf24, q               | iaddiu vi5, vi5, 0x4
+    nop                                  | iaddiu vi3, vi6, 0x0
+    nop                                  | iaddiu vi6, vi6, 0x3
+    nop                                  | ibne vi8, vi0, envmap_atan
+    nop                                  | sq.xyzw vf24, 0(vi3)
+    nop                                  | ibgez vi9, segment
+    nop                                  | nop
+    nop                                  | nop [E]
+    nop                                  | nop
+    nop                                  | b entry
+    nop                                  | nop
