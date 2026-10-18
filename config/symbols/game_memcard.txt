@@ -1,0 +1,7 @@
+// Game module memcard (docs/game_overview.md section 4; the range is provisional).
+// Naming rules: docs/decomp_guide.md, "Naming".
+// range: 0x0035E878 0x003608B8
+
+// Memory card service (run from Frame_End) and init.
+Mc_Update = 0x0035F370; // type:func // guess
+Mc_Init = 0x00360410; // type:func

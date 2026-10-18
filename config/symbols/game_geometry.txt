@@ -1,0 +1,4 @@
+// Game module geometry (docs/game_overview.md section 4; the range is provisional).
+// Naming rules: docs/decomp_guide.md, "Naming".
+// range: 0x00346398 0x0034A7A8
+// range: 0x0034B4E8 0x0034C508

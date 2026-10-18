@@ -1,0 +1,6 @@
+// Game module theater (docs/game_overview.md section 4; the range is provisional).
+// Naming rules: docs/decomp_guide.md, "Naming".
+// range: 0x003543F0 0x00356A70
+
+Mode_Theater = 0x00354D68; // type:func // guess
+Mode_MusicPlayer = 0x00355D90; // type:func // guess

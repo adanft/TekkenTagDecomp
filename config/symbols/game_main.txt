@@ -1,0 +1,13 @@
+// Game module main (docs/game_overview.md section 4; the range is provisional).
+// Naming rules: docs/decomp_guide.md, "Naming".
+// range: 0x00357358 0x00358A38
+
+// Boot, main loop and frame phases.
+Sys_BootIop = 0x00357358; // type:func
+Sys_Init = 0x00357430; // type:func
+Mode_SetDrawFlags = 0x003576C0; // type:func // guess
+main = 0x003577E8; // type:func
+Frame_PreUpdate = 0x00357888; // type:func // guess
+Mode_Dispatch = 0x003578F0; // type:func
+Frame_Begin = 0x00357B70; // type:func
+Frame_End = 0x00357BF0; // type:func

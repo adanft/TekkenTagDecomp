@@ -1,0 +1,9 @@
+// Library crt0 (config/library_ranges.txt; evidence in docs/text_map.md).
+// Naming rules: docs/decomp_guide.md, "Naming".
+// range: 0x003572A0 0x00357358
+
+// crt0 (Sony): the ELF entry point. Clears .sbss/.bss, SetupThread (syscall 0x3C) and SetupHeap (0x3D) inline,
+// FlushCache, main(argc, argv), then Exit.
+_start = 0x003572A0; // type:func
+_exit = 0x00357348; // type:func
+_root = 0x00357350; // type:func

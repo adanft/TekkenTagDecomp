@@ -1,0 +1,11 @@
+// Library libmtap (config/library_ranges.txt; evidence in docs/text_map.md).
+// Naming rules: docs/decomp_guide.md, "Naming".
+// range: 0x00406098 0x00406560
+
+// libmtap 1620: names from the functions' own error strings ("libmtap: bind failed", "sceMtapPortOpen: ...").
+sceMtapInit = 0x004060D0; // type:func
+sceMtapPortOpen = 0x00406330; // type:func
+sceMtapPortClose = 0x004063A0; // type:func
+sceMtapGetConnection = 0x00406410; // type:func
+sceMtapGetSlotNumber = 0x00406480; // type:func
+sceMtapChangeSlot = 0x004064F0; // type:func

@@ -1,0 +1,8 @@
+// Game module dma_gif (docs/game_overview.md section 4; the range is provisional).
+// Naming rules: docs/decomp_guide.md, "Naming".
+// range: 0x00342E78 0x00346398
+
+// DMA and VU0 microcode helpers.
+Dma_SendChain = 0x00343028; // type:func
+Dma_Wait = 0x00343278; // type:func
+Vu0_LoadMicrocode = 0x003432A0; // type:func // guess

@@ -15,7 +15,7 @@ writes `build.ninja`. ninja then:
 4. flattens that with `objcopy -O binary` into `build/SLUS_200.01`;
 5. checks its SHA-1 against the original (`build/SLUS_200.01.ok` is written only on a match).
 
-The build counts only if ninja ends without `FAILED`. Editing the config, `config/symbol_addrs.txt` or
+The build counts only if ninja ends without `FAILED`. Editing the config, `config/symbols/*.txt` or
 `configure.py` makes ninja run `configure.py` again by itself (splat reads the symbol file, so a new name
 reaches the split assembly).
 

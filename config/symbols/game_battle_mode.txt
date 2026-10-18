@@ -1,0 +1,5 @@
+// Game module battle_mode (docs/game_overview.md section 4; the range is provisional).
+// Naming rules: docs/decomp_guide.md, "Naming".
+// range: 0x00358A38 0x0035C2B0
+
+Mode_Battle = 0x0035A6A0; // type:func // guess

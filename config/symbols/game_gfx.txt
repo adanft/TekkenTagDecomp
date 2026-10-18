@@ -1,0 +1,11 @@
+// Game module gfx (docs/game_overview.md section 4; the range is provisional).
+// Naming rules: docs/decomp_guide.md, "Naming".
+// range: 0x00398940 0x003994C0
+
+// Graphics core: GS setup, VBlank-start handler, frame pacing.
+Gfx_Init = 0x00398940; // type:func
+Gfx_SetFrameReady = 0x00398CD8; // type:func
+Gfx_WaitVSync = 0x00398CE8; // type:func
+Gfx_VSyncHandler = 0x00398E48; // type:func
+Gfx_SetPhase = 0x00398FB0; // type:func // guess
+Gfx_InstallVSyncHandler = 0x00398FC0; // type:func

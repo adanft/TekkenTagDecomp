@@ -4,7 +4,68 @@ options:
   basename: SLUS_200.01
   target_path: iso/SLUS_200.01
   elf_path: build/SLUS_200.01.elf
-  symbol_addrs_path: config/symbol_addrs.txt
+  # Names, one file per library or game module in address order (docs/decomp_guide.md, "Naming"). configure.py
+  # refuses to run unless this lists exactly the files in config/symbols/.
+  symbol_addrs_path:
+    - config/symbols/game_render_fighter_a.txt
+    - config/symbols/game_vu1_packet.txt
+    - config/symbols/game_dma_gif.txt
+    - config/symbols/game_geometry.txt
+    - config/symbols/libvu0.txt
+    - config/symbols/game_scene3d.txt
+    - config/symbols/game_theater.txt
+    - config/symbols/game_draw_list.txt
+    - config/symbols/crt0.txt
+    - config/symbols/game_main.txt
+    - config/symbols/game_battle_mode.txt
+    - config/symbols/game_rng_misc.txt
+    - config/symbols/game_dma_spr.txt
+    - config/symbols/game_memcard.txt
+    - config/symbols/game_font_tex.txt
+    - config/symbols/game_fighter_setup.txt
+    - config/symbols/game_battle_flow.txt
+    - config/symbols/game_sound.txt
+    - config/symbols/game_fight_misc.txt
+    - config/symbols/game_practice.txt
+    - config/symbols/game_fighter_core.txt
+    - config/symbols/game_camera_stage.txt
+    - config/symbols/game_pad.txt
+    - config/symbols/game_file.txt
+    - config/symbols/game_gfx.txt
+    - config/symbols/game_zsort.txt
+    - config/symbols/game_sound_if.txt
+    - config/symbols/game_screenshot.txt
+    - config/symbols/game_movie.txt
+    - config/symbols/game_effects.txt
+    - config/symbols/game_effects_draw.txt
+    - config/symbols/game_loading_title.txt
+    - config/symbols/game_menu_common.txt
+    - config/symbols/game_options.txt
+    - config/symbols/game_pause_results.txt
+    - config/symbols/game_modes.txt
+    - config/symbols/game_select_results.txt
+    - config/symbols/game_sprite2d.txt
+    - config/symbols/game_model_anim.txt
+    - config/symbols/game_model_draw.txt
+    - config/symbols/game_demo.txt
+    - config/symbols/game_menu_bg.txt
+    - config/symbols/game_gallery_jpeg.txt
+    - config/symbols/game_tekken_bowl.txt
+    - config/symbols/libcdvd.txt
+    - config/symbols/libdma.txt
+    - config/symbols/libgraph.txt
+    - config/symbols/libmpeg.txt
+    - config/symbols/libipu.txt
+    - config/symbols/libkernl.txt
+    - config/symbols/libpkt.txt
+    - config/symbols/librspu2.txt
+    - config/symbols/libpad.txt
+    - config/symbols/libmtap.txt
+    - config/symbols/libmc.txt
+    - config/symbols/libm.txt
+    - config/symbols/libgcc.txt
+    - config/symbols/libc.txt
+    - config/symbols/data.txt
   base_path: ..
   platform: ps2
   compiler: EEGCC

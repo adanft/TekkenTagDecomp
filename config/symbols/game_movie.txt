@@ -1,0 +1,12 @@
+// Game module movie (docs/game_overview.md section 4; the range is provisional).
+// Naming rules: docs/decomp_guide.md, "Naming".
+// range: 0x0039C7B8 0x003A04B8
+
+// MPEG movie playback: service run from Frame_End, open/close, stream reads.
+Movie_Update = 0x0039C838; // type:func // guess
+Movie_Open = 0x0039CDC0; // type:func // guess
+Movie_Close = 0x0039CF90; // type:func // guess
+Movie_StartStream = 0x0039D058; // type:func // guess
+Movie_WaitRead = 0x0039D0D0; // type:func // guess
+Snd_WaitStreamIdle = 0x0039D170; // type:func // guess
+Movie_ReadChunk = 0x0039D1E0; // type:func // guess

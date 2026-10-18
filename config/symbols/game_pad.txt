@@ -1,0 +1,13 @@
+// Game module pad (docs/game_overview.md section 4; the range is provisional).
+// Naming rules: docs/decomp_guide.md, "Naming".
+// range: 0x00396D00 0x00397958
+
+// Pad and multitap.
+Pad_Init = 0x00396D00; // type:func
+Pad_ReadPort = 0x00396E10; // type:func // guess
+Pad_Update = 0x003970C8; // type:func
+Pad_GetPlayerInput = 0x003975C8; // type:func // guess
+Pad_End = 0x003978C0; // type:func
+
+// The last function of this range is a file loader handler: the boundary with `file` is provisional.
+File_SifCmd0Handler = 0x00397948; // type:func

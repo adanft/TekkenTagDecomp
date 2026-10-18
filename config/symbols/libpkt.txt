@@ -1,0 +1,27 @@
+// Library libpkt (config/library_ranges.txt; evidence in docs/text_map.md).
+// Naming rules: docs/decomp_guide.md, "Naming".
+// range: 0x00404508 0x00404AD8
+
+// libpkt 1620. Second group: VIF1 packets (DIRECT / DIRECTHL VIF codes 0x50 and 0x51); first group: the same
+// DMA-tag operations without VIF codes, taken as the GIF packet half.
+sceGifPkInit = 0x00404508; // type:func // guess
+sceGifPkTerminate = 0x00404518; // type:func // guess
+sceGifPkSize = 0x00404580; // type:func // guess
+sceGifPkRef = 0x00404598; // type:func // guess
+sceGifPkEnd = 0x00404630; // type:func // guess
+sceGifPkReserve = 0x004046A8; // type:func // guess
+sceVif1PkInit = 0x004046C0; // type:func // guess
+sceVif1PkReset = 0x004046D0; // type:func // guess
+sceVif1PkTerminate = 0x004046E0; // type:func // guess
+sceVif1PkSize = 0x00404748; // type:func // guess
+sceVif1PkCnt = 0x00404760; // type:func // guess
+sceVif1PkRef = 0x004047B8; // type:func // guess
+sceVif1PkOpenDirectCode = 0x00404850; // type:func // guess
+sceVif1PkCloseDirectCode = 0x004048A8; // type:func // guess
+sceVif1PkOpenGifTag = 0x004048D8; // type:func // guess
+sceVif1PkCloseGifTag = 0x004048F0; // type:func // guess
+sceVif1PkReserve = 0x00404990; // type:func // guess
+sceVif1PkAlign = 0x004049A8; // type:func // guess
+sceVif1PkAddGsAD = 0x00404A20; // type:func // guess
+sceVif1PkOpenDirectHLCode = 0x00404A50; // type:func // guess
+sceVif1PkCloseDirectHLCode = 0x00404AA8; // type:func // guess

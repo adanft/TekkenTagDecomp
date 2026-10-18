@@ -7,7 +7,7 @@ Debug and error strings often start with the name of the function that prints th
 or name it with empty parentheses ("_sliceA0(): error"). A suggestion is printed in the symbol file format only
 when it is one to one: the function (still a func_ placeholder) references strings naming exactly one name, and
 no other placeholder function references a string with that name. Check each one before adding it to
-config/symbol_addrs.txt (scripts/apply_names.py): a string can also name a callee.
+config/symbols/ (scripts/apply_names.py): a string can also name a callee.
 """
 
 import collections

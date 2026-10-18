@@ -11,7 +11,7 @@ disassemblies side by side, aligned, with a mark on each line that differs:
   ~  same instruction, different call or branch target (relocated: something else moved)
 
 The function's address and size in the build come from the symbol table of build/SLUS_200.01.elf; its original
-address from its placeholder name (func_XXXXXXXX) or config/symbol_addrs.txt. The original function ends where
+address from its placeholder name (func_XXXXXXXX) or config/symbols/*.txt. The original function ends where
 the next one starts; the alignment nops after it are dropped while it is longer than the build's.
 Exit status: 0 when the bytes match (also when only relocated fields differ), 1 otherwise.
 """
@@ -27,7 +27,9 @@ ROOT = Path(__file__).resolve().parent.parent
 ELF = "build/SLUS_200.01.elf"
 BUILT = "build/SLUS_200.01"
 ORIGINAL = "iso/SLUS_200.01"
-SYMBOL_FILES = ["config/symbol_addrs.txt"]
+# Symbol files (splat format), one per library or game module; each lists in `// range:` lines the addresses it
+# names (docs/decomp_guide.md, "Naming").
+SYMBOL_DIR = "config/symbols"
 SCRATCH = "build/fdiff"
 BINUTILS = "tools/binutils/mips-ps2-decompals-"
 # Address of file offset 0 (config/SLUS_200.01.yaml: the header segment): address = file offset + LOAD_BASE.
@@ -35,6 +37,7 @@ LOAD_BASE = 0x33F000
 
 PLACEHOLDER = re.compile(r"(?:func|D)_([0-9A-F]{8})")
 SYMBOL_LINE = re.compile(r"\s*(\w+)\s*=\s*(0x[0-9A-Fa-f]+)\s*;")
+RANGE_LINE = re.compile(r"\s*//\s*range:\s*(0x[0-9A-Fa-f]+)\s+(0x[0-9A-Fa-f]+)\s*$")
 BRANCH = re.compile(r"(b\w*|j|jal)\t(?:.*,)?(0x[0-9a-f]+)$")
 
 
@@ -63,6 +66,23 @@ def placeholder_addr(name):
 def parse_symbol_addrs(text):
     """name -> address from a splat symbol file (`name = 0xADDR; // attributes`)."""
     return {m.group(1): int(m.group(2), 16) for m in map(SYMBOL_LINE.match, text.splitlines()) if m}
+
+
+def parse_file_ranges(text):
+    """[(start, end)] from the `// range: 0xSTART 0xEND` lines of a symbol file (end excluded)."""
+    ranges = []
+    for m in map(RANGE_LINE.match, text.splitlines()):
+        if m:
+            lo, hi = int(m.group(1), 16), int(m.group(2), 16)
+            if lo >= hi:
+                raise ValueError(f"range {m.group(1)} {m.group(2)}: start must be below end")
+            ranges.append((lo, hi))
+    return ranges
+
+
+def symbol_files(root=ROOT):
+    """The symbol files, as paths relative to root, sorted."""
+    return sorted(p.relative_to(root).as_posix() for p in (Path(root) / SYMBOL_DIR).glob("*.txt"))
 
 
 def parse_address(arg):
@@ -142,11 +162,11 @@ def read_at(path, addr, size):
         return f.read(size)
 
 
-def known_names():
+def known_names(root=ROOT):
+    """name -> address over all symbol files."""
     names = {}
-    for path in SYMBOL_FILES:
-        if (ROOT / path).exists():
-            names.update(parse_symbol_addrs((ROOT / path).read_text()))
+    for path in symbol_files(root):
+        names.update(parse_symbol_addrs((Path(root) / path).read_text()))
     return names
 
 

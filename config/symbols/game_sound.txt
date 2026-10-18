@@ -1,0 +1,20 @@
+// Game module sound (docs/game_overview.md section 4; the range is provisional).
+// Naming rules: docs/decomp_guide.md, "Naming".
+// range: 0x00374520 0x00376C30
+
+// Sound (docs/systems/audio.md): sound effects on SPU2 core 1 voices 0-21 through libspu2 commands, BGM and
+// movie audio as byte codes queued for RSPU2DRV (command 0x7F0F).
+Snd_Init = 0x003745E8; // type:func // guess
+Snd_InitSpu = 0x00374608; // type:func
+Snd_InitBanks = 0x00374748; // type:func // guess
+Snd_GetBankAddr = 0x00374790; // type:func // guess
+Snd_SetBankOwner = 0x003747A8; // type:func // guess
+Snd_AllocVoice = 0x00374808; // type:func // guess
+Snd_SetVoiceSlot = 0x00374A60; // type:func
+Snd_UpdateVoices = 0x00374A88; // type:func
+Snd_PlaySe = 0x00374CD8; // type:func // guess
+Snd_PlaySeEx = 0x00374E90; // type:func // guess
+Snd_KeyOn = 0x003750E8; // type:func
+Snd_StopCategory = 0x003754A0; // type:func // guess
+Snd_StopAllSe = 0x00375550; // type:func
+Snd_SetPlayerVolume = 0x00375970; // type:func // guess

@@ -1,0 +1,9 @@
+// Game module rng_misc (docs/game_overview.md section 4; the range is provisional).
+// Naming rules: docs/decomp_guide.md, "Naming".
+// range: 0x0035C2B0 0x0035D048
+
+// Random numbers.
+Rng_Reseed = 0x0035C370; // type:func
+Rng_Init = 0x0035C3C8; // type:func
+Rng_SpinNext = 0x0035C678; // type:func
+Rng_PickRandomEntry = 0x0035C7A8; // type:func // guess

@@ -6,7 +6,7 @@ was confirmed by running the game.
 
 Library code is not decompiled. It stays as split assembly and will be matched or linked as library objects (the
 same Sony SDK, newlib and libgcc builds), so `scripts/progress.py` counts it apart from the game, using
-`config/library_ranges.txt`. Function names are in `config/symbol_addrs.txt` (`// guess` marks inferred ones).
+`config/library_ranges.txt`. Function names are in `config/symbols/<library>.txt` (`// guess` marks inferred ones).
 
 **Verified** means read directly from the binary: a version tag, a string the function prints or passes, a
 syscall number, a hardware register, or the shape of handwritten code. **Inferred** means taken from link order,
@@ -28,7 +28,7 @@ Everything from 0x3F3320 to the end of `.text` is library code.
 
 ## Range table
 
-End addresses are excluded. "Named" counts the functions with a name in `config/symbol_addrs.txt`.
+End addresses are excluded. "Named" counts the functions with a name in `config/symbols/`.
 
 | Start | End | Funcs | Named | What | Evidence | Status |
 |---|---|---:|---:|---|---|---|

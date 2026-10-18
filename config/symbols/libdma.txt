@@ -1,0 +1,23 @@
+// Library libdma (config/library_ranges.txt; evidence in docs/text_map.md).
+// Naming rules: docs/decomp_guide.md, "Naming".
+// range: 0x003F5D58 0x003F6878
+
+// libdma 1620. sceDmaSendM, sceDmaSyncN, sceDmaLastSyncTime and sceDmaCallback print "DSendM: not installed
+// yet" and the like; the others follow the library's API by their channel-register accesses.
+sceDmaGetChan = 0x003F5D90; // type:func // guess
+sceDmaReset = 0x003F5DB8; // type:func
+sceDmaPutEnv = 0x003F5EA8; // type:func // guess
+sceDmaGetEnv = 0x003F6080; // type:func // guess
+sceDmaPutStallAddr = 0x003F60B8; // type:func // guess
+sceDmaSend = 0x003F60E0; // type:func // guess
+sceDmaSendN = 0x003F61B8; // type:func // guess
+sceDmaSendI = 0x003F62A0; // type:func // guess
+sceDmaRecv = 0x003F6388; // type:func // guess
+sceDmaRecvN = 0x003F6450; // type:func // guess
+sceDmaRecvI = 0x003F6540; // type:func // guess
+sceDmaSendM = 0x003F6630; // type:func
+sceDmaSync = 0x003F6640; // type:func // guess
+sceDmaWatch = 0x003F6708; // type:func // guess
+sceDmaSyncN = 0x003F67D8; // type:func
+sceDmaLastSyncTime = 0x003F6800; // type:func
+sceDmaCallback = 0x003F6850; // type:func

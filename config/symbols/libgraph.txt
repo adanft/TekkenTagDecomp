@@ -1,0 +1,17 @@
+// Library libgraph (config/library_ranges.txt; evidence in docs/text_map.md).
+// Naming rules: docs/decomp_guide.md, "Naming".
+// range: 0x003F6878 0x003F8088
+
+// libgraph 1620. The function at 0x3F6A30 prints "sceGsDefDispEnv:", the library's sceGsSetDefDispEnv.
+sceGsResetGraph = 0x003F6878; // type:func
+sceGsGetGParam = 0x003F69B8; // type:func // guess
+sceGsResetPath = 0x003F69C8; // type:func
+sceGsSetDefDispEnv = 0x003F6A30; // type:func
+sceGsPutDispEnv = 0x003F6C90; // type:func
+sceGsSetDefDBuff = 0x003F6D50; // type:func // guess
+sceGsSwapDBuff = 0x003F7000; // type:func
+sceGsSyncV = 0x003F7060; // type:func
+sceGsSyncPath = 0x003F70F8; // type:func
+sceGsSetDefStoreImage = 0x003F7410; // type:func // guess
+sceGsExecStoreImage = 0x003F7550; // type:func
+sceGsPutDrawEnv = 0x003F7FA0; // type:func

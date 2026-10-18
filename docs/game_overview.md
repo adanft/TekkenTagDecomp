@@ -3,7 +3,7 @@
 Top-level structure of the game's own code in `SLUS_200.01` (0x340000-0x3F3320 minus libvu0 and crt0, see
 [text_map.md](text_map.md)): boot, main loop and frame pacing, mode dispatch, a provisional module map, the
 important globals, the random number generators and the file loader. Function names are the ones in
-`config/symbol_addrs.txt`; `func_XXXXXXXX` and `D_XXXXXXXX` are still unnamed.
+`config/symbols/`; `func_XXXXXXXX` and `D_XXXXXXXX` are still unnamed.
 
 Every claim is tagged:
 

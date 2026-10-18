@@ -1,0 +1,37 @@
+// Library libm (config/library_ranges.txt; evidence in docs/text_map.md).
+// Naming rules: docs/decomp_guide.md, "Naming".
+// range: 0x00407640 0x0040B860
+
+// newlib libm (float fdlibm). The wrappers pass their own name to matherr ("acosf", "powf" ...); the call
+// graph is fdlibm's (wrapper -> __ieee754_*, rem_pio2f -> __kernel_rem_pio2f -> scalbnf/floorf).
+cosf = 0x00407640; // type:func
+sinf = 0x00407728; // type:func
+sqrt = 0x00407818; // type:func
+acosf = 0x00407928; // type:func
+asinf = 0x00407A28; // type:func
+atan2f = 0x00407B28; // type:func
+fmodf = 0x00407C50; // type:func
+logf = 0x00407D90; // type:func
+powf = 0x00407ED8; // type:func
+__ieee754_sqrt = 0x004083E0; // type:func
+__ieee754_acosf = 0x004086E8; // type:func
+__ieee754_asinf = 0x00408B18; // type:func
+__ieee754_atan2f = 0x00408EB8; // type:func
+__ieee754_fmodf = 0x004091A0; // type:func
+__ieee754_logf = 0x004093F0; // type:func
+__ieee754_powf = 0x00409718; // type:func
+__ieee754_rem_pio2f = 0x00409FA8; // type:func
+__ieee754_sqrtf = 0x0040A388; // type:func
+__kernel_cosf = 0x0040A4C0; // type:func
+__kernel_rem_pio2f = 0x0040A618; // type:func
+__kernel_sinf = 0x0040AF68; // type:func
+isnan = 0x0040B070; // type:func
+matherr = 0x0040B0A8; // type:func
+rint = 0x0040B0D0; // type:func // guess
+atanf = 0x0040B2D0; // type:func
+fabsf = 0x0040B578; // type:func
+finitef = 0x0040B598; // type:func // guess
+floorf = 0x0040B5C0; // type:func
+isnanf = 0x0040B6A8; // type:func
+scalbnf = 0x0040B6D0; // type:func
+copysignf = 0x0040B830; // type:func

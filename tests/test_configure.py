@@ -121,5 +121,32 @@ class SetEabi64(unittest.TestCase):
             configure.set_eabi64(b"not an elf")
 
 
+YAML = """options:
+  symbol_addrs_path:
+    - config/symbols/libc.txt
+    - config/symbols/game_main.txt   # comment
+  base_path: ..
+segments:
+  - name: main
+"""
+
+
+class SymbolPaths(unittest.TestCase):
+    def test_yaml_list(self):
+        self.assertEqual(configure.yaml_symbol_paths(YAML),
+                         ["config/symbols/libc.txt", "config/symbols/game_main.txt"])
+
+    def test_yaml_single_path(self):
+        self.assertEqual(configure.yaml_symbol_paths("options:\n  symbol_addrs_path: config/a.txt\n"),
+                         ["config/a.txt"])
+
+    def test_listed_must_equal_present(self):
+        configure.check_symbol_paths(["b.txt", "a.txt"], ["a.txt", "b.txt"])
+        with self.assertRaisesRegex(ValueError, "c.txt"):
+            configure.check_symbol_paths(["a.txt"], ["a.txt", "c.txt"])
+        with self.assertRaisesRegex(ValueError, "d.txt"):
+            configure.check_symbol_paths(["a.txt", "d.txt"], ["a.txt"])
+
+
 if __name__ == "__main__":
     unittest.main()

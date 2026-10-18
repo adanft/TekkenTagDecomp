@@ -1,0 +1,10 @@
+// Library libmc (config/library_ranges.txt; evidence in docs/text_map.md).
+// Naming rules: docs/decomp_guide.md, "Naming".
+// range: 0x00406560 0x00407640
+
+// libmc 1650. sceMcInit prints "bind error libmc" and the mcserv/mcman version checks.
+sceMcInit = 0x00406560; // type:func
+sceMcOpen = 0x004066E0; // type:func // guess
+sceMcMkdir = 0x004067C8; // type:func // guess
+sceMcClose = 0x00406800; // type:func // guess
+sceMcSync = 0x00406BC0; // type:func // guess

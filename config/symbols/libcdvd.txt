@@ -1,0 +1,21 @@
+// Library libcdvd (config/library_ranges.txt; evidence in docs/text_map.md).
+// Naming rules: docs/decomp_guide.md, "Naming".
+// range: 0x003F3320 0x003F5D58
+
+// libcdvd 1650: each name below is printed in, or stated by, the function's own debug string, unless marked.
+sceCdSearchFile = 0x003F39D0; // type:func
+sceCdReadChain = 0x003F3F08; // type:func
+sceCdRead = 0x003F41E0; // type:func
+sceCdSync = 0x003F4A98; // type:func
+sceCdSyncS = 0x003F4B40; // type:func
+sceCdInit = 0x003F4D28; // type:func
+sceCdDiskReady = 0x003F4FC8; // type:func
+sceCdStatus = 0x003F5310; // type:func
+
+// Called by the game with 1 right after sceCdInit, before the IOP modules are loaded.
+sceCdMmode = 0x003F5620; // type:func // guess
+sceCdReadClock = 0x003F56E0; // type:func
+sceCdStRead = 0x003F5990; // type:func
+sceCdStPause = 0x003F5B08; // type:func
+sceCdStResume = 0x003F5B58; // type:func
+sceCdStStat = 0x003F5BB0; // type:func

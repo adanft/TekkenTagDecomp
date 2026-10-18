@@ -1,0 +1,46 @@
+// Library libvu0 (config/library_ranges.txt; evidence in docs/text_map.md).
+// Naming rules: docs/decomp_guide.md, "Naming".
+// range: 0x0034A7A8 0x0034B4E8
+
+// libvu0 (Sony VU0 macro-mode helpers, linked inside the game block): one function per sceVu0 call, in the
+// library's source order (ApplyMatrix ... ClipAll); each body is the VU0 instruction pattern of its name.
+sceVu0ApplyMatrix = 0x0034A7A8; // type:func
+sceVu0MulMatrix = 0x0034A7D8; // type:func
+sceVu0OuterProduct = 0x0034A820; // type:func
+sceVu0InnerProduct = 0x0034A840; // type:func
+sceVu0TransposeMatrix = 0x0034A8A0; // type:func
+sceVu0InversMatrix = 0x0034A8E8; // type:func
+sceVu0DivVector = 0x0034A958; // type:func
+sceVu0DivVectorXYZ = 0x0034A978; // type:func
+sceVu0InterVector = 0x0034A998; // type:func
+sceVu0AddVector = 0x0034A9C0; // type:func
+sceVu0SubVector = 0x0034A9D8; // type:func
+sceVu0MulVector = 0x0034A9F0; // type:func
+sceVu0ScaleVector = 0x0034AA08; // type:func
+sceVu0TransMatrix = 0x0034AA20; // type:func
+sceVu0CopyVector = 0x0034AA50; // type:func
+sceVu0CopyMatrix = 0x0034AA60; // type:func
+sceVu0FTOI4Vector = 0x0034AA88; // type:func
+sceVu0FTOI0Vector = 0x0034AA98; // type:func
+sceVu0ITOF4Vector = 0x0034AAA8; // type:func
+sceVu0ITOF0Vector = 0x0034AAB8; // type:func
+sceVu0UnitMatrix = 0x0034AAC8; // type:func
+sceVu0RotMatrixZ = 0x0034AB68; // type:func // guess
+sceVu0RotMatrixX = 0x0034AC10; // type:func // guess
+sceVu0RotMatrixY = 0x0034ACB8; // type:func // guess
+sceVu0RotMatrix = 0x0034AD60; // type:func
+sceVu0ClampVector = 0x0034ADB0; // type:func
+sceVu0CameraMatrix = 0x0034ADD8; // type:func // guess
+sceVu0NormalLightMatrix = 0x0034AE88; // type:func // guess
+sceVu0LightColorMatrix = 0x0034AF48; // type:func // guess
+sceVu0ViewScreenMatrix = 0x0034AFB0; // type:func // guess
+sceVu0DropShadowMatrix = 0x0034B0B8; // type:func // guess
+sceVu0RotTransPersN = 0x0034B248; // type:func
+sceVu0RotTransPers = 0x0034B2A0; // type:func
+sceVu0CopyVectorXYZ = 0x0034B2E8; // type:func
+sceVu0InterVectorXYZ = 0x0034B308; // type:func
+sceVu0ScaleVectorXYZ = 0x0034B338; // type:func
+sceVu0ClipScreen = 0x0034B350; // type:func
+sceVu0ClipScreen3 = 0x0034B398; // type:func
+sceVu0ClipAll = 0x0034B3F8; // type:func // guess
+sceVpu0Reset = 0x0034B488; // type:func // guess

@@ -4,7 +4,8 @@
 Usage: .venv/bin/python configure.py [--split] && ninja
 
 Needs iso/SLUS_200.01 (scripts/setup_disc.py). splat runs when its output is missing or older than the config or
-config/symbol_addrs.txt; --split runs it again anyway (needed after adding an INCLUDE_ASM to a C file). ninja
+a symbol file (config/symbols/*.txt, each listed in the config); --split runs it again anyway (needed after adding
+an INCLUDE_ASM to a C file). ninja
 assembles every split file, compiles every C file the config links, links them with the generated linker script
 into build/SLUS_200.01.elf, flattens that with objcopy into build/SLUS_200.01 and compares its SHA-1 with the
 original.
@@ -19,8 +20,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 YAML = "config/SLUS_200.01.yaml"
-# What splat reads: a change to either reruns it.
-SPLIT_INPUTS = [YAML, "config/symbol_addrs.txt"]
+SYMBOL_DIR = "config/symbols"
+# What splat reads: a change to any of them reruns it.
+SPLIT_INPUTS = [YAML] + sorted(p.relative_to(ROOT).as_posix() for p in (ROOT / SYMBOL_DIR).glob("*.txt"))
 ORIGINAL = "iso/SLUS_200.01"
 ELF_SHA1 = "c7ad9a022bdc836827a0cc093f91b4281836f2bb"
 LD_SCRIPT = "build/SLUS_200.01.ld"
@@ -112,6 +114,34 @@ def asm_source(src):
 def vu_listings(packet):
     """Listing files a packet's assembly reads: every .vsm in the packet listing's folder."""
     return sorted(str(p.relative_to(ROOT)) for p in (ROOT / packet).parent.glob("*.vsm"))
+
+
+def yaml_symbol_paths(text):
+    """The paths of the config's `symbol_addrs_path` option: one path, or a block list of `- path` lines."""
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        m = re.match(r"(\s*)symbol_addrs_path:\s*([^#\s]*)", line)
+        if not m:
+            continue
+        if m.group(2):
+            return [m.group(2)]
+        paths = []
+        for item in lines[i + 1:]:
+            m = re.match(r"\s*-\s*([^#\s]+)", item)
+            if not m:
+                break
+            paths.append(m.group(1))
+        return paths
+    return []
+
+
+def check_symbol_paths(listed, present):
+    """Raises ValueError unless the config lists exactly the symbol files present: splat silently skips a missing
+    file and never reads one that is not listed."""
+    missing, unlisted = sorted(set(listed) - set(present)), sorted(set(present) - set(listed))
+    if missing or unlisted:
+        raise ValueError(f"{YAML} symbol_addrs_path: listed but missing: {', '.join(missing) or '-'}; "
+                         f"present but not listed: {', '.join(unlisted) or '-'}")
 
 
 def split(force):
@@ -213,6 +243,10 @@ def main():
         return
     if not (ROOT / ORIGINAL).exists():
         sys.exit(f"missing {ORIGINAL}: run scripts/setup_disc.py with your disc first (docs/setup.md)")
+    try:
+        check_symbol_paths(yaml_symbol_paths((ROOT / YAML).read_text()), SPLIT_INPUTS[1:])
+    except ValueError as e:
+        sys.exit(f"configure.py: {e}")
     split(args.split)
     write_ninja()
 

@@ -1,0 +1,5 @@
+// Game module gallery_jpeg (docs/game_overview.md section 4; the range is provisional).
+// Naming rules: docs/decomp_guide.md, "Naming".
+// range: 0x003E55C8 0x003E8AD8
+
+Mode_Gallery = 0x003E5A98; // type:func // guess

@@ -1,0 +1,25 @@
+// Library libpad (config/library_ranges.txt; evidence in docs/text_map.md).
+// Naming rules: docs/decomp_guide.md, "Naming".
+// range: 0x00405008 0x00406098
+
+// libpad 1630. scePadInit and scePadPortOpen print their checks ("Module version mismatch", "buffer addr is
+// not 64 byte align"); the rest follow from the game's pad code that calls them.
+scePadInit = 0x00405090; // type:func
+scePadEnd = 0x00405238; // type:func // guess
+scePadPortOpen = 0x004052B8; // type:func
+scePadPortClose = 0x00405410; // type:func // guess
+scePadRead = 0x00405508; // type:func // guess
+scePadGetState = 0x00405598; // type:func // guess
+scePadStateIntToStr = 0x00405650; // type:func // guess
+scePadSetReqState = 0x00405688; // type:func // guess
+scePadGetReqState = 0x00405700; // type:func // guess
+scePadReqIntToStr = 0x00405768; // type:func // guess
+scePadInfoAct = 0x004057A0; // type:func // guess
+scePadInfoMode = 0x00405978; // type:func // guess
+scePadSetMainMode = 0x00405A80; // type:func // guess
+scePadSetActDirect = 0x00405B30; // type:func // guess
+scePadSetActAlign = 0x00405BC8; // type:func // guess
+scePadInfoPressMode = 0x00405DB8; // type:func // guess
+scePadEnterPressMode = 0x00405DE8; // type:func // guess
+scePadExitPressMode = 0x00405E08; // type:func // guess
+scePadGetModVersion = 0x00406030; // type:func // guess

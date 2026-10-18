@@ -1,0 +1,9 @@
+// Library libipu (config/library_ranges.txt; evidence in docs/text_map.md).
+// Naming rules: docs/decomp_guide.md, "Naming".
+// range: 0x003FF928 0x003FFDC0
+
+// libipu 1620: the four functions that touch the IPU and its DMA channels (0x10002000, 0x1000B000/B400).
+sceIpuStopDMA = 0x003FF928; // type:func // guess
+sceIpuRestartDMA = 0x003FF9F0; // type:func // guess
+sceIpuSync = 0x003FFB10; // type:func // guess
+sceIpuInit = 0x003FFB78; // type:func // guess

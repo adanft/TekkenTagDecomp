@@ -12,7 +12,7 @@ Usage: .venv/bin/python scripts/callgraph.py COMMAND [ARGS]   (after configure.p
   tables [MIN]          data symbols holding at least MIN (default 4) function pointers
   range START END       summary of [START, END): functions, calls into each library, called from outside, strings
 
-NAME is a symbol as it appears in the assembly (func_XXXXXXXX or a name from config/symbol_addrs.txt).
+NAME is a symbol as it appears in the assembly (func_XXXXXXXX or a name from config/symbols/*.txt).
 Only direct references are seen: a call through a register (jalr) counts as one indirect call of its function.
 """
 

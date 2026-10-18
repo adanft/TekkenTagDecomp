@@ -1,0 +1,6 @@
+// Game module select_results (docs/game_overview.md section 4; the range is provisional).
+// Naming rules: docs/decomp_guide.md, "Naming".
+// range: 0x003BDF60 0x003CD298
+
+Text_Printf = 0x003C6C60; // type:func // guess
+Mode_CharSelect = 0x003CB900; // type:func // guess

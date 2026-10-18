@@ -1,0 +1,3 @@
+// Data after .text: .data, .vudata, .rodata, .lit4, .sdata, .sbss and .bss.
+// Naming rules: docs/decomp_guide.md, "Naming".
+// range: 0x00415700 0x02000000

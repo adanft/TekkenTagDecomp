@@ -1,0 +1,6 @@
+// Game module fighter_setup (docs/game_overview.md section 4; the range is provisional).
+// Naming rules: docs/decomp_guide.md, "Naming".
+// range: 0x003621F8 0x003682F8
+
+// LZ decompressor (flag byte, 11-bit distance, 5-bit length); only used on data inside the executable.
+Lz_Decompress = 0x00364448; // type:func

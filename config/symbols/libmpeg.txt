@@ -1,0 +1,17 @@
+// Library libmpeg (config/library_ranges.txt; evidence in docs/text_map.md).
+// Naming rules: docs/decomp_guide.md, "Naming".
+// range: 0x003F8088 0x003FF928
+
+// libmpeg 1620. Internal decoder functions are named only where their own error string names them.
+sceMpegDemuxPssRing = 0x003F8318; // type:func // guess
+sceMpegDemuxPss = 0x003F85E8; // type:func // guess
+sceMpegAddStrCallback = 0x003F8608; // type:func // guess
+sceMpegInit = 0x003F8E48; // type:func // guess
+sceMpegCreate = 0x003F8E98; // type:func
+sceMpegDelete = 0x003F90D8; // type:func // guess
+sceMpegGetPicture = 0x003F9118; // type:func // guess
+sceMpegAddCallback = 0x003F92F8; // type:func // guess
+_sequenceScalableExtension = 0x003FA500; // type:func
+_pictureSpatialScalableExtension = 0x003FA520; // type:func // guess
+_pictureTemporalScalableExtension = 0x003FA530; // type:func // guess
+_sliceA0 = 0x003FC8D0; // type:func

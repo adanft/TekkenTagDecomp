@@ -53,7 +53,7 @@ constants in `asm/`].
 
 | IOP piece | EE library calls to replace | Port side |
 |---|---|---|
-| SIO2MAN, PADMAN, MTAPMAN | `scePad*`, `sceMtap*` (`Pad_*` in `config/symbol_addrs.txt`) | host gamepad input; report no multitap or emulate it |
+| SIO2MAN, PADMAN, MTAPMAN | `scePad*`, `sceMtap*` (`Pad_*` in `config/symbols/`) | host gamepad input; report no multitap or emulate it |
 | MCMAN, MCSERV | `sceMc*` (`Mc_*`) | save files on the host |
 | CDVDMAN/CDVDFSV (IOPRP) | `sceCdInit`, `sceCdMmode` at boot | no-ops |
 | RSPU2DRV | `sceSdRemote` (18 commands) | [audio.md](audio.md) section 8 |

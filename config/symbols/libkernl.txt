@@ -1,0 +1,226 @@
+// Library libkernl (config/library_ranges.txt; evidence in docs/text_map.md).
+// Naming rules: docs/decomp_guide.md, "Naming".
+// range: 0x003FFDC0 0x00404508
+// range: 0x00415410 0x00415700
+
+// libkernl 1620. The syscall stubs (`addiu $v1, $zero, N; syscall`) are named after the EE kernel call N;
+// a negative N is the interrupt-context variant. N = 0x10 and 0x12 have two stubs each: the second is the
+// *2 variant. The stubs wrapped by C functions below keep a leading underscore (_EnableIntc ...).
+RFU000_FullReset = 0x003FFDC0; // type:func
+ResetEE = 0x003FFDD0; // type:func
+SetGsCrt = 0x003FFDE0; // type:func
+RFU003 = 0x003FFDF0; // type:func
+Exit = 0x003FFE00; // type:func
+RFU005 = 0x003FFE10; // type:func
+LoadExecPS2 = 0x003FFE20; // type:func
+ExecPS2 = 0x003FFE30; // type:func
+RFU008 = 0x003FFE40; // type:func
+RFU009 = 0x003FFE50; // type:func
+AddSbusIntcHandler = 0x003FFE60; // type:func
+RemoveSbusIntcHandler = 0x003FFE70; // type:func
+Interrupt2Iop = 0x003FFE80; // type:func
+SetVTLBRefillHandler = 0x003FFE90; // type:func
+SetVCommonHandler = 0x003FFEA0; // type:func
+SetVInterruptHandler = 0x003FFEB0; // type:func
+AddIntcHandler = 0x003FFEC0; // type:func
+AddIntcHandler2 = 0x003FFED0; // type:func
+RemoveIntcHandler = 0x003FFEE0; // type:func
+AddDmacHandler = 0x003FFEF0; // type:func
+AddDmacHandler2 = 0x003FFF00; // type:func
+RemoveDmacHandler = 0x003FFF10; // type:func
+_EnableIntc = 0x003FFF20; // type:func
+_DisableIntc = 0x003FFF30; // type:func
+_EnableDmac = 0x003FFF40; // type:func
+_DisableDmac = 0x003FFF50; // type:func
+_SetAlarm = 0x003FFF60; // type:func
+_ReleaseAlarm = 0x003FFF70; // type:func
+_iEnableIntc = 0x003FFF80; // type:func
+_iDisableIntc = 0x003FFF90; // type:func
+_iEnableDmac = 0x003FFFA0; // type:func
+_iDisableDmac = 0x003FFFB0; // type:func
+_iSetAlarm = 0x003FFFC0; // type:func
+_iReleaseAlarm = 0x003FFFD0; // type:func
+CreateThread = 0x003FFFE0; // type:func
+DeleteThread = 0x003FFFF0; // type:func
+StartThread = 0x00400000; // type:func
+ExitThread = 0x00400010; // type:func
+ExitDeleteThread = 0x00400020; // type:func
+TerminateThread = 0x00400030; // type:func
+iTerminateThread = 0x00400040; // type:func
+DisableDispatchThread = 0x00400050; // type:func
+EnableDispatchThread = 0x00400060; // type:func
+ChangeThreadPriority = 0x00400070; // type:func
+iChangeThreadPriority = 0x00400080; // type:func
+RotateThreadReadyQueue = 0x00400090; // type:func
+_iRotateThreadReadyQueue = 0x004000A0; // type:func
+ReleaseWaitThread = 0x004000B0; // type:func
+iReleaseWaitThread = 0x004000C0; // type:func
+GetThreadId = 0x004000D0; // type:func
+ReferThreadStatus = 0x004000E0; // type:func
+iReferThreadStatus = 0x004000F0; // type:func
+SleepThread = 0x00400100; // type:func
+WakeupThread = 0x00400110; // type:func
+_iWakeupThread = 0x00400120; // type:func
+CancelWakeupThread = 0x00400130; // type:func
+iCancelWakeupThread = 0x00400140; // type:func
+SuspendThread = 0x00400150; // type:func
+_iSuspendThread = 0x00400160; // type:func
+ResumeThread = 0x00400170; // type:func
+iResumeThread = 0x00400180; // type:func
+JoinThread = 0x00400190; // type:func
+SetupThread = 0x004001A0; // type:func
+SetupHeap = 0x004001B0; // type:func
+EndOfHeap = 0x004001C0; // type:func
+RFU063 = 0x004001D0; // type:func
+CreateSema = 0x004001E0; // type:func
+DeleteSema = 0x004001F0; // type:func
+SignalSema = 0x00400200; // type:func
+iSignalSema = 0x00400210; // type:func
+WaitSema = 0x00400220; // type:func
+PollSema = 0x00400230; // type:func
+iPollSema = 0x00400240; // type:func
+ReferSemaStatus = 0x00400250; // type:func
+iReferSemaStatus = 0x00400260; // type:func
+RFU073 = 0x00400270; // type:func
+SetOsdConfigParam = 0x00400280; // type:func
+GetOsdConfigParam = 0x00400290; // type:func
+GetGsHParam = 0x004002A0; // type:func
+GetGsVParam = 0x004002B0; // type:func
+SetGsHParam = 0x004002C0; // type:func
+SetGsVParam = 0x004002D0; // type:func
+RFU080_CreateEventFlag = 0x004002E0; // type:func
+RFU081_DeleteEventFlag = 0x004002F0; // type:func
+RFU082_SetEventFlag = 0x00400300; // type:func
+RFU083_iSetEventFlag = 0x00400310; // type:func
+RFU084_ClearEventFlag = 0x00400320; // type:func
+RFU085_iClearEventFlag = 0x00400330; // type:func
+RFU086_WaitEventFlag = 0x00400340; // type:func
+RFU087_PollEventFlag = 0x00400350; // type:func
+RFU088_iPollEventFlag = 0x00400360; // type:func
+RFU089_ReferEventFlagStatus = 0x00400370; // type:func
+RFU090_iReferEventFlagStatus = 0x00400380; // type:func
+RFU091_GetEntryAddress = 0x00400390; // type:func
+EnableIntcHandler = 0x004003A0; // type:func
+iEnableIntcHandler = 0x004003B0; // type:func
+DisableIntcHandler = 0x004003C0; // type:func
+iDisableIntcHandler = 0x004003D0; // type:func
+EnableDmacHandler = 0x004003E0; // type:func
+iEnableDmacHandler = 0x004003F0; // type:func
+DisableDmacHandler = 0x00400400; // type:func
+iDisableDmacHandler = 0x00400410; // type:func
+KSeg0 = 0x00400420; // type:func
+EnableCache = 0x00400430; // type:func
+DisableCache = 0x00400440; // type:func
+GetCop0 = 0x00400450; // type:func
+FlushCache = 0x00400460; // type:func
+CpuConfig = 0x00400470; // type:func
+iGetCop0 = 0x00400480; // type:func
+iFlushCache = 0x00400490; // type:func
+iCpuConfig = 0x004004A0; // type:func
+sceSifStopDma = 0x004004B0; // type:func
+SetCPUTimerHandler = 0x004004C0; // type:func
+SetCPUTimer = 0x004004D0; // type:func
+SetOsdConfigParam2 = 0x004004E0; // type:func
+GetOsdConfigParam2 = 0x004004F0; // type:func
+GsGetIMR = 0x00400500; // type:func
+iGsGetIMR = 0x00400510; // type:func
+GsPutIMR = 0x00400520; // type:func
+iGsPutIMR = 0x00400530; // type:func
+SetPgifHandler = 0x00400540; // type:func
+SetVSyncFlag = 0x00400550; // type:func
+SetSyscall = 0x00400560; // type:func
+_print = 0x00400570; // type:func
+sceSifDmaStat = 0x00400580; // type:func
+isceSifDmaStat = 0x00400590; // type:func
+sceSifSetDma = 0x004005A0; // type:func
+isceSifSetDma = 0x004005B0; // type:func
+sceSifSetDChain = 0x004005C0; // type:func
+isceSifSetDChain = 0x004005D0; // type:func
+sceSifSetReg = 0x004005E0; // type:func
+sceSifGetReg = 0x004005F0; // type:func
+ExecOSD = 0x00400600; // type:func
+Deci2Call = 0x00400610; // type:func
+PSMode = 0x00400620; // type:func
+MachineType = 0x00400630; // type:func
+GetMemorySize = 0x00400640; // type:func
+
+// Wrappers of one syscall stub each.
+DisableIntc = 0x004009D0; // type:func
+EnableIntc = 0x00400A38; // type:func
+DisableDmac = 0x00400AA0; // type:func
+EnableDmac = 0x00400B08; // type:func
+SetAlarm = 0x00400B70; // type:func
+ReleaseAlarm = 0x00400BE0; // type:func
+iEnableIntc = 0x00400C48; // type:func
+iDisableIntc = 0x00400C68; // type:func
+iEnableDmac = 0x00400C88; // type:func
+iDisableDmac = 0x00400CA8; // type:func
+iSetAlarm = 0x00400CC8; // type:func
+iReleaseAlarm = 0x00400CE8; // type:func
+
+// newlib system call glue: what libc's _write_r, _read_r, _close_r, _lseek_r, _sbrk_r, _fstat_r and __smakebuf
+// call (stdout/stderr go to the TTY, the rest fail).
+_write = 0x004006E0; // type:func // guess
+_read = 0x00400760; // type:func // guess
+_close = 0x00400800; // type:func // guess
+_lseek = 0x00400810; // type:func // guess
+_sbrk = 0x00400818; // type:func // guess
+isatty = 0x004008C0; // type:func // guess
+_fstat = 0x004008C8; // type:func // guess
+
+// TTY over DECI2 ("TTY: ..." strings).
+sceTtyHandler = 0x00400DB0; // type:func // guess
+sceTtyWrite = 0x00400F30; // type:func // guess
+sceTtyRead = 0x00401080; // type:func // guess
+sceTtyInit = 0x00401158; // type:func // guess
+
+// SIF commands and RPC.
+sceSifInitCmd = 0x00401CB8; // type:func
+sceSifExitCmd = 0x00401F30; // type:func // guess
+sceSifAddCmdHandler = 0x00401F88; // type:func // guess
+sceSifSendCmd = 0x00402120; // type:func // guess
+isceSifSendCmd = 0x00402160; // type:func // guess
+sceSifWriteBackDCache = 0x004022C0; // type:func
+sceSifInitRpc = 0x00402370; // type:func
+sceSifExitRpc = 0x00402500; // type:func // guess
+sceSifGetOtherData = 0x00402770; // type:func // guess
+sceSifBindRpc = 0x004029A8; // type:func
+sceSifCallRpc = 0x00402B58; // type:func
+sceSifCheckStatRpc = 0x00402D10; // type:func
+sceSifSetRpcQueue = 0x00402D50; // type:func
+sceSifRegisterRpc = 0x00402DC8; // type:func
+sceSifGetNextRequest = 0x00402F60; // type:func // guess
+sceSifExecRequest = 0x00402FB0; // type:func // guess
+sceSifRpcLoop = 0x00403190; // type:func
+
+// IOP file I/O, module loading and reboot.
+sceOpen = 0x00403360; // type:func // guess
+sceClose = 0x004034B8; // type:func // guess
+sceSifLoadFileReset = 0x00403350; // type:func // guess
+sceSifLoadModule = 0x00403CC8; // type:func
+sceSifLoadElf = 0x00403DF8; // type:func // guess
+sceSifResetIop = 0x00403FF0; // type:func // guess
+sceSifIsAliveIop = 0x00404120; // type:func // guess
+sceSifSyncIop = 0x00404148; // type:func // guess
+sceSifRebootIop = 0x00404190; // type:func
+
+// DECI2 calls: Deci2Call (syscall 0x7C) with the request number of the name (1 open ... 9 unlock, 0x10 kputs).
+sceDeci2Open = 0x00404328; // type:func
+sceDeci2Close = 0x00404370; // type:func
+sceDeci2ReqSend = 0x00404398; // type:func
+sceDeci2Poll = 0x004043C8; // type:func
+sceDeci2ExRecv = 0x004043F0; // type:func
+sceDeci2ExSend = 0x00404428; // type:func
+sceDeci2ExReqSend = 0x00404460; // type:func
+sceDeci2ExLock = 0x00404490; // type:func
+sceDeci2ExUnLock = 0x004044B8; // type:func
+kputs = 0x004044E0; // type:func // guess
+
+// libkernl data-cache helpers, linked last (pulled in by libpad): index writeback-invalidate (cache 0x14) and
+// index invalidate (cache 0x16) over the lines of a range, with interrupts disabled or not.
+_SyncDCache = 0x00415410; // type:func // guess
+SyncDCache = 0x004154B8; // type:func // guess
+iSyncDCache = 0x00415530; // type:func // guess
+_InvalidDCache = 0x00415548; // type:func // guess
+InvalidDCache = 0x004155F0; // type:func // guess
+iInvalidDCache = 0x00415668; // type:func // guess

@@ -1,0 +1,5 @@
+// Game module screenshot (docs/game_overview.md section 4; the range is provisional).
+// Naming rules: docs/decomp_guide.md, "Naming".
+// range: 0x0039BBF0 0x0039C7B8
+
+Scrn_Capture = 0x0039C120; // type:func // guess

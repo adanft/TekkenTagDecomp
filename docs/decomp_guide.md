@@ -19,13 +19,63 @@ compiles a C file and links it: [build.md](build.md), "C files".
 4. When fdiff says OK, remove the `#if 0` / INCLUDE_ASM pair and run `.venv/bin/python configure.py && ninja`:
    the build is the final word (SHA-1). `.venv/bin/python scripts/progress.py` prints the share of code in C.
 
-Names: `config/symbol_addrs.txt` (splat's format, read by splat and the scripts).
-`.venv/bin/python scripts/apply_names.py func_XXXXXXXX Name` sets a name there and replaces the placeholder in
-`src/` and `include/`; ninja then splits again (the asm files take the new names). `scripts/names_from_strings.py`
-prints names suggested by the strings a function references (`"sceGsSyncPath: DMA ..."`); check each one, a
-string can also name a callee. Library code (Sony SDK, newlib, libgcc) is not decompiled: `config/library_ranges.txt`
-lists its ranges (`0xSTART 0xEND label`, one per line, no overlaps) and `progress.py` counts it apart, per library.
-Pick functions to decompile outside those ranges; [text_map.md](text_map.md) maps the whole `.text`.
+Names are in `config/symbols/` (see "Naming" below). Library code (Sony SDK, newlib, libgcc) is not decompiled:
+`config/library_ranges.txt` lists its ranges (`0xSTART 0xEND label`, one per line, no overlaps) and `progress.py`
+counts it apart, per library. Pick functions to decompile outside those ranges; [text_map.md](text_map.md) maps
+the whole `.text`.
+
+## Naming
+
+### Symbol files
+
+`config/symbols/` has one file per library (`libc.txt`, `libkernl.txt` ...), one per provisional game module
+(`game_<module>.txt`, [game_overview.md](game_overview.md) section 4) and `data.txt` for everything after
+`.text`. Each file starts with its address ranges, `// range: 0xSTART 0xEND` (end excluded, one or more lines);
+ranges never overlap, so every address has one file. Entries are in splat's format, one per line:
+`Name = 0xADDRESS; // type:func` (or `// type:data size:0x10`, ...), with `// guess` last when the name is
+inferred. An entry stays in the file whose range holds its address, even when its prefix names another module
+(module boundaries are provisional; a comment says so). Library files keep the order of the library's code,
+game files the address order.
+
+splat reads the files listed in `symbol_addrs_path` of `config/SLUS_200.01.yaml`; `configure.py` stops when that
+list and the folder differ, so a new file goes in both. `tests/test_symbols.py` checks the ranges, that every
+entry lies in its file's range, that library files match `config/library_ranges.txt`, and that names and
+addresses are unique.
+
+Add or change names with `.venv/bin/python scripts/apply_names.py OLD NEW` (OLD is a placeholder, a name or an
+address; `--dry-run` shows the changes). It renames the entry where the address already is, or adds it to the
+file whose range contains the address (an address no range covers is refused: add a `// range:` line or a new
+file first), refuses a name used for another address, and replaces the placeholders and the old name in `src/`
+and `include/` (whole identifiers, not struct members, not inside strings). ninja then splits again and the
+assembly takes the new names. `scripts/names_from_strings.py` prints names suggested by the strings a function
+references (`"sceGsSyncPath: DMA ..."`); check each one, a string can also name a callee.
+
+### Rules
+
+- **Placeholders.** `func_XXXXXXXX` (function), `D_XXXXXXXX` (data) and `jtbl_XXXXXXXX` (jump table) are splat's
+  names for unnamed symbols, with the address in upper-case hex. Keep them until there is evidence for a name.
+- **Game code: `Module_VerbObject`.** A short PascalCase prefix for the system the function serves (`File_`,
+  `Snd_`, `Bgm_`, `Gfx_`, `Pad_`, `Mode_`, `Rng_`, `Movie_` ...), then a verb and its object: `File_LoadSync`,
+  `Snd_StopAllSe`, `Gfx_WaitVSync`, `Pad_GetPlayerInput`. Use `Get`/`Set`/`Is` for accessors and `Handler` for
+  callbacks (`Gfx_VSyncHandler`); a game mode handler is `Mode_<Screen>` (`Mode_Title`). Reuse an existing
+  prefix before adding one. The prefix names the system, not the file, so a name survives a module boundary
+  moving.
+- **Library code keeps its own names.** Sony SDK functions use the SDK name (`sceCdRead`, `sceGsSyncPath`,
+  `sceVu0ApplyMatrix`), kernel syscall stubs the EE kernel call (`_` in front when a C wrapper uses the stub),
+  newlib and libgcc their source names (`rand`, `__divdi3`). Never give library code a game-style name; an
+  internal library function with no known name stays a placeholder.
+- **Data.** Globals are `g` + PascalCase (`gFrameCount`, `gFileTable`, [game_overview.md](game_overview.md)
+  section 5). Size and type go in the attributes (`// type:data size:0x18`) once known.
+- **Structs.** A struct whose role is unknown is `UnkXXXXXX`, XXXXXX being the address (six hex digits) of the
+  global or function that shows its layout (`Unk8BD0A0` for the struct at 0x8BD0A0); unknown fields are
+  `unkXXX` by hex offset (`unk254`). Rename both once the role is Verified (`GfxState`, `vsyncCount`).
+- **`// guess`** marks an Inferred name: taken from strings the function references, its callers, the call graph,
+  the library's API or its position in link order, not from reading what it does. Remove it when the name
+  becomes Verified.
+- **Verified** names: the binary states the name (the function's own debug or error string, a syscall number, a
+  hardware register it drives), or its code was read and does what the name says, or it was decompiled to
+  matching C that shows it. Anything else is Inferred. The docs use the same two labels
+  ([README.md](README.md)).
 
 ## Compiler
 

@@ -1,0 +1,10 @@
+// Game module options (docs/game_overview.md section 4; the range is provisional).
+// Naming rules: docs/decomp_guide.md, "Naming".
+// range: 0x003B1478 0x003B4D50
+
+Mode_Options = 0x003B4B20; // type:func // guess
+
+// Get and set the rand seed word 0x439C7C (docs/game_overview.md section 6): the last two functions of
+// this range, maybe a file of their own [I].
+Rng_GetSeed = 0x003B4D30; // type:func // guess
+Rng_SetSeed = 0x003B4D40; // type:func // guess

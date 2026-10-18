@@ -2,6 +2,7 @@
 
 import importlib.util
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -59,6 +60,22 @@ class Symbols(unittest.TestCase):
     def test_symbol_addrs_file(self):
         text = "// comment\nDoThing = 0x00340AF0; // type:func\n\nbad line\ngTable = 0x521700; // size:0x30\n"
         self.assertEqual(fdiff.parse_symbol_addrs(text), {"DoThing": 0x340AF0, "gTable": 0x521700})
+
+    def test_file_ranges(self):
+        text = "// libx: what\n// range: 0x00340000 0x00340100\n//range:0x400000 0x400010\nA = 0x00340000;\n"
+        self.assertEqual(fdiff.parse_file_ranges(text), [(0x340000, 0x340100), (0x400000, 0x400010)])
+        with self.assertRaises(ValueError):
+            fdiff.parse_file_ranges("// range: 0x00340100 0x00340000\n")
+
+    def test_symbol_files_and_known_names(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / fdiff.SYMBOL_DIR).mkdir(parents=True)
+            (root / fdiff.SYMBOL_DIR / "b.txt").write_text("B = 0x00400000; // type:func\n")
+            (root / fdiff.SYMBOL_DIR / "a.txt").write_text("A = 0x00340000; // type:func\n")
+            (root / fdiff.SYMBOL_DIR / "notes.md").write_text("C = 0x00500000;\n")
+            self.assertEqual(fdiff.symbol_files(root), ["config/symbols/a.txt", "config/symbols/b.txt"])
+            self.assertEqual(fdiff.known_names(root), {"A": 0x340000, "B": 0x400000})
 
     def test_address_argument(self):
         self.assertEqual(fdiff.parse_address("0x340AF0"), 0x340AF0)
