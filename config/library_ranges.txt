@@ -1,0 +1,19 @@
+# Library code in .text, counted apart from the game by scripts/progress.py and not decompiled: it is matched or
+# linked as library objects. One `0xSTART 0xEND label` per line, END excluded. Evidence: docs/text_map.md.
+0x0034A7A8 0x0034B4E8 libvu0
+0x003572A0 0x00357358 crt0
+0x003F3320 0x003F5D58 libcdvd
+0x003F5D58 0x003F6878 libdma
+0x003F6878 0x003F8088 libgraph
+0x003F8088 0x003FF928 libmpeg
+0x003FF928 0x003FFDC0 libipu
+0x003FFDC0 0x00404508 libkernl
+0x00404508 0x00404AD8 libpkt
+0x00404AD8 0x00405008 librspu2
+0x00405008 0x00406098 libpad
+0x00406098 0x00406560 libmtap
+0x00406560 0x00407640 libmc
+0x00407640 0x0040B860 libm
+0x0040B860 0x0040ECE0 libgcc
+0x0040ECE0 0x00415410 libc
+0x00415410 0x00415700 libkernl

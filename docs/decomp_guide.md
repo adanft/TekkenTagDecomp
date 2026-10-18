@@ -23,8 +23,9 @@ Names: `config/symbol_addrs.txt` (splat's format, read by splat and the scripts)
 `.venv/bin/python scripts/apply_names.py func_XXXXXXXX Name` sets a name there and replaces the placeholder in
 `src/` and `include/`; ninja then splits again (the asm files take the new names). `scripts/names_from_strings.py`
 prints names suggested by the strings a function references (`"sceGsSyncPath: DMA ..."`); check each one, a
-string can also name a callee. Library code is counted apart by `progress.py` once `config/library_ranges.txt`
-lists its ranges (`0xSTART 0xEND label`, one per line).
+string can also name a callee. Library code (Sony SDK, newlib, libgcc) is not decompiled: `config/library_ranges.txt`
+lists its ranges (`0xSTART 0xEND label`, one per line, no overlaps) and `progress.py` counts it apart, per library.
+Pick functions to decompile outside those ranges; [text_map.md](text_map.md) maps the whole `.text`.
 
 ## Compiler
 
