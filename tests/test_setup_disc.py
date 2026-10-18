@@ -140,6 +140,14 @@ class Conversion(Tmp):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(out.read_bytes(), self.iso_bytes)
 
+    def test_cli_save_iso_refuses_out_and_force(self):
+        out = self.tmp / "saved.iso"
+        for extra in (["--out", self.tmp / "iso"], ["--force"]):
+            r = self.cli(self.bin, "--save-iso", out, *extra)
+            self.assertEqual(r.returncode, 2, r.stderr)
+            self.assertIn("cannot be combined", r.stderr)
+            self.assertFalse(out.exists())
+
     def test_partial_last_sector_is_refused(self):
         self.bin.write_bytes(to_bin(self.iso_bytes) + b"\x00" * 100)
         with self.assertRaises(setup_disc.Refused):

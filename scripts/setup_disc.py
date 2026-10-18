@@ -270,10 +270,13 @@ def shown(path):
 def main():
     p = argparse.ArgumentParser(description="Check your own Tekken Tag Tournament disc and copy its files.")
     p.add_argument("image", help="disc image: .iso, .cue or .bin")
-    p.add_argument("--out", default=ROOT / "iso", type=Path, help="where the files go (default: iso/)")
+    p.add_argument("--out", type=Path, help="where the files go (default: iso/)")
     p.add_argument("--force", action="store_true", help="rewrite files that are already there")
     p.add_argument("--save-iso", type=Path, metavar="FILE", help="only convert the image into an ISO file")
     args = p.parse_args()
+    if args.save_iso and (args.out or args.force):
+        p.error("--save-iso only converts the image; it cannot be combined with --out or --force")
+    args.out = args.out or ROOT / "iso"
     try:
         if args.save_iso:
             n = convert_bin(args.image, args.save_iso)
