@@ -1,0 +1,46 @@
+# Setup (Linux x86-64)
+
+Everything is installed inside the project: no root, no system packages. You need `python3` (3.10 or newer),
+`git`, `curl` and `tar`.
+
+## 1. Python tools
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+```
+
+This installs splat (splits the executable), m2c (first C draft of a function) and the modules decomp-permuter
+needs. Every version is pinned in `requirements.txt`.
+
+## 2. MIPS binutils
+
+The decompals build of GNU binutils 2.40 for the PS2's CPU (R5900), release v0.10:
+
+```sh
+mkdir -p tools/binutils
+curl -L -o /tmp/binutils-ps2.tar.gz \
+  https://github.com/decompals/binutils-mips-ps2-decompals/releases/download/v0.10/binutils-mips-ps2-decompals-linux-x86-64.tar.gz
+echo "9fe31ea3ee1a37536f9f0e2e12c668e7c3cb99e59f5154bd2f1fc4762473094c  /tmp/binutils-ps2.tar.gz" | sha256sum -c
+tar xzf /tmp/binutils-ps2.tar.gz -C tools/binutils
+```
+
+The tools are `tools/binutils/mips-ps2-decompals-as`, `-ld`, `-objcopy`, `-objdump` and so on.
+
+## 3. decomp-permuter
+
+```sh
+git clone https://github.com/simonlindholm/decomp-permuter tools/decomp-permuter
+git -C tools/decomp-permuter checkout 059609d4aec73eb0650726772954e1ad575825f8
+```
+
+Run it with the project's Python: `.venv/bin/python tools/decomp-permuter/permuter.py`.
+
+## 4. Check
+
+```sh
+.venv/bin/python scripts/check_tools.py
+```
+
+Every required tool must show `OK`. Tools marked `later` (the game's compiler, objdiff, Ghidra, PCSX2) are set up
+in later steps and do not fail the check.

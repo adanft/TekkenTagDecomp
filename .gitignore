@@ -18,6 +18,8 @@ undefined_*.txt
 # Tools and environments
 .venv/
 tools/compilers/
+tools/binutils/
+tools/decomp-permuter/
 __pycache__/
 *.pyc
 
