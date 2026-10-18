@@ -144,5 +144,70 @@ class Align(unittest.TestCase):
         self.assertIsNone(rows[1][2])
 
 
+class Strict(unittest.TestCase):
+    """compare(): OK only for identical instruction words that also reach the same data through $gp."""
+
+    GP = 0x5FD0F0
+    LW = 0x8F82FF9C  # lw v0,-100(gp)
+    LW_OTHER = 0x8F82FFA0  # lw v0,-96(gp)
+    LWC1 = 0xC7808300  # lwc1 $f0,-32000(gp)
+
+    def look(self, data=None, names=None):
+        data, names = data or {}, names or {}
+        return lambda addr, size: (names.get(addr), data.get(addr, bytes(size)))
+
+    def rows(self, *words):
+        return [(0x340000 + 4 * i, w, "") for i, w in enumerate(words)]
+
+    def test_gp_access(self):
+        self.assertEqual(fdiff.gp_access(self.LW), (-100, 4))
+        self.assertEqual(fdiff.gp_access(self.LWC1), (-32000, 4))
+        self.assertEqual(fdiff.gp_access(0xDF820010), (16, 8))  # ld v0,16(gp)
+        self.assertIsNone(fdiff.gp_access(0x8C82FF9C))  # lw v0,-100(a0)
+        self.assertIsNone(fdiff.gp_access(0x2782FF9C))  # addiu v0,gp,-100: an address, no data read
+
+    def test_gp_value(self):
+        text = READELF + " 14374: 005fd0f0     0 NOTYPE  GLOBAL DEFAULT  ABS _gp\n"
+        self.assertEqual(fdiff.gp_value(text), 0x5FD0F0)
+        self.assertIsNone(fdiff.gp_value(READELF))
+
+    def test_identical(self):
+        rows = self.rows(self.LW, self.LWC1)
+        self.assertEqual(fdiff.compare(rows, rows, self.GP, self.GP, self.look(), self.look()), (True, []))
+
+    def test_gp_offset_difference(self):
+        ok, data = fdiff.compare(self.rows(self.LW), self.rows(self.LW_OTHER), self.GP, self.GP,
+                                 self.look(), self.look())
+        self.assertFalse(ok)
+
+    def test_lit4_value_one_ulp_off(self):
+        addr = self.GP - 32000
+        rows = self.rows(self.LWC1)
+        ok, data = fdiff.compare(rows, rows, self.GP, self.GP, self.look({addr: bytes.fromhex("d80f4940")}),
+                                 self.look({addr: bytes.fromhex("da0f4940")}))
+        self.assertFalse(ok)
+        self.assertEqual(data, [(0, addr, addr, (None, bytes.fromhex("d80f4940")),
+                                 (None, bytes.fromhex("da0f4940")))])
+
+    def test_swapped_global_at_same_offset(self):
+        addr = self.GP - 100
+        rows = self.rows(self.LW)
+        ok, data = fdiff.compare(rows, rows, self.GP, self.GP, self.look(names={addr: "gA"}),
+                                 self.look(names={addr: "gB"}))
+        self.assertFalse(ok)
+        self.assertEqual(len(data), 1)
+
+    def test_unknown_name_on_one_side_compares_bytes_only(self):
+        addr = self.GP - 100
+        rows = self.rows(self.LW)
+        self.assertEqual(fdiff.compare(rows, rows, self.GP, self.GP, self.look(names={addr: "gA"}), self.look()),
+                         (True, []))
+
+    def test_relocated_call_target_is_a_difference(self):
+        ok, data = fdiff.compare(self.rows(0x0C0D5C96), self.rows(0x0C0D5C98), self.GP, self.GP,
+                                 self.look(), self.look())
+        self.assertFalse(ok)
+
+
 if __name__ == "__main__":
     unittest.main()

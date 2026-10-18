@@ -24,11 +24,13 @@ reaches the split assembly).
 ## C files
 
 A C file covers one whole object: a `[offset, c, name]` subsegment in the config, compiled from `src/name.c`.
-Its start and the start of the next subsegment must be function starts at multiples of 16, because the
-generated linker script aligns every object to 16. Functions not decompiled yet stay in the file as
+Its start and the start of the next subsegment must be function starts. The `main` segment has
+`subalign: null`, so each object keeps its own section alignment as in the original link (8 for `.text`): a
+boundary is a multiple of 8, not 16. Functions not decompiled yet stay in the file as
 `INCLUDE_ASM("asm/nonmatchings/name", func);`: splat writes one file per such function under
 `asm/nonmatchings/name/` (run `configure.py --split` after adding one) and the macro (`include/include_asm.h`)
-assembles it in place.
+assembles it in place. Data tables of the game stay in the split too: a table the C file owns is included with
+`INCLUDE_RODATA("asm/nonmatchings/name", D_XXXXXXXX);` at its place in the file, never written out in C.
 
 Each C file is built in three steps, because the 1999 compiler driver cannot run its own assembler here:
 

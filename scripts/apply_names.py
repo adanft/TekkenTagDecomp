@@ -79,7 +79,8 @@ def resolve(old, names):
 
 
 def set_symbol(text, name, addr, kind):
-    """Symbol file text with `name = addr; // type:kind`: replaces the line of addr, or appends one."""
+    """Symbol file text with `name = addr; // type:kind` (no attribute when kind is None): replaces the line of
+    addr, keeping its attributes, or appends one."""
     names = fdiff.parse_symbol_addrs(text)
     if name in names and names[name] != addr:
         raise ValueError(f"{name} already names {names[name]:#x}")
@@ -92,7 +93,7 @@ def set_symbol(text, name, addr, kind):
             return "".join(lines)
     if text and not text.endswith("\n"):
         text += "\n"
-    return text + f"{entry} // type:{kind}\n"
+    return text + (f"{entry} // type:{kind}\n" if kind else f"{entry}\n")
 
 
 def load_symbols(root=ROOT):
@@ -166,7 +167,8 @@ def apply(root, old=None, new=None, dry_run=False, out=sys.stdout):
             raise ValueError(f"{new} already names {names[new]:#x}")
         path = next((p for p, text in files.items() if addr in fdiff.parse_symbol_addrs(text).values()), None)
         path = path or route(addr, file_ranges(files))
-        kind = "data" if old.startswith("D_") or addr >= TEXT_END else "func"
+        # splat 0.50 knows no `type:data`: a data entry gets no type until one is known (s32, PadPort, ...).
+        kind = None if old.startswith("D_") or addr >= TEXT_END else "func"
         files[path] = set_symbol(files[path], new, addr, kind)
         print(f"{path}: {new} = 0x{addr:08X}", file=out)
         if not dry_run:

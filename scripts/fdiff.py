@@ -4,16 +4,19 @@
 Usage: .venv/bin/python scripts/fdiff.py <function or address> [--no-build]
 
 Runs `ninja build/SLUS_200.01` first (--no-build skips it), then takes the function's bytes from the flattened
-build (build/SLUS_200.01) and from iso/SLUS_200.01. Prints `OK` when they are identical; otherwise both
-disassemblies side by side, aligned, with a mark on each line that differs:
+build (build/SLUS_200.01) and from iso/SLUS_200.01. Prints `OK` only when the instruction words are identical
+and every load or store through $gp reaches the same data in both: the same bytes (a .lit4 constant one ulp
+off differs) and, where both sides have a name for the address, the same name (two globals swapped at the
+same offset differ). Otherwise it prints the data that differs, or both disassemblies side by side, aligned,
+with a mark on each line that differs:
 
   !  different instruction        <  only in the original        >  only in the build
-  ~  same instruction, different call or branch target (relocated: something else moved)
+  ~  same instruction, different call or branch target (relocated: something else moved; still a difference)
 
 The function's address and size in the build come from the symbol table of build/SLUS_200.01.elf; its original
 address from its placeholder name (func_XXXXXXXX) or config/symbols/*.txt. The original function ends where
 the next one starts; the alignment nops after it are dropped while it is longer than the build's.
-Exit status: 0 when the bytes match (also when only relocated fields differ), 1 otherwise.
+Exit status: 0 when it prints OK, 1 otherwise.
 """
 
 import argparse
@@ -34,6 +37,13 @@ SCRATCH = "build/fdiff"
 BINUTILS = "tools/binutils/mips-ps2-decompals-"
 # Address of file offset 0 (config/SLUS_200.01.yaml: the header segment): address = file offset + LOAD_BASE.
 LOAD_BASE = 0x33F000
+# $gp of the original (config/SLUS_200.01.yaml, gp_value); the build's is its `_gp` symbol.
+ORIGINAL_GP = 0x5FD0F0
+GP = 28
+# Bytes accessed by the R5900 loads and stores, by opcode: lb lh lw lbu lhu lwu sb sh sw ld sd lq sq lwc1 swc1
+# lqc2 sqc2.
+ACCESS_SIZE = {0x20: 1, 0x21: 2, 0x23: 4, 0x24: 1, 0x25: 2, 0x27: 4, 0x28: 1, 0x29: 2, 0x2B: 4, 0x37: 8, 0x3F: 8,
+               0x1E: 16, 0x1F: 16, 0x31: 4, 0x39: 4, 0x36: 16, 0x3E: 16}
 
 PLACEHOLDER = re.compile(r"(?:func|D)_([0-9A-F]{8})")
 SYMBOL_LINE = re.compile(r"\s*(\w+)\s*=\s*(0x[0-9A-Fa-f]+)\s*;")
@@ -49,6 +59,15 @@ def parse_symbols(readelf):
         if len(p) == 8 and p[3] in ("FUNC", "OBJECT") and p[6] != "UND":
             syms[p[7]] = (int(p[1], 16), int(p[2], 0), p[3])
     return syms
+
+
+def gp_value(readelf):
+    """Value of the `_gp` symbol in `readelf -sW` output, or None."""
+    for line in readelf.splitlines():
+        p = line.split()
+        if len(p) == 8 and p[7] == "_gp":
+            return int(p[1], 16)
+    return None
 
 
 def functions(syms):
@@ -144,6 +163,36 @@ def align(orig, mine, norm_orig, norm_mine):
     return out
 
 
+def gp_access(word):
+    """(offset, size) of a load or store relative to $gp, or None for any other instruction."""
+    size = ACCESS_SIZE.get(word >> 26)
+    if size is None or (word >> 21) & 31 != GP:
+        return None
+    off = word & 0xFFFF
+    return off - 0x10000 if off & 0x8000 else off, size
+
+
+def compare(orig, mine, orig_gp, mine_gp, look_orig, look_mine):
+    """(ok, data) for two lists of (address, word, text) rows. ok only when the words are identical and data is
+    empty. data lists, when the words are identical, each load or store through $gp whose target differs:
+    (row index, original address, build address, (name, bytes) in the original, (name, bytes) in the build),
+    from look_orig / look_mine(address, size) -> (name or None, bytes). Names are compared only when both
+    sides have one."""
+    if [r[1] for r in orig] != [r[1] for r in mine]:
+        return False, []
+    data = []
+    for i, (_, word, _) in enumerate(orig):
+        access = gp_access(word)
+        if access is None:
+            continue
+        off, size = access
+        a, b = orig_gp + off, mine_gp + off
+        (an, ab), (bn, bb) = look_orig(a, size), look_mine(b, size)
+        if ab != bb or (an and bn and an != bn):
+            data.append((i, a, b, (an, ab), (bn, bb)))
+    return not data, data
+
+
 def sh(*cmd):
     return subprocess.run([str(c) for c in cmd], cwd=ROOT, check=True, capture_output=True, text=True).stdout
 
@@ -180,7 +229,8 @@ def main():
         r = subprocess.run(["ninja", BUILT], cwd=ROOT, capture_output=True, text=True)
         if r.returncode:
             sys.exit(r.stdout + r.stderr + "fdiff.py: the build failed")
-    syms = parse_symbols(sh(ROOT / (BINUTILS + "readelf"), "-sW", ROOT / ELF))
+    readelf = sh(ROOT / (BINUTILS + "readelf"), "-sW", ROOT / ELF)
+    syms = parse_symbols(readelf)
     funcs = functions(syms)
     named = known_names()
 
@@ -202,9 +252,21 @@ def main():
     mine = disassemble(read_at(BUILT, built_addr, size), built_addr, "build.bin")
     orig = strip_padding(disassemble(read_at(ORIGINAL, start, end - start), start, "original.bin"), len(mine))
 
-    if [r[1] for r in orig] == [r[1] for r in mine]:
+    orig_names = {a: n for n, a in named.items()}
+    built_names = {a: n for n, (a, s, t) in syms.items() if t == "OBJECT" and not n.endswith(".NON_MATCHING")}
+    ok, data = compare(orig, mine, ORIGINAL_GP, gp_value(readelf) or ORIGINAL_GP,
+                       lambda a, n: (orig_names.get(a), read_at(ORIGINAL, a, n)),
+                       lambda a, n: (built_names.get(a), read_at(BUILT, a, n)))
+    if ok:
         print("OK" if built_addr == start else f"OK (linked at {built_addr:#x}, original {start:#x})")
         return
+    if data:
+        print(f"{name}: same instructions, different data through $gp")
+        for i, a, b, (an, ab), (bn, bb) in data:
+            print(f"  {orig[i][0]:08x}  {orig[i][2].expandtabs(8):<28} original {a:#x} {an or ''} {ab.hex()}, "
+                  f"build {b:#x} {bn or ''} {bb.hex()}")
+        print(f"{len(data)} data references differ")
+        sys.exit(1)
     by_orig = {orig_addr(n): n for n in funcs}
     by_built = {a: n for n, (a, _) in funcs.items()}
     rows = align(orig, mine,
@@ -217,10 +279,8 @@ def main():
         lt = f"{left[0]:08x}  {left[2]}" if left else ""
         rt = f"{right[0]:08x}  {right[2]}" if right else ""
         print(f"{mark} {lt.expandtabs(8):<44} {rt.expandtabs(8)}")
-    if real:
-        print(f"{real} lines differ")
-        sys.exit(1)
-    print(f"OK except {marks.count('~')} relocated call/branch targets")
+    print(f"{real} lines differ, {marks.count('~')} relocated call/branch targets differ")
+    sys.exit(1)
 
 
 if __name__ == "__main__":

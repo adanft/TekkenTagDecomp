@@ -3,6 +3,7 @@
 import importlib.util
 import io
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -155,11 +156,23 @@ class Apply(unittest.TestCase):
 
     def test_data_name_goes_to_data_file(self):
         self.run_apply("D_00500000", "gTable")
-        self.assertEqual(self.read("data.txt"), "// range: 0x00415700 0x02000000\ngTable = 0x00500000; // type:data\n")
+        self.assertEqual(self.read("data.txt"), "// range: 0x00415700 0x02000000\ngTable = 0x00500000;\n")
 
     def test_address_after_text_is_data(self):
         self.run_apply("0x500000", "gTable")
-        self.assertIn("gTable = 0x00500000; // type:data\n", self.read("data.txt"))
+        self.assertIn("gTable = 0x00500000;\n", self.read("data.txt"))
+
+    def test_written_types_are_splat_types(self):
+        """splat 0.50 stops on a `type:` it does not know (`type:data` included)."""
+        from splat.util import symbols as splat_symbols
+        import spimdisasm
+
+        known = splat_symbols.splat_sym_types | spimdisasm.common.gKnownTypes
+        self.run_apply("func_00340200", "DoThing")
+        self.run_apply("D_00500000", "gTable")
+        for name in ("game_a.txt", "data.txt"):
+            for kind in re.findall(r"type:(\S+)", self.read(name)):
+                self.assertTrue(kind in known or kind[0].isupper(), f"{name}: type:{kind}")
 
     def test_rename_keeps_attributes_and_scopes_old_name(self):
         self.run_apply("Old", "New")
