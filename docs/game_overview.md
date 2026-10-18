@@ -36,7 +36,7 @@ Read statically from the split assembly. `scripts/callgraph.py` answers the call
    `AddDmacHandler`).
 4. `Gfx_Init` 0x398940 (section 3), which ends by installing the VBlank handler.
 5. `sceSdRemoteInit` 0x404AD8 (librspu2: binds RPC 0x80000601 of RSPU2DRV, retrying; then `sceSdRemote(1, 1)`).
-6. `Mc_Init` 0x360410 (`sceMcInit`), `func_00361B18`, `func_00399FD8` (sound: `sceSdRemote`), `File_Init`
+6. `Mc_Init` 0x360410 (`sceMcInit`), `func_00361B18`, `Snd_InitDriver` 0x399FD8 (RSPU2DRV command 0x2000), `File_Init`
    0x397B40, `func_0039C7B8` (movie state reset).
 7. Four fighter slots at 0x879640 + n * 0xB8A0: halfwords +0x1E / +0x20 set to (0,0), (1,1), (0,2), (1,3) [V]
    [I: side and slot index].
@@ -95,7 +95,7 @@ The draw passes run before the update in each iteration, so a frame shows the st
 - `Frame_PreUpdate` 0x357888 [V]: increments the frame counter `D_005F5C18`, busy-waits until Timer 0 reaches
   0x724 (1828 ticks, about 3.2 ms after VBlank start) [I: lets the pad data of this VBlank arrive], then
   `Pad_Update`, `func_00358758`, `func_003BAE40`, `Rng_Reseed`.
-- `Frame_End` 0x357BF0 [V]: `func_00374A88` (sound), `File_Update`, `Snd_Flush`, `Mc_Update`, `func_0035DF38`,
+- `Frame_End` 0x357BF0 [V]: `Snd_UpdateVoices` 0x374A88, `File_Update`, `Snd_Flush`, `Mc_Update`, `func_0035DF38`,
   `sceGsSyncPath(0, 0)`, then samples Timer 0 into `D_005F5C08` and sets `D_005F5C0C = (T0 >= 0x246E)`
   (9326 ticks, about 16.2 ms, read by `func_003459D0` [I: a frame-overrun flag]), `Gfx_SetPhase(2)`,
   `Movie_Update(0)`, `func_0039C2C0`.
@@ -189,7 +189,7 @@ are the starting point for the per-module C files.
 | `file` | 0x397958 | 0x398940 | 56 | `File_*` [V block] (section 7) |
 | `gfx` | 0x398940 | 0x3994C0 | 23 | `Gfx_*` [V block] |
 | `zsort` | 0x3994C0 | 0x399FD8 | 15 | "(zs)list over" overflow `printf` + `exit` [I: z-sorted draw list] |
-| `sound_if` | 0x399FD8 | 0x39BBF0 | 30 | byte command queue (`D_005F61F0` write pointer, `D_005F61EC` count) sent with `sceSdRemote` by `Snd_Flush` [V] |
+| `sound_if` | 0x399FD8 | 0x39BBF0 | 30 | byte command queue (`D_005F61F0` write pointer, `D_005F61EC` count) sent with `sceSdRemote` by `Snd_Flush` [V]; only 0x399FD8-0x39A2B8 is sound (`Bgm_*`), the rest does not touch it [V, T11] |
 | `screenshot` | 0x39BBF0 | 0x39C7B8 | 20 | `sceGsExecStoreImage` (`Scrn_Capture`) |
 | `movie` | 0x39C7B8 | 0x3A04B8 | 111 | `sceMpeg*`, IPU, a thread and an INTC handler (0x39CDC0), semaphore ring buffer 0x39F138-0x39FE00 [V for the calls] |
 | `effects` | 0x3A04B8 | 0x3A6460 | 58 | rand, sin/cos, projections; fight modes |
@@ -262,7 +262,7 @@ Archive format, table fields and the extractor: [systems/files.md](systems/files
 
 The game never calls `sceCdRead`, `sceCdSearchFile` or `sceCdSt*` [V: no callers; only `sceCdInit` and
 `sceCdMmode` in `Sys_BootIop`], and the name `TEKKEN.BIN` is not in the executable. Files are read on the IOP
-side through RSPU2DRV commands sent with `sceSdRemote` [V for the EE side; the IOP side is T11].
+side through RSPU2DRV commands sent with `sceSdRemote` [V]; the protocol is in [systems/audio.md](systems/audio.md).
 
 - **File table** `D_00509E40` [V]: 748 entries of 16 bytes, `{u32 sector, u32 size + 0x350A, u32 check,
   u32 id or 0xFFFF}`, indexed by file id. The IOP reads from `TEKKEN.BIN`'s own LSN + `sector - 0x4820`
@@ -276,19 +276,19 @@ side through RSPU2DRV commands sent with `sceSdRemote` [V for the EE side; the I
   state 4 waits until bit 0 of the IOP status clears, descrambles, and goes to 6 (done); state 3 goes to 5
   without a read. `File_Release` 0x397FB0 frees a slot, aborting a running read with
   `sceSdRemote(1, 0x2050)`. `File_WaitAll` 0x397C70 loops on `sceGsSyncV` + `File_Update` until nothing is
-  pending, then frees every slot. (`toIop` is the fourth argument's role [I]: it selects 0x2045, skips the
-  uncached-address conversion and the descrambling.)
+  pending, then frees every slot. (`toIop` selects 0x2045, which reads into SPU2 RAM: `dest` is then an SPU2 address [V, T11];
+  it also skips the uncached-address conversion and the descrambling.)
 - **IOP-requested uploads** [V]: SIF command 1 from the IOP runs `File_SifCmdHandler` (sets `D_005F61D0`); the
   next `File_SendSifCmd` sends `sceSifSendCmd(0, D_008BD090, 0x10, src = D_005F61D4 + w0 * 0x800, dest = w1,
-  size = w2 * 0x800)` with the three words at 0x8BD080, and exits if the source base `D_005F61D4` is 0 [I: EE
-  data (sound) pulled by the IOP].
+  size = w2 * 0x800)` with the three words at 0x8BD080, and exits if the source base `D_005F61D4` is 0 [V, T11:
+  BGM tracks of type 3 streamed from EE memory, see systems/audio.md section 5.2].
 - **Descrambling** [V]: after a read to EE memory (not `toIop`) and for every id except 0x2C, the first
   `min(size, 0x800)` bytes are XORed word by word with a key stream: `key = File_KeySeed(id)` =
   `(id + 0xF3C) * 218319 + (id - 0x348F) * 0x1234567` (64-bit), then `key = key * 0x71C3AB9 + 0x3941` per word
   (`File_KeyNext`, 64-bit as well), each word XORed with the low 32 bits of the key.
 - `File_RegisterIopFiles` 0x397A00 (from `File_Init`) sends 28 `sceSdRemote(1, 0x205E, ...)` commands built from
   the 10-byte records at 0x50CD00 and the file table, one with `sector + 0xCF7` and `size - 0x67B800` (that is,
-  skipping 0xCF7 sectors) [I: streamed sound/movie files the IOP reads by itself].
+  skipping 0xCF7 sectors): the BGM track table of the IOP stream engine [V, T11].
 
 ## 8. VU microcode
 
@@ -300,6 +300,5 @@ Listings and boundaries: T10.
 ## Open questions
 
 - Runtime confirmation of the 59.94 Hz loop and of the 640x224 field-rendering setup [PCSX2].
-- What the IOP does for each `sceSdRemote` command number (0x2030, 0x2045, 0x204E, 0x2050, 0x2051, 0x205E):
-  T11.
+- RSPU2DRV commands: answered in [systems/audio.md](systems/audio.md) (T11); its open questions are listed there.
 - Identity of modes 3, 6, 7, 11, 12, 14 and of most functions in `fighter_core`, `scene3d`, `model_anim`.

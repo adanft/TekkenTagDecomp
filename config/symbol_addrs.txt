@@ -562,6 +562,12 @@ iInvalidDCache = 0x00415668; // type:func // guess
 // librspu2 (Sony remote SPU2 library): init binds RPC 0x80000601 (RSPU2DRV); the call function takes (arg, command, ...).
 sceSdRemoteInit = 0x00404AD8; // type:func // guess
 sceSdRemote = 0x00404BB8; // type:func // guess
+// The rest of librspu2 is unused by the game: end function for no-wait calls, and the EE-side callback server
+// (RPC 0x80000603) that nothing starts. Protocol: docs/systems/audio.md.
+sceSdRemoteSetEndFunc = 0x00404BA8; // type:func // guess
+sceSdRemoteCallbackInit = 0x00404E50; // type:func // guess
+sceSdRemoteCallbackThread = 0x00404ED0; // type:func // guess
+sceSdRemoteCallbackServer = 0x00404F38; // type:func // guess
 // Boot, main loop and frame phases.
 Sys_BootIop = 0x00357358; // type:func
 Sys_Init = 0x00357430; // type:func
@@ -607,6 +613,45 @@ File_Exists = 0x00398358; // type:func
 File_GetSize = 0x00398378; // type:func
 File_LoadSync = 0x00398398; // type:func
 File_LoadSyncIop = 0x00398400; // type:func
+File_SifCmd0Handler = 0x00397948; // type:func
+File_SifCmdBufferAddr = 0x003979E0; // type:func
+File_GetMovieSector = 0x00398338; // type:func // guess
+// IOP status word (sceSdRemote 0x2030, refreshed by File_Update) and the EE-memory BGM source base.
+Iop_BgmBusy = 0x00398490; // type:func // guess
+Iop_GetStatus = 0x003984A0; // type:func
+Iop_StreamBusy = 0x003984E8; // type:func // guess
+Iop_SetEeStreamBase = 0x00398500; // type:func
+Iop_ClearEeStreamBase = 0x00398508; // type:func
+// Sound (docs/systems/audio.md): sound effects on SPU2 core 1 voices 0-21 through libspu2 commands, BGM and
+// movie audio as byte codes queued for RSPU2DRV (command 0x7F0F).
+Snd_Init = 0x003745E8; // type:func // guess
+Snd_InitSpu = 0x00374608; // type:func
+Snd_InitBanks = 0x00374748; // type:func // guess
+Snd_GetBankAddr = 0x00374790; // type:func // guess
+Snd_SetBankOwner = 0x003747A8; // type:func // guess
+Snd_AllocVoice = 0x00374808; // type:func // guess
+Snd_SetVoiceSlot = 0x00374A60; // type:func
+Snd_UpdateVoices = 0x00374A88; // type:func
+Snd_PlaySeEx = 0x00374E90; // type:func // guess
+Snd_KeyOn = 0x003750E8; // type:func
+Snd_StopCategory = 0x003754A0; // type:func // guess
+Snd_StopAllSe = 0x00375550; // type:func
+Snd_SetPlayerVolume = 0x00375970; // type:func // guess
+Snd_Nop = 0x00399FC8; // type:func
+Snd_InitDriver = 0x00399FD8; // type:func
+Bgm_Play = 0x0039A0C0; // type:func // guess
+Bgm_PlayFlag = 0x0039A118; // type:func // guess
+Bgm_IsPlaying = 0x0039A120; // type:func // guess
+Bgm_Stop = 0x0039A140; // type:func // guess
+Bgm_SetVolumeFade = 0x0039A168; // type:func // guess
+Bgm_SetVolumeLevel = 0x0039A1A8; // type:func
+Snd_SetStereo = 0x0039A208; // type:func // guess
+Movie_PlayAudio = 0x0039A238; // type:func // guess
+Bgm_Abort = 0x0039A290; // type:func // guess
+Movie_StartStream = 0x0039D058; // type:func // guess
+Movie_WaitRead = 0x0039D0D0; // type:func // guess
+Snd_WaitStreamIdle = 0x0039D170; // type:func // guess
+Movie_ReadChunk = 0x0039D1E0; // type:func // guess
 // LZ decompressor (flag byte, 11-bit distance, 5-bit length); only used on data inside the executable.
 Lz_Decompress = 0x00364448; // type:func
 // Random numbers.

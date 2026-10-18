@@ -101,10 +101,12 @@ Kind guesses by `extract_disc.py` on the user's disc (first 64 KB of each file):
 
 `File_Request` / `File_Update` and the IOP-side uploads are in [game_overview.md](../game_overview.md) section 7.
 `File_RegisterIopFiles` registers 28 streamed files with the IOP (one of them 0xCF7 sectors into its file).
+A `toIop = 1` read (command 0x2045) goes into SPU2 sound RAM, not IOP memory: `dest` is an SPU2 byte address [V];
+the 64-byte round-up is probably the SPU2 transfer block size [I]. The request flags are stored by the IOP and never
+read [V].
+See [audio.md](audio.md).
 
 ## Open questions
 
-- What the IOP does with the 4th `sceSdRemote` argument (the request flags) and the `toIop` round-up to 64 bytes
-  seen in the read handler [I]: T11.
 - Files 0 and 747 (no structure found) and whether anything reads them.
 - Formats inside the packs and the record files: later tasks (models, motions, sound).
