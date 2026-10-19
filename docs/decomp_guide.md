@@ -759,6 +759,52 @@ Tools:
   runs `fdiff.py` (about 0.5 s per build of `fighter_core.c`) found several matches faster than decomp-permuter
   (`func_003835A0`, `func_00387600`, `func_003879A0`, `func_00387DA8`, `func_003685B8`).
 
+### Lessons from T14 batch 9 (2026-10-19)
+
+Code shapes:
+
+- **`n > K` as a value keeps `li K / slt` only through a jump on GT**: `if (n <= K) r = a; else r = b;` gives the
+  original's `li K / slt / movn` (the MIPS `sgt` expander forces a non-zero constant into a register);
+  `r = n > K ? 0 : a` and `if (n > K) r = 0;` are canonicalised to `slti K+1` with `movz` (`func_00388530`).
+- A flag set from a bit test is `if (x & 0x100) stop = 1;` for the original's `andi / sltu`; `stop = (x & 0x100) != 0`
+  becomes a bit extract `srl / andi` (`func_0037FB70`, `Battle_UpdatePause`).
+- A switch tree `beq 1 / slti 2 / bnez` over the cases 0 and 1 comes from three cases with `case 2: break;`, written
+  in the order 0, 1, 2 (the order puts case 0's block first, `func_0037CDA0`).
+- Two stores before a shared tail again: `s->unk0 = 4; s->unk4 = 0xB4;` stores unk4 first, which lets the case
+  cross-jump into another case's identical `unk4 / unk0` tail (`func_0037FB70`).
+- A 0x80 / 0x88-byte struct copy with a run-time alignment test (`or / andi 7`, an `ldl / ldr` loop beside an
+  `ld / sd` loop and an `ldl / ldr` tail) is a copy through a 4-aligned struct type (`struct { s32 w[0x22]; }`), not
+  through the 8-aligned `FighterUnk438` (`func_0037E1D8`, `func_00380120`).
+- `Cpu_RandBelow` multiplies `n * x` like `func_003800D8`: with a variable `n` (`w - 4` in `func_00384D78`) only that
+  order gives the original `mult v0, s0, v0`; the callers with constants compile the same either way.
+- Small local arrays with initialisers have their constants in `.sdata` (`D_005F5EC0`, `D_005F5EC8`, 8 bytes, reached
+  with `lui / addiu` and copied with `ldl / ldr`): declare them `extern s32 D_xxx[];` and copy them as a struct
+  (`func_0036F0D8` matched first try).
+- `func_0037E1D8` matched only with the second search written as a comma expression inside the test (marked fake);
+  the plain `if` forms keep the `a | b` result in a saved register.
+
+Objects and data:
+
+- New C jump tables: `func_0037FB70` (`jtbl_00507290`) and `func_0037FE58` (`jtbl_005073A0`), both ending on a
+  16-byte boundary, so nothing was added; the `.s` files of tables
+  that stay with drafts keep their `INCLUDE_RODATA` lines next to the `#if 0` block.
+- `Fighter` gained `unk5C`-`unk62`, the blend fields `unkB390[18][16]`, `unkB5D0` / `unkB5D4`, `unkB630[18][16]`,
+  `unkB888` / `unkB88C` / `unkB890` / `unkB891`; `FighterUnk18C` the reaction move ids at 0x1C-0x36 (`func_0036A050`).
+  No other function changed.
+
+Not matched yet: every function of `fighter_core`, `battle_flow` and `fight_misc` now has C; the new drafts are
+listed with one-line reasons in their `NON_MATCHING` notes ([systems/fighter.md](systems/fighter.md) section 5.13).
+The closest: `func_0037EB00` (3 lines, one register), `func_0037C1B8` (7, the two flags built from one constant),
+`func_00384210` (11), `func_0037D0F8` (12), `func_0037CDA0` (25, an s0 / s1 swap).
+
+Tools:
+
+- For a sweep, score the fdiff output without relocated branch targets and `$gp` offsets: a size change moves every
+  later target and data address, so the raw "lines differ" count hides real progress.
+- decomp-permuter: `func_00388FA8` 2795 to 2125 in about 25 minutes (by moving a `mask = 7` store into another branch,
+  a change of meaning); `func_00385DF8` 2715 to 695 in about 15 minutes, only through a `(double)` cast of a call
+  result (a fake, not taken); `Fighter_StepMove` 7765 to 7635 in about 15 minutes with a new temporary (not taken).
+
 ## Decompiled so far
 
 | File | Range | C / functions | Notes |
@@ -775,10 +821,11 @@ Tools:
 | `src/sound.c` | 0x3745E8-0x376C30 | 59 / 65 | SPU2 set-up, sound effect voices and banks, delayed effects, fighter voices |
 | `src/sound_if.c` | 0x399FC8-0x39A2B8 | 13 / 13 | sound byte-code queue (BGM, movie audio) |
 | `src/gte.c` | 0x39A2B8-0x39BBF0 | 19 / 19 | GTE-style fixed-point matrices and vectors |
-| `src/fighter_core.c` | 0x37BA88-0x38BF98 | 214 / 277 | practice mode recorder, command lists, hit markers and dummy actions, the CPU opponent (`Cpu_Think` and its deciders, commands, predicates and handlers, [systems/fighter.md](systems/fighter.md) section 4); `.rodata` 0x5064C0-0x507EE0 included in place (its 0x506528-0x506BF0 belongs to the practice object before) |
-| `src/battle_flow.c` | 0x3682F8-0x3745E8 | 118 / 148 | the fight simulation: per-frame update, input fetch and history, command matching and situation tests, move start and move events, hits and throws (`Battle_ResolveHits`, `Fighter_StartThrownMove`), launches, the round state machine (`Battle_UpdateRound`) and results ([systems/fighter.md](systems/fighter.md) section 5); includes the four functions of the former `src/374520.c`; `.rodata` 0x4FF8D0-0x500780 included in place; damage `Fighter_ApplyDamage` and its `.lit4` 0x5F5168 |
+| `src/fighter_core.c` | 0x37BA88-0x38BF98 | 220 / 277 | practice mode recorder, command lists, hit markers and dummy actions, the CPU opponent (`Cpu_Think` and its deciders, commands, predicates and handlers, [systems/fighter.md](systems/fighter.md) section 4); `.rodata` 0x5064C0-0x507EE0 included in place (its 0x506528-0x506BF0 belongs to the practice object before) |
+| `src/battle_flow.c` | 0x3682F8-0x3745E8 | 120 / 148 | the fight simulation: per-frame update, input fetch and history, command matching and situation tests, move start and move events, hits and throws (`Battle_ResolveHits`, `Fighter_StartThrownMove`), launches, the round state machine (`Battle_UpdateRound`) and results ([systems/fighter.md](systems/fighter.md) section 5); includes the four functions of the former `src/374520.c`; `.rodata` 0x4FF8D0-0x500780 included in place; damage `Fighter_ApplyDamage` and its `.lit4` 0x5F5168 |
 | `src/fight_misc.c` | 0x376C30-0x3790C8 | 26 / 29 | the hit test (attack volumes against body spheres), body sphere radii, push sphere radii, the special attack volume of character 0x1D ([systems/fighter.md](systems/fighter.md) section 5.5); `.rodata` 0x506150-0x506260, `.lit4` 0x5F5170 |
 | `src/select_results.c` | 0x3C1470-0x3C1A78 | 2 / 4 | team life at round start and its per-frame recovery ([systems/fighter.md](systems/fighter.md) section 5.6); a cut inside the `select_results` module, not an object edge |
 | `src/model_anim.c` | 0x3D3288-0x3D33F0 | 1 / 1 | the tag swap ([systems/fighter.md](systems/fighter.md) section 5.7); a cut inside the `model_anim` module, not an object edge |
 
-Functions left as `INCLUDE_ASM` carry their closest attempt above them in `#if 0` with a `NON_MATCHING:` note.
+Functions left as `INCLUDE_ASM` carry their closest attempt above them in `#if 0` with a `NON_MATCHING:` note; in
+`fighter_core.c`, `battle_flow.c` and `fight_misc.c` every remaining function has one (T14 b9).

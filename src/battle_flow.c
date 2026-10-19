@@ -487,7 +487,119 @@ s32 func_00368B08(Fighter *f, Fighter *o) {
     }
 }
 
+MoveCmd *func_003691D8(MoveCmd *c, s16 frame, Fighter *f, Fighter *o);
+void func_0036A050(Fighter *f, Fighter *o);
+void func_0036BD60(Fighter *f, MoveCmd *c);
+void func_00370F28(Fighter *f, Fighter *o);
+
+/* Starts the next move of fighter a from its command list (once per frame, Battle_UpdateFrame) [V code; I meaning]:
+ * when hit (unk12F) with the attacker's hit kind 0, or 2 without a launch or unkCC bit 4, and a pairing (unk18C), the
+ * hit reaction (func_0036A050, func_0036BD98, unkF8 1). Otherwise, while no move is loaded and unk170 is below 26, the
+ * command entry found at the current frame (func_003691D8) starts its move (unk184 / unk188, the kind func_0036BE08,
+ * flags 0x8000 / 0x4000 / 0x2000 and bits 7-12 of unk8, the start frame unkC / unkD or the move length for 0xFF,
+ * unkF8 2). At the list end (func_00368F78) the next move's list is tried at frame 1 with the facing of its start
+ * (unk12 added to unk3C for func_00370F28): a command found there starts it (unkF8 3), else past the move's length
+ * the end entry's move starts (unkF8 4). */
+/* NON_MATCHING: about 115 lines differ: a takes s2 instead of s1, the hit-kind switch is laid out differently and
+ * the three move starts share fewer stores than in the original. */
+#if 0
+void func_00368B90(Fighter *a, Fighter *b) {
+    MoveCmd *c;
+    MoveCmd *n;
+    MoveCmd *list;
+    struct FighterMove *m;
+    u16 end;
+    s16 face;
+    s32 t;
+
+    a->unkD8 = -1;
+    if (a->unk12F != 0) {
+        switch (a->unk11C) {
+        case 1:
+            break;
+        case 2:
+            if (a->unk135 != 0 || (a->unkCC & 4)) {
+                break;
+            }
+        case 0:
+            if (a->unk18C != NULL) {
+                func_0036A050(a, b);
+                func_0036BD98(a);
+                a->unkF8 = 1;
+                return;
+            }
+            break;
+        }
+    }
+    if (a->unk188 != NULL || a->unk170 >= 0x1A) {
+        return;
+    }
+    c = func_003691D8((MoveCmd *)a->unkC0->unkC, a->unkC4, a, b);
+    end = c->unk0;
+    if (end != 0x8000) {
+        a->unk184 = c->unk6;
+        a->unk188 = func_00368218(a, c->unk6);
+        a->unkD8 = c->unkC - a->unkC4;
+        a->unk17A = func_0036BE08(a, (u16)c->unk8 & 0x7F);
+        a->unk17C = (u16)c->unk8 & 0x8000;
+        a->unk17E = (u16)c->unk8 & 0x4000;
+        a->unk180 = (u16)c->unk8 & 0x2000;
+        a->unk182 = ((u16)c->unk8 & 0x1F80) >> 7;
+        if (a->unkDA < 0) {
+            a->unk178 = c->unkC;
+        } else {
+            a->unk178 = c->unkD;
+        }
+        if (a->unk178 == 0xFF) {
+            a->unk178 = a->unkC0->unk18;
+        }
+        a->unkF8 = 2;
+        func_0036BD60(a, c);
+        return;
+    }
+    if (func_00368F78(a, c) != 0) {
+        m = a->unkC0;
+        list = (MoveCmd *)((struct FighterMove *)func_00368218(a, c->unk6))->unkC;
+        face = a->unk3C;
+        a->unk3C += m->unk12;
+        func_00370F28(a, b);
+        n = func_003691D8(list, 1, a, b);
+        a->unk3C = face;
+        func_00370F28(a, b);
+        if (n->unk0 != end) {
+            a->unk184 = n->unk6;
+            a->unk188 = func_00368218(a, n->unk6);
+            a->unk178 = c->unkB;
+            a->unkD8 = n->unkC - a->unkC4;
+            a->unk17A = func_0036BE08(a, (u16)n->unk8 & 0x7F);
+            a->unk17C = (u16)n->unk8 & 0x8000;
+            a->unk17E = (u16)c->unk8 & 0x4000;
+            a->unk180 = (u16)c->unk8 & 0x2000;
+            a->unk12D = 1;
+            a->unkF8 = 3;
+            a->unk182 = ((u16)c->unk8 & 0x1F80) >> 7;
+            func_0036BD60(a, n);
+            return;
+        }
+    }
+    t = a->unkC4 + a->unkDA;
+    if (a->unkC0->unk18 < t || t <= 0) {
+        a->unk178 = a->unkC4;
+        a->unk184 = c->unk6;
+        a->unk188 = func_00368218(a, c->unk6);
+        a->unk17A = func_0036BE08(a, (u16)c->unk8 & 0x7F);
+        a->unk17C = (u16)c->unk8 & 0x8000;
+        a->unk17E = (u16)c->unk8 & 0x4000;
+        a->unk180 = (u16)c->unk8 & 0x2000;
+        a->unk12D = 1;
+        a->unkF8 = 4;
+        a->unk182 = ((u16)c->unk8 & 0x1F80) >> 7;
+        func_0036BD60(a, c);
+    }
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00368B90);
+#endif
 
 /* Whether a command entry may start now: within its frame window c->unkB..unkC while the move plays forwards, or up
  * to 5 frames before the window when a button (history bits 4-8) is pressed this frame [V code; I meaning]. */
@@ -1016,7 +1128,79 @@ end:
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036A008);
 #endif
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036A050);
+/* Picks the hit reaction of fighter f hit by o [V code; I meaning]: the kind passed to func_0036BE08 (0x25-0x2D, kept
+ * in unk17A) and the reaction move unk184 from the pairing data unk18C, front or back by unkCC bit 2 (o's unkD0
+ * against f's unkD2, flags 0x200 / 4 of unkCC, crouching with unk13A, else by unk42 0-3); a launch (unk135, or the
+ * current move's flag 0x400) takes its move from the launch record of Fighter_GetLaunchKind (unkFC). Then clears the
+ * move step state and loads the move record (unk188). */
+void func_0036A050(Fighter *f, Fighter *o) {
+    if (f->unkD2 & o->unkD0) {
+        f->unk17A = func_0036BE08(f, 0x25);
+        if (f->unkCC & 2) {
+            f->unk184 = f->unk18C->unk30;
+        } else {
+            f->unk184 = f->unk18C->unk32;
+        }
+    } else if (f->unk135 != 0 || (f->unkC0->unk4 & 0x400)) {
+        f->unk17A = func_0036BE08(f, 0x26);
+        f->unkFC = Fighter_GetLaunchKind(f, o);
+        f->unk184 = func_00374010(f->unkFC)->unk0;
+    } else if (f->unkCC & 0x200) {
+        f->unk17A = func_0036BE08(f, 0x27);
+        f->unk184 = f->unk18C->unk36;
+    } else if (f->unkCC & 4) {
+        f->unk17A = func_0036BE08(f, 0x27);
+        f->unk184 = f->unk18C->unk34;
+    } else if (f->unk13A != 0 && f->unk42 == 0) {
+        f->unk17A = func_0036BE08(f, 0x28);
+        if (f->unkCC & 2) {
+            f->unk184 = f->unk18C->unk20;
+        } else {
+            f->unk184 = f->unk18C->unk22;
+        }
+    } else {
+        switch (f->unk42) {
+        case 0:
+            f->unk17A = func_0036BE08(f, 0x2C);
+            if (f->unkCC & 2) {
+                f->unk184 = f->unk18C->unk1C;
+            } else {
+                f->unk184 = f->unk18C->unk1E;
+            }
+            break;
+        case 1:
+            f->unk17A = func_0036BE08(f, 0x29);
+            if (f->unkCC & 2) {
+                f->unk184 = f->unk18C->unk24;
+            } else {
+                f->unk184 = f->unk18C->unk26;
+            }
+            break;
+        case 2:
+            f->unk17A = func_0036BE08(f, 0x2D);
+            if (f->unkCC & 2) {
+                f->unk184 = f->unk18C->unk2C;
+            } else {
+                f->unk184 = f->unk18C->unk2E;
+            }
+            break;
+        case 3:
+            f->unk17A = func_0036BE08(f, 0x2A);
+            if (f->unkCC & 2) {
+                f->unk184 = f->unk18C->unk28;
+            } else {
+                f->unk184 = f->unk18C->unk2A;
+            }
+            break;
+        }
+    }
+    f->unk17C = 0;
+    f->unk17E = 0;
+    f->unk182 = 0;
+    f->unk180 = 0;
+    f->unk178 = f->unkC4;
+    f->unk188 = func_00368218(f, f->unk184);
+}
 
 s16 func_0036A2D0(Fighter *f, Fighter *o) {
     s16 n = 0;
@@ -2887,7 +3071,202 @@ s32 func_0036CFC0(u16 held) {
     return dir;
 }
 
+extern u16 D_005F5CBC;
+extern s32 D_005F67BC;
+extern s32 D_005F6788;
+extern s32 D_005F678C;
+extern s16 D_004FF690[];
+extern u16 D_005F5CB6;
+s32 Sort_PairsByValue(u32 *a, s32 n, s32 desc);
+s32 func_0035C758(s32 character, s32 costume);
+void func_0035C8D0(Fighter *f, s32 character, s32 costume);
+void func_00340070(u16 n);
+void func_003420C8(s32 n);
+void func_00344EA8(Fighter *f);
+void func_00345070(void);
+void func_00353658(void);
+void func_00353D58(void);
+void func_00353DB0(void);
+void func_00353E08(void);
+s32 func_00367310(s16 slot);
+void func_00367450(Fighter *f);
+s32 func_00367850(void);
+void func_00367938(u16 n);
+s16 func_00368288(s16 n);
+void func_0037BA98(void);
+void func_00392E00(s32 n);
+s32 func_00393838(u16 n);
+void func_003A6BD0(void);
+void func_003A6EB0(s32 n);
+s32 func_003ADB58(s32 side, s32 member);
+void func_003ADB70(s32 side, s32 member, s32 n);
+void func_003ADB90(s32 n);
+void func_003ADDE8(void);
+s16 func_003ADF30(s32 side, s32 n);
+void func_003AF540(Fighter *f, s32 a, s32 b);
+void func_003B8AA0(s32 a, s32 b);
+void func_003BBC08(void);
+s32 func_003BFA40(void);
+void func_003C1C90(void);
+void func_003D0620(void);
+void func_003D2B38(Fighter *f);
+void func_003D31B8(void);
+void func_003D3630(u16 n);
+void func_003F0C00(void);
+void func_0036C420(Fighter *f, s32 arg1);
+void func_003645D8(s32 n);
+void Battle_InitTeamLife(void);
+void func_00366DB0(u16 n);
+void func_00346600(void);
+void func_00344BE0(void);
+void func_003A8B08(void);
+void func_003A42B8(void);
+void func_003A5FA0(void);
+void func_003A7198(void);
+void func_003768C0(Fighter *a, Fighter *b, s32 n);
+s32 func_003ABCC0(void);
+
+/* Sets up a fight [V calls; I meaning]: the CPU flags of both sides (func_003B8AA0), the members in front (unk0 /
+ * unk2 from func_003ADF30 outside the modes 5-6), the team members to load sorted by D_004FF690's order of their
+ * character (Sort_PairsByValue: key side | member << 1), their models and characters (func_0035C8D0, slot unk22,
+ * func_003AF540 / func_00344EA8 or func_00367450 / func_003ADB70), the round count D_005F5C70 (option 0x1E + 1, at
+ * most 5) and the rounds to win D_005F5C72, the variants (func_00368288), the inputs (func_0036C420), the stage
+ * (func_00353D58 ... or func_00345070), the per-fighter counters, the life (Battle_InitTeamLife) and the subsystems,
+ * with the practice set-up in mode 7 (func_003D0620, func_0037BA98) and the special mode 8 (func_003F0C00). */
+/* NON_MATCHING: about 65 lines differ: the original sign-extends both parameters itself, keeps the loop counter and
+ * the fighter base in other saved registers, computes the team member's offset with movz in another order and tests
+ * member == 1 explicitly in the load loop. */
+#if 0
+void func_0036D010(s16 cpu1, s16 cpu2) {
+    u32 order[4][2];
+    s32 c1 = cpu1 != 0;
+    s32 c2 = cpu2 != 0;
+    s32 i;
+    s32 n;
+    s32 side;
+    s32 member;
+    s32 k;
+    s16 front;
+    Fighter *f;
+
+    func_003B8AA0(c1, c2);
+    D_005F67BC = 0;
+    D_005F6788 = 0;
+    D_005F678C = 0;
+    func_003D31B8();
+    func_00353658();
+    func_003ADDE8();
+    for (i = 0; i < 2; i++) {
+        front = 0;
+        if ((u32)(D_0043B7F8[0] - 5) >= 2) {
+            front = func_003ADF30(i, 0);
+        }
+        gFighters[i].unk0 = front;
+        gFighters[i].unk2 = front ^ 1;
+    }
+    for (i = 0, n = 0; i < 2; i++) {
+        order[n++][0] = i;
+        if ((u32)(D_0043B7F8[0] - 5) >= 2 && (gFighters[i].unk402 == 0 || gFighters[i].unk0 != 0)) {
+            order[n++][0] = i + 2;
+        }
+    }
+    for (i = 0; i < n; i++) {
+        k = order[i][0];
+        order[i][1] = D_004FF690[func_0035C758(D_00440940[k & 1][(k & 2) ? 1 : 0].unk0,
+                                               D_00440940[k & 1][(k & 2) ? 1 : 0].unk4)];
+    }
+    for (i = n; i < 4; i++) {
+        order[i][0] = -1;
+        order[i][1] = -1;
+    }
+    Sort_PairsByValue(order[0], n, 1);
+    for (i = 0; i < n; i++) {
+    }
+    for (i = 0; i < n; i++) {
+        k = order[i][0];
+        member = (k & 2) >> 1;
+        side = k & 1;
+        if (member == 0 || ((u32)(D_0043B7F8[0] - 5) >= 2 &&
+                            (gFighters[side].unk402 == 0 || gFighters[side].unk0 != 0))) {
+            f = &gFighters[side];
+            func_0035C8D0(f, D_00440940[side][member].unk0, D_00440940[side][member].unk4);
+            f->unk22 = side + member * 2;
+            if (func_003ADB58(side, member) != 0) {
+                func_003AF540(f, 0, func_00367310(f->unk22));
+                func_00344EA8(f);
+            } else {
+                func_00367450(f);
+                func_003ADB70(side, member, 1);
+            }
+        }
+    }
+    gRoundNumber = 0;
+    D_005F5C70 = D_0043B7F8[0x1E] + 1;
+    if (D_005F5C70 >= 6) {
+        D_005F5C70 = 5;
+    }
+    D_005F5C72 = D_005F5C70 * 2 - 1;
+    gFighters[0].unk28 = func_00368288(gFighters[0].unk28);
+    gFighters[1].unk28 = func_00368288(gFighters[1].unk28);
+    func_0036C420(&gFighters[0], c1);
+    func_0036C420(&D_00884EE0, c2);
+    if (func_003BFA40() == 0) {
+        func_00353D58();
+        func_00353DB0();
+        func_00353E08();
+        if (D_005F5CBC != 0 && func_003ABCC0() == 0) {
+            k = func_00393838(D_005F5CB6);
+            if (k >= 0) {
+                func_00392E00(k + 0x40);
+            }
+        }
+        func_00367938(D_005F5CB6);
+    } else {
+        func_00345070();
+        func_003A6EB0(func_00367850());
+    }
+    func_003ADB90(1);
+    func_003BBC08();
+    gFighters[1].unk60 = 0;
+    gFighters[1].unk5A = 0;
+    gFighters[0].unk5A = 0;
+    gFighters[0].unk5E = 0;
+    gFighters[0].unk5C = 0;
+    gFighters[1].unk5E = 0;
+    gFighters[1].unk5C = 0;
+    gFighters[0].unk62 = 0;
+    gFighters[0].unk60 = 0;
+    gFighters[1].unk62 = 0;
+    func_003D2B38(&gFighters[0]);
+    func_003D2B38(&D_00884EE0);
+    func_003645D8(1);
+    Battle_InitTeamLife();
+    func_003C1C90();
+    func_00340070(D_005F5CB6);
+    func_003D3630(D_005F5CB6);
+    func_00366DB0(D_005F5CB6);
+    func_00346600();
+    func_00344BE0();
+    func_003A8B08();
+    func_003A42B8();
+    func_003A5FA0();
+    func_003A7198();
+    func_003A6BD0();
+    func_003420C8(4);
+    if (D_0043B7F8[0] == 8) {
+        func_003F0C00();
+    }
+    if (D_0043B7F8[0] == 7) {
+        func_003D0620();
+        if (D_0043B7F8[0] == 7) {
+            func_0037BA98();
+        }
+    }
+    func_003768C0(&gFighters[0], &D_00884EE0, 0);
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036D010);
+#endif
 
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500000);
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500010);
@@ -3209,7 +3588,111 @@ s32 func_0036DE60(void) {
     return r;
 }
 
+extern u16 D_005F5CB0; /* player 1 may pause */
+extern u16 D_005F5CB2; /* player 2 may pause */
+s32 func_0039C738(void);
+s32 func_003B7B38(void);
+void func_003B7AC8(void);
+void func_003B7B40(void);
+s32 func_003795D8(void);
+s32 func_00379600(void);
+s32 func_00379628(void);
+s32 func_00379638(void);
+s32 func_00379648(void);
+void Bgm_SetVolumeFade(s32 vol, s32 frames);
+void func_00375428(void);
+
+/* The pause, once per frame (first step of Battle_UpdateFrame) [V code; I meaning]: nothing while func_0039C738 /
+ * func_003B7B38, option byte 0x11 or D_005F5EE0 hold. Button 0x800 of each side that may pause (D_005F5CB0 /
+ * D_005F5CB2) requests it; in practice mode (option 0 at 7) the practice menu decides instead (func_003795D8 /
+ * func_00379628 / func_00379638, or func_00379648 sets the state directly) and nothing pauses while a fighter's move
+ * has kind 2 in bits 20-21 of unk24. With option byte 1 and func_0036E158 returning 1 a request pauses: D_005F5F08
+ * keeps the pausing sides (bits 1 / 2), func_003B7AC8 opens the pause and func_003B7B40 closes it when the same side
+ * presses again (or at once without the option). A change lowers the music to 0x40 (func_00375428) or restores 0x80;
+ * D_005F5EE4 / D_005F5F0C keep the state. */
+/* NON_MATCHING: about 33 lines differ: the two pause requests take s0 / s1 the other way round, the button tests
+ * become srl / andi bit extracts where the original has andi / sltu (as `!= 0`), and a few delay slots differ. */
+#if 0
+void Battle_UpdatePause(void) {
+    s32 p2 = 0;
+    s32 p1;
+    s32 on;
+
+    if (func_0039C738() != 0 || func_003B7B38() != 0 || D_0043B7F8[0x11] != 0 || D_005F5EE0 != 0) {
+        return;
+    }
+    p1 = p2;
+    if (D_005F5CB0 != 0 && (D_005F5C48[0] & 0x800)) {
+        p1 = 1;
+    }
+    if (D_005F5CB2 != 0 && (D_005F5C48[1] & 0x800)) {
+        p2 = 1;
+    }
+    if (D_0043B7F8[0] == 7) {
+        if (func_003795D8() != 0) {
+            if (D_005F5F08 != 0) {
+                if (func_00379628() == 0) {
+                    p2 = 1;
+                    p1 = 1;
+                }
+            }
+            if (D_005F5F08 == 0 && func_00379628() != 0) {
+                if (func_00379638() == 0) {
+                    p1 = 1;
+                } else {
+                    p2 = 1;
+                }
+            }
+        } else if (func_00379600() != 0) {
+            D_005F5EE4 = func_00379648();
+            return;
+        }
+        if (D_0043B7F8[0] == 7 && D_005F5F08 == 0 &&
+            (((gFighters[0].unkC0->unk24 >> 20) & 3) == 2 || ((gFighters[1].unkC0->unk24 >> 20) & 3) == 2)) {
+            p2 = 0;
+            p1 = 0;
+        }
+    }
+    on = 0;
+    if (D_0043B7F8[1] != 0) {
+        on = func_0036E158() == 1;
+    }
+    if (on) {
+        if (D_005F5F08 == 0) {
+            if (p1) {
+                D_005F5F08 = 1;
+            }
+            if (p2) {
+                D_005F5F08 |= 2;
+            }
+            if (D_005F5F08 != 0) {
+                func_003B7AC8();
+            }
+        } else if (D_005F5F08 & 3) {
+            if (p1 && (D_005F5F08 & 1)) {
+                func_003B7B40();
+            }
+            if (p2 && (D_005F5F08 & 2)) {
+                func_003B7B40();
+            }
+        }
+    } else if (D_005F5F08 != 0) {
+        func_003B7B40();
+    }
+    if (D_005F5F08 != D_005F5F0C) {
+        if (D_005F5F08 != 0) {
+            Bgm_SetVolumeFade(0x40, 0x78);
+            func_00375428();
+        } else {
+            Bgm_SetVolumeFade(0x80, 0x78);
+        }
+    }
+    D_005F5EE4 = D_005F5F08;
+    D_005F5F0C = D_005F5F08;
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/battle_flow", Battle_UpdatePause);
+#endif
 
 void func_0036E138(void) {
     D_005F5E90 = 0;
@@ -3698,7 +4181,83 @@ INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500520);
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500538);
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500548);
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500558);
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036F0D8);
+/* The four result strings of D_00500510 and the two pairs of D_005F5EC0, copied to the stack by func_0036F0D8 [I]. */
+typedef struct {
+    /* 0x0 */ const char *unk0[4];
+} Unk500510;
+
+typedef struct {
+    /* 0x0 */ s32 unk0[2];
+} Unk5F5EC0;
+
+extern const Unk500510 D_00500510;
+extern s32 D_005F5EC0[];
+extern s16 gSubMode;
+extern const char D_00500500[];
+extern const char D_00500520[];
+extern const char D_00500538[];
+extern const char D_00500548[];
+extern const char D_00500558[];
+void func_0035C710(s32 id);
+
+/* The round result texts [V code; I meaning]: a draw (equal unkB4) prints D_00500500; otherwise the winner is the
+ * fighter with the larger unkB4. When both sides take the round (D_005F5CBA 3) it shows the winner (func_0035C710 with
+ * its unk26) and D_00500520, and with option byte 0x1F in the modes 0-2 / 4-8 the two result lines (D_00500538 /
+ * D_00500548, one of the four strings of D_00500510, +2 for a fighter with unk402 set, and D_005F5EC0's values);
+ * else D_00500520 when the winner's bit of D_005F5CBA is set, or D_00500558 before sub mode 10. */
+void func_0036F0D8(void) {
+    s32 x[2];
+    Unk500510 str;
+    s32 idx[2];
+    const char *s[2];
+    Unk5F5EC0 w;
+    s32 v[2];
+    s32 win;
+    s32 lose;
+    s32 i;
+
+    if (gFighters[0].unkB4 == gFighters[1].unkB4) {
+        Text_Printf(D_00500500, 0xE8, 0xDC, 0xA, 0xC);
+        return;
+    }
+    if (gFighters[1].unkB4 < gFighters[0].unkB4) {
+        win = 0;
+        lose = 1;
+    } else {
+        win = 1;
+        lose = 0;
+    }
+    if (D_005F5CBA == 3) {
+        str = D_00500510;
+        w = *(Unk5F5EC0 *)D_005F5EC0;
+        func_0035C710(gFighters[win].unk26);
+        Text_Printf(D_00500520, 0x9D, 0x168, 0xA, 2);
+        if (D_0043B7F8[0x1F] != 0 &&
+            (D_0043B7F8[0] < 3 || D_0043B7F8[0] == 4 || D_0043B7F8[0] == 7 || D_0043B7F8[0] == 5 ||
+             D_0043B7F8[0] == 6 || D_0043B7F8[0] == 8)) {
+            idx[0] = win;
+            v[0] = w.unk0[win];
+            idx[1] = lose;
+            v[1] = w.unk0[lose];
+            for (i = 0; i < 2; i++) {
+                if (gFighters[i].unk402 == 1) {
+                    idx[i] += 2;
+                }
+                s[i] = str.unk0[idx[i]];
+                if (i == 0) {
+                    x[0] = 0xE4 - Text_Printf(D_00500538, 0xA, 5, s[0]);
+                } else {
+                    x[1] = 0x19C;
+                }
+                Text_Printf(D_00500548, 0xA, 5, v[i], x[i], 0x82, s[i]);
+            }
+        }
+    } else if ((D_005F5CBA >> win) & 1) {
+        Text_Printf(D_00500520, 0x9D, 0x168, 0xA, 2);
+    } else if (gSubMode < 0xA) {
+        Text_Printf(D_00500558, 0x98, 0x168, 0xA, 0xC);
+    }
+}
 
 s32 Battle_IsRoundOver(Fighter *a, Fighter *b) {
     s32 r = 0;
@@ -4788,7 +5347,113 @@ void func_003713F0(void) {
     D_005F6BE8 = 0;
 }
 
+/* A pair of words copied to the stack as a whole (the initial values of Battle_UpdateDistance's flags) [I]. */
+typedef struct {
+    /* 0x0 */ s32 unk0[2];
+} Unk5F5EC8;
+
+extern s32 D_005F5EC8[];
+extern u32 D_005F5C28;
+
+/* The distance between the fighters, once per frame (Battle_UpdateFrame) [V code; I meaning]: from the positions
+ * unk51C / unk524 of both fighters it sets D_005F5C28 (Math_Isqrt) and D_005F5F34 (40 less per fighter of character
+ * 0xB or 0x14). While they are 0x1D00 or more apart, a fighter whose move has no flag 0x2000 (bit 13 of unk24) is
+ * pulled back to its anchor D_00879610[i] (at once, or by an eighth per frame while D_005F6BE8[i] keeps the flag);
+ * the anchors follow the fighters otherwise. */
+/* NON_MATCHING: a draft (about 300 lines differ): the original keeps the fighter base, the 0xB8A0 stride,
+ * D_005F6BE8 and the loop bound in saved registers (saved as 128-bit around the second Math_Isqrt) and shares the
+ * two ease blocks. */
+#if 0
+void Battle_UpdateDistance(void) {
+    Unk5F5EC8 keep = *(Unk5F5EC8 *)D_005F5EC8;
+    u32 cur[2];
+    s32 *pos[2];
+    s32 *last = &D_005F6BE8;
+    Fighter *f;
+    s32 i;
+    s32 o;
+    s32 dx;
+    s32 dz;
+    u32 d;
+    s32 n;
+
+    cur[0] = gFighters[0].unkC0->unk24 & 0x7FFFF;
+    cur[1] = gFighters[1].unkC0->unk24 & 0x7FFFF;
+    pos[0] = &gFighters[0].unk51C;
+    pos[1] = &D_00884EE0.unk51C;
+    dx = pos[1][0] - pos[0][0];
+    dz = pos[1][2] - pos[0][2];
+    if (Math_Isqrt(dx * dx + dz * dz) >= 0x1D00) {
+        for (i = 0; i < 2; i++) {
+            o = 1 - i;
+            f = &gFighters[i];
+            if (!(cur[i] & 0x2000) && !(cur[o] & 0x2000)) {
+                if (!(last[i] & 0x2000)) {
+                    f->unk4 += D_00879610[i].unk0 - pos[i][0];
+                    f->unkC += D_00879610[i].unk8 - pos[i][2];
+                    pos[i][0] = D_00879610[i].unk0;
+                    pos[i][2] = D_00879610[i].unk8;
+                    last[i] = cur[i];
+                } else {
+                    f->unk4 += (D_00879610[i].unk0 - pos[i][0]) / 8;
+                    f->unkC += (D_00879610[i].unk8 - pos[i][2]) / 8;
+                    pos[i][0] = D_00879610[i].unk0 + (pos[i][0] - D_00879610[i].unk0) / 8;
+                    pos[i][2] = D_00879610[i].unk8 + (pos[i][2] - D_00879610[i].unk8) / 8;
+                    keep.unk0[i] = 0;
+                }
+            } else if (cur[i] & 0x2000) {
+                if (cur[o] & 0x2000) {
+                    last[i] |= 0x2000;
+                } else {
+                    last[i] = cur[i];
+                }
+            } else {
+                dx = D_00879610[o].unk0 - pos[i][0];
+                dz = D_00879610[o].unk8 - pos[i][2];
+                if (Math_Isqrt(dx * dx + dz * dz) >= 0x1D00) {
+                    if (last[i] & 0x2000) {
+                        f->unk4 += (D_00879610[i].unk0 - pos[i][0]) / 8;
+                        f->unkC += (D_00879610[i].unk8 - pos[i][2]) / 8;
+                        pos[i][0] = D_00879610[i].unk0 + (pos[i][0] - D_00879610[i].unk0) / 8;
+                        pos[i][2] = D_00879610[i].unk8 + (pos[i][2] - D_00879610[i].unk8) / 8;
+                        keep.unk0[i] = 0;
+                    } else {
+                        f->unk4 += D_00879610[i].unk0 - pos[i][0];
+                        f->unkC += D_00879610[i].unk8 - pos[i][2];
+                        pos[i][0] = D_00879610[i].unk0;
+                        pos[i][2] = D_00879610[i].unk8;
+                        last[i] = cur[i];
+                    }
+                }
+            }
+        }
+    } else {
+        for (i = 0; i < 2; i++) {
+            last[i] = cur[i];
+        }
+    }
+    dx = pos[1][0] - pos[0][0];
+    dz = pos[1][2] - pos[0][2];
+    d = Math_Isqrt(dx * dx + dz * dz);
+    D_005F5C28 = d;
+    for (i = 0; i < 2; i++) {
+        if ((!(cur[i] & 0x2000) || d <= 0x1D00) && keep.unk0[i] != 0) {
+            D_00879610[i].unk0 = pos[i][0];
+            D_00879610[i].unk8 = pos[i][2];
+        }
+    }
+    n = 0;
+    if (gFighters[0].unk2A == 0xB || gFighters[0].unk2A == 0x14) {
+        n = 1;
+    }
+    if (gFighters[1].unk2A == 0xB || gFighters[1].unk2A == 0x14) {
+        n++;
+    }
+    D_005F5F34 = d - n * 0x28;
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/battle_flow", Battle_UpdateDistance);
+#endif
 
 void func_00371A48(void) {
     s32 *pos[2];
@@ -5570,7 +6235,83 @@ void func_00373400(Fighter *f) {
     f->unkB5F0 = f->unkC4;
 }
 
+s32 func_003A9698(Fighter *f);
+s32 func_003736B8(Fighter *f);
+s32 func_003737B0(Fighter *f);
+s32 func_003738C0(Fighter *f);
+void func_00373930(Fighter *f);
+void func_00373D48(Fighter *f);
+
+/* The motion blend of fighter f, once per frame [V code; I meaning]: outside the pause (D_005F5EE0 / D_005F5EE4) and
+ * func_003A9698, it counts down D_005F5F20 (func_00373398) or, unless D_005F5EF8, ends the blend unkB5DC (1: at the
+ * end of the blend or when the move cannot blend, flags 1 / 0x180 / 0x40 of unk24, unkF3, unk131; 2 / 3: at the end
+ * or when the move must not be disturbed, flag 2, unk17E, its window, unk100, a launch, unk134) and starts a new
+ * one (func_003736B8, func_003737B0, func_003738C0); then blends (func_00373930 while unkB5E0) or copies the pose
+ * (func_00373D48), and always keeps the move and frame of this frame (func_00373400). */
+/* NON_MATCHING: about 90 lines differ: f takes s0 instead of s1, the flag tests are scheduled differently, and the
+ * original leaves the blend state, the move and `hard` in a1-a3 for func_003736B8 (perhaps called with more
+ * arguments than its draft takes). */
+#if 0
+void func_00373428(Fighter *f) {
+    s32 hard;
+    s32 busy;
+    struct FighterMove *m;
+
+    if (D_005F5EE0 == 0 && D_005F5EE4 == 0 && func_003A9698(f) == 0) {
+        if (D_005F5F20 != 0) {
+            D_005F5F20--;
+            func_00373398(f);
+        } else if (D_005F5EF8 == 0) {
+            hard = 0;
+            busy = 0;
+            f->unkB5E0 = 0;
+            m = f->unkC0;
+            if ((m->unk24 & 1) || f->unkF3 != 0 || (m->unk24 & 0x180) ||
+                ((f->unkB5E8->unk24 & 0x40) && (m->unk24 & 0x40))) {
+                hard = 1;
+            }
+            if ((m->unk24 & 2) || f->unk17E != 0 || (m->unk2C != 0 && m->unk2D >= f->unkC4) || f->unk100 != 0 ||
+                (f->unk135 != 0 && f->unkF3 != 0)) {
+                busy = 1;
+            }
+            if (f->unk131 != 0) {
+                busy = 1;
+                hard = 1;
+            }
+            switch (f->unkB5DC) {
+            case 1:
+                if (f->unkB880 == 0 || hard) {
+                    f->unkB5DC = 0;
+                }
+                break;
+            case 2:
+                if (f->unkB880 == f->unkB878 || busy) {
+                    f->unkB5DC = 0;
+                }
+                break;
+            case 3:
+                if (f->unkB880 == f->unkB878 || f->unk134 != 0 || busy) {
+                    f->unkB5DC = 0;
+                }
+                break;
+            }
+            if (hard || func_003736B8(f) == 0) {
+                if (f->unkB5DC != 1 && busy == 0 && f->unkB5DC != 2 && func_003737B0(f) == 0 && f->unkB5DC == 0) {
+                    func_003738C0(f);
+                }
+            }
+        }
+        if (f->unkB5E0 != 0) {
+            func_00373930(f);
+        } else {
+            func_00373D48(f);
+        }
+    }
+    func_00373400(f);
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00373428);
+#endif
 
 #if 0
 /* NON_MATCHING: 34 lines differ: the original keeps the move record in two registers (t0 and a0) and computes unk2C -
@@ -5677,7 +6418,112 @@ s32 func_003738C0(Fighter *f) {
     return f->unkB5E0;
 }
 
+void func_00363BD8(s32 anim, s16 *pose, s32 frame, Fighter *f);
+void func_003986D8(s16 *angles, s16 *m);
+
+/* The motion blend of fighter f (blend state unkB5DC 1-3, func_00373428) [V code; I meaning]: picks the two poses to
+ * blend (1: from the frame before the current one, 2: into the move unk184 at its continue frame, 3: from the end of
+ * the current move into its start), samples them (func_00363BD8: a position and 18 joint angles), and keeps the
+ * position difference in unkB870 and, per joint, the difference of the rotation matrices (func_003986D8) in unkB630
+ * (state 1: against the matrices unkB390 of the pose shown). */
+/* NON_MATCHING: a draft (about 260 lines differ): the original's frame is 0x20 bytes larger (the pose buffers at
+ * sp+0 / sp+0x80, the angles at 0x100 / 0x130, the matrices at 0x110 / 0x140 / 0x160), uses one saved register less
+ * and walks the poses with pointers in other registers. */
+#if 0
+void func_00373930(Fighter *f) {
+    s16 a[64];
+    s16 b[64];
+    s16 ang[8];
+    s16 m0[16];
+    s16 m1[16];
+    s16 *p;
+    s16 *q;
+    s32 i;
+    s32 j;
+
+    switch (f->unkB5DC) {
+    case 1:
+        if (D_005F5EF8 != 0) {
+            f->unkB880 = f->unkB878 - 1;
+        } else {
+            f->unkB888 = f->unkB5E8;
+            f->unkB890 = f->unkC6 - 1;
+            f->unkB88C = f->unkC0;
+            f->unkB880 = f->unkB5E4 - 1;
+            f->unkB878 = f->unkB5E4;
+            f->unkB891 = f->unkC4 - 1;
+        }
+        break;
+    case 2:
+        if (D_005F5EF8 != 0) {
+            f->unkB880 = 0;
+        } else {
+            f->unkB888 = f->unkC0;
+            f->unkB890 = f->unk178;
+            f->unkB88C = func_00368218(f, f->unk184);
+            f->unkB891 = Fighter_GetContinueFrame(f);
+            f->unkB878 = f->unkB5E4;
+            f->unkB880 = 0;
+        }
+        break;
+    case 3:
+        if (D_005F5EF8 != 0) {
+            f->unkB880 = 0;
+        } else {
+            f->unkB888 = f->unkC0;
+            if (f->unkDA <= 0) {
+                f->unkB890 = 0;
+            } else {
+                f->unkB890 = f->unkC0->unk18;
+            }
+            f->unkB88C = func_00368218(f, f->unkC0->unk10);
+            f->unkB878 = f->unkB5E4;
+            f->unkB880 = 0;
+            f->unkB891 = 0;
+        }
+        break;
+    }
+    if (f->unkB5DC == 1) {
+        q = b;
+        func_00363BD8(f->unkB88C->unk0, q, f->unkB891, f);
+        for (i = 0; i < 3; i++) {
+            f->unkB870[i] = (&f->unkB5D0)[i] - *q++;
+        }
+        for (i = 0; i < 18; i++) {
+            ang[0] = -*q++;
+            ang[1] = -*q++;
+            ang[2] = *q++;
+            func_003986D8(ang, m0);
+            for (j = 0; j < 9; j++) {
+                f->unkB630[i][j] = f->unkB390[i][j] - m0[j];
+            }
+        }
+    } else if (f->unkB5DC > 0 && f->unkB5DC < 4) {
+        p = a;
+        q = b;
+        func_00363BD8(f->unkB888->unk0, p, f->unkB890, f);
+        func_00363BD8(f->unkB88C->unk0, q, f->unkB891, f);
+        for (i = 0; i < 3; i++) {
+            f->unkB870[i] = *q++ - *p++;
+        }
+        for (i = 0; i < 18; i++) {
+            ang[0] = -*p++;
+            ang[1] = -*p++;
+            ang[2] = *p++;
+            func_003986D8(ang, m0);
+            ang[0] = -*q++;
+            ang[1] = -*q++;
+            ang[2] = *q++;
+            func_003986D8(ang, m1);
+            for (j = 0; j < 9; j++) {
+                f->unkB630[i][j] = m1[j] - m0[j];
+            }
+        }
+    }
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00373930);
+#endif
 
 #if 0
 /* NON_MATCHING: 13 lines differ: block order; the original places the case 2 / 3 'unkB878 < unkB880' branch after

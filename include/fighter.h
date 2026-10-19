@@ -145,6 +145,20 @@ struct FighterUnk18C {
     /* 0x12 */ u8 pad12[0x2];
     /* 0x14 */ s16 *unk14;
     /* 0x18 */ s16 *unk18;
+    /* 0x1C */ u16 unk1C; /* hit reaction move ids by the fighter's state (func_0036A050): standing, front / back */
+    /* 0x1E */ u16 unk1E;
+    /* 0x20 */ u16 unk20;  /* crouching with unk13A (front / back) */
+    /* 0x22 */ u16 unk22;
+    /* 0x24 */ u16 unk24;  /* unk42 1 */
+    /* 0x26 */ u16 unk26;
+    /* 0x28 */ u16 unk28;  /* unk42 3 */
+    /* 0x2A */ u16 unk2A;
+    /* 0x2C */ u16 unk2C;  /* unk42 2 */
+    /* 0x2E */ u16 unk2E;
+    /* 0x30 */ u16 unk30;  /* the attacker's unkD0 hits the fighter's unkD2 */
+    /* 0x32 */ u16 unk32;
+    /* 0x34 */ u16 unk34;  /* unkCC bit 4 */
+    /* 0x36 */ u16 unk36;  /* unkCC bit 0x200 */
 };
 
 /* A push sphere (Fighter + 0x308, 8 of 0x10 bytes): a centre and a radius; Fighter_Push pushes the two fighters apart
@@ -197,7 +211,11 @@ typedef struct {
     /* 0x0056 */ s16 unk56;
     /* 0x0058 */ s16 unk58;                   /* octant of unk3C against the camera */
     /* 0x005A */ s16 unk5A;                   /* compared between the fighters at the end of a round (func_0036F860) */
-    /* 0x005C */ u8 pad5C[0x58];
+    /* 0x005C */ s16 unk5C;                   /* cleared at the start of a fight (func_0036D010) */
+    /* 0x005E */ s16 unk5E;
+    /* 0x0060 */ s16 unk60;
+    /* 0x0062 */ s16 unk62;
+    /* 0x0064 */ u8 pad64[0x50];
     /* 0x00B4 */ s16 unkB4;                   /* compared between the fighters at the end of a round (func_0036F010) */
     /* 0x00B6 */ s16 unkB6;
     /* 0x00B8 */ struct FighterMove *unkB8;
@@ -403,23 +421,32 @@ typedef struct {
     /* 0xB130 */ u8 padB130[0x2];
     /* 0xB132 */ s16 unkB132;
     /* 0xB134 */ s16 unkB134;                 /* set by a tag (Fighter_StepMove) */
-    /* 0xB136 */ u8 padB136[0x49C];
+    /* 0xB136 */ u8 padB136[0x25A];
+    /* 0xB390 */ s16 unkB390[18][16];         /* per joint: a 3x3 rotation matrix (func_00373930) [I] */
+    /* 0xB5D0 */ s16 unkB5D0;
     /* 0xB5D2 */ s16 unkB5D2;                 /* unk32 when the blend started (func_00373400) */
-    /* 0xB5D4 */ u8 padB5D4[0x8];
+    /* 0xB5D4 */ s16 unkB5D4;
+    /* 0xB5D6 */ u8 padB5D6[0x6];
     /* 0xB5DC */ s32 unkB5DC;                 /* motion blend state (func_00373398, func_003738C0) [I] */
     /* 0xB5E0 */ s32 unkB5E0;
     /* 0xB5E4 */ s32 unkB5E4;
     /* 0xB5E8 */ struct FighterMove *unkB5E8; /* unkC0 when the blend started */
     /* 0xB5EC */ u8 padB5EC[0x4];
     /* 0xB5F0 */ s32 unkB5F0;                 /* unkC4 when the blend started */
-    /* 0xB5F4 */ u8 padB5F4[0x27C];
+    /* 0xB5F4 */ u8 padB5F4[0x3C];
+    /* 0xB630 */ s16 unkB630[18][16];         /* per joint: the blend's matrix difference (func_00373930) [I] */
     /* 0xB870 */ s16 unkB870[3];
     /* 0xB876 */ u8 padB876[0x2];
     /* 0xB878 */ s32 unkB878;
     /* 0xB87C */ u8 padB87C[0x4];
     /* 0xB880 */ s32 unkB880;
     /* 0xB884 */ s16 unkB884;
-    /* 0xB886 */ u8 padB886[0x1A];
+    /* 0xB886 */ u8 padB886[0x2];
+    /* 0xB888 */ struct FighterMove *unkB888; /* blend: move blended from (func_00373930) */
+    /* 0xB88C */ struct FighterMove *unkB88C; /* blend: move blended to */
+    /* 0xB890 */ u8 unkB890;                  /* blend: frame of unkB888 */
+    /* 0xB891 */ u8 unkB891;                  /* blend: frame of unkB88C */
+    /* 0xB892 */ u8 padB892[0xE];
 } Fighter;
 
 /* A joint of the skeleton (Fighter + 0x668, 0x50 bytes; joint 1 is unk6B8, joint 2 unk708) [I]. */

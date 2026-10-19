@@ -856,7 +856,59 @@ s32 func_0037C168(void) {
     return 0;
 }
 
+extern u16 D_0042F272[];
+extern TeamMember D_00440940[2][2];
+void func_00377F58(Fighter *f);
+void func_00377FB8(Fighter *f);
+
+/* Body sphere radii in practice mode: with the practice menu at 7, D_0042F272 clear and item 0 at 2, character 0x1A
+ * gets the larger radii (func_00377FB8) while the other fighter, character 0x1D with costume 4, plays move 0x1449
+ * inside its attack window; otherwise both get the normal radii (func_00377F58) [V code; I meaning]. */
+/* NON_MATCHING: 7 lines differ: the two character 0x1A flags; the original sets both from one constant 1 (`li v0,
+ * 1` in two places, `move a1, v0`) and clears them with movn, ours keeps a1 = 1 and builds the first flag with
+ * movz. Every other instruction matches. */
+#if 0
+void func_0037C1B8(void) {
+    s32 a;
+    s32 b;
+    s32 x0;
+    s32 x1;
+
+    if (D_0043B7F8[0] == 7 && D_0042F272[0] == 0 && func_003794A0(0) == 2) {
+        b = 0;
+        a = 0;
+        if (gFighters[0].unk2A == 0x1D) {
+            a = D_00440940[gFighters[0].unk1E][gFighters[0].unk0].unk4 == 4;
+        }
+        if (gFighters[1].unk2A == 0x1D) {
+            b = D_00440940[gFighters[1].unk1E][gFighters[1].unk0].unk4 == 4;
+        }
+        x1 = x0 = 1;
+        if (gFighters[0].unk2A != 0x1A) {
+            x0 = 0;
+        }
+        if (gFighters[1].unk2A != 0x1A) {
+            x1 = 0;
+        }
+        if (x0 && b) {
+            if (gFighters[1].unk10C == 0x1449 && gFighters[1].unkC4 >= gFighters[1].unkC0->unk2C &&
+                gFighters[1].unkC4 <= gFighters[1].unkC0->unk2D) {
+                func_00377FB8(&gFighters[0]);
+            }
+        } else if (a && x1) {
+            if (gFighters[0].unk10C == 0x1449 && gFighters[0].unkC4 >= gFighters[0].unkC0->unk2C &&
+                gFighters[0].unkC4 <= gFighters[0].unkC0->unk2D) {
+                func_00377FB8(&D_00884EE0);
+            }
+        }
+        return;
+    }
+    func_00377F58(&gFighters[0]);
+    func_00377F58(&D_00884EE0);
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0037C1B8);
+#endif
 
 /* Moves with listed frames (D_005073E0: two {key, 0-ended frame list} entries, keys from func_00368260). */
 typedef struct {
@@ -1218,10 +1270,108 @@ void func_0037CC60(s32 player) {
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0037CC60);
 #endif
 
+/* The practice recorder's menu state (D_0042F370) [I]. */
+typedef struct {
+    /* 0x0 */ s32 unk0; /* 1 while button 2 is held */
+    /* 0x4 */ s32 unk4; /* selection 0-3 */
+    /* 0x8 */ s32 unk8;
+} Unk42F370;
+
+extern Unk42F370 D_0042F370;
+extern s32 D_005F6080; /* recorder state 0-4 */
+extern u16 D_005F6084; /* buttons held the previous frame */
+
+void Prac_ResetPositions(Fighter *f);
+
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", jtbl_00506BF0);
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0037CDA0);
+/* The practice recorder's controls, once per frame for fighter f, from the buttons held (D_0042F268 + 2) and pressed
+ * (+ 4) [V code; I meaning]. State 0: while button 2 is held, buttons 0x1000 / 0x4000 move the selection unk4 (0-3);
+ * releasing it resets the positions and starts playback (selection 0, state 3) or sets unk8 (selection 1); button 1
+ * goes to state 1. State 1 starts recording at the first direction or button (state 2), button 1 stops it (state 0).
+ * States 3-4 play the track back as the fighter's input (unk420 = 4, unk430) until button 1 or its end; returns 1
+ * while playing. */
+/* NON_MATCHING: 25 lines differ, all the swap of s0 / s1 between the pressed buttons and the D_0042F370 pointer
+ * (declaration orders did not change it). The inner switch needs `case 2: break;` and the cases in the order 0, 1,
+ * 2 for the original's `beq 1 / slti 2 / bnez` tree. */
+#if 0
+s32 func_0037CDA0(Fighter *f) {
+    Unk42F370 *m = &D_0042F370;
+    s32 r = 0;
+    u16 *pad = (u16 *)D_0042F268;
+    u16 held = pad[1];
+    u16 pressed = pad[2];
+    s16 side = f->unk1E;
+    u16 rel = D_005F6084 & ~held;
 
+    D_005F6084 = held;
+    switch (D_005F6080) {
+    case 0:
+        if (m->unk8 != 0) {
+            if (rel & 2) {
+                m->unk8 = 0;
+            }
+            break;
+        }
+        if (pressed & 2) {
+            m->unk4 = 0;
+        }
+        if (held & 2) {
+            m->unk0 = 1;
+            if (pressed & 0x1000) {
+                m->unk4--;
+            }
+            if (pressed & 0x4000) {
+                m->unk4++;
+            }
+            m->unk4 = m->unk4 < 0 ? 0 : (m->unk4 < 4 ? m->unk4 : 3);
+        } else {
+            m->unk0 = 0;
+        }
+        if (rel & 2) {
+            Prac_ResetPositions(f);
+            switch (m->unk4) {
+            case 0:
+                D_005F6080 = 3;
+                break;
+            case 1:
+                m->unk8 = m->unk4;
+                break;
+            case 2:
+                break;
+            }
+        } else if (pressed & 1) {
+            D_005F6080 = 1;
+        }
+        break;
+    case 1:
+        if (pressed & 0xF4F4) {
+            Prac_RecBegin(side);
+            D_005F6080 = 2;
+        }
+    case 2:
+        if (pressed & 1) {
+            func_0037C678(side);
+            D_005F6080 = 0;
+        }
+        break;
+    case 3:
+        func_0037C8C8(side);
+        D_005F6080 = 4;
+    case 4:
+        f->unk420 = 4;
+        r = 1;
+        f->unk430 = func_0037C950(side);
+        if ((pressed & 1) || Prac_IsPlaying(side) == 0) {
+            D_005F6080 = 0;
+        }
+        break;
+    }
+    return r;
+}
+#else
+INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0037CDA0);
+#endif
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", D_00506C10);
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", D_00506C20);
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", D_00506C38);
@@ -1285,7 +1435,74 @@ void func_0037CFA8(void) {
     }
 }
 
+/* Loads command list `slot` (gPracCmdLists, at most 4) from the stream `src` of u16 words: the entry and step
+ * counts, each entry (nine words, 8 + 16 words of steps), each step (four words); then lists the entries with unk8
+ * set (at most 16, unk3E94) and those with unk6 set (at most 128, unk3ED8) [V]. */
+/* NON_MATCHING: 12 lines differ: the head (the count load and its compare against i, and the copy of the entry base
+ * into t5 that the later loops start from) is scheduled differently; the loop bodies match. */
+#if 0
+void func_0037D0F8(u16 *src, s32 slot) {
+    CmdList *l;
+    CmdListEntry *e;
+    CmdListStep *st;
+    s32 i = 0;
+    s32 j;
+
+    if (slot < 4) {
+        l = &gPracCmdLists[slot];
+        l->unk0 = 0;
+        if (src != NULL) {
+            l->unk0 = *src++;
+            l->unk4 = *src++;
+            for (e = l->unk8; i < l->unk0; i++, e++) {
+                e->unk0 = *src++;
+                e->unk2 = *src++;
+                e->unk4 = *src++;
+                e->unk6 = *src++;
+                e->unk8 = *src++;
+                e->unkA = *src++;
+                e->unkC = *src++;
+                e->unkE = *src++;
+                e->unk10 = *src++;
+                for (j = 0; j < 8; j++) {
+                    e->unk12[j] = *src++;
+                }
+                for (j = 0; j < 16; j++) {
+                    e->unk22[j] = *src++;
+                }
+            }
+            for (i = 0, st = l->unk1FBE; i < l->unk4; i++, st++) {
+                st->unk0 = *src++;
+                st->unk2 = *src++;
+                st->unk4 = *src++;
+                st->unk6 = *src++;
+            }
+            l->unk3E90 = 0;
+            for (i = 0, e = l->unk8; i < l->unk0; i++, e++) {
+                if (e->unk8 != 0) {
+                    l->unk3E94[l->unk3E90] = i;
+                    l->unk3E90++;
+                    if (l->unk3E90 >= 16) {
+                        break;
+                    }
+                }
+            }
+            l->unk3ED4 = 0;
+            for (i = 0, e = l->unk8; i < l->unk0; i++, e++) {
+                if (e->unk6 != 0) {
+                    l->unk3ED8[l->unk3ED4] = i;
+                    l->unk3ED4++;
+                    if (l->unk3ED4 >= 0x80) {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0037D0F8);
+#endif
 
 s32 func_0037D380(Fighter *f) {
     return gPracCmdLists[f->unk22].unk3ED4;
@@ -1800,11 +2017,160 @@ s32 func_0037E180(Fighter *f, Fighter *o) {
     return f->unk10C == f->unkC0->unk10;
 }
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0037E1D8);
+/* A copy of a fighter's input history (FighterUnk438, 0x88 bytes) [I]. */
+typedef struct {
+    /* 0x00 */ s32 unk0[0x22];
+} Unk8B7F00;
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0037E468);
+extern Unk8B7F00 D_008B7F00[2];
+void Fighter_RecordInput(Fighter *f, u16 held, u16 pressed);
+s32 func_00368F78(Fighter *f, MoveCmd *c);
+MoveCmd *func_0037E468(Fighter *f, Fighter *o, MoveCmd *c, s32 frame);
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0037E670);
+/* Whether the practice dummy's buttons `a` / `b` would start a command now: records them in a scratch copy of the
+ * input history (the real one is saved in D_008B7F00[side] and restored), looks for a command of the current move
+ * at the current frame (func_0037E468) or, at the list end, of the next move at frame 1, and returns a | b when one
+ * applies, else 0 [V code; I meaning]. */
+u16 func_0037E1D8(Fighter *f, s32 arg1, s32 a, s32 b) {
+    u16 held = a;
+    u16 pressed = b;
+    FighterUnk438 *h = &f->unk438;
+    Unk8B7F00 *save = &D_008B7F00[f->unk1E];
+    MoveCmd *c;
+    u16 end;
+    u16 r;
+
+    *save = *(Unk8B7F00 *)h;
+    Fighter_RecordInput(f, held, pressed);
+    c = func_0037E468(f, (Fighter *)arg1, (MoveCmd *)f->unkC0->unkC, f->unkC4);
+    end = c->unk0;
+    /* fake: the second search as a comma expression inside the test keeps `a | b` computed in each delay slot */
+    if (end != 0x8000 ||
+        ((func_00368F78(f, c) == 0 ||
+          (c = func_0037E468(f, (Fighter *)arg1, (MoveCmd *)func_00368218(f, c->unk6)->unkC, 1), 1)) &&
+         c->unk0 != end)) {
+        r = held | pressed;
+    } else {
+        r = 0;
+    }
+    *(Unk8B7F00 *)h = *save;
+    return r;
+}
+
+extern CpuCmd D_0047F780[];
+s32 Cmd_MatchInput(Fighter *f, u16 code, u16 dir, u16 held, u16 pressed);
+s32 Cmd_CheckCondition(Fighter *f, Fighter *o, s16 id);
+s32 Cmd_CheckSituation(MoveCmd *c, Fighter *f, Fighter *o);
+
+/* func_003691D8 for the practice dummy: the first entry of the command list c that applies at `frame` (window,
+ * input, condition, kind below 0x60 and situation); kind 0x2E jumps to the list end, kind 0x1C is skipped while
+ * unk170 is set. With a move record override (unk188) it returns the end entry at once [V code; I meaning]. */
+MoveCmd *func_0037E468(Fighter *f, Fighter *o, MoveCmd *c, s32 frame) {
+    u16 dir = f->unk438.unk7C;
+    u16 held = f->unk438.unk80;
+    u16 pressed = f->unk438.unk7E;
+    MoveCmd *ret;
+
+    if (f->unk188 != NULL) {
+        while (c->unk0 != 0x8000) {
+            c++;
+        }
+    }
+    for (; c->unk0 != 0x8000; c++) {
+        if (c->unk0 == 0x8004) {
+            ret = c;
+            c = (MoveCmd *)&D_0047F780[ret->unk6];
+        } else if (c->unk0 == 0x8005) {
+            c = ret;
+            continue;
+        }
+        if (frame >= c->unkB && frame <= c->unkC && Cmd_MatchInput(f, c->unk0, dir, held, pressed) &&
+            Cmd_CheckCondition(f, o, c->unk2) && (c->unk3 & ~0x80) < 0x60 &&
+            (c->unk3 == 0 || Cmd_CheckSituation(c, f, o))) {
+            if ((u16)c->unk8 == 0x2E) {
+                while (c->unk0 != 0x8000) {
+                    c++;
+                }
+            }
+            if ((u16)c->unk8 != 0x1C || f->unk170 == 0) {
+                return c;
+            }
+        }
+    }
+    return c;
+}
+
+/* Whether the practice dummy can act now: a command of the current move applies at the current frame (as
+ * func_0037E468 without the input, kinds 0x3D-0x3F counting at once, input 0x10 of kind 2 never), or the move is near
+ * its end (from 5 frames before the end entry's window to its end, with unkDA positive) and a command of the next
+ * move applies at frame 1 [V code; I meaning]. */
+s32 func_0037E670(Fighter *f, Fighter *o) {
+    s32 next = 0;
+    MoveCmd *c = (MoveCmd *)f->unkC0->unkC;
+    s16 frame = f->unkC4;
+    MoveCmd *ret;
+
+    if (f->unk188 != NULL) {
+        while (c->unk0 != 0x8000) {
+            c++;
+        }
+    }
+    for (; c->unk0 != 0x8000; c++) {
+        if (c->unk0 == 0x8004) {
+            ret = c;
+            c = (MoveCmd *)&D_0047F780[ret->unk6];
+        } else if (c->unk0 == 0x8005) {
+            c = ret;
+            continue;
+        }
+        if (frame >= c->unkB && frame <= c->unkC && Cmd_CheckCondition(f, o, c->unk2) && (c->unk3 & ~0x80) < 0x60 &&
+            (c->unk0 != 0x10 || c->unk3 != 0 || (u16)c->unk8 != 2)) {
+            if (c->unk3 >= 0x3D && c->unk3 <= 0x3F) {
+                break;
+            }
+            if (c->unk3 == 0 || Cmd_CheckSituation(c, f, o)) {
+                if ((u16)c->unk8 == 0x2E) {
+                    while (c->unk0 != 0x8000) {
+                        c++;
+                    }
+                }
+                if ((u16)c->unk8 != 0x1C || f->unk170 == 0) {
+                    break;
+                }
+            }
+        }
+    }
+    if (c->unk0 != 0x8000) {
+        return 1;
+    }
+    if (f->unkC4 >= c->unkB - 5 && f->unkC4 < c->unkB) {
+        next = f->unkDA > 0;
+    }
+    if (f->unkC4 >= c->unkB && f->unkC4 <= c->unkC && f->unkDA > 0) {
+        next = 1;
+    }
+    if (next) {
+        frame = 1;
+        for (c = (MoveCmd *)func_00368218(f, c->unk6)->unkC; c->unk0 != 0x8000; c++) {
+            if (c->unk0 == 0x8004) {
+                ret = c;
+                c = (MoveCmd *)&D_0047F780[ret->unk6];
+            } else if (c->unk0 == 0x8005) {
+                c = ret;
+                continue;
+            }
+            if (frame >= c->unkB && frame <= c->unkC && Cmd_CheckCondition(f, o, c->unk2) &&
+                (c->unk3 & ~0x80) < 0x60 && (c->unk0 != 0x10 || c->unk3 != 0 || (u16)c->unk8 != 2) &&
+                Cmd_CheckSituation(c, f, o)) {
+                break;
+            }
+        }
+        if (c->unk0 != 0x8000) {
+            return 1;
+        }
+    }
+    return c->unk0 != 0x8000;
+}
 
 /* A practice record (0x8B8010, .bss): five counters and a list of 16 move ids (func_0037EE18) [I]. */
 typedef struct {
@@ -1867,9 +2233,126 @@ void func_0037EA58(void) {
 }
 
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", D_00506DD8);
+extern s32 D_005F60A4;
+extern s32 D_005F60A8;
+extern s32 D_005F60AC;
+extern s16 D_005F62AC;
+extern s32 D_005F5C40[2];
+extern s32 D_005F5C48[2];
+s32 Text_Printf(const char *fmt, ...);
+extern const char D_00506DD8[];
+void func_0037B8D8(Fighter *f, s32 a, s32 b);
+s32 func_0037EE18(Fighter *f);
+void func_003DEC20(void);
+void func_003DD158(s32 side);
+void func_003DD188(s32 x, s32 y, s32 side, s32 a, s32 b);
+void func_003DD5B8(Fighter *f, s32 n);
+
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", jtbl_00506DF0);
 
+/* The practice record's steps, once per frame with the pad words (held at +2, pressed at +4) [V code; I meaning]:
+ * 0 loads the record (func_0037EA08, func_0037D3E0) and waits 90 frames, 1 prints D_00506DD8 while it counts down
+ * (sounds 0x105A / 0x105B), 2 plays the record's moves one by one (func_0037EE18 checks each, sound 0x103D) and then
+ * waits 180 frames in 3, where button 0x800 or, at the end, buttons 0xF0 stop it and holding 0x4003 for 1800 frames
+ * calls func_0037BA88; 4 stops. Returns 0 once it stops. D_005F60A8 / D_005F60AC detect the first frame of a step. */
+/* NON_MATCHING: 3 lines differ: the incremented step counter d->unk4 is in v1 where the original uses v0 (forms of
+ * the increment and the unsigned compare tried). */
+#if 0
+s32 func_0037EB00(u16 *pad, Fighter *f) {
+    Unk8B8010 *d = &D_008B8010;
+    s32 r = 1;
+    s32 n = D_005F60A8 + 1;
+    s32 first = n != D_005F60AC;
+
+    D_005F60AC = n;
+    D_005F60A8 = n;
+    switch (d->unk0) {
+    case 0:
+        d->unk4 = 0;
+        func_0037EA08();
+        func_0037D3E0(f, d->unk4, d->unk14);
+        n = func_0037D380(f);
+        d->unk8 = n;
+        d->unk10 = 0x5A;
+        d->unk0 = 1;
+        break;
+    case 1:
+        Text_Printf(D_00506DD8, 0xC0, 0xDC, 0xA, 2);
+        if (first && d->unk10 == 0x5A) {
+            Snd_PlaySe(0x105A, 0);
+        }
+        if (--d->unk10 <= 0) {
+            d->unk10 = 0;
+            d->unk0 = 2;
+            Snd_PlaySe(0x105B, 0);
+        }
+        break;
+    case 2:
+        if (d->unk8 != 0) {
+            func_0037B8D8(f, func_0037D3A0(f, d->unk4), 0);
+        } else {
+            func_003DEC20();
+            func_003DD158(f->unk1E);
+            func_003DD188(0x140, 0x64, f->unk1E, 0, 0);
+        }
+        if (d->unk8 != 0 && func_0037EE18(f) != 0) {
+            Snd_PlaySe(0x103D, 0);
+            d->unk4++;
+            if ((u32) d->unk4 >= (u32) func_0037D380(f)) {
+                d->unk10 = 0xB4;
+                d->unk0 = 3;
+            } else {
+                func_0037D3E0(f, d->unk4, d->unk14);
+                d->unk8 = func_0037D380(f);
+            }
+        }
+        break;
+    case 3:
+        if (first && d->unk10 == 0x78) {
+            Snd_PlaySe(0x1058, 0);
+        }
+        if (d->unk10 == 0x78) {
+            D_005F62AC = 0;
+        }
+        if (d->unk10 < 0x78) {
+            func_003DD5B8(f, d->unkC);
+        }
+        if (pad[2] & 0x800) {
+            D_005F5C40[0] &= 0xFFFFF7FF;
+            D_005F5C48[0] &= 0xFFFFF7FF;
+            D_005F5C40[1] &= 0xFFFFF7FF;
+            D_005F5C48[1] &= 0xFFFFF7FF;
+            r = 0;
+            d->unk0 = 0;
+        }
+        if (--d->unk10 <= 0) {
+            d->unk10 = 0;
+            if (pad[2] & 0xF0) {
+                d->unk0 = 0;
+                r = 0;
+            }
+            if ((pad[1] & 0x4003) == 0x4003) {
+                if (pad[2] & 0x4003) {
+                    D_005F60A4 = 0;
+                }
+                if (++D_005F60A4 == 0x708) {
+                    func_0037BA88();
+                }
+            } else {
+                D_005F60A4 = 0;
+            }
+        }
+        break;
+    case 4:
+        d->unk0 = 0;
+        r = 0;
+        break;
+    }
+    return r;
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0037EB00);
+#endif
 
 /* Whether the move f->unk10C is in the list of D_008B8010 (zero entries are empty) [V]. */
 #if 0
@@ -2012,9 +2495,277 @@ INCLUDE_RODATA("asm/nonmatchings/fighter_core", D_00507228);
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", D_00507238);
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", D_00507250);
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", D_00507260);
+/* A practice menu line (D_00506F40 / D_00507008 / D_00507058 / D_005070A0, 8 bytes): bit 0 selectable, bit 1 shows a
+ * value of kind flags >> 8 (0-4), and its label [I]. */
+typedef struct {
+    /* 0x0 */ u16 unk0;
+    /* 0x2 */ u8 pad2[2];
+    /* 0x4 */ const char *unk4;
+} PracMenuItem;
+
+extern const PracMenuItem D_00506F40[];
+extern const PracMenuItem D_00507008[];
+extern const PracMenuItem D_00507058[];
+extern const PracMenuItem D_005070A0[];
+extern const char *D_00431860[];
+extern const char *D_00431870[];
+extern const char *D_004318A0[];
+extern const char *D_004318B8[];
+extern const char *D_004318C0[];
+extern const s8 D_005070F8[];
+extern const u16 D_00507120[];
+extern const u16 D_00507128[][10];
+extern const u16 D_00507178[];
+extern const u16 D_00507190[];
+extern const char D_005071A0[];
+extern const char D_005071B0[];
+extern const char D_005071C0[];
+extern const char D_005071D0[];
+extern const char D_005071E0[];
+extern const char D_005071F0[];
+extern const char D_00507200[];
+extern const char D_00507210[];
+extern const char D_00507228[];
+extern const char D_00507238[];
+extern const char D_00507250[];
+extern const char D_00507260[];
+const char **func_0035C710(s16 id);
+s32 func_003B1468(void);
+void func_003BB890(s32 a, s32 x, s32 y, s32 b);
+void func_003DBCF0(s32 a, s32 y, s32 w, s32 h, s32 b, s32 color);
+void func_003DC768(s32 x, s32 y, s32 w, s32 h, s32 a, s32 b, s32 c);
+void func_003DEB80(s32 a);
+void func_003E08D0(s32 n);
+void func_003E5268(s32 x, s32 y, s32 id, s32 color);
+void func_003E54F0(s32 x, s32 y, s32 w, s32 color);
+
+/* Shows the practice help box of text `id` [I]. */
+#define PRAC_HELP(y, id)                                                                                             \
+    do {                                                                                                             \
+        func_003DEB80(0);                                                                                            \
+        func_003DBCF0(0, (y) - 1, 0x280, 0x30, 0xFFFE, 0x18181860);                                                  \
+        func_003E5268(0x1E, (y), (id), 0x60606080);                                                                  \
+    } while (0)
+
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", jtbl_00507270);
 
+/* Draws the practice menu D_008B8068.unk4 (four pages of lines) at unk0 / unk2 with the cursor unk5 (kept below the
+ * count of selectable lines): the frame, the title D_00431860, the help box of the page or the selected line
+ * (D_00507120 / D_00507128 / D_00507178 / D_00507190, while func_003B1468), each label (colour 0xB when selected,
+ * with the marker func_003BB890 / func_003E54F0) and its value right-aligned at +0x17C: 0 the setting unk6
+ * (D_00431870, with D_00507250 / D_00507260 for 6 / 7), 1 unkA (D_004318A0), 2 the per-page values unk7-unkB
+ * (D_004318B8, func_003E08D0 for the selected one), 3 the character name of the fighter unkE / unkF (func_0035C710)
+ * and its D_004318C0 text, 4 the count unkD against the character's limit D_005070F8 [V calls; I meaning]. */
+/* NON_MATCHING: a draft (about 400 lines differ): the original keeps the line count and the selectable index on the
+ * stack, x + 8 and the line y in saved registers, and shares the cursor tail of the value kinds through a result
+ * register; the value kinds and calls follow the original. */
+#if 0
+void func_0037EFB0(void) {
+    Unk8B8068 *s = &D_008B8068;
+    s32 x = s->unk0;
+    s32 n;
+    const PracMenuItem *items;
+    s32 cnt;
+    s32 i;
+    s32 idx;
+    s32 y;
+    s32 color;
+    s32 w;
+    s32 x0;
+    s32 sel;
+    s32 v;
+    s32 lim;
+    s32 k;
+    u16 h;
+    const char **name;
+
+    switch (s->unk4) {
+    case 0:
+        n = 10;
+        items = D_00506F40;
+        break;
+    case 1:
+        n = 8;
+        items = D_00507008;
+        break;
+    case 2:
+        n = 7;
+        items = D_00507058;
+        break;
+    case 3:
+        n = 9;
+        items = D_005070A0;
+        break;
+    default:
+        return;
+    }
+    cnt = 0;
+    for (i = 0; i < n; i++) {
+        cnt += items[i].unk0 & 1;
+    }
+    if (cnt != 0) {
+        s->unk5 %= cnt;
+    }
+    y = (u16)s->unk2 + 0x3D;
+    func_003DC768(x, (u16)s->unk2, 0x194, n * 0x15 + 0x44, 0xFFFEC, 0x2020278, 0x41825E);
+    Text_Printf(D_005071A0, 0xA, 5, 7, x + 0x1C, (u16)s->unk2 + 0x1A, D_00431860[s->unk4]);
+    if (func_003B1468() != 0) {
+        PRAC_HELP(0x178, D_00507120[s->unk4]);
+    }
+    for (i = 0, idx = 0; i < n; i++) {
+        color = 5;
+        if ((items[i].unk0 & 1) && idx == s->unk5) {
+            color = 0xB;
+        }
+        if (color == 0xB) {
+            func_003E54F0(x - 0x2C, y, 0x19C, 0xFFFF0);
+        }
+        Text_Printf(D_005071A0, 0xA, 4, color, x + 8, y, items[i].unk4);
+        if (i == 0 && color == 0xB) {
+            func_003BB890(1, x + 8 + Text_Printf(D_005071B0, 0xA, 4, items[0].unk4) + 6, y, 5);
+        }
+        if (func_003B1468() != 0 && (items[i].unk0 & 1) && idx == s->unk5) {
+            h = D_00507128[s->unk4][i];
+            if (h == 1) {
+                PRAC_HELP(0x18C, D_00507178[s->unk6]);
+            } else if (h != 0) {
+                PRAC_HELP(0x18C, h);
+            }
+        }
+        if (items[i].unk0 & 2) {
+            k = -1;
+            switch (items[i].unk0 >> 8) {
+            case 3:
+                name = func_0035C710(gFighters[(s->unkC != 0 ? s->unkF : s->unkE) & 1].unk26);
+                w = Text_Printf(D_005071C0, 0xA, 4, *name, D_004318C0[s->unkC]);
+                Text_Printf(D_005071D0, 0xA, 4, 0x14, x + 8 - w + 0x17C, y, *name, D_004318C0[s->unkC]);
+                k = 2;
+                break;
+            case 4:
+                v = gFighters[(s->unkC != 0 ? s->unkF : s->unkE) & 1].unk2A;
+                lim = D_005070F8[(u32)v < 0x22 ? v : 0];
+                if (lim == 0) {
+                    w = Text_Printf(D_005071E0, 0xA, 4);
+                    Text_Printf(D_005071F0, 0xA, 4, 0x17, x + 8 - w + 0x17C, y);
+                } else if (s->unkD >= lim) {
+                    w = Text_Printf(D_00507200, 0xA, 4, s->unkD);
+                    Text_Printf(D_00507210, 0xA, 4, 0x17, x + 8 - w + 0x17C, y);
+                } else {
+                    w = Text_Printf(D_00507228, 0xA, 4, s->unkD + 1);
+                    Text_Printf(D_00507238, 0xA, 4, 0x17, x + 8 - w + 0x17C, y, s->unkD + 1);
+                }
+                k = 3;
+                break;
+            case 0:
+                v = s->unk6;
+                w = Text_Printf(D_005071B0, 0xA, 4, D_00431870[v]);
+                x0 = x + 8 - w + 0x17C;
+                Text_Printf(D_005071A0, 0xA, 4, 0x14, x0, y, D_00431870[v]);
+                if ((u32)(v - 6) < 2) {
+                    Text_Printf(v == 7 ? D_00507250 : D_00507260, 0xB, 1, x0 + w - 0x16, y);
+                }
+                k = 3;
+                break;
+            case 1:
+                w = Text_Printf(D_005071B0, 0xA, 4, D_004318A0[s->unkA]);
+                Text_Printf(D_005071A0, 0xA, 4, 0x14, x + 8 - w + 0x17C, y, D_004318A0[s->unkA]);
+                if (s->unk5 == 3) {
+                    func_003BB890(1, x + 8 + 0x182, y, 5);
+                }
+                if (func_003B1468() != 0 && idx == s->unk5) {
+                    PRAC_HELP(0x18C, D_00507190[s->unkA]);
+                }
+                break;
+            case 2:
+                v = -1;
+                sel = 0;
+                switch (s->unk4) {
+                case 0:
+                    if (i == 5) {
+                        v = s->unk7;
+                        sel = s->unk5 == 4;
+                    } else if (i == 6) {
+                        v = s->unk8;
+                        sel = s->unk5 == 5;
+                    } else if (i == 7) {
+                        v = s->unk9;
+                        sel = s->unk5 == 6;
+                    }
+                    break;
+                case 1:
+                    if (i == 4) {
+                        v = s->unk8;
+                        sel = s->unk5 == 4;
+                    } else if (i == 5) {
+                        v = s->unk9;
+                        sel = s->unk5 == 5;
+                    }
+                    break;
+                case 2:
+                    if (i == 3) {
+                        v = s->unk8;
+                        sel = s->unk5 == 3;
+                    } else if (i == 4) {
+                        v = s->unkB;
+                        sel = s->unk5 == 4;
+                    }
+                    break;
+                case 3:
+                    if (i == 5) {
+                        v = s->unk8;
+                        sel = s->unk5 == 4;
+                    } else if (i == 6) {
+                        v = s->unk9;
+                        sel = s->unk5 == 5;
+                    }
+                    break;
+                }
+                if (v >= 0) {
+                    w = Text_Printf(D_005071B0, 0xA, 4, D_004318B8[v]);
+                    Text_Printf(D_005071A0, 0xA, 4, v != 0 ? 0x10 : 0x16, x + 8 - w + 0x17C, y, D_004318B8[v]);
+                    if (sel) {
+                        func_003BB890(1, x + 8 + 0x182, y, 5);
+                        func_003E08D0(v);
+                    }
+                }
+                break;
+            }
+            if (k >= 0 && s->unk5 == k) {
+                func_003BB890(1, x + 8 + 0x182, y, 5);
+            }
+        }
+        y += 0x15;
+        if (i == 0) {
+            y += 0xA;
+        }
+        switch (s->unk4) {
+        case 0:
+            if (i == 7) {
+                y += 0xA;
+            }
+            break;
+        case 1:
+            if (i == 5) {
+                y += 0xA;
+            }
+            break;
+        case 2:
+            if (i == 4) {
+                y += 0xA;
+            }
+            break;
+        case 3:
+            if (i == 6) {
+                y += 0xA;
+            }
+            break;
+        }
+        idx += items[i].unk0 & 1;
+    }
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0037EFB0);
+#endif
 
 s32 func_0037FA30(void) {
     return func_003794A0(0) == 0;
@@ -2072,9 +2823,137 @@ void func_0037FB30(s32 side) {
     func_0036C448(&gFighters[side]);
 }
 
-INCLUDE_RODATA("asm/nonmatchings/fighter_core", jtbl_00507290);
+void func_0036C480(Fighter *f);
+void func_0036C490(Fighter *f);
+void func_0036C4A0(Fighter *f);
+void func_0036C4B0(Fighter *f);
+void func_0037FE58(s32 player);
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0037FB70);
+/* The practice dummy's recorder, once per frame for fighter f while func_0037FA30 allows it, driven by the menu
+ * buttons D_004318C8.unkA while unk6 bit 0x100 is set [V code; I meaning]: 0x20 starts recording (state 1, the
+ * recording begins at the next direction or button, states 2-3, until the track is full or 0x100 stops it; then 180
+ * frames of state 4 with three countdown sounds), 0x80 / 0x40 replay the track (state 6-7) repeatedly or once, 0x100
+ * stops. Returns 1 while the dummy is driven (unk420 4 during playback, 1 after), then prints the menu
+ * (func_0037FE58). */
+s32 func_0037FB70(Fighter *f) {
+    Unk4318C8 *s = &D_004318C8;
+    s32 r = 0;
+    s16 side = f->unk1E;
+    s32 stop;
+    s32 rec;
+    s32 once;
+    s32 loop;
+
+    if (func_0037FA30() == 0) {
+        return 0;
+    }
+    stop = 0;
+    rec = 0;
+    once = 0;
+    loop = 0;
+    if (s->unk6 & 0x100) {
+        if (s->unkA & 0x80) {
+            loop = 1;
+        } else if (s->unkA & 0x40) {
+            once = 1;
+        } else if (s->unkA & 0x20) {
+            rec = 1;
+        } else if (s->unkA & 0x100) {
+            stop = 1;
+        }
+    }
+    switch (s->unk0) {
+    case 0:
+        if (rec) {
+            s->unk2 = 0;
+            s->unk0 = 1;
+            func_0037CA98(side);
+            func_0036C4A0(f);
+        } else if (func_0037C828(side) != 0) {
+            if (loop) {
+                r = 1;
+                func_0036C4B0(f);
+                s->unk2 = 1;
+                s->unk0 = 6;
+            } else if (once) {
+                r = 1;
+                func_0036C4B0(f);
+                s->unk2 = 0;
+                s->unk0 = 6;
+            }
+        }
+        break;
+    case 1:
+        if (stop) {
+            s->unk0 = 0;
+            break;
+        }
+        if (!(D_005F5C48[f->unk1E] & 0xF4FE)) {
+            break;
+        }
+        s->unk0 = 2;
+    case 2:
+        Prac_RecBegin(side);
+        s->unk0 = 3;
+    case 3:
+        if (stop) {
+            func_0037C698(side);
+            s->unk0 = 0;
+        }
+        if (func_0037C8A0(side) != 0) {
+            func_0037C698(side);
+            s->unk0 = 4;
+            s->unk4 = 0xB4;
+        }
+        break;
+    case 4:
+        r = 1;
+        func_0036C480(f);
+        if (s->unkA & 0x100) {
+            func_0036C490(f);
+            s->unk0 = 0;
+        } else if (s->unk4 > 0) {
+            if (s->unk4 == 0xB4 || s->unk4 == 0xA0 || s->unk4 == 0x8C) {
+                Snd_PlaySe(0x103D, 0);
+            }
+            s->unk4--;
+        }
+        break;
+    case 5:
+        r = 1;
+        if (stop) {
+            f->unk420 = 1;
+            s->unk0 = 0;
+        } else if (s->unk4 > 0) {
+            s->unk4--;
+        } else {
+            s->unk0 = 6;
+        }
+        break;
+    case 6:
+        func_0037C8D0(side);
+        s->unk0 = 7;
+    case 7:
+        f->unk420 = 4;
+        r = 1;
+        f->unk430 = func_0037C970(side);
+        if (stop) {
+            f->unk420 = 1;
+            s->unk0 = 0;
+        } else if (Prac_IsPlaying(side) == 0) {
+            if (s->unk2 != 0) {
+                s->unk4 = func_0037C878(side);
+                s->unk0 = 5;
+            } else {
+                f->unk420 = 1;
+                s->unk0 = 0;
+            }
+        }
+        break;
+    }
+    func_0037FE58(side);
+    return r;
+}
 
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", D_005072B0);
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", D_005072D0);
@@ -2084,9 +2963,62 @@ INCLUDE_RODATA("asm/nonmatchings/fighter_core", D_00507340);
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", D_00507350);
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", D_00507370);
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", D_00507388);
-INCLUDE_RODATA("asm/nonmatchings/fighter_core", jtbl_005073A0);
+extern u16 gFrameCount;
+s32 func_0037C828(s32 player);
+extern const char D_005072B0[];
+extern const char D_005072D0[];
+extern const char D_00507300[];
+extern const char D_00507330[];
+extern const char D_00507340[];
+extern const char D_00507350[];
+extern const char D_00507370[];
+extern const char D_00507388[];
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0037FE58);
+/* Prints the practice dummy's menu texts for its state D_004318C8.unk0: the help lines (state 0, two or three as
+ * func_0037C828 says), or a blinking title (gFrameCount bit 4) and the line D_00507350 (states 1-7) [V]. */
+void func_0037FE58(s32 player) {
+    s32 more;
+    s32 y;
+
+    switch (D_004318C8.unk0) {
+    case 0:
+        more = func_0037C828(player);
+        y = more ? 0x186 : 0x19A;
+        Text_Printf(D_005072B0, 0x168, y, 0xA, 4, 0x17);
+        y += 0x14;
+        Text_Printf(D_005072D0, 0x190, y, 0xA, 4, 7, 0xB, 0xA, 6, 0xB, 0xA, 8, 0xB, 0xA, 6);
+        if (more) {
+            Text_Printf(D_00507300, 0x190, y + 0x14, 0xA, 4, 7, 0xB, 0xA, 6, 0xB, 0xA, 8, 0xB, 0xA, 6);
+        }
+        break;
+    case 1:
+        if (gFrameCount & 0x10) {
+            Text_Printf(D_00507330, 0xC4, 0x1AE, 0xA, 4, 0x10);
+        }
+        break;
+    case 2:
+    case 3:
+        if (gFrameCount & 0x10) {
+            Text_Printf(D_00507340, 0xC4, 0x1AE, 0xA, 4, 0xC);
+        }
+        Text_Printf(D_00507350, 0x190, 0x1AE, 0xA, 4, 7, 0xB, 0xA, 6);
+        break;
+    case 4:
+        if (gFrameCount & 0x10) {
+            Text_Printf(D_00507370, 0xC4, 0x1AE, 0xA, 4, 0xC);
+        }
+        Text_Printf(D_00507350, 0x190, 0x1AE, 0xA, 4, 7, 0xB, 0xA, 6);
+        break;
+    case 5:
+    case 6:
+    case 7:
+        if (gFrameCount & 0x10) {
+            Text_Printf(D_00507388, 0xC4, 0x1AE, 0xA, 4, 7);
+        }
+        Text_Printf(D_00507350, 0x190, 0x1AE, 0xA, 4, 7, 0xB, 0xA, 6);
+        break;
+    }
+}
 
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", D_005073C0);
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", D_005073D0);
@@ -2102,13 +3034,11 @@ s32 func_003800D8(s32 n) {
 
 /* func_003800D8 as the callers that inline it see it (the factor stays in a register over the rand() call). */
 static inline s32 Cpu_RandBelow(s32 n) {
-    s32 r = ((rand() + D_005F6C08) & 0x7FFF) * n;
+    s32 r = n * ((rand() + D_005F6C08) & 0x7FFF);
 
     D_005F6C08 = D_005F6C08 * 5 + 3;
     return r >> 15;
 }
-
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00380120);
 
 /* A CPU parameter block (0x80 bytes, CpuState + 0x344): D_00431918[level][kind] [I]. */
 typedef struct {
@@ -2116,6 +3046,84 @@ typedef struct {
 } CpuParams;
 
 extern CpuParams D_00431918[5][8];
+
+/* An entry of the arcade difficulty table D_00432D18 (D_005F6130 entries) [I]. */
+typedef struct {
+    /* 0x0 */ u16 unk0; /* from this value of D_005F5CC0 on */
+    /* 0x2 */ u16 unk2; /* level */
+    /* 0x4 */ u16 unk4; /* lowest kind */
+    /* 0x6 */ u16 unk6; /* highest kind */
+} Unk432D18;
+
+extern Unk432D18 D_00432D18[];
+extern s32 D_005F6130;
+extern s32 D_005F5CC0;
+extern u8 D_005F5CCD;
+extern CpuParams D_00432D90;
+
+/* Picks the CPU's parameter block for gCpu [V code; I meaning]: in the option mode 4 from the first entry of
+ * D_00432D18 that D_005F5CC0 reaches (its level, or level 1 half the time when it is not 0, and a kind drawn between
+ * its bounds), in mode 3 level 1, otherwise the level of option byte 0xD; the kind is option word 0x24 unless
+ * D_005F5CCD is 8 or more (kind 8). Out-of-range choices fall back to level 1, kind 6; the mode D_005F5CBC uses the
+ * block D_00432D90. Keeps the level in unk3DC and the larger of unk37A / unk37E in unk25C. */
+/* NON_MATCHING: about 40 lines differ: the original addresses the table entry as &D_00432D18[i] + 2 / + 4 in
+ * registers, keeps `unk6 - (unk4 - 1)` unfolded, and duplicates the D_005F5CCD test into both option branches; the
+ * copies and the tail match. */
+#if 0
+void func_00380120(void) {
+    u8 *opt = D_0043B7F8;
+    u32 level = 0;
+    u32 kind = 0;
+    s32 i;
+    s16 n;
+
+    if (opt[0] == 4) {
+        for (i = 0; i < D_005F6130; i++) {
+            if (D_00432D18[i].unk0 >= D_005F5CC0) {
+                if (!(func_003800D8(0xFF) & 1)) {
+                    if (D_00432D18[i].unk2 != 0) {
+                        level = 1;
+                    } else {
+                        level = D_00432D18[i].unk2;
+                    }
+                } else {
+                    level = D_00432D18[i].unk2;
+                }
+                kind = D_00432D18[i].unk4 + func_003800D8(D_00432D18[i].unk6 - (D_00432D18[i].unk4 - 1));
+                break;
+            }
+        }
+    } else {
+        if (opt[0] == 3) {
+            level = 1;
+        } else {
+            level = opt[0xD];
+        }
+        if (D_005F5CCD < 8) {
+            kind = *(s32 *)&opt[0x24];
+        } else {
+            kind = 8;
+        }
+    }
+    if (level >= 5 || kind >= 8) {
+        level = 1;
+        kind = 6;
+    }
+    if (D_005F5CBC != 0) {
+        *(CpuParams *)gCpu->unk344 = D_00432D90;
+    } else {
+        *(CpuParams *)gCpu->unk344 = D_00431918[level][kind];
+    }
+    gCpu->unk3DC = level;
+    n = gCpu->unk37A;
+    if (n < gCpu->unk37E) {
+        n = gCpu->unk37E;
+    }
+    gCpu->unk25C = n;
+}
+#else
+INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00380120);
+#endif
 
 /* Selects the CPU state of `side` (gCpu) and copies the parameter block D_00431918[level][kind] into it; the indices
  * are clamped to 1, 4 and 7 [V]. */
@@ -2155,7 +3163,140 @@ void func_00380560(Fighter *f) {
     func_00380568(f);
 }
 
+struct FighterMove **func_00368200(s32 side);
+void *func_0038BEE0(s32 which, s32 key);
+
+/* The CPU's attack parameters per character (D_00432E10, 12 bytes: CpuState + 0x3C4 for its own character, + 0x3D0
+ * for the opponent's) [I]. */
+typedef struct {
+    /* 0x0 */ s16 unk0[6];
+} Unk432E10;
+
+extern Unk432E10 D_00432E10[];
+
+/* Resets both CPU states at the start of a round [V code; I meaning]: sides, fighters, move records by id
+ * (func_00368200), timers (-1) and counters (0), the remembered moves, the parameter block (func_00380120) and the
+ * character rows of D_00432E10, the hooks of both characters (func_0038BEE0); in the mode D_005F5CBC the random
+ * delays unk34C[1..4] are halved and unk364 quartered. The first wait unk94 is 60 plus a random share of unk34C[1],
+ * unk5C 50-97; all candidates are marked unused. */
+/* NON_MATCHING: about 140 lines differ, mostly registers: the stores follow the original's order but gCpu and the
+ * gCpuSelf pointer take a1 / a0 where the original uses v1 / a1, and the loop addresses are built in another order. */
+#if 0
+void func_00380568(Fighter *f) {
+    u16 side;
+    s32 i;
+    CpuState *c;
+    s32 r;
+
+    for (side = 0; side < 2; side++) {
+        c = &gCpuStates[side];
+        gCpuOpponent = &gFighters[1 - side];
+        c->unk4 = side;
+        gCpuSelf = &gFighters[side];
+        gCpu = c;
+        c->unk0 = side;
+        gCpu->unk10 = func_00368200(side);
+        D_005F6C00[side] = func_00368200(side);
+        c = gCpu;
+        c->unk8 = 0;
+        c->unk6 = 0;
+        c->unk44 = -1;
+        c->unk40 = gCpuSelf->unk3F4;
+        c->unk48 = 0;
+        c->unk54 = 0;
+        c->unk70 = -1;
+        c->unk74 = 0;
+        c->unkCC = -1;
+        c->unk6C = -1;
+        c->unk4C = -1;
+        c->unk50 = 0;
+        c->unk88 = NULL;
+        c->unk108 = NULL;
+        c->unk84 = -1;
+        c->unk58 = 0;
+        c->unk68 = -1;
+        c->unk64 = -1;
+        c->unk78 = -1;
+        c->unk3C = 0;
+        c->unk38 = 0;
+        c->unk60 = -1;
+        c->unk90 = NULL;
+        c->unk28 = 0;
+        c->unk2C = 0;
+        c->unkD0 = -1;
+        c->unk324 = 0;
+        c->unk320 = -1;
+        c->unk328 = 0;
+        c->unk9C = -1;
+        c->unk98 = 0;
+        c->unkB0 = 0;
+        c->unkAC = 0;
+        c->unk12C = 0;
+        c->unk130 = 0;
+        c->unk144 = 0;
+        c->unk150 = 0;
+        c->unk214 = 0;
+        c->unk21C = 0;
+        c->unk220 = 0;
+        c->unk224 = 0;
+        c->unk250 = 0;
+        c->unk258 = 0;
+        c->unkFC = 0;
+        c->unk100 = 0;
+        c->unk124 = -1;
+        c->unk128 = NULL;
+        c->unk260 = 0;
+        c->unk268 = 0;
+        c->unk26C = 0;
+        c->unk270 = 0;
+        c->unk274 = 0;
+        c->unk278 = 0;
+        c->unk27C[0] = 0;
+        c->unk27C[1] = 0;
+        c->unkC = NULL;
+        c->unkA = 0;
+        c->unkA4 = 0;
+        c->unkA8 = NULL;
+        c->unkA0 = 0;
+        c->unk2C0 = -1;
+        c->unk2C4 = 0;
+        for (i = 0; i < 3; i++) {
+            c->unk288[i] = 0;
+        }
+        for (i = 0; i < 0x14; i++) {
+            c->unk2D0[i] = NULL;
+        }
+        c->unkF8 = 0;
+        c->unkE4 = 0;
+        c->unkE0 = 0;
+        c->unkEC = 0;
+        c->unkE8 = 0;
+        c->unkF0 = 0;
+        c->unkF4 = 0;
+        func_00380120();
+        *(Unk432E10 *)&gCpu->unk3C4 = D_00432E10[gCpuSelf->unk2A];
+        *(Unk432E10 *)&gCpu->unk3D0 = D_00432E10[gCpuOpponent->unk2A];
+        gCpu->unkB4 = func_0038BEE0(1, gFighters[1 - side].unk28);
+        gCpu->unkB8 = func_0038BEE0(0, gFighters[side].unk28);
+        if (D_005F5CBC != 0) {
+            gCpu->unk34C[1] /= 2;
+            gCpu->unk364 /= 4;
+            gCpu->unk34C[2] /= 2;
+            gCpu->unk34C[3] /= 2;
+            gCpu->unk34C[4] /= 2;
+        }
+        r = ((rand() + D_005F6C08) & 0x7FFF) >> 8;
+        D_005F6C08 = D_005F6C08 * 5 + 3;
+        gCpu->unk94 = gCpu->unk34C[1] * r / 256 + 0x3C;
+        gCpu->unk5C = Cpu_RandBelow(0x30) + 0x32;
+        for (i = 0; i < 0xB4; i++) {
+            gCpuCands[i].unk0 = -1;
+        }
+    }
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00380568);
+#endif
 
 void *func_0038BEE0(s32 which, s32 key);
 
@@ -2799,7 +3940,527 @@ s32 func_00381BF8(void) {
     return 1;
 }
 
+extern const s16 gSinTable[];
+s32 func_0038ACA8(void);
+
+/* Decider 1 of Cpu_Think: the per-frame analysis, always 0 [V code; I meaning; m2c's control flow with fixed types].
+ * It refreshes the CPU's view: the chance block zeroed when the opponent's red life is a tenth of its life or more,
+ * whether the own / the opponent's move changed (unk1C / unk29C, unk3C counts the frames of the own move), the
+ * window counters unk258 / unk2C0, the distance D_005F5C28 and its change unk34 with a wobble unk28 from gSinTable,
+ * the range class unk20 (0-5, against unk3C4-unk3CA) and the distance class unk24 (1-5, unk3CE-unk3D6), the
+ * opponent's attack state (unk2AC, unk2B0, unk2B4, unk2BC, unk2A8 frames to its window, unkC0 / unkC4 counters),
+ * unk98 (the own move answers the opponent's kind: 0x2021 / 0x2829 / 0x1052 against 0x412 / 0x217 / 0x10F / 0x31F /
+ * 0x706), the waits unk70 / unk94, unk7C / unk80, the life comparison unk3E0 / unk3E4 (team life of D_00440940, in
+ * practice the CPU's own damage unk27C), and remembers the opponent's last 20 moves in unk2D0. */
+/* NON_MATCHING: m2c's control flow with fixed types (about 490 lines differ, mostly registers and block order); a
+ * starting point only. */
+#if 0
+s32 func_00381D30(void) {
+    CpuState *temp_t1;
+    CpuState *var_t1;
+    s16 temp_a0_4;
+    s16 temp_t3;
+    s16 temp_t4;
+    s16 temp_v1_5;
+    s32 *temp_v0_9;
+    s32 *temp_v1_10;
+    s32 temp_a1;
+    s32 temp_a2;
+    s32 temp_a2_2;
+    s32 temp_a2_3;
+    s32 temp_a2_4;
+    s32 temp_a2_5;
+    s32 temp_a3;
+    s32 temp_s0;
+    s32 temp_s1;
+    s32 temp_v0_10;
+    s32 temp_v0_3;
+    s32 temp_v0_4;
+    s32 temp_v0_5;
+    s32 temp_v0_6;
+    s32 temp_v0_8;
+    s32 temp_v1;
+    s32 temp_v1_2;
+    s32 var_a0;
+    s32 var_a0_2;
+    s32 var_a1;
+    s32 var_a1_2;
+    s32 var_a1_3;
+    s32 var_a2;
+    s32 var_a2_2;
+    s32 var_a2_3;
+    s32 var_a2_4;
+    s32 var_a3;
+    s32 var_t0;
+    s32 var_t2;
+    s32 var_v0;
+    s32 var_v0_10;
+    s32 var_v0_2;
+    s32 var_v0_3;
+    s32 var_v0_5;
+    s32 var_v0_6;
+    s32 var_v0_7;
+    s32 var_v0_8;
+    s32 var_v0_9;
+    struct FighterMove *temp_a0;
+    struct FighterMove *temp_a0_3;
+    struct FighterMove *temp_v0_11;
+    struct FighterMove *temp_v1_3;
+    struct FighterMove *temp_v1_4;
+    u16 temp_a0_2;
+    u32 temp_v1_6;
+    u32 temp_v1_7;
+    u32 temp_v1_8;
+    u32 var_v0_4;
+    u8 temp_v0;
+    u8 temp_v0_2;
+
+    gCpu->unkBC = NULL;
+    if (!(gCpuSelf->unkC0->unk24 & 0x20)) {
+        gCpu->unk144 = 0;
+    }
+    gCpu->unkE4 = gCpu->unkE0;
+    gCpu->unkEC = gCpu->unkE8;
+    gCpu->unkE0 = 0;
+    gCpu->unkE8 = 0;
+    if (((s32) gCpuOpponent->unk3F8 / 10) >= gCpuOpponent->unk3F4) {
+        gCpu->unk36A = 0;
+        gCpu->unk360 = 0;
+        gCpu->unk362 = 0;
+        gCpu->unk368 = 0;
+    }
+    if (((rand() & 0xFFF) >= gCpu->unk38E) && ((s16) gCpuSelf->unk40 >= 0x2000) &&
+        ((s16) gCpuOpponent->unk40 < 0x6001) && (gCpu->unk24 < 3)) {
+        gCpu->unkE4 = 1;
+    }
+    var_a1 = 0;
+    if ((gCpuSelf->unkC0 != gCpu->unk88) || (gCpuSelf->unkC4 < gCpu->unk78)) {
+        var_a1 = 1;
+    }
+    gCpu->unk1C = var_a1;
+    var_a2 = 0;
+    if ((gCpuOpponent->unkC0 != (struct FighterMove *) gCpu->unk284) || (gCpuOpponent->unkC4 < gCpu->unk2A0)) {
+        var_a2 = 1;
+    }
+    gCpu->unk29C = var_a2;
+    if (gCpu->unk88 != gCpuSelf->unkC0) {
+        gCpu->unk3C = 0;
+    } else {
+        gCpu->unk3C += 1;
+    }
+    gCpu->unk88 = gCpuSelf->unkC0;
+    gCpu->unk78 = (s32) gCpuSelf->unkC4;
+    if (gCpu->unk330.w & 0x400000) {
+        gCpu->unk6C = -1;
+        gCpu->unk5C = 0x28;
+        gCpu->unk50 = 0;
+        gCpu->unk4C = 0;
+    }
+    temp_v0 = gCpuSelf->unkC0->unk2C;
+    if (temp_v0 != 0) {
+        if (temp_v0 == gCpuSelf->unkC4) {
+            gCpu->unk258 += 1;
+        } else if (temp_v0 == 0) {
+            goto block_25;
+        }
+    } else {
+    block_25:
+        if (!(gCpu->unk32C & 0x80000)) {
+            if (gCpuOpponent->unkF3 == 0) {
+                gCpu->unk258 = 0;
+            }
+        }
+    }
+    temp_v0_2 = gCpuOpponent->unkC0->unk2C;
+    if (temp_v0_2 != 0) {
+        if (temp_v0_2 == gCpuOpponent->unkC4) {
+            gCpu->unk2C0 += 1;
+        } else if (temp_v0_2 == 0) {
+            goto block_35;
+        }
+    } else {
+    block_35:
+        if (!(gCpu->unk338.w & 0x80000) && (gCpuSelf->unkF3 == 0)) {
+            gCpu->unk2C0 = -1;
+        }
+    }
+    temp_a2 = gCpu->unk2C + (rand() & 0x3F);
+    gCpu->unk2C = temp_a2;
+    temp_v1 = gSinTable[temp_a2 & 0xFFF] * 0xC0;
+    gCpu->unk34 = D_005F5C28 - gCpu->unk30;
+    gCpu->unk30 = (s32) D_005F5C28;
+    temp_v0_3 = temp_v1 / 4096;
+    temp_a2_2 = ((D_005F5C28 - gCpu->unk3DA) + temp_v0_3) - 0x80;
+    gCpu->unk28 = temp_v0_3;
+    if (temp_a2_2 < gCpu->unk3C4) {
+        if (gCpuSelf->unk3E8 == 0) {
+            if (gCpuSelf->unk3F0 == 0) {
+                if ((gCpuOpponent->unk3E8 != 0) || (gCpuOpponent->unk3F0 != 0)) {
+                    goto block_43;
+                }
+                gCpu->unk20 = 1;
+                goto block_47;
+            }
+            goto block_44;
+        }
+    block_43:
+    block_44:
+        gCpu->unk20 = 0;
+        if (gCpu->unk7C == 0) {
+            gCpu->unk94 -= 1;
+        block_47:
+            var_t1 = gCpu;
+            if (var_t1->unk7C != 0) {
+                var_t1->unk38 = 0;
+            } else {
+                var_t1->unk94 -= 1;
+                goto block_52;
+            }
+        } else {
+            var_t1 = gCpu;
+        block_52:
+            var_t1->unk38 = 0;
+        }
+    } else {
+        var_v0 = 2;
+        if ((temp_a2_2 < gCpu->unk3C6) || (var_v0 = 3, ((temp_a2_2 < gCpu->unk3C8) != 0))) {
+            gCpu->unk38 = 0;
+            gCpu->unk20 = var_v0;
+        } else if (temp_a2_2 < gCpu->unk3CA) {
+            gCpu->unk20 = 4;
+            temp_a1 = gCpu->unk38 + 4 + ((u32) ((rand() + D_005F6C08) & 0x7FFF) >> 0xE);
+            D_005F6C08 = (D_005F6C08 * 5) + 3;
+            gCpu->unk38 = temp_a1;
+        } else {
+            gCpu->unk20 = 5;
+            temp_v0_4 = ((rand() + D_005F6C08) & 0x7FFF) * 3;
+            D_005F6C08 = (D_005F6C08 * 5) + 3;
+            gCpu->unk38 = gCpu->unk38 + 5 + (temp_v0_4 >> 0xF);
+        }
+    }
+    if ((gCpu->unk7C == 0) || (gCpuOpponent->unk135 != 0)) {
+        gCpu->unk94 -= 1;
+    }
+    temp_v1_2 = gCpu->unk34;
+    temp_a2_3 = (D_005F5C28 - gCpu->unk3CE) + gCpu->unk28;
+    temp_a2_4 = (temp_v1_2 <= -1) ? (temp_a2_3 + temp_v1_2) : temp_a2_3;
+    var_v0_2 = 1;
+    if (temp_a2_4 >= (gCpu->unk3D0 + 0x80)) {
+        var_v0_2 = 2;
+        if (temp_a2_4 >= (gCpu->unk3D2 + 0x100)) {
+            var_v0_2 = 3;
+            if (temp_a2_4 >= (gCpu->unk3D4 + 0x200)) {
+                var_v0_2 = 4;
+                if (temp_a2_4 >= (gCpu->unk3D6 + 0x280)) {
+                    var_v0_2 = 5;
+                }
+            }
+        }
+    }
+    gCpu->unk24 = var_v0_2;
+    if ((gCpuOpponent->unkC0->unk2C == 0) && (gCpu->unk33C.w & 0x80000)) {
+        gCpu->unk2B0 += 1;
+    } else {
+        gCpu->unk2B0 = 0;
+    }
+    var_a2_2 = 0;
+    if ((gCpu->unk2B0 > 0) || ((temp_v1_3 = gCpuOpponent->unkC0, (temp_v1_3->unk2C != 0)) &&
+                               ((temp_v1_3->unk2D + 1) >= gCpuOpponent->unkC4))) {
+        var_a2_2 = 1;
+    }
+    gCpu->unk2AC = var_a2_2;
+    if ((gCpu->unk2AC != 0) && (gCpuOpponent->unkC4 < (gCpuOpponent->unkC0->unk2C - 3))) {
+        gCpu->unkC0 += 1;
+    } else {
+        gCpu->unkC0 = 0;
+    }
+    if ((gCpuSelf->unkC0->unk2C != 0) && ((gCpuOpponent->unkC0->unk2D + 1) < gCpuOpponent->unkC4)) {
+        gCpu->unkC4 += 1;
+    } else {
+        gCpu->unkC4 = 0;
+    }
+    if (gCpu->unk2AC != 0) {
+        temp_v0_5 = gCpu->unk9C;
+        var_v0_3 = temp_v0_5 - 1;
+        if (temp_v0_5 > 0) {
+            goto block_88;
+        }
+    } else {
+        var_v0_3 = -1;
+    block_88:
+        gCpu->unk9C = var_v0_3;
+    }
+    var_v0_4 = gCpu->unk33C.w;
+    if (gCpu->unk2AC == 0) {
+        if (var_v0_4 & 0x200000) {
+            gCpu->unk2AC = 1;
+        }
+        var_v0_4 = gCpu->unk33C.w;
+    }
+    if (!(var_v0_4 & 0x80000)) {
+        gCpu->unk2B4 = 0;
+    } else {
+        gCpu->unk2B4 += 1;
+    }
+    var_a2_3 = 0;
+    if ((gCpu->unk338.w & 0x400000) && ((temp_v1_4 = gCpuOpponent->unkC0, (temp_v1_4->unk2C == 0)) ||
+                                        ((s32) temp_v1_4->unk2D >= gCpuOpponent->unkC4))) {
+        var_a2_3 = 1;
+    }
+    gCpu->unk2BC = var_a2_3;
+    if ((gCpu->unk2AC != 0) || (var_v0_5 = 0x3E7, (gCpu->unk2BC != 0))) {
+        temp_a0 = gCpuOpponent->unkC0;
+        if (temp_a0->unk2C != 0) {
+            temp_v1_5 = gCpuOpponent->unkC4;
+            var_v0_6 = 0x3E5;
+            if ((s32) temp_a0->unk2D >= temp_v1_5) {
+                temp_v0_6 = temp_a0->unk2C - temp_v1_5;
+                gCpu->unk2A8 = temp_v0_6;
+                if (temp_v0_6 >= 0x65) {
+                    var_v0_6 = 0x3E6;
+                    goto block_107;
+                }
+            } else {
+            block_107:
+                gCpu->unk2BC = 0;
+                gCpu->unk2A8 = var_v0_6;
+                gCpu->unk2AC = 0;
+            }
+        } else {
+            gCpu->unk2A8 = 0xA;
+            var_v0_5 = (((MoveCmd *) gCpuOpponent->unkC0->unkC)->unkC - gCpuOpponent->unkC4) + 1;
+            goto block_110;
+        }
+    } else {
+        gCpu->unkF0 = 0;
+    block_110:
+        gCpu->unk2A8 = var_v0_5;
+    }
+    gCpu->unk2CC = gCpuOpponent->unk70C < -0xC1B;
+    gCpu->unk2C4 = gCpuOpponent->unk70C;
+    if (((s16) gCpuOpponent->unk40 >= 0x3001) ||
+        (!(gCpu->unk33C.w & 0x200000) && (temp_v1_6 = gCpu->unk340, (temp_v1_6 != 0x607)) && (temp_v1_6 != 0x706))) {
+        gCpu->unkF8 = 0;
+    }
+    if ((gCpu->unk84 >= 0) && (gCpu->unk24 < 2) && ((rand() & 0xFFF) >= gCpu->unk38E)) {
+        gCpu->unkF0 = 1;
+    }
+    temp_v1_7 = gCpu->unk33C.w;
+    var_a0 = 0;
+    if ((temp_v1_7 & 0x204) && ((temp_v1_7 & 0xFFFF) != 0x4C02)) {
+        var_a0 = gCpuOpponent->unk135 == 0;
+    }
+    gCpu->unk2A4 = var_a0;
+    var_a1_2 = 0;
+    if (gCpuOpponent->unk28 == 4) {
+        var_a1_2 = gCpuOpponent->unk10C == 0x5C7;
+    }
+    gCpu->unkC8 = var_a1_2;
+    if (var_a1_2 != 0) {
+        gCpu->unk2C0 = -1;
+    }
+    temp_a0_2 = gCpu->unk330.h;
+    if (((u32) D_005F5C28 < 0xB87U) && (gCpu->unkC8 == 0)) {
+        if (gCpu->unk2BC != 0) {
+            if (gCpu->unk340 != 0x217) {
+                if (temp_a0_2 != 0x2021) {
+                    var_v0_7 = 0x2829;
+                    goto block_161;
+                }
+                goto block_164;
+            }
+            goto block_166;
+        }
+        if ((gCpu->unk2AC != 0) && ((s16) gCpuSelf->unk40 < 0x3001)) {
+            temp_v1_8 = gCpu->unk340;
+            if (temp_v1_8 != 0x412) {
+                if (temp_v1_8 < 0x413U) {
+                    if (temp_v1_8 != 0x217) {
+                        if (temp_v1_8 < 0x218U) {
+                            if (temp_v1_8 != 0x10F) {
+                                gCpu->unk98 = 0;
+                            } else {
+                                gCpu->unk98 = temp_a0_2 == 0x2829;
+                            }
+                        } else if (temp_v1_8 != 0x31F) {
+                            gCpu->unk98 = 0;
+                        } else if (temp_a0_2 != 0x2829) {
+                            if (temp_a0_2 != 0x1052) {
+                                gCpu->unk98 = 0;
+                            } else {
+                                goto block_157;
+                            }
+                        } else {
+                        block_157:
+                            gCpu->unk98 = 1;
+                        }
+                    } else {
+                        gCpu->unk98 = temp_a0_2 == 0x1052;
+                    }
+                } else if (temp_v1_8 != 0x607) {
+                    if (temp_v1_8 < 0x608U) {
+                        gCpu->unk98 = 0;
+                    } else if (temp_v1_8 != 0x706) {
+                        gCpu->unk98 = 0;
+                    } else {
+                        if (temp_a0_2 != 0x2829) {
+                            var_v0_7 = 0x2021;
+                            goto block_161;
+                        }
+                        goto block_164;
+                    }
+                } else {
+                    gCpu->unk98 = 0;
+                }
+            } else if ((temp_a0_2 != 0x2021) && (var_v0_7 = 0x1052, (temp_a0_2 != 0x2829))) {
+            block_161:
+                if (temp_a0_2 != var_v0_7) {
+                    gCpu->unk98 = 0;
+                } else {
+                    goto block_164;
+                }
+            } else {
+            block_164:
+                gCpu->unk98 = 1;
+            }
+        } else {
+            goto block_166;
+        }
+    } else {
+    block_166:
+        gCpu->unk98 = 0;
+    }
+    temp_t1 = gCpu;
+    var_v0_8 = -1;
+    if (temp_t1->unk330.w & 1) {
+        if (temp_t1->unk54 > 0) {
+            var_v0_8 = temp_t1->unk70 - 1;
+            goto block_172;
+        }
+        if (!(gCpuSelf->unkC0->unk24 & 0x10)) {
+            temp_s0 = rand();
+            temp_s1 = rand();
+            gCpu->unk70 = (temp_s0 & 7) + (temp_s1 & 7) + ((rand() & 0xF) + 0x14);
+        }
+    } else {
+    block_172:
+        temp_t1->unk70 = var_v0_8;
+    }
+    if (gCpuSelf->unkC0->unk2C != 0) {
+        temp_t1->unk7C = 1;
+    } else {
+        temp_t1->unk7C = 0;
+    }
+    temp_a0_3 = gCpuSelf->unkC0;
+    var_a2_4 = 0;
+    if ((temp_a0_3->unk4 & 0x200000) && (temp_a0_3->unk8 & 0x200000)) {
+        var_a2_4 = (s32) temp_a0_3->unk2D >= gCpuSelf->unkC4;
+    }
+    gCpu->unk80 = var_a2_4;
+    temp_t3 = gCpuSelf->unk2;
+    temp_t4 = gCpuSelf->unk0;
+    temp_a2_5 = D_00440940[gCpuSelf->unk1E][temp_t4].unk14;
+    var_t2 = D_00440940[gCpuSelf->unk1E][temp_t4].unkC;
+    temp_a3 = D_00440940[gCpuSelf->unk1E][temp_t3].unk14;
+    var_a1_3 = D_00440940[gCpuSelf->unk1E][temp_t3].unkC;
+    if (D_0043B7F8[0] == 7) {
+        temp_v1_10 = &gCpu->unk27C[temp_t3];
+        temp_v0_8 = *temp_v1_10 - (temp_a3 / 6000);
+        *temp_v1_10 = temp_v0_8;
+        if (temp_v0_8 < 0) {
+            *temp_v1_10 = 0;
+        }
+        temp_v0_9 = gCpu->unk27C;
+        var_t2 = temp_a2_5 - temp_v0_9[temp_t4];
+        var_a1_3 = temp_a3 - temp_v0_9[temp_t3];
+    }
+    temp_v0_10 = gCpu->unk50;
+    if (D_005F5CBC == 0) {
+        var_t0 = 0;
+        if (temp_v0_10 == 0) {
+            var_v0_9 = temp_a2_5 >> 1;
+            if (gCpuSelf->unk2A == 0x21) {
+                var_v0_9 = temp_a2_5 >> 1;
+                if (gCpuSelf->unk401 != 0) {
+                    goto block_194;
+                }
+            } else {
+                goto block_194;
+            }
+        }
+    } else {
+        var_t0 = 0;
+        if ((temp_v0_10 == 0) && ((gCpuSelf->unk2A != 0x21) || (gCpuSelf->unk401 != 0))) {
+            var_v0_9 = (s32) (temp_a2_5 * 0xA) >> 4;
+        block_194:
+            if ((var_t2 >= var_v0_9) || (var_t2 >= var_a1_3) || (var_a1_3 < ((s32) (temp_a3 * 0xB) >> 4))) {
+                if (var_t2 < (temp_a2_5 / 3)) {
+                    var_v0_10 = temp_a2_5 >> 3;
+                    if (var_a1_3 >= (temp_a3 >> 1)) {
+                        if (var_t2 >= var_a1_3) {
+                            goto block_200;
+                        }
+                        goto block_203;
+                    }
+                    goto block_201;
+                }
+            block_200:
+                var_v0_10 = temp_a2_5 >> 3;
+            block_201:
+                if ((var_t2 < var_v0_10) && ((temp_a3 / 6) < var_a1_3)) {
+                    goto block_203;
+                }
+            } else {
+            block_203:
+                var_t0 = 1;
+            }
+        }
+    }
+    gCpu->unk3E0 = var_t0;
+    var_a3 = 0;
+    if ((gCpuSelf->unk2A != 0x21) || (gCpuSelf->unk401 != 0)) {
+        var_a3 = var_t2 < var_a1_3;
+    }
+    gCpu->unk3E4 = var_a3;
+    if ((D_005F5CBC == 0) || (D_005F6144 != 0)) {
+        if (D_0043B7F8[0] == 5) {
+            goto block_211;
+        }
+    } else {
+    block_211:
+        gCpu->unk3E0 = 0;
+        gCpu->unk3E4 = 0;
+    }
+    temp_a0_4 = gCpuOpponent->unk10C;
+    if ((temp_a0_4 == 0x338) || (temp_a0_4 == 0x33A)) {
+        if (gCpu->unk330.h == 0x4C02) {
+            gCpu->unk3E0 = 0;
+        }
+    }
+    if (gCpu->unk29C != 0) {
+        temp_v0_11 = gCpuOpponent->unkC0;
+        if (temp_v0_11->unk2C != 0) {
+            var_a0_2 = 0x14;
+            if (!(temp_v0_11->unk8 & 0x400000)) {
+                for (; var_a0_2 > 0; var_a0_2--) {
+                    gCpu->unk2D0[var_a0_2] = gCpu->unk2D0[var_a0_2 - 1];
+                }
+                gCpu->unk2D0[0] = gCpuOpponent->unkC0;
+            }
+        }
+    }
+    func_0038ACA8();
+    gCpu->unk284 = (s32) gCpuOpponent->unkC0;
+    if (gCpuSelf->unkF3 != 0) {
+        gCpu->unk26C = 0;
+    }
+    gCpu->unk274 -= 1;
+    return 0;
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00381D30);
+#endif
+
 
 /* The candidate test of func_00382AD8 (a macro: its code is there four times): a command inside its frame window whose
  * condition, Cpu_IsCmdAllowed and situation hold becomes a candidate unless its move has flag 0x800000; the first one
@@ -3207,7 +4868,63 @@ s32 func_00384130(CpuCand *c) {
     return 0;
 }
 
+/* Whether candidate c answers the opponent's move (func_00384130's tests without the window limit, then the
+ * opponent's move flags unk33C: with bit 2 any kind but 0x412, with bit 1 neither 0x412 nor 0x10F, with bit 4
+ * neither 0x412 nor 0x217) [V code; I meaning]. */
+/* Whether candidate c answers the opponent's move: no flag 0x20000 / 0x400000, an attack window (unk2C) without an
+ * early one (unk19), func_0036C1A0's entry not negative, no flag 0x800000, func_00383B88; then by the opponent's move
+ * flags unk33C: with bit 2 any kind but 0x412, with bit 1 neither 0x412 nor 0x10F, with bit 4 neither 0x412 nor
+ * 0x217 [V code; I meaning]. */
+/* NON_MATCHING: 11 lines differ: the kind constants take v1 where the original uses v0 (then the return value in
+ * the delay slot), and the bit 1 test returns 0x10F as a set-on-compare instead of the original's branch and
+ * separate return 0 block. The shared fail block after the bit 2 test is a goto as in func_00387120. */
+#if 0
+s32 func_00384210(CpuCand *c) {
+    struct FighterMove *m = c->unk4;
+    u32 fl;
+
+    if ((m->unk4 & 0x20000) || (m->unk8 & 0x400000) || m->unk2C == 0 || m->unk19 != 0) {
+        return 0;
+    }
+    if (func_0036C1A0(gCpuSelf, gCpuOpponent, m)->unk2 < 0) {
+        goto fail;
+    }
+    if (c->unk4->unk4 & 0x800000) {
+        return 0;
+    }
+    if (func_00383B88(m, gCpu->unk20, 0) == 0) {
+        goto fail;
+    }
+    fl = gCpu->unk33C.w;
+    if (fl & 2) {
+        if ((u16)m->unk8 != 0x412) {
+            return 1;
+        }
+    fail:
+        return 0;
+    }
+    if (fl & 1) {
+        if ((u16)m->unk8 == 0x412) {
+            goto fail;
+        }
+        if ((u16)m->unk8 != 0x10F) {
+            return 1;
+        }
+        return 0;
+    }
+    if (fl & 4) {
+        if ((u16)m->unk8 == 0x412) {
+            goto fail;
+        }
+        if ((u16)m->unk8 == 0x217) {
+            return 0;
+        }
+    }
+    return 1;
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00384210);
+#endif
 
 s32 func_00384338(CpuCand *c) {
     struct FighterMove *m = c->unk4;
@@ -3648,7 +5365,97 @@ s32 func_00384D68(u16 *cmd) {
     return *cmd & 0x4000;
 }
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00384D78);
+s32 func_003848F0(CpuCand *c);
+s32 func_00384920(CpuCand *c);
+
+/* The CPU's answer to an opponent that is far away or recovering (decider 0xC's candidates, func_00389B70) [V code; I
+ * meaning]: none while D_005F5C28 is 2951 or more. With unk2BC it picks func_00384920 candidates (not against kind
+ * 0x217, only with unk3DC) and, from unk24 3 on, func_003849A0 ones. With unk2AC it answers the opponent's move kind
+ * unk340: 0x412 (func_00384920 against the moves 0x2021 / 0x2829, otherwise func_003848F0 and one time in 50
+ * func_00384920), 0x217 (func_003848F0), 0x31F / 0x10F (rarely func_003848F0 / from unk24 3 on func_003849A0, else
+ * it sets unk26C and a delay unk270 within the opponent's remaining window and returns -1), 0x706 (func_00384920).
+ * Below unk34 -70 and before unk24 3 it picks func_003849A0 candidates instead. Returns the count picked. */
+s32 func_00384D78(void) {
+    s32 n = 0;
+    s32 w;
+
+    if (D_005F5C28 >= 0xB87) {
+        return 0;
+    }
+    if (gCpu->unk2BC != 0) {
+        if (gCpu->unk340 != 0x217 && gCpu->unk3DC != 0) {
+            n = Cpu_PickCands(func_00384920);
+        }
+        if (gCpu->unk24 >= 3) {
+            n += Cpu_PickCands(func_003849A0);
+        }
+        return n;
+    }
+    if (gCpu->unk2AC != 0) {
+        switch (gCpu->unk340) {
+        case 0x412:
+            switch ((u16)gCpuSelf->unkCC) {
+            case 0x2021:
+            case 0x2829:
+                n = Cpu_PickCands(func_00384920);
+                break;
+            default:
+                n = Cpu_PickCands(func_003848F0);
+                if ((rand() & 0xFFF) % 50 == 0 && gCpu->unk3DC != 0) {
+                    n += Cpu_PickCands(func_00384920);
+                }
+                if (gCpu->unk24 >= 3) {
+                    n += Cpu_PickCands(func_003849A0);
+                }
+                break;
+            }
+            break;
+        case 0x217:
+            n = Cpu_PickCands(func_003848F0);
+            break;
+        case 0x31F:
+            if (Cpu_RandBelow(0x3FFF) != 0) {
+                n = Cpu_PickCands(func_003848F0);
+                break;
+            }
+            gCpu->unk26C = 1;
+            w = gCpuOpponent->unkC0->unk2C - gCpuOpponent->unkC4;
+            if (w - 4 > 0) {
+                gCpu->unk270 = Cpu_RandBelow(w - 4) + 4;
+            } else if (w > 0) {
+                gCpu->unk270 = Cpu_RandBelow(4);
+            } else {
+                gCpu->unk270 = 0;
+            }
+            return -1;
+        case 0x10F:
+            if (gCpu->unk24 >= 3) {
+                n = Cpu_PickCands(func_003849A0);
+                break;
+            }
+            gCpu->unk26C = 1;
+            w = gCpuOpponent->unkC0->unk2C - gCpuOpponent->unkC4;
+            if (w - 4 > 0) {
+                gCpu->unk270 = Cpu_RandBelow(w - 4) + 4;
+            } else if (w > 0) {
+                gCpu->unk270 = Cpu_RandBelow(4);
+            } else {
+                gCpu->unk270 = 0;
+            }
+            return -1;
+        case 0x706:
+            n = Cpu_PickCands(func_00384920);
+            if (gCpu->unk24 >= 3) {
+                n += Cpu_PickCands(func_003849A0);
+            }
+            break;
+        }
+    }
+    if (gCpu->unk34 < -0x46 && gCpu->unk24 < 3) {
+        n = Cpu_PickCands(func_003849A0);
+    }
+    return n;
+}
 
 s32 func_00384610(CpuCand *c);
 s32 func_003845D8(CpuCand *c);
@@ -4204,7 +6011,436 @@ s32 func_003864E8(void) {
 }
 
 
+/* Per character (fighter unk28): whether it has the special plays of situations 6, 8 and 9 and their commands
+ * (D_00507620, 16 bytes) [I]. */
+typedef struct {
+    /* 0x0 */ s32 unk0;
+    /* 0x4 */ u16 *unk4;
+    /* 0x8 */ u16 *unk8;
+    /* 0xC */ u16 *unkC;
+} Unk507620;
+
+extern Unk507620 D_00507620[];
+extern const u16 D_00507482[];
+s32 func_00383F00(CpuCand *c);
+s32 func_00383F10(CpuCand *c);
+s32 func_00384130(CpuCand *c);
+s32 func_00384210(CpuCand *c);
+s32 func_00384338(CpuCand *c);
+s32 func_00384370(CpuCand *c);
+s32 func_00384408(CpuCand *c);
+s32 func_003844B0(CpuCand *c);
+s32 func_00384578(CpuCand *c);
+s32 func_00384648(CpuCand *c);
+s32 func_00384688(CpuCand *c);
+s32 func_003846D0(CpuCand *c);
+s32 func_00384950(CpuCand *c);
+s32 func_00384988(CpuCand *c);
+s32 func_003849B8(CpuCand *c);
+s32 func_00384A50(CpuCand *c);
+s32 func_00384AB8(CpuCand *c);
+s32 func_00384B08(CpuCand *c);
+s32 func_003850B8(void);
+s32 func_00385178(CpuState *c);
+s32 func_00385DF8(s16 id);
+void func_00380528(s32 a, s32 b);
+s32 func_0038AEA0(Fighter *f);
+
+/* The general candidate list of decider 0x12 (func_00387120) with the wait `wait` [V code; I meaning; a draft of
+ * m2c's control flow]: drops func_00383F00 candidates after a hit (unk144), sets the step distance unk9C, then by the
+ * opponent's state (busy unk2A4 / unkC8, kind 0x4C02, flags 1 / 2 / 0x605, unk135 / unk139) and the own timers (unk64,
+ * unk68, unk60) picks one of about twenty candidate filters with chances unk360 / unk362 / unk368 / unk384 / unk38E /
+ * unk390, plays the character's special command list (D_00507620.unkC, func_00385DF8) or a side step; returns the
+ * count picked, or -1 / 0. */
+/* NON_MATCHING: m2c's control flow with fixed types (about 750 lines differ); a starting point only. */
+#if 0
+s32 func_003865A0(s32 wait) {
+    CpuState *cpu;
+    CpuState *temp_a1;
+    CpuState *temp_a1_3;
+    CpuState *temp_a1_4;
+    s16 temp_a2;
+    s16 var_s0;
+    s32 (*var_a0_2)(CpuCand *);
+    s32 (*var_a0_3)(CpuCand *);
+    s32 (*var_a0_5)(CpuCand *);
+    s32 (*var_a0_6)(CpuCand *);
+    s32 (*var_a0_7)(CpuCand *);
+    s32 (*var_a0_8)(CpuCand *);
+    s32 (*var_a0_9)(CpuCand *);
+    s32 temp_a0_2;
+    s32 temp_s0_2;
+    s32 temp_s1_2;
+    s32 temp_v0;
+    s32 temp_v1;
+    s32 temp_v1_4;
+    s32 var_a0;
+    s32 var_a0_4;
+    s32 var_s0_3;
+    s32 var_s0_4;
+    s32 var_s0_5;
+    s32 var_s2;
+    s32 var_s2_2;
+    s32 var_s2_3;
+    s32 var_s3;
+    s32 var_v0;
+    s32 var_v0_2;
+    s32 var_v0_3;
+    s32 var_v0_4;
+    s32 var_v0_5;
+    s32 var_v0_6;
+    struct FighterMove *temp_a0;
+    u16 *var_s0_2;
+    u16 temp_v1_2;
+    u32 temp_s0;
+    u32 temp_s1;
+    u8 temp_a1_2;
+    u8 temp_v1_3;
+
+    temp_a1 = gCpu;
+    var_s3 = wait;
+    var_s0 = temp_a1->unk358;
+    if (temp_a1->unk144 != 0) {
+        Cpu_RejectCands(func_00383F00);
+    }
+    var_v0_2 = temp_a1->unk9C;
+    if ((temp_a1->unkC0 >= 0x1A) && (var_v0_2 < 0)) {
+        if (temp_a1->unk98 == 0) {
+            temp_v1 = gCpu->unk2A8 - ((rand() & 7) + 4);
+            gCpu->unk9C = temp_v1;
+            if (temp_v1 < 4) {
+                gCpu->unk9C = 3;
+            }
+        }
+        var_v0_2 = temp_a1->unk9C;
+    }
+    var_v0 = 0;
+    if (var_v0_2 <= 0) {
+        if ((temp_a1->unkE4 != 0) || (temp_a1->unkEC != 0) ||
+            ((temp_a1->unkC0 >= 0x1A) &&
+             (temp_v1_2 = (u16) gCpu->unk38E, (((rand() & 0xFFF) < (s16) temp_v1_2 / 2) == 0))) ||
+            (((u32) (temp_a1->unkC4 - 1) < 0x13U) && ((rand() & 0xFFF) >= gCpu->unk38E))) {
+            var_s3 = -1;
+        }
+        if (((rand() & 0xFFF) < gCpu->unk390) && (gCpuOpponent->unk135 != 0) && (gCpu->unk33C.h != 0x4C02)) {
+            temp_a0 = gCpuOpponent->unkC0;
+            temp_a2 = gCpuOpponent->unkC4;
+            temp_v1_3 = temp_a0->unk19;
+            temp_a1_2 = temp_a0->unk1A;
+            if ((temp_a2 >= (temp_v1_3 + ((s32) (temp_a1_2 - temp_v1_3) >> 1))) && ((s32) temp_a1_2 >= temp_a2) &&
+                ((s16) gCpuSelf->unk40 < 0x4001) && (gCpu->unk20 == 2)) {
+                gCpu->unk94 = -1;
+            }
+        }
+        temp_a1_3 = gCpu;
+        if ((func_0038AEA0(gCpuOpponent) != 0) && (temp_a1_3->unk20 < 3) && ((rand() & 0xFFF) < gCpu->unk368)) {
+            gCpu->unk94 -= 2;
+        }
+        var_a0 = 0;
+        if ((temp_a1_3->unk33C.w & 0x605) || (gCpuOpponent->unk135 != 0) || (gCpuOpponent->unk139 != 0) ||
+            (temp_a1_3->unk2A8 < 0xA)) {
+            var_a0 = 1;
+        }
+        if (var_a0 != 0) {
+            temp_a1_3->unkEC = 0;
+            var_s0 = 0;
+        }
+        if (temp_a1_3->unk2A4 == 0) {
+            goto block_69;
+        }
+        if (temp_a1_3->unkC8 != 0) {
+        block_69:
+            if (temp_a1_3->unk33C.h != 0x4C02) {
+                var_v0_3 = temp_a1_3->unk68;
+                goto block_102;
+            }
+            temp_a1_4 = gCpu;
+            if ((rand() & 0xFFF) >= temp_a1_4->unk384) {
+                var_v0_3 = temp_a1_4->unk68;
+                goto block_102;
+            }
+            if (temp_a1_4->unk33C.w & 2) {
+                var_v0_3 = temp_a1_4->unk68;
+            block_102:
+                var_a0_2 = func_00384B08;
+                if (var_v0_3 >= 0) {
+                    var_s2 = Cpu_PickCands(func_00384B08);
+                    if (var_s2 > 0) {
+                        gCpu->unk68 = -1;
+                    }
+                    goto block_199;
+                }
+                if (temp_a1_3->unk2B0 == 0) {
+                    if (((temp_a1_3->unk2AC != 0) || (temp_a1_3->unk2BC != 0)) && (temp_a1_3->unkC8 == 0)) {
+                        if ((temp_a1_3->unkE4 != 0) || (cpu = gCpu, (((rand() & 0xFFF) < cpu->unk368) != 0))) {
+                            goto block_121;
+                        }
+                        var_v0 = 0;
+                        if (var_s3 <= 0) {
+                            if (!(cpu->unk33C.w & 1)) {
+                                var_a0_3 = func_00383F10;
+                            } else {
+                                var_a0_3 = func_00384038;
+                            }
+                            goto block_168;
+                        }
+                    } else if (var_s3 <= 0) {
+                        if (temp_a1_3->unk64 >= 0) {
+                            var_s2 = Cpu_PickCands(func_00384338);
+                            gCpu->unk64 = -1;
+                            goto block_199;
+                        }
+                        if ((temp_a1_3->unkEC != 0) || ((rand() & 0xFFF) < var_s0)) {
+                            temp_v0 = func_003850B8();
+                            var_v0 = temp_v0;
+                            if (temp_v0 == 0) {
+                                goto block_142;
+                            }
+                        } else {
+                        block_142:
+                            var_s0_2 = D_00507620[gCpuSelf->unk28].unkC;
+                            if ((gCpu->unk60 < 0) && (var_s0_2 != NULL) && (gCpu->unk7C == 0) &&
+                                !(gCpu->unk330.w & 1) && (gCpuSelf->unk10C != var_s0_2[1])) {
+                                var_a0_4 = 0;
+                                if ((gCpuSelf->unk40 < 0x2001) && (gCpuSelf->unk135 == 0) && (gCpu->unk20 < 3) &&
+                                    (gCpu->unk2A4 == 0)) {
+                                loop_152:
+                                    if ((s16) var_s0_2[0] < (rand() & 0xFFF)) {
+                                        var_s0_2 += 8;
+                                        var_a0_4 = 0;
+                                        if ((s16) *var_s0_2 < 0) {
+
+                                        } else {
+                                            goto loop_152;
+                                        }
+                                    } else if (func_00385DF8(var_s0_2[1]) != 0) {
+                                        Cpu_SetCommand(var_s0_2 + 2);
+                                        gCpu->unk14C = 1;
+                                        var_a0_4 = 1;
+                                        gCpu->unk60 = (rand() & 0xF) + 0x1C;
+                                    } else {
+                                        goto block_157;
+                                    }
+                                }
+                            } else {
+                            block_157:
+                                var_a0_4 = 0;
+                            }
+                            var_v0 = -1;
+                            if (var_a0_4 == 0) {
+                                if ((gCpu->unk20 < 3) && ((rand() & 0x3F) < 0xA) && (gCpuSelf->unk135 == 0) &&
+                                    !(gCpu->unk330.w & 1)) {
+                                    var_a0_3 = func_00384920;
+                                    goto block_168;
+                                }
+                                if ((rand() & 0x3F) < 0x20) {
+                                    if (rand() & 1) {
+                                        var_a0_3 = func_00384578;
+                                    } else {
+                                        var_a0_3 = func_00384370;
+                                    }
+                                    goto block_168;
+                                }
+                                if ((gCpu->unk64 < 0) && (gCpu->unk68 < 0) && !(gCpu->unk330.w & 1) &&
+                                    (gCpuSelf->unk135 == 0) && ((rand() & 0xFFF) < 0x198) &&
+                                    (var_s2 = Cpu_PickCands(func_00384920), (var_s2 > 0)) && (gCpu->unk3DC != 0)) {
+                                    gCpu->unk94 = -1;
+                                    gCpu->unk64 = 0x12;
+                                } else {
+                                    if ((rand() & 0xFFF) < gCpu->unk360) {
+                                        var_a0_5 = func_00384210;
+                                        goto block_195;
+                                    }
+                                    if ((rand() & 0xFFF) >= gCpu->unk362) {
+                                        if ((gCpu->unk33C.w & 1) && ((rand() & 0xFFF) >= gCpu->unk38E)) {
+                                            var_a0_5 = func_00384038;
+                                            goto block_195;
+                                        }
+                                        if ((rand() & 0x3F) < 0xA) {
+                                            var_a0_5 = func_003844B0;
+                                            goto block_195;
+                                        }
+                                        if ((gCpuSelf->unk135 == 0) && (gCpu->unk68 < 0) &&
+                                            (D_005F6C08 = (D_005F6C08 * 5) + 3,
+                                             (((s32) ((u32) ((rand() + D_005F6C08) & 0x7FFF) >> 3) < 0x200) != 0)) &&
+                                            (var_s2_2 = Cpu_PickCands(func_00384AB8), (var_s2_2 > 0))) {
+                                            gCpu->unk68 = 4;
+                                            temp_s1 = (u32) ((rand() + D_005F6C08) & 0x7FFF) >> 0xD;
+                                            D_005F6C08 = (D_005F6C08 * 5) + 3;
+                                            temp_s0 = (u32) ((rand() + D_005F6C08) & 0x7FFF) >> 0xD;
+                                            D_005F6C08 = (D_005F6C08 * 5) + 3;
+                                            temp_s0_2 = temp_s0 + ((u32) ((rand() + D_005F6C08) & 0x7FFF) >> 0xD);
+                                            D_005F6C08 = (D_005F6C08 * 5) + 3;
+                                            gCpu->unk68 = temp_s1 + 1 + temp_s0_2;
+                                        } else {
+                                            D_005F6C08 = (D_005F6C08 * 5) + 3;
+                                            if ((s32) ((u32) ((rand() + D_005F6C08) & 0x7FFF) >> 3) < 0xA) {
+                                                var_a0_5 = func_00384A50;
+                                                goto block_195;
+                                            }
+                                            var_v0_4 = Cpu_PickCands(func_00383F10);
+                                            goto block_197;
+                                        }
+                                    } else {
+                                        var_a0_5 = func_00384130;
+                                    block_195:
+                                        var_v0_4 = Cpu_PickCands(var_a0_5);
+                                    block_197:
+                                        var_s2_2 = var_v0_4;
+                                    }
+                                    var_s2 = var_s2_2 + Cpu_PickCands(func_00384578);
+                                }
+                                goto block_199;
+                            }
+                        }
+                    } else {
+                        var_v0 = 0;
+                        if (temp_a1_3->unk20 < 3) {
+                            if ((rand() & 0xFFF) < 4) {
+                                var_v0 = 0;
+                                if (!(gCpu->unk330.w & 1)) {
+                                    var_v0 = Cpu_PickCands(func_00384920);
+                                    if (var_v0 <= 0) {
+                                        goto block_135;
+                                    }
+                                }
+                            } else {
+                            block_135:
+                                var_v0 = 0;
+                            }
+                        }
+                    }
+                } else if ((temp_a1_3->unkE4 == 0) && (cpu = gCpu, (((rand() & 0xFFF) < cpu->unk368) == 0))) {
+                    var_v0 = 0;
+                    if (var_s3 <= 0) {
+                        if (!(cpu->unk33C.w & 1)) {
+                            var_a0_3 = func_00383F10;
+                        } else {
+                            var_a0_3 = func_00384038;
+                        }
+                    block_168:
+                        var_s2 = Cpu_PickCands(var_a0_3);
+                        goto block_199;
+                    }
+                } else {
+                block_121:
+                    var_s2 = func_00385178(gCpu);
+                    goto block_199;
+                }
+            } else {
+                temp_v1_4 = temp_a1_4->unk20;
+                var_s0_3 = 0;
+                if (temp_v1_4 >= 3) {
+                    if (temp_a1_4->unk34 < 0x33) {
+                        if (!(rand() & 7)) {
+                            var_a0_6 = func_00384950;
+                            goto block_86;
+                        }
+                        goto block_84;
+                    }
+                block_84:
+                    var_s0_3 = Cpu_PickCands(func_00384988);
+                    if (var_s0_3 > 0) {
+                        func_00380528(0xFA, 2);
+                    }
+                } else if (temp_v1_4 >= 2) {
+                    var_a0_6 = func_00384950;
+                    if (!(rand() & 0xF)) {
+                        var_a0_7 = func_00384988;
+                    } else {
+                    block_86:
+                        var_a0_7 = var_a0_6;
+                    }
+                    var_s0_3 = Cpu_PickCands(var_a0_7);
+                }
+                var_s2 = var_s0_3;
+                if (temp_a1_4->unk20 < 4) {
+                    var_v0 = var_s2;
+                    if (temp_a1_4->unk2CC == 0) {
+                        if ((rand() & 0xFFF) >= gCpu->unk38E) {
+                            gCpu->unk94 = -1;
+                            if (gCpuOpponent->unk135 == 0) {
+                                if (((rand() & 0x3F) < 0x20) && (gCpu->unkBC == NULL)) {
+                                    var_a0_8 = func_00384408;
+                                } else {
+                                    goto block_100;
+                                }
+                            } else {
+                            block_100:
+                                var_a0_8 = func_00384370;
+                            }
+                            var_s2 = var_s0_3 + Cpu_PickCands(var_a0_8);
+                        }
+                        goto block_199;
+                    }
+                } else {
+                block_199:
+                    var_v0 = var_s2;
+                }
+            }
+        } else {
+            var_s0_4 = 0;
+            if (temp_a1_3->unk7C != 0) {
+                var_s2_3 = 0;
+            } else {
+                temp_s1_2 = ((rand() & 0xFFF) < gCpu->unk38E) ? var_s3 : -1;
+                if (((s16) gCpuSelf->unk40 < 0x4001) || (rand() & 7) ||
+                    (var_s0_4 = Cpu_PickCands(func_003849B8), var_s2_3 = var_s0_4, (var_s0_4 <= 0))) {
+                    var_s2_3 = var_s0_4;
+                    if (temp_s1_2 < 0) {
+                        temp_a0_2 = rand() & 0xFFF;
+                        if (temp_a0_2 < 0x334) {
+                            var_a0_9 = func_003846D0;
+                            goto block_60;
+                        }
+                        if (temp_a0_2 < 0x3AF) {
+                            var_s0_5 = -1;
+                            func_0038A690(rand() & 1);
+                        } else {
+                            if (temp_a0_2 < 0x6E2) {
+                                var_a0_9 = func_00384648;
+                                goto block_60;
+                            }
+                            if (temp_a0_2 < 0x75D) {
+                                var_v0_5 = temp_a0_2 < 0x829;
+                                if (!(gCpu->unk330.w & 1)) {
+                                    var_a0_9 = func_00384920;
+                                    goto block_60;
+                                }
+                                goto block_58;
+                            }
+                            var_v0_5 = temp_a0_2 < 0x829;
+                        block_58:
+                            if (var_v0_5 != 0) {
+                                var_a0_9 = func_003849A0;
+                            block_60:
+                                var_v0_6 = Cpu_PickCands(var_a0_9);
+                                goto block_65;
+                            }
+                            if (((u32) (gCpu->unk20 - 2) < 2U) && (var_s0_5 = -1, ((temp_a0_2 < 0x9C3) != 0))) {
+                                Cpu_SetCommand((u16 *) D_00507482);
+                            } else {
+                                var_v0_6 = Cpu_PickCands(func_00384688);
+                            block_65:
+                                var_s0_5 = var_v0_6;
+                            }
+                        }
+                        var_s2_3 = var_s0_5;
+                    }
+                }
+            }
+            var_v0 = var_s2_3;
+            if (var_s2_3 < 0) {
+                var_v0 = -1;
+            }
+        }
+    }
+    return var_v0;
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_003865A0);
+#endif
+
 
 s32 func_003865A0(s32 wait);
 s32 func_003854B0(void);
@@ -4637,7 +6873,163 @@ INCLUDE_RODATA("asm/nonmatchings/fighter_core", D_00507860);
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", D_00507868);
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", jtbl_00507870);
 
+/* The situation code of decider 0x13 (func_00388840), 0-10, drawn at random (Cpu_RandBelow(0x1000)) [V code; I
+ * meaning]. 0 after unk288[3]. While the wait unk94 is at most 35 it depends on the round unk20, otherwise on unk24;
+ * the bands of the draw differ per round (unk36C in 1000ths, unk330 bit 2, unk38 below 721 with unk2A4 clear). The
+ * codes 3 and 6 stay only with the chance unk394 (second table) and unk38E (when the opponent's move has flag 0x80000
+ * or unk340 is set). */
+/* NON_MATCHING: 39 lines differ: gCpu and its copy swap a2 / a3, switch1 case 2 (r = 1) and case 5 (r = 1) are
+ * branch-shaped in the original where ours hoists the store or makes a movz, and the 0x22D test of the second
+ * table. `n > K` written as `if (n <= K) r = a; else r = b;` gives the original's `li K / slt / movn`; the limit
+ * 0x23 in a variable as in func_00388840. */
+#if 0
+s32 func_00388530(void) {
+    s32 r = 0;
+    s32 n = Cpu_RandBelow(0x1000);
+    CpuState *c;
+    s32 lim = 0x23; /* fake */
+
+    if (gCpu->unk288[3] != 0) {
+        return 0;
+    }
+    c = gCpu;
+    switch (gCpu->unk94 > lim) {
+    case 0:
+        switch (gCpu->unk20) {
+        case 0:
+        case 1:
+            if (n <= 0x13) {
+                r = 3;
+            } else {
+                r = 0;
+            }
+            break;
+        case 2:
+            r = 5;
+            if (n >= 0x7A) {
+                if (n < 0x1EB) {
+                    r = 1;
+                } else {
+                    r = 3;
+                    if (n >= 0x214) {
+                        r = (n < (c->unk36C << 12) / 1000) * 8;
+                    }
+                }
+            }
+            break;
+        case 3:
+            r = 2;
+            if (n >= 0x666) {
+                if (n < 0xB33) {
+                    r = 1;
+                } else {
+                    r = 0;
+                }
+            }
+            break;
+        case 4:
+            r = 2;
+            if (n >= 0xCC) {
+                if (n <= 0x598) {
+                    r = 4;
+                } else {
+                    r = 1;
+                }
+            }
+            break;
+        case 5:
+            r = 4;
+            if (c->unk38 < 0x2D1 && gCpu->unk2A4 == 0 && n >= 0x11E) {
+                r = 1;
+            }
+            break;
+        }
+        break;
+    case 1:
+        switch (gCpu->unk24) {
+        case 0:
+        case 1:
+            r = 6;
+            if (n >= 0x199) {
+                if (n <= 0x332) {
+                    r = 3;
+                } else {
+                    r = 0;
+                }
+            }
+            break;
+        case 2:
+            r = 2;
+            if (n >= 0x28) {
+                if (n <= 0x16F) {
+                    r = 3;
+                } else {
+                    r = 0;
+                }
+            }
+            break;
+        case 3:
+            if (n < 0x1EB) {
+                r = 2;
+            } else if (n < 0x214) {
+                r = 5;
+            } else if (n >= 0x218) {
+                if (n < 0x22D) {
+                    r = 1;
+                } else if (n < 0x241) {
+                    r = (c->unk330.w << 2) & 8;
+                }
+            } else {
+                r = 3;
+            }
+            break;
+        case 4:
+            if (n < 0x80) {
+                r = 2;
+            } else if (n < 0x90) {
+                r = 5;
+            } else if (n < 0xC0) {
+                r = 8;
+            } else if (n < 0x3C0) {
+                r = 1;
+            } else {
+                r = 0;
+            }
+            break;
+        case 5:
+            r = 4;
+            if (c->unk38 < 0x2D1 && gCpu->unk2A4 == 0 && n >= 0x51) {
+                r = 2;
+                if (n >= 0xCC) {
+                    r = 1;
+                    if (n >= 0x400) {
+                        if (n <= 0x5EA) {
+                            r = 5;
+                        } else {
+                            r = 0;
+                        }
+                    }
+                }
+            }
+            break;
+        }
+        if (r == 3 || r == 6) {
+            if (!((rand() & 0xFFF) < gCpu->unk394)) {
+                r = 0;
+            }
+        }
+        break;
+    }
+    if ((r == 3 || r == 6) && ((gCpu->unk33C.w & 0x80000) || gCpu->unk340 != 0)) {
+        if ((rand() & 0xFFF) < gCpu->unk38E) {
+            r = 0;
+        }
+    }
+    return r;
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00388530);
+#endif
 
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", jtbl_00507890);
 
@@ -5029,7 +7421,147 @@ s32 func_00388FA8(void) {
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00388FA8);
 #endif
 
+s32 func_00383D10(CpuCand *c);
+s32 func_00388F78(void);
+s32 func_0038ACA8(void);
+
+/* The situation code of decider 0xD (func_00389D58), 0-10 [V code; I meaning]: 0 while a plan runs (unk2C0) or the
+ * own fighter is hit (unkC8), 2 without unk9C / unk7C; otherwise, while the opponent is busy (unkF8, or unk2AC before
+ * round 4; unkF8 becomes 2 after its window or with unk42 2, 1 with chance unk382 against kinds 0x607 / 0x706 / flag
+ * 0x200000) it returns 4 for an early unkF8 1, then the character plays 6 / 7 / 8 / 9 at distances 8-9 / 22-26 /
+ * 4-10 (chance unk3A2, func_00383D10, D_00507620), 1 / 2 against the opponent's moves of flag 0x400000 (chances unk382
+ * / unk3A6, unkF0 2), 2 to keep or start an attack (func_00388F78, chances unk364 / unk3BC / unk366, unkF0 5), 1 or
+ * 10 to repeat a remembered move (chances unk36A / unk368, 10 one time in 64 against kind 0x412) and 5 at distance
+ * 9-11 against kind 0x412 (chance unk36C). */
+/* NON_MATCHING: a draft from m2c's control flow (about 200 lines differ): the original keeps gCpu in a1 through
+ * most tests, reloads it after each rand(), and lays several shared return blocks out differently. */
+#if 0
+s32 func_00389488(void) {
+    CpuState *c = gCpu;
+    Fighter *self;
+    struct FighterMove *m;
+    s32 hit;
+    s16 id;
+    s16 ch;
+    u32 k;
+    s32 near;
+    s32 w;
+
+    if (c->unk2C0 >= 0) {
+        return 0;
+    }
+    if (c->unkC8 != 0) {
+        return 0;
+    }
+    if (c->unk9C == 0 && c->unk7C == 0) {
+        return 2;
+    }
+    if (c->unkF8 == 0 && (c->unk2AC == 0 || c->unk24 >= 4)) {
+        return 0;
+    }
+    m = gCpuOpponent->unkC0;
+    if ((m->unk2C != 0 && m->unk2D < gCpuOpponent->unkC4) || gCpuOpponent->unk42 == 2) {
+        c->unkF8 = 2;
+    }
+    if (c->unkF8 == 0 && (c->unk340 == 0x607 || c->unk340 == 0x706 || (c->unk33C.w & 0x200000)) &&
+        (rand() & 0xFFF) < gCpu->unk382) {
+        gCpu->unkF8 = 1;
+    }
+    if (c->unkD0 < 0 && c->unkF8 != 2 && c->unkF8 != 0) {
+        return 4;
+    }
+    self = gCpuSelf;
+    if ((u32)(c->unk2A8 - 8) < 2 && c->unk334 == 0 && self->unk135 == 0 && D_00507620[self->unk28].unk0 != 0 &&
+        !(gCpuOpponent->unkC0->unk24 & 8) && gCpuOpponent->unk135 == 0 && func_00383D10(NULL) != 0 &&
+        (rand() & 0xFFF) < gCpu->unk3A2) {
+        return 6;
+    }
+    if (self->unk28 == 9 && c->unk2A8 < 0x1B && c->unk2A8 >= 0x16 && c->unk334 == 0 && self->unk135 == 0 &&
+        func_00383D10(NULL) != 0 && (rand() & 0xFFF) < gCpu->unk3A2) {
+        return 7;
+    }
+    if ((u32)(c->unk2A8 - 4) < 7 && c->unk334 == 0 && gCpuSelf->unk135 == 0 && gCpuOpponent->unk135 == 0 &&
+        func_00383D10(NULL) != 0 && (rand() & 0xFFF) < gCpu->unk3A2) {
+        k = gCpu->unk340;
+        if ((k == 0x412 || k == 0x217 || k == 0x607 || k == 0x706) && D_00507620[gCpuSelf->unk28].unk4 != NULL) {
+            return 8;
+        }
+        if (gCpu->unk340 == 0x10F && D_00507620[gCpuSelf->unk28].unk8 != NULL) {
+            return 9;
+        }
+    }
+    if (c->unk338.w & 0x400000) {
+        hit = 0;
+        id = gCpuOpponent->unk10C;
+        ch = gCpuOpponent->unk28;
+        if (id == 0x1C1 || id == 0x1B8 || id == 0x1B9 || (ch == 0xF && id == 0x1AB) || (ch == 0 && id == 0x1AB) ||
+            (ch == 3 && id == 0x189)) {
+            hit = 1;
+        }
+        if (hit && (rand() & 0xFFF) < gCpu->unk382) {
+            return 1;
+        }
+        if ((gCpu->unk338.w & 0x400000) && c->unk2A8 < 0x1E && (rand() & 0xFFF) < gCpu->unk3A6) {
+            gCpu->unkF0 = 2;
+            return 2;
+        }
+    }
+    if (func_00388F78() != 0) {
+        if (gCpu->unk98 != 0 || gCpu->unk7C != 0) {
+            return 0;
+        }
+        if (gCpu->unkF0 != 0) {
+            return 2;
+        }
+        if ((rand() & 0xFFF) < gCpu->unk364 || (func_0038ACA8() >= gCpu->unk3BA && (rand() & 0xFFF) < gCpu->unk3BC) ||
+            (gCpu->unk2B0 >= 0x1F && (rand() & 0xFFF) < gCpu->unk366)) {
+            gCpu->unkF0 = 5;
+            return 2;
+        }
+    }
+    c = gCpu;
+    if (c->unk9C >= 9 && (rand() & 0x1F) == 0) {
+        return 1;
+    }
+    if (c->unk298 != 0 && (rand() & 0xF) == 0) {
+        return 1;
+    }
+    w = c->unkC8;
+    if (gCpuOpponent->unkC0 == (struct FighterMove *)c->unk288[0]) {
+        if (w != 0) {
+            goto late;
+        }
+        if ((rand() & 0xFFF) < gCpu->unk36A) {
+            return 1;
+        }
+        w = gCpu->unkC8;
+    }
+    if (w == 0 && (rand() & 0xFFF) < gCpu->unk368) {
+        if (gCpu->unk340 != 0x412 || (rand() & 0x3F)) {
+            return 1;
+        }
+        return 10;
+    }
+late:
+    if (c->unk2B0 >= 0x1F && (rand() & 0xFFF) < gCpu->unk36A) {
+        if (gCpu->unk340 != 0x412 || (rand() & 0x3F)) {
+            return 1;
+        }
+        return 10;
+    }
+    near = 0;
+    if ((u32)(c->unk2A8 - 9) < 3 && (s16)gCpuSelf->unk40 < 0x4000) {
+        near = !(c->unk330.w & 0x400000);
+    }
+    if (near && c->unk24 == 2 && !(c->unk330.w & 1) && gCpuSelf->unk135 == 0 && c->unk7C == 0 &&
+        c->unk340 == 0x412 && (rand() & 0xFFF) < gCpu->unk36C) {
+        return 5;
+    }
+    return 0;
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00389488);
+#endif
 
 s32 func_00384708(CpuCand *c);
 
@@ -5093,22 +7625,261 @@ s32 func_00389B70(void) {
     return 0;
 }
 
-INCLUDE_RODATA("asm/nonmatchings/fighter_core", D_00507990);
-INCLUDE_RODATA("asm/nonmatchings/fighter_core", jtbl_005079B0);
-
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00389D58);
-
-INCLUDE_RODATA("asm/nonmatchings/fighter_core", jtbl_005079E0);
-
-/* Runs the opponent-character hook unkB4 (while unkCC < 0, with chance unk382 in 4096): -1 nothing, -2 done, -3 play a
- * random picked candidate (func_003853E8), 0x2000 / 0x8000 hold that pad bit and call func_00380540(0x10), any other
- * value is the pad bits to hold (unk6); returns whether the CPU acted [V code; I meaning]. */
 /* fake: the hook deciders' `func_003853E8() >= 0` matches (slti / xori) only with the 0 passed in through an inline
  * function's parameter; written in place it folds to nor / srl. */
 static inline s32 Cpu_PlayPicked(s32 min) {
     return func_003853E8() >= min;
 }
 
+INCLUDE_RODATA("asm/nonmatchings/fighter_core", D_00507990);
+extern const s32 D_00507990[8];
+s32 func_00384D78(void);
+s32 func_00386428(void);
+s32 func_0038A5F8(void);
+s32 func_00384130(CpuCand *c);
+s32 func_00384708(CpuCand *c);
+s32 func_003847D8(CpuCand *c);
+s32 func_00384898(CpuCand *c);
+s32 func_00384038(CpuCand *c);
+s32 func_003849A0(CpuCand *c);
+s32 func_003849D0(CpuCand *c);
+s32 func_00384A10(CpuCand *c);
+
+INCLUDE_RODATA("asm/nonmatchings/fighter_core", jtbl_005079B0);
+
+/* Decider 0xD of Cpu_Think: acts on the situation code of func_00389488 [V code; I meaning]. 10 / 1 / 6 / 7 pick
+ * candidates (func_00384920 with unk94 -1 and unkE0 set; func_00384130 / func_003847D8 / func_00384708 by the
+ * opponent's kind, plus func_00384898 against 0x412; func_003849D0; func_00384A10) and play one (timers reset, unk5C
+ * 40); 2 uses func_00384D78 or holds func_00386428's pad word; 3 / 4 run the step plan unkF8 (3 and 4 guard or step
+ * by the opponent's angle and the distance unk2A8, 5 holds 0x2000 or side-steps, 6 plays D_005074A2 or holds 0x3000,
+ * 8 plays func_003849D0 / func_003849A0 candidates; it ends when D_005F5C28 reaches 2951, 300 later against variant
+ * 4), 5 side-steps, 8 / 9 play the character's commands of D_00507620. */
+/* NON_MATCHING: a draft from m2c's control flow (about 280 lines differ): the returns of the step plan (unkF8)
+ * share result blocks in the original (a result variable set before common exits), which ours emits per case. */
+#if 0
+s32 func_00389D58(void) {
+    s32 ok = 0;
+    s32 n = 0;
+    CpuState *c;
+    s32 d;
+
+    switch (func_00389488()) {
+    case 0:
+        break;
+    case 10:
+        n = Cpu_PickCands(func_00384920);
+        if (n > 0) {
+            ok = 1;
+            gCpu->unk94 = -1;
+            gCpu->unkE0 = 1;
+        }
+        break;
+    case 1:
+        if (gCpu->unk2AC == 0) {
+            n = Cpu_PickCands(func_00384130);
+        } else if (gCpu->unk340 == 0x607 || gCpu->unk340 == 0x706 || (gCpu->unk33C.w & 0x200001)) {
+            n = Cpu_PickCands(func_003847D8);
+        } else {
+            n = Cpu_PickCands(func_00384708);
+        }
+        ok = n > 0;
+        if (gCpu->unk340 == 0x412) {
+            n += Cpu_PickCands(func_00384898);
+            ok = n > 0;
+        }
+        break;
+    case 2:
+        gCpu->unk278 = 1;
+        n = func_00384D78();
+        if (n == 0) {
+            gCpu->unk6 = func_00386428();
+            return 1;
+        }
+        ok = 1;
+        if (n == -1) {
+            return 1;
+        }
+        break;
+    case 3:
+    case 4:
+        c = gCpu;
+        if (c->unk2CC != 0) {
+            return 0;
+        }
+        d = D_005F5C28;
+        if (c->unkF8 == 1) {
+            if (c->unk20 < 3 && !((rand() & 0xFFF) < gCpu->unk38E)) {
+                gCpu->unkF8 = 3;
+            } else {
+                gCpu->unkF8 = D_00507990[func_003800D8(7)];
+            }
+            c = gCpu;
+        }
+        if (gCpuOpponent->unk28 == 4) {
+            d -= 300;
+        }
+        if ((u32)(c->unkF8 - 1) >= 2 && d >= 0xB87) {
+            c->unk6 = 0;
+            c->unkF8 = 0;
+            return 1;
+        }
+        switch (c->unkF8) {
+        case 3:
+            c->unk5C = 0x28;
+            c->unk50 = 0;
+            c->unk4C = 0;
+            c->unk6C = -1;
+            if (gCpuOpponent->unkC0->unk2C != 0 && gCpuOpponent->unkC0->unk2D < gCpuOpponent->unkC4) {
+                return 0;
+            }
+            if (c->unk2A8 >= 0x1D) {
+                if (c->unk20 >= 3) {
+                    gCpu->unk6 = func_0038A5F8();
+                    gCpu->unk94 = rand() & 0xF;
+                    return 1;
+                }
+                return Cpu_PickCands(func_00384038) <= 0;
+            }
+            if (c->unk2A8 >= 9) {
+                if (d >= 0xB87) {
+                    c->unk6 = 0;
+                    return 1;
+                }
+                if (c->unk20 >= 3) {
+                    if ((s16)gCpuOpponent->unk40 < 0x4000) {
+                        c->unk6 = 0x8000;
+                        c->unkF8 = 4;
+                        return 1;
+                    }
+                    return 0;
+                }
+                if (Cpu_PickCands(func_00384038) > 0) {
+                    gCpu->unk94 = -1;
+                    return 0;
+                }
+                return 1;
+            }
+            if (d >= 0xB87 || (s16)gCpuOpponent->unk40 >= 0x4000) {
+                c->unk6 = 0;
+            } else {
+                c->unk6 = 0x8000;
+            }
+            return 1;
+        case 4:
+            c->unk6C = -1;
+            c->unk5C = 0x28;
+            c->unk50 = 0;
+            c->unk4C = 0;
+            if ((s16)gCpuOpponent->unk40 > 0x4000 && c->unk24 >= 2) {
+                c->unk6 = 0x2000;
+                return 1;
+            }
+            if (d >= 0xB87) {
+                gCpu->unk6 = 0;
+                return 1;
+            }
+            if (gCpu->unk2A8 >= 9 && gCpu->unk20 < 2) {
+                if (Cpu_PickCands(func_00384038) > 0) {
+                    gCpu->unk94 = -1;
+                    return 0;
+                }
+                return 1;
+            }
+            Cpu_SetCommand((u16 *)D_005074A2);
+            return 1;
+        case 5:
+            if (!(c->unk330.w & 0x400000) && (rand() & 7) == 0 && gCpu->unk2A8 >= 7) {
+                if ((s16)gCpuOpponent->unk40 >= 0x4000) {
+                    gCpu->unkF8 = 3;
+                }
+                func_0038A690(-1);
+                return 1;
+            }
+            c->unk6 = 0x2000;
+            return 0;
+        case 6:
+            c->unk5C = 0x28;
+            c->unk6C = -1;
+            c->unk50 = 0;
+            c->unk4C = 0;
+            if (d >= 0xB87) {
+                c->unk6 = 0;
+                return 1;
+            }
+            if (c->unk2A8 >= 0x1D) {
+                c->unk6 = c->unk24 > 0 ? 0x8000 : 0;
+                return 1;
+            }
+            if (c->unk24 >= 2 || c->unk2A8 < 8) {
+                Cpu_SetCommand((u16 *)D_005074A2);
+                return 1;
+            }
+            c->unk6C = 0x14;
+            c->unk6 = 0x3000;
+            return 1;
+        case 8:
+            if (D_00507620[gCpuSelf->unk28].unk0 == 0) {
+                c->unkF8 = 1;
+                return 0;
+            }
+            c->unk5C = 0x28;
+            c->unk6C = -1;
+            c->unk50 = 0;
+            c->unk4C = 0;
+            if (d >= 0xB87) {
+                c->unk6 = 0;
+                return 1;
+            }
+            if (c->unk2A8 >= 0x1D) {
+                c->unk6 = c->unk24 > 0 ? 0x8000 : 0;
+                return 1;
+            }
+            if (c->unk24 < 3 && c->unk2A8 < 8) {
+                Cpu_PickCands(func_003849D0);
+            } else {
+                Cpu_PickCands(func_003849A0);
+            }
+            func_003853E8();
+            return 1;
+        default:
+            return 0;
+        }
+    case 5:
+        func_0038A690(-1);
+        gCpu->unk94 -= 10;
+        return 1;
+    case 6:
+        n = Cpu_PickCands(func_003849D0);
+        ok = n > 0;
+        break;
+    case 7:
+        n = Cpu_PickCands(func_00384A10);
+        ok = n > 0;
+        break;
+    case 8:
+        Cpu_SetCommand(D_00507620[gCpuSelf->unk28].unk4);
+        return 1;
+    case 9:
+        Cpu_SetCommand(D_00507620[gCpuSelf->unk28].unk8);
+        return 1;
+    }
+    if (ok && n > 0 && Cpu_PlayPicked(0)) {
+        gCpu->unk6C = -1;
+        gCpu->unk5C = 0x28;
+        gCpu->unk50 = 0;
+        gCpu->unk4C = 0;
+    }
+    return ok;
+}
+#else
+INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00389D58);
+#endif
+
+INCLUDE_RODATA("asm/nonmatchings/fighter_core", jtbl_005079E0);
+
+/* Runs the opponent-character hook unkB4 (while unkCC < 0, with chance unk382 in 4096): -1 nothing, -2 done, -3 play a
+ * random picked candidate (func_003853E8), 0x2000 / 0x8000 hold that pad bit and call func_00380540(0x10), any other
+ * value is the pad bits to hold (unk6); returns whether the CPU acted [V code; I meaning]. */
 /* Decider 6 of Cpu_Think: while unkCC is negative, with a chance of unk382 in 4096, runs the hook unkB4 of the
  * opponent's character: -1 nothing, -2 acted, -3 play a picked candidate, 0x2000 / 0x8000 hold that pad bit and wait
  * 16 frames, any other value is the pad word to hold [V code; I meaning]. */
@@ -5512,9 +8283,262 @@ s32 func_0038AF28(void) {
 
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", D_00507A00);
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0038AFC0);
+extern const u16 D_00507A00[4];
 
+/* A move handler (D_00507A80) against the opponent's moves 0x1458 / 0x1459 [V code; I meaning]: by the frame of the
+ * opponent's move against its window (unk2C / unk2D), the own body angle unk40 and the round unk20 it holds 0x2000 /
+ * 0x6000 / 0x8000 (a side step, a random one of D_00507A00), side-steps with func_0038A690 (returns -2) or does
+ * nothing (0); -1 for other moves. */
+/* NON_MATCHING: about 130 lines differ: the original keeps two identical func_0038AF28 blocks behind an unk40 test
+ * that ours merges, and orders the 0x1459 blocks differently; the control flow and constants follow the original
+ * (m2c). */
+#if 0
+s32 func_0038AFC0(void) {
+    s16 frame = gCpuOpponent->unkC4;
+    s16 id = gCpuOpponent->unk10C;
+    struct FighterMove *m = gCpuOpponent->unkC0;
+    s32 d;
+
+    if (id != 0x1458) {
+        if (id != 0x1459) {
+            return -1;
+        }
+        gCpu->unkD0 = 8;
+        if ((u32)(frame - 9) < 5 && gCpu->unk20 < 2 && (rand() & 0x1F) == 0) {
+            func_0038A748();
+            goto hold;
+        }
+        if (frame < m->unk2C - 0x1E) {
+            if (gCpu->unk20 < 2) {
+                goto hold;
+            }
+            if (gCpu->unk20 < 3) {
+                gCpu->unk94 -= 4;
+                return 0x2000;
+            }
+            if ((s16)gCpuSelf->unk40 >= 0x3800) {
+                d = func_0038AF28();
+                if (d == -1) {
+                    return 0x2000;
+                }
+                goto step;
+            }
+            d = func_0038AF28();
+            if (d == -1) {
+                return 0x2000;
+            }
+            goto step;
+        }
+        if (frame < m->unk2C - 0x14) {
+            if ((s16)gCpuSelf->unk40 >= 0x3800) {
+                if (gCpu->unk20 < 3) {
+                    return 0x2000;
+                }
+                d = func_0038AF28();
+                if ((u32)d >= 2) {
+                    return 0x2000;
+                }
+                goto step;
+            }
+            if (gCpu->unk20 < 3) {
+                return 0;
+            }
+            if (gCpu->unk20 < 4) {
+                return 0x2000;
+            }
+            goto rare;
+        }
+        if (frame < m->unk2D) {
+            if ((s16)gCpuSelf->unk40 >= 0x6000) {
+                gCpu->unk94 = 8;
+                return 0x8000;
+            }
+            if ((s16)gCpuSelf->unk40 >= 0x3800) {
+                if (gCpu->unk20 < 2) {
+                    gCpu->unk94 = 8;
+                    return 0;
+                }
+                return 0x2000;
+            }
+            d = func_0038AED0();
+            if (d == -1) {
+                return gCpuSelf->unk42 != 0 ? 0 : 0x2000;
+            }
+            goto step;
+        }
+        if (frame < m->unk2D + 0x28) {
+            if (gCpu->unk20 >= 2) {
+                goto rare;
+            }
+        } else if (gCpu->unk20 >= 3) {
+            goto rare;
+        }
+    hold:
+        gCpu->unk94 = -1;
+        return 0x2000;
+    rare:
+        return (rand() & 7) ? 0 : 0x2000;
+    }
+    gCpu->unkD0 = 8;
+    if (frame >= m->unk2C - 8) {
+        if (frame >= m->unk2D) {
+            return -1;
+        }
+        if (gCpuSelf->unk42 == 0) {
+            return D_005F5C28 > 0x1B58 ? 0 : 0x6000;
+        }
+        if (gCpu->unk20 < 2) {
+            return D_00507A00[rand() & 3];
+        }
+        if (gCpu->unk20 < 3) {
+            return 0x6000;
+        }
+        goto rare6;
+    }
+    d = func_0038AED0();
+    if (gCpu->unk20 <= 0) {
+        gCpu->unk94 = -1;
+        return 0x6000;
+    }
+    if (gCpu->unk20 < 3) {
+        return 0x6000;
+    }
+    if ((rand() & 7) == 0 && gCpuSelf->unk42 == 0 && (u32)d < 2) {
+    step:
+        func_0038A690(d);
+        return -2;
+    }
+rare6:
+    return (rand() & 7) ? 0 : 0x6000;
+}
+#else
+INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0038AFC0);
+#endif
+
+/* A move handler (D_00507A80) against the opponent's moves 0x1A1 / 0x1A8 / 0x5A9 / 0x5C7 / 0x5C9 / 0x5CA-0x5CC /
+ * 0x623-0x625 [V code; I meaning]: by the opponent's body angle unk40, the distance unk2A8, the rounds unk20 / unk24
+ * and the opponent's move window it waits (unk94), holds 0x2000, steps aside (func_0038A748 / func_0038A760 /
+ * func_0038A690, -2) or plays func_0038AEB0's answer; -1 when it does nothing. */
+/* NON_MATCHING: a first draft from m2c's control flow; most of the blocks are laid out differently (the original's
+ * decision tree tests id < 0x5CD, < 0x5CA, == 0x5A9 ... and shares the -1 exits). */
+#if 0
+s32 func_0038B368(void) {
+    s16 id = gCpuOpponent->unk10C;
+    s16 ang = gCpuOpponent->unk40;
+    s32 dist = gCpu->unk2A8;
+    s32 r = -1;
+    s32 k;
+    struct FighterMove *m;
+    s16 frame;
+
+    switch (id) {
+    case 0x1A8:
+        if (gCpu->unk24 < 3) {
+            gCpu->unk94 = -1;
+        }
+        break;
+    case 0x1A1:
+    case 0x5A9:
+        m = gCpuOpponent->unkC0;
+        if (m->unk2C != 0 && gCpuOpponent->unkC4 > m->unk2D) {
+            r = 0;
+            gCpu->unk94 = -1;
+        } else if (ang > 0x1000) {
+            r = gCpu->unk24 > 1 ? 0x2000 : -1;
+        } else if (gCpu->unk24 >= 3 && D_005F5C28 < 0xA8D) {
+            func_0038A760();
+            r = -2;
+        } else if (gCpu->unk24 < 2 && dist >= 0xB) {
+            r = -1;
+        } else if (gCpu->unk24 >= 3 || dist < 0xB) {
+            r = 0;
+        } else {
+            func_0038A690(rand() & 1);
+            r = -2;
+        }
+        break;
+    case 0x5C7:
+        if (gCpu->unk24 < 3) {
+            gCpu->unkD0 = 4;
+            func_0038A748();
+            gCpu->unk94 = -1;
+            r = -1;
+        } else {
+            r = 0x2000;
+        }
+        break;
+    case 0x5C9:
+    case 0x623:
+    case 0x624:
+    case 0x625:
+        if (ang < 0x4000) {
+            if (gCpu->unk20 < 2) {
+                r = 0;
+                gCpu->unk94 = 1;
+            } else if (gCpu->unk20 >= 3) {
+                r = 0x2000;
+            } else {
+                func_0038A748();
+                gCpu->unk94 = -1;
+                r = -1;
+            }
+        } else {
+            if (gCpu->unk20 < 2) {
+                gCpu->unk94 = -1;
+            }
+            r = -1;
+        }
+        break;
+    case 0x5CA:
+    case 0x5CB:
+    case 0x5CC:
+        if (gCpu->unk20 <= 0) {
+            m = gCpuOpponent->unkC0;
+            frame = gCpuOpponent->unkC4;
+            r = 0;
+            if (frame < m->unk2C || frame > m->unk2D) {
+                func_0038A748();
+                r = -2;
+                gCpu->unkD0 = 4;
+                gCpu->unk94 = -1;
+            }
+        } else if ((u16)(gCpuOpponent->unk40 - 0x2000) > 0x4000) {
+            if (gCpu->unk20 >= 3) {
+                gCpu->unkD0 = 0xA;
+                k = func_0038AEB0(2);
+                if (k >= 0) {
+                    return k;
+                }
+                r = -1;
+            } else {
+                r = 0;
+                if ((rand() & 7) == 0 && !(gCpu->unk330.w & 0x400001)) {
+                    func_0038A690(-1);
+                    r = -2;
+                }
+            }
+        } else {
+            gCpu->unkD0 = 0x14;
+            if (gCpu->unk20 >= 2) {
+                k = func_0038AEB0(1);
+                if (k >= 0) {
+                    return k;
+                }
+            } else {
+                func_0038A748();
+                gCpu->unk94 = -1;
+            }
+            r = -1;
+        }
+        break;
+    case 0x5EE:
+        break;
+    }
+    return r;
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0038B368);
+#endif
 
 /* A move handler with nothing to do: -1 = no command. */
 s32 func_0038B690(void) {
@@ -5636,7 +8660,133 @@ s32 func_0038B818(void) {
 
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", D_00507A08);
 
+extern const u16 D_00507A08[4];
+
+/* func_0038AFC0 for the opponent's moves 0x1A6 / 0xBA9 (D_00507A08; holds 0x2000 where that one holds 0x6000 early
+ * in 0x1A6) [V code; I meaning]. */
+/* NON_MATCHING: about 125 lines differ, as func_0038AFC0 (the same code for other moves): the two identical
+ * func_0038AF28 blocks are merged in ours and the blocks are ordered differently. */
+#if 0
+s32 func_0038B820(void) {
+    s16 frame = gCpuOpponent->unkC4;
+    s16 id = gCpuOpponent->unk10C;
+    struct FighterMove *m = gCpuOpponent->unkC0;
+    s32 d;
+
+    if (id != 0x1A6) {
+        if (id != 0xBA9) {
+            return -1;
+        }
+        gCpu->unkD0 = 8;
+        if ((u32)(frame - 9) < 5 && gCpu->unk20 < 2 && (rand() & 0x1F) == 0) {
+            func_0038A748();
+            goto hold;
+        }
+        if (frame < m->unk2C - 0x1E) {
+            if (gCpu->unk20 < 2) {
+                goto hold;
+            }
+            if (gCpu->unk20 < 3) {
+                gCpu->unk94 -= 4;
+                return 0x2000;
+            }
+            if ((s16)gCpuSelf->unk40 >= 0x3800) {
+                d = func_0038AF28();
+                if (d == -1) {
+                    return 0x2000;
+                }
+                goto step;
+            }
+            d = func_0038AF28();
+            if (d == -1) {
+                return 0x2000;
+            }
+            goto step;
+        }
+        if (frame < m->unk2C - 0x14) {
+            if ((s16)gCpuSelf->unk40 >= 0x3800) {
+                if (gCpu->unk20 < 3) {
+                    return 0x2000;
+                }
+                d = func_0038AF28();
+                if ((u32)d >= 2) {
+                    return 0x2000;
+                }
+                goto step;
+            }
+            if (gCpu->unk20 < 3) {
+                return 0;
+            }
+            if (gCpu->unk20 < 4) {
+                return 0x2000;
+            }
+            goto rare;
+        }
+        if (frame < m->unk2D) {
+            if ((s16)gCpuSelf->unk40 >= 0x6000) {
+                gCpu->unk94 = 8;
+                return 0x8000;
+            }
+            if ((s16)gCpuSelf->unk40 >= 0x3800) {
+                if (gCpu->unk20 < 2) {
+                    gCpu->unk94 = 8;
+                    return 0;
+                }
+                return 0x2000;
+            }
+            d = func_0038AED0();
+            if (d == -1) {
+                return gCpuSelf->unk42 != 0 ? 0 : 0x2000;
+            }
+            goto step;
+        }
+        if (frame < m->unk2D + 0x28) {
+            if (gCpu->unk20 >= 2) {
+                goto rare;
+            }
+        } else if (gCpu->unk20 >= 3) {
+            goto rare;
+        }
+    hold:
+        gCpu->unk94 = -1;
+        return 0x2000;
+    rare:
+        return (rand() & 7) ? 0 : 0x2000;
+    }
+    gCpu->unkD0 = 8;
+    if (frame >= m->unk2C - 8) {
+        if (frame >= m->unk2D) {
+            return -1;
+        }
+        if (gCpuSelf->unk42 == 0) {
+            return D_005F5C28 > 0x1B58 ? 0 : 0x6000;
+        }
+        if (gCpu->unk20 < 2) {
+            return D_00507A08[rand() & 3];
+        }
+        if (gCpu->unk20 < 3) {
+            return 0x6000;
+        }
+        goto rare;
+    }
+    d = func_0038AED0();
+    if (gCpu->unk20 <= 0) {
+        gCpu->unk94 = -1;
+        return 0x2000;
+    }
+    if (gCpu->unk20 < 3) {
+        return 0x2000;
+    }
+    if ((rand() & 7) == 0 && gCpuSelf->unk42 == 0 && (u32)d < 2) {
+    step:
+        func_0038A690(d);
+        return -2;
+    }
+    return (rand() & 7) ? 0 : 0x2000;
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0038B820);
+#endif
 
 /* A move handler with nothing to do: -1 = no command. */
 s32 func_0038BBA8(void) {

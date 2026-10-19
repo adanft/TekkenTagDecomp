@@ -135,7 +135,29 @@ one of these functions through jump tables [V for the values; I for "guard / rea
   - 0x13 `func_00388840`: the waits (`unk4C`, `unk50`) and the situation of `func_00388530` (0-10): play a candidate of
     `func_00384988` / `func_003849A0` / `func_003849B8` / `func_00384A50`, a side step, the command `D_005074BA`, or wait
     4-59 frames holding 0x2000 / 0x6000 / 0x8000 / 0xC000 (by `unk54`).
-  - Not attempted yet: 1 `func_00381D30` and 0xD `func_00389D58`.
+  - 1 `func_00381D30` (T14 b9, C draft): not a decider but the per-frame analysis, it always returns 0. It refreshes
+    the CPU's view of the fight: whether the own / the opponent's move changed (`unk1C` / `unk29C`), the distance
+    `D_005F5C28` with its change `unk34` and a small wobble `unk28` from `gSinTable`, the range class `unk20` (0-5,
+    against the character row `unk3C4`-`unk3CA` of `D_00432E10`) and the distance class `unk24` (1-5, `unk3CE`-`unk3D6`),
+    the opponent's attack state (`unk2AC` attacking, `unk2A8` frames to its window, `unk2B0` / `unk2B4` / `unk2BC`), the
+    answer flag `unk98` (the own move 0x2021 / 0x2829 / 0x1052 against the kinds 0x412 / 0x217 / 0x10F / 0x31F / 0x706),
+    the waits `unk70` / `unk94`, the life comparison `unk3E0` / `unk3E4` (team life of `D_00440940`; in practice mode the
+    damage `unk27C` the CPU took) and the opponent's last 20 moves in `unk2D0`; all chances that answer attacks
+    (`unk360`, `unk362`, `unk368`, `unk36A`) drop to 0 while the opponent's red life is at least a tenth of its life.
+  - 0xD `func_00389D58` (T14 b9, C draft): acts on the situation code of `func_00389488` (0-10, C draft): 0 while a plan
+    runs or the own fighter is hit, 2 without a pending step; with the opponent busy (`unkF8`) 4, then the character's
+    special plays 6 / 7 / 8 / 9 at distances 8-9 / 22-26 / 4-10 (chance `unk3A2`, `func_00383D10`, the per-character table
+    `D_00507620`: a flag and three command lists), 1 / 2 against the opponent's moves of flag 0x400000 (chances `unk382` /
+    `unk3A6`), 2 to start or keep an attack (`func_00388F78`), 1 or 10 to repeat a remembered move and 5 at distance 9-11
+    against kind 0x412. The decider then picks candidates (codes 1 / 6 / 7 / 10), uses `func_00384D78` (code 2,
+    matching C since T14 b9: the answer to an opponent far away or recovering, -1 with a delay `unk270` inside the
+    opponent's window), runs the step plan `unkF8` (codes 3 / 4: guard 0x8000, step 0x2000, the command `D_005074A2` or
+    0x3000, ended when `D_005F5C28` reaches 2951, 300 later against variant 4), side-steps (5) or plays the character's
+    command lists (8 / 9) [V code; I meaning].
+  - Situation codes of decider 0x13 (`func_00388530`, T14 b9, C draft, 39 lines from matching): a random draw
+    `Cpu_RandBelow(0x1000)` read through bands that depend on the round `unk20` (while the wait `unk94` is at most 35)
+    or on `unk24` (otherwise): 0-10 as listed for `func_00388840`; codes 3 and 6 are kept only with the chances
+    `unk394` and, against moves of flag 0x80000 or with `unk340` set, `unk38E` [V code; I meaning].
 - Candidate lists (T14 b8, matching C): the walkers of a move's command list (shared lists of 0x8004 included) test
   `CPU_CMD_FOR_VARIANT`, `Cpu_IsCmdAllowed`, the frame window, `Cmd_CheckCondition` and `Cmd_CheckSituation`:
   `func_00382AD8` fills `gCpuCands` for decider 0xA (and, when the window of the last command still holds and its move
@@ -199,8 +221,15 @@ assembly are [I] unless marked.
 
 1. `unk24 = unk0 * 2 + unk1E` for both fighters; `func_003C1B38()`; game type 7 (`D_0043B7F8[0]`) calls the
    practice hook `func_003796B8`.
-2. Pause: while `D_005F5EE8` is set, `Battle_UpdatePause` (0x36DEA8) turns the Start button (0x800) of either side
-   into the pause words `D_005F5F08` / `D_005F5EE4` and fades the BGM; otherwise the words are cleared.
+2. Pause: while `D_005F5EE8` is set, `Battle_UpdatePause` (0x36DEA8, C draft since T14 b9) turns the Start button
+   (0x800) of each side that may pause (`D_005F5CB0` / `D_005F5CB2`) into the pause bits `D_005F5F08` (1 / 2 for the
+   side), copied to `D_005F5EE4` / `D_005F5F0C`; nothing pauses while `func_0039C738` / `func_003B7B38`, option byte 0x11
+   or `D_005F5EE0` hold. With option byte 1 and `func_0036E158() == 1` a request opens the pause (`func_003B7AC8`) and the
+   same side closes it (`func_003B7B40`), otherwise a pause closes at once; a change lowers the music to 0x40
+   (`Bgm_SetVolumeFade`, `func_00375428`) or restores 0x80. In practice mode (type 7) the practice menu decides instead
+   (`func_003795D8`, `func_00379628` / `func_00379638`, or `func_00379648` sets `D_005F5EE4` directly), and no pause
+   starts while a fighter's move has kind 2 in bits 20-21 of `unk24` [V code; I meaning]. Otherwise the words are
+   cleared.
 3. When the game is paused (`D_005F5EE0` or `D_005F5EE4`), only the drawing side runs (animation, effects) and
    nothing below happens.
 4. `D_005F5EF8 = func_00364B50()`, then `Battle_UpdateRound` (0x36E198, matching C since T14 b6, the round state
@@ -215,8 +244,12 @@ assembly are [I] unless marked.
       other first starts the move given by `D_0046BE78[entry.unk4].unk1C` (kind 0x24, `Fighter_StartThrownMove`).
    3. `Battle_UpdateFacing` (0x371330): `Math_Atan2` of the vector between the fighters (`unk51C` / `unk524`) into
       `unk3A` (the other side gets `+0x8000`); `unk48` comes from the camera angle `D_00415808[1]`.
-   4. `Battle_UpdateDistance` (0x371458, asm) writes the fighter distance `D_005F5C28` [I]; `func_00371A48` the
-      distances to the two points `D_00879610` (`D_005F5C38`).
+   4. `Battle_UpdateDistance` (0x371458, C draft since T14 b9) writes the fighter distance `D_005F5C28` (`Math_Isqrt` of
+      the `unk51C` / `unk524` difference) and `D_005F5F34` (40 less for each fighter of character 0xB or 0x14). While
+      the fighters are 0x1D00 or more apart, a fighter whose move lacks flag 0x2000 (bit 13 of `unkC0->unk24`) is pulled
+      back to its anchor `D_00879610[i]` (at once, or by an eighth per frame while `D_005F6BE8[i]` keeps the flag); the
+      anchors follow the fighters otherwise [V code; I meaning: the stage limit]. `func_00371A48` the distances to the
+      two points `D_00879610` (`D_005F5C38`).
    5. `Battle_UpdateMovement` (0x36FB40, 0x12E0 bytes, C draft in `#if 0`, read in full; integer only, no floats): the
       per-frame movement and flags of both fighters (section 5.12); `func_003772F0` unless a fighter has `unkE0` set.
    6. Skeleton and animation side (`func_00371B18`, `func_00378150`, `func_00378600`, `func_003BAEF0`,
@@ -240,7 +273,12 @@ assembly are [I] unless marked.
        (pad, CPU or practice playback, section 2) and records them (section 5.2).
    11. `unkC6 = unkC4`; `func_00372A10`: `func_00368B90` and `func_00368B08` for both in parity order (the launch
        reaction, `func_00368958`: kind 0x26, record `func_00374010(Fighter_GetLaunchKind())` from `D_00500678`); end of frame
-       helpers.
+       helpers. `func_00368B90` (C draft since T14 b9) starts the next move: a hit with the attacker's hit kind 0 (or 2
+       without a launch) takes the hit reaction of `func_0036A050` (matching C since T14 b9: kind 0x25-0x2D and the
+       reaction move from the pairing record `unk18C`, 0x1C-0x37 by state, front or back by `unkCC` bit 2; a launch uses
+       the launch record), otherwise the command entry found at the current frame (`func_003691D8`) starts its move
+       (`unkF8` 2), or at the list end the next move's list at frame 1 (`unkF8` 3), or past the move's length the end
+       entry's move (`unkF8` 4) [V code; I meaning].
 6. It returns `func_0036E158()` (`D_005F5E88`, the end-of-round step).
 
 The input is read at the end of the frame (step 10), after the move step: what a player presses in frame N acts
@@ -662,12 +700,26 @@ Read in full from the assembly; the C draft in `#if 0` follows it (about 720 lin
   hit sounds (`func_00363110` / `func_003630D0`); `unkB052`; `unk124` for the character pairs 0x12 / 0x1D and 0x1D /
   0x13.
 
+### 5.13 T14 status (2026-10-19, batch 9)
+
+Every function of `fighter_core`, `battle_flow` and `fight_misc` is now C: matching, or a `NON_MATCHING` draft in
+`#if 0` beside its `INCLUDE_ASM`. Still `NON_MATCHING` in the simulation path (`battle_flow`, `fight_misc`):
+`Fighter_StepMove` (the move step), `Battle_UpdateMovement`, `Fighter_Push`, `Fighter_StartLaunch`,
+`Cmd_CheckThrowCondition`, `Cmd_CheckCondition`, `func_00370F28` (facing), `func_0036D5D0`, `func_0036C278`, the motion
+blend (`func_00373428`, `func_00373930`, `func_003736B8`, `func_00373D48`, `func_00373E38`), `func_00368B90` (move start),
+`func_0036D010` (fight set-up), `Battle_UpdatePause`, `Battle_UpdateDistance`, the input helpers `func_00369188` /
+`func_0036A008` / `func_0036C918` / `func_0036CAF8` / `func_0036CD10`, `func_0036F010` / `func_0036F6B8` (round end),
+`func_00368398`, `func_0036BF00`, `func_00370E98`, `func_003730E8`, `func_00376CF8` and `func_00378810` (character
+0x1D's volume). On the CPU side (`fighter_core`) 57 drafts remain, the largest the deciders `func_00381D30` /
+`func_00389D58` / `func_00388FA8`, their situation codes `func_00388530` / `func_00389488`, the candidate list
+`func_003865A0` and the CPU set-up `func_00380568`. The drafts compile and follow the original control flow, so the
+behaviour can be read from them; only byte identity is missing.
+
 ## 6. Open
 
 - The meanings of most move kinds (`unk17A`, table in section 5.3), of the state codes `unk11E` / `unkD5` and of the
   move flag bits; what the push-radius kinds (`unkC0->unk30`) stand for; the attack levels other than 0x10F.
-- `Battle_UpdateMovement` (section 5.12), `Fighter_StepMove`, `Fighter_Push`, `Fighter_StartLaunch`,
-  `Cmd_CheckThrowCondition`, `func_00370F28` and the motion blend step `func_00373E38` have C attempts in `#if 0`; the meaning of the round phases
+- The functions listed in section 5.13 have C attempts in `#if 0`; the meaning of the round phases
   `gRoundPhase` 0xD-0x12 and of the event kinds 6-11 (effects) is inferred.
 - Which records carry the damage events of each throw (the event lists are game data, read only at run time) and
   what the pairing record lists at 0x04-0x18 hold exactly.
