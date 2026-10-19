@@ -210,9 +210,13 @@ typedef struct {
     /* 0x05C */ s32 unk5C;
     /* 0x060 */ u8 pad60[0xC];
     /* 0x06C */ s32 unk6C;
-    /* 0x070 */ u8 pad70[0x1C];
+    /* 0x070 */ s32 unk70;
+    /* 0x074 */ u8 pad74[0xC];
+    /* 0x080 */ s32 unk80;
+    /* 0x084 */ u8 pad84[0x8];
     /* 0x08C */ s32 unk8C;
-    /* 0x090 */ u8 pad90[8];
+    /* 0x090 */ u8 pad90[4];
+    /* 0x094 */ s32 unk94;
     /* 0x098 */ s32 unk98;
     /* 0x09C */ u8 pad9C[0x10];
     /* 0x0AC */ s32 unkAC; /* candidate count */
@@ -220,20 +224,36 @@ typedef struct {
     /* 0x0B4 */ s32 unkB4;
     /* 0x0B8 */ s32 unkB8;
     /* 0x0BC */ s32 (*unkBC)(CpuCand *c);
-    /* 0x0C0 */ u8 padC0[0x1EC];
+    /* 0x0C0 */ u8 padC0[0x40];
+    /* 0x100 */ s32 unk100;
+    /* 0x104 */ u8 pad104[0x168];
+    /* 0x26C */ s32 unk26C;
+    /* 0x270 */ s32 unk270;
+    /* 0x274 */ u8 pad274[0x8];
+    /* 0x27C */ s32 unk27C[2];                /* per team member, kept at most its maximum life (func_0038ADF8) */
+    /* 0x284 */ u8 pad284[0x10];
+    /* 0x294 */ s32 unk294;
+    /* 0x298 */ u8 pad298[0x10];
+    /* 0x2A8 */ s32 unk2A8;
     /* 0x2AC */ s32 unk2AC;
-    /* 0x2B0 */ u8 pad2B0[0x20];
+    /* 0x2B0 */ s32 unk2B0;
+    /* 0x2B4 */ u8 pad2B4[0x1C];
     /* 0x2D0 */ struct FighterMove *unk2D0[0x14];
-    /* 0x320 */ u8 pad320[0x1C];
+    /* 0x320 */ u8 pad320[0x18];
+    /* 0x338 */ u16 unk338;
+    /* 0x33A */ u8 pad33A[2];
     /* 0x33C */ s32 unk33C;
-    /* 0x340 */ u8 pad340[4];
-    /* 0x344 */ u8 unk344[0x80];
+    /* 0x340 */ u32 unk340;                /* attack level of the move to answer [I] */
+    /* 0x344 */ u8 unk344[0x1A];               /* parameter block copied from D_00431918 (func_00380420) [I] */
+    /* 0x35E */ s16 unk35E;                    /* chance in 4096 to try the predicate func_00384610 first */
+    /* 0x360 */ u8 unk360[0x64];
     /* 0x3C4 */ u8 pad3C4[0x1C];
     /* 0x3E0 */ s32 unk3E0;
     /* 0x3E4 */ u8 pad3E4[4];
 } CpuState;
 
 extern CpuState *gCpu;
+extern CpuState gCpuStates[2];
 extern Fighter *gCpuSelf;
 extern Fighter *gCpuOpponent;
 extern s32 D_005F6C08;
@@ -244,12 +264,43 @@ extern const s16 D_00507868[];
 
 s32 rand(void);
 s32 func_003840F8(CpuCand *c);
+s32 func_00383B88(struct FighterMove *m, s32 arg1, s32 arg2);
 
-void Cpu_SetCommand(u16 *cmd);
+s32 Cpu_SetCommand(u16 *cmd);
 void func_00380568(Fighter *f);
 void Cpu_GetInput(Fighter *f, u16 *held, u16 *pressed);
 extern const u16 D_005074A2[];
 extern const u16 D_0050748A[];
+
+/* The practice dummy settings D_008B8068 (func_0037EF60 sets their defaults) [I]. */
+typedef struct {
+    /* 0x0 */ s16 unk0;
+    /* 0x2 */ s16 unk2;
+    /* 0x4 */ u8 unk4;
+    /* 0x5 */ u8 unk5;
+    /* 0x6 */ u8 unk6;
+    /* 0x7 */ u8 unk7;
+    /* 0x8 */ u8 unk8;
+    /* 0x9 */ u8 unk9;
+    /* 0xA */ u8 unkA;
+    /* 0xB */ u8 unkB;
+    /* 0xC */ u8 unkC;
+    /* 0xD */ u8 unkD;
+    /* 0xE */ u8 unkE;
+    /* 0xF */ u8 unkF;
+} Unk8B8068;
+extern Unk8B8068 D_008B8068;
+Unk8B8068 *func_0037EF50(void);
+
+/* A D_005E8978 entry (as in src/battle_flow.c). */
+typedef struct {
+    /* 0x0 */ u16 unk0;
+    /* 0x2 */ s16 unk2;
+    /* 0x4 */ u16 unk4;
+    /* 0x6 */ u16 unk6;
+    /* 0x8 */ u16 unk8;
+} Unk5E8978;
+Unk5E8978 *func_0036C1A0(Fighter *f, Fighter *o, struct FighterMove *m);
 
 /* ---- functions ---- */
 void func_0037BA88(void) {
@@ -381,7 +432,23 @@ s32 func_0037C080(void) {
     return r;
 }
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0037C0A8);
+/* Copies the practice menu settings (func_003794A0 items, D_0042F268 bytes) into the dummy settings D_008B8068 [V]. */
+void func_0037C0A8(void) {
+    Unk8B8068 *d = func_0037EF50();
+
+    d->unk4 = func_003794A0(0);
+    d->unk5 = D_0042F268[0x9C];
+    d->unk6 = func_003794A0(3);
+    d->unk7 = func_003794A0(5);
+    d->unk8 = func_003794A0(6);
+    d->unk9 = func_003794A0(7);
+    d->unkA = func_003794A0(4);
+    d->unkB = func_003794A0(8);
+    d->unkC = func_003794A0(9);
+    d->unkD = func_003794A0(10);
+    d->unkE = D_0042F268[0];
+    d->unkF = D_0042F268[1];
+}
 
 s32 func_0037C168(void) {
     if (((gFighters[0].unkC0->unk24 >> 20) & 3) == 2 || ((gFighters[1].unkC0->unk24 >> 20) & 3) == 2) {
@@ -1131,19 +1198,64 @@ INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0037EE68);
 
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0037EEF8);
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0037EF50);
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0037EF60);
+Unk8B8068 *func_0037EF50(void) {
+    return &D_008B8068;
+}
+
+void func_0037EF60(void) {
+    D_008B8068.unk0 = 0x26;
+    D_008B8068.unk2 = 0x50;
+    D_008B8068.unk4 = 0;
+    D_008B8068.unk5 = 0;
+    D_008B8068.unk6 = 0;
+    D_008B8068.unk7 = 0;
+    D_008B8068.unk8 = 1;
+    D_008B8068.unk9 = 0;
+    D_008B8068.unkA = 1;
+    D_008B8068.unkB = 0;
+    D_008B8068.unkC = 0;
+    D_008B8068.unkD = 0;
+    D_008B8068.unkE = 0;
+    D_008B8068.unkF = 1;
+}
 
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0037EFB0);
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0037FA30);
+s32 func_0037FA30(void) {
+    return func_003794A0(0) == 0;
+}
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0037FA50);
+typedef struct {
+    /* 0x0 */ s16 unk0;
+    /* 0x2 */ s16 unk2;
+    /* 0x4 */ s16 unk4;
+    /* 0x6 */ s16 unk6;
+    /* 0x8 */ s16 unk8;
+    /* 0xA */ s16 unkA;
+    /* 0xC */ s16 unkC;
+} Unk4318C8;
+extern Unk4318C8 D_004318C8;
+
+void func_0037FA50(void) {
+    D_004318C8.unk0 = 0;
+    D_004318C8.unk2 = 0;
+    D_004318C8.unk4 = 0;
+    D_004318C8.unk6 = 0;
+    D_004318C8.unk8 = 0;
+    D_004318C8.unkA = 0;
+    D_004318C8.unkC = 0;
+}
 
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0037FA78);
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0037FB30);
+void func_0036C448(Fighter *f);
+
+void func_0037FB30(s32 side) {
+    D_004318C8.unk0 = 0;
+    func_0037CA98(side);
+    func_0036C448(&gFighters[side]);
+}
 
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0037FB70);
 
@@ -1181,19 +1293,84 @@ void func_00380560(Fighter *f) {
 
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00380568);
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_003809C0);
+s32 func_0038BEE0(s32 which, s32 key);
+
+/* Selects the CPU state of the side opposite to `side` (when that fighter is CPU-driven, unk418): gCpuSelf, gCpuOpponent,
+ * gCpu, and the two per-character handlers of D_00507A88 for both characters [V]. */
+void func_003809C0(s32 side) {
+    Fighter *self = &gFighters[1 - side];
+
+    if (self->unk418 != 0) {
+        gCpuSelf = self;
+        gCpuOpponent = &gFighters[side];
+        gCpu = &gCpuStates[1 - side];
+        gCpu->unkB4 = func_0038BEE0(1, gCpuOpponent->unk28);
+        gCpu->unkB8 = func_0038BEE0(0, self->unk28);
+    }
+}
 
 void func_00380A50(Fighter *f, u16 *held, u16 *pressed) {
     Cpu_GetInput(f, held, pressed);
 }
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", Cpu_GetInput);
+s32 func_00393810(void);
+void Cpu_Think(void);
+
+void Cpu_GetInput(Fighter *f, u16 *held, u16 *pressed) {
+    s16 side = f->unk20;
+    u16 b;
+
+    gCpu = &gCpuStates[side];
+    gCpuSelf = &gFighters[side];
+    gCpuOpponent = &gFighters[1 - side];
+    if (func_00393810() == 0) {
+        Cpu_Think();
+        b = gCpu->unk6;
+        *pressed = b & (b ^ gCpu->unk8);
+        gCpu->unk8 = b;
+        *held = b;
+    } else {
+        *pressed = 0;
+        *held = 0;
+    }
+}
 
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00380B10);
 
 INCLUDE_ASM("asm/nonmatchings/fighter_core", Cpu_Think);
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", Cpu_SetCommand);
+extern const u16 D_005073F0[];
+
+/* Starts a command of the CPU: the buttons of its first word (bits 8-11: pad 0x80, 0x10, 0x40, 0x20) and its
+ * direction (bits 0-3, mapped through D_005073F0) are held this frame, the rest of the list plays from unkC [V]. */
+s32 Cpu_SetCommand(u16 *cmd) {
+    u16 c = *cmd++;
+    s16 w;
+    u16 b;
+
+    if (*cmd == 0) {
+        gCpu->unkC = NULL;
+    } else {
+        gCpu->unkC = cmd;
+    }
+    w = c;
+    b = 0;
+    if (w & 0x100) {
+        b = 0x80;
+    }
+    if (w & 0x200) {
+        b |= 0x10;
+    }
+    if (w & 0x400) {
+        b |= 0x40;
+    }
+    if (w & 0x800) {
+        b |= 0x20;
+    }
+    b |= D_005073F0[w & 0xF];
+    gCpu->unk6 = b;
+    return 0;
+}
 
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00381278);
 
@@ -1201,7 +1378,47 @@ s32 func_00381408(void) {
     return gCpuSelf->unk188 != NULL;
 }
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00381418);
+/* Steps the CPU's command: a queued word unkA first, else the next word of the list unkC (the list ends at a 0
+ * word), decoded as in Cpu_SetCommand; returns 0 when nothing is left [V]. */
+s32 func_00381418(void) {
+    CpuState *s = gCpu;
+    s16 *p;
+    u16 c;
+    s16 w;
+    u16 b;
+
+    if (s->unkA != 0) {
+        s->unk6 = s->unkA;
+        s->unkA = 0;
+        return 1;
+    }
+    p = (s16 *)s->unkC;
+    if (p == NULL) {
+        return 0;
+    }
+    c = p[0];
+    s->unkC = (u16 *)(p + 1);
+    if (p[1] == 0) {
+        s->unkC = NULL;
+    }
+    w = c;
+    b = 0;
+    if (w & 0x100) {
+        b = 0x80;
+    }
+    if (w & 0x200) {
+        b |= 0x10;
+    }
+    if (w & 0x400) {
+        b |= 0x40;
+    }
+    if (w & 0x800) {
+        b |= 0x20;
+    }
+    b |= D_005073F0[w & 0xF];
+    gCpu->unk6 = b;
+    return 1;
+}
 
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_003814C8);
 
@@ -1230,7 +1447,13 @@ s32 func_00383B88(struct FighterMove *m, s32 arg1, s32 arg2) {
 
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00383BD8);
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00383D10);
+
+s32 func_00383D10(CpuCand *c) {
+    if (gCpu->unk2AC == 0 || D_005F5C28 >= 0xB87 || (s16)gCpuOpponent->unk40 >= 0x5000 || gCpu->unk98 != 0) {
+        return 0;
+    }
+    return func_00383B88(gCpuOpponent->unkC0, gCpu->unk24, (s32)c);
+}
 
 s32 Cpu_PickCands(s32 (*filter)(CpuCand *)) {
     CpuCand *c = gCpuCands;
@@ -1283,7 +1506,32 @@ s32 func_00383F00(CpuCand *c) {
 
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00383F10);
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00384038);
+s32 func_00384038(CpuCand *c) {
+    struct FighterMove *m = c->unk4;
+    u32 fl = m->unk4;
+    u32 lvl;
+
+    if (m->unk19 != 0 && !(fl & 0x80000) && !(m->unk8 & 0x200000)) {
+        return 0;
+    }
+    if (m->unk2C == 0) {
+        return 0;
+    }
+    lvl = m->unk8;
+    if ((u16)lvl == 0x412 || (u16)lvl == 0x706) {
+        return 0;
+    }
+    if (lvl & 0x400000) {
+        return 0;
+    }
+    if (fl & 0x20000) {
+        return 0;
+    }
+    if (func_00383B88(m, gCpu->unk20, 0) != 0 || (fl & 0x10000)) {
+        return 1;
+    }
+    return 0;
+}
 
 s32 func_003840F8(CpuCand *c) {
     s32 fl = c->unk4->unk8;
@@ -1295,7 +1543,32 @@ s32 func_003840F8(CpuCand *c) {
     return r;
 }
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00384130);
+s32 func_00384130(CpuCand *c) {
+    struct FighterMove *m = c->unk4;
+    u32 fl = m->unk4;
+    u8 w;
+
+    if (func_0036C1A0(gCpuSelf, gCpuOpponent, m)->unk2 <= 0) {
+        return 0;
+    }
+    if (c->unk4->unk4 & 0x800000) {
+        return 0;
+    }
+    w = m->unk2C;
+    if (w == 0 || c->unk4->unk19 != 0 || (c->unk4->unk8 & 0x400000)) {
+        return 0;
+    }
+    if (w >= 0xC) {
+        return 0;
+    }
+    if (fl & 0x20000) {
+        return 0;
+    }
+    if (func_00383B88(m, gCpu->unk20, 0) != 0 || (fl & 0x10000)) {
+        return 1;
+    }
+    return 0;
+}
 
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00384210);
 
@@ -1312,11 +1585,55 @@ s32 func_00384338(CpuCand *c) {
     return r;
 }
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00384370);
+s32 func_00383BD8(struct FighterMove *m, s32 n);
+
+s32 func_00384370(CpuCand *c) {
+    s32 r = 0;
+    struct FighterMove *m = c->unk4;
+
+    if (m->unk2C != 0 && m->unk19 == 0 && !(m->unk8 & 0x400000) && !(m->unk4 & 0x20000)
+        && func_00383B88(m, gCpu->unk20, 0) != 0) {
+        r = func_00383BD8(c->unk4, 1) != 0;
+    }
+    return r;
+}
 
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00384408);
 
+#if 0
+/* NON_MATCHING: 13 lines differ: the reloaded move record's register and the order of the exit blocks (as
+ * func_003847D8) */
+s32 func_003844B0(CpuCand *c) {
+    s32 r = 0;
+    struct FighterMove *m = c->unk4;
+
+    if (m->unk2C != 0) {
+        if (m->unk4 & 0x20000) {
+            goto end;
+        }
+        if (func_0036C1A0(gCpuSelf, gCpuOpponent, m)->unk2 >= 0) {
+            m = c->unk4;
+            if (m->unk4 & 0x800000) {
+                goto end;
+            }
+            if (m->unk8 & 0x400000) {
+                goto end;
+            }
+            if (m->unk19 != 0) {
+                goto end;
+            }
+            if (func_00383B88(m, gCpu->unk20, 0) == 0) {
+                goto end;
+            }
+            r = (c->unk8->unk0 & 0x3FE0) == 0;
+        }
+    }
+end:
+    return r;
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_003844B0);
+#endif
 
 #if 0
 /* NON_MATCHING: the result lives in a2 instead of v0, and the original has a load-delay nop. */
@@ -1394,11 +1711,93 @@ s32 func_003846D0(CpuCand *c) {
     return r;
 }
 
+#if 0
+/* NON_MATCHING: 15 lines differ: as func_003847D8 (the reloaded move record's register and the exits' result
+ * register) */
+
+/* A candidate move with damage (reaction entry unk2 > 0) the CPU can reach in time: its window start unk2C below the
+ * reaction time unk2A8, not flagged 0x400000 / 0x800000 / 0x20000, and accepted by func_00383B88 [V code; I meaning]. */
+s32 func_00384708(CpuCand *c) {
+    s32 r = 0;
+    struct FighterMove *m = c->unk4;
+    u8 w = m->unk2C;
+    u32 fl;
+
+    if (!(m->unk8 & 0x400000) && func_0036C1A0(gCpuSelf, gCpuOpponent, m)->unk2 > 0) {
+        m = c->unk4;
+        fl = m->unk4;
+        if (fl & 0x800000) {
+            goto end;
+        }
+        if (w == 0) {
+            goto end;
+        }
+        if (m->unk19 != 0 && !(fl & 0x80000)) {
+            goto end;
+        }
+        if (w < gCpu->unk2A8) {
+            if (fl & 0x20000) {
+                goto end;
+            }
+            r = func_00383B88(m, gCpu->unk20, 0) != 0;
+        }
+    }
+end:
+    return r;
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00384708);
+#endif
 
+#if 0
+/* NON_MATCHING: 14 lines differ: the reloaded move record goes to a2 instead of a0 and the early exits load r from
+ * its register in the original */
+s32 func_003847D8(CpuCand *c) {
+    s32 r = 0;
+    struct FighterMove *m = c->unk4;
+    u8 w = m->unk2C;
+    u32 fl;
+
+    if (!(m->unk8 & 0x400000) && func_0036C1A0(gCpuSelf, gCpuOpponent, m)->unk2 > 0) {
+        m = c->unk4;
+        fl = m->unk4;
+        if (fl & 0x800000) {
+            goto end;
+        }
+        if (w != 0 && (u16)m->unk8 != 0x412 && w < gCpu->unk2A8) {
+            if (fl & 0x20000) {
+                goto end;
+            }
+            r = func_00383B88(m, gCpu->unk20, 0) != 0;
+        }
+    }
+end:
+    return r;
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_003847D8);
+#endif
 
+#if 0
+/* NON_MATCHING: 14 lines differ: the original keeps the move record in a0 (over the candidate) and its flags from the
+ * delay-slot load; ours keeps it in a1 and reloads the flags */
+
+s32 func_00384898(CpuCand *c) {
+    struct FighterMove *m = c->unk4;
+
+    if (m->unk2C != 0) {
+        if ((m->unk4 & 0x20001) != 1) {
+            return 0;
+        }
+        if (func_00383B88(m, gCpu->unk20, 0) != 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00384898);
+#endif
 
 #if 0
 /* NON_MATCHING: the original loads both pointers first and masks the flags with `andi 0xFFFF`; ours uses lhu. */
@@ -1461,9 +1860,31 @@ s32 func_003849D0(CpuCand *c) {
     return 0;
 }
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00384A10);
+s32 func_00384A10(CpuCand *c) {
+    u16 id = c->unk8->unk6;
+    const s16 *t = D_00507868;
+    u32 i;
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00384A50);
+    for (i = 0; i < 1; i++) {
+        if (id == *t) {
+            return 1;
+        }
+        t++;
+    }
+    return 0;
+}
+
+s32 func_003849D0(CpuCand *c);
+
+s32 func_00384A50(CpuCand *c) {
+    s32 r = 0;
+    struct FighterMove *m = c->unk4;
+
+    if (m->unk2C == 0 && m->unk19 == 0 && !(m->unk4 & 0x20000) && !(c->unk8->unk0 & 0x4000)) {
+        r = func_003849D0(c) == 0;
+    }
+    return r;
+}
 
 s32 func_00384AB8(CpuCand *c) {
     struct FighterMove *m = c->unk4;
@@ -1522,7 +1943,20 @@ s32 func_00384BB0(CpuCand *c) {
     return r;
 }
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00384BF0);
+s32 func_00384C98(CpuCmd *k);
+
+s32 func_00384BF0(CpuCand *c) {
+    CpuCmd *k = c->unk8;
+    s32 r = 0;
+
+    if (k->unkB == 1 && k->unkC > k->unkD && k->unkD != 1 && k->unkC != 0xFF) {
+        r = 0;
+        if (func_00384C98(k) != 0) {
+            r = 1;
+        }
+    }
+    return r;
+}
 
 s32 func_00384C58(CpuCand *c) {
     return (u32)(c->unk8->unk8 - 0x1A) < 2;
@@ -1548,9 +1982,66 @@ s32 func_00384D68(u16 *cmd) {
 
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00384D78);
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_003850B8);
+s32 func_00384610(CpuCand *c);
+s32 func_003845D8(CpuCand *c);
 
+s32 func_003850B8(void) {
+    s32 n = 0;
+
+    if (gCpu->unk20 >= 2) {
+        return 0;
+    }
+    if ((rand() & 0xFFF) < gCpu->unk35E) {
+        n = Cpu_PickCands(func_00384610);
+        if (n <= 0 && gCpu->unk20 < 2) {
+            n = Cpu_PickCands(func_003845D8);
+        } else {
+            gCpu->unk100 = 1;
+        }
+    } else if (gCpu->unk20 < 2) {
+        n = Cpu_PickCands(func_003845D8);
+    }
+    return n;
+}
+
+#if 0
+/* NON_MATCHING: 16 lines differ: register allocation of the random value and the CPU level (a0 / v1), and the sum
+ * kept in s1 before the return */
+s32 func_00384988(CpuCand *c);
+s32 func_003847D8(CpuCand *c);
+s32 func_00384708(CpuCand *c);
+
+s32 func_00385178(void) {
+    CpuState *c = gCpu;
+    s32 n = 0;
+    s32 r = (rand() >> 1) & 0xFFF;
+    s32 (*f)(CpuCand *);
+
+    switch (c->unk20) {
+    case 1:
+        break;
+    case 2:
+        if (r < 0x20) {
+            n = Cpu_PickCands(func_00384988);
+        }
+        break;
+    case 3:
+        if (r < 0x400) {
+            n = Cpu_PickCands(func_00384988);
+        }
+        break;
+    }
+    if (gCpu->unk33C & 1) {
+        f = func_003847D8;
+    } else {
+        f = func_00384708;
+    }
+    n += Cpu_PickCands(f);
+    return n;
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00385178);
+#endif
 
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00385250);
 
@@ -1558,7 +2049,30 @@ u16 func_00385310(s32 x) {
     return x;
 }
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00385318);
+/* The candidate picked by the CPU: the `n`-th picked one (state > 0), counted from the start on frames of the CPU's
+ * parity, from the end on the others; -1 when there are fewer [V code; I meaning]. */
+s32 func_00385318(s32 n) {
+    s32 i;
+
+    if ((gCpu->unk4 & 1) == gCpu->unk0) {
+        for (i = 0; i < gCpu->unkAC; i++) {
+            if (gCpuCands[i].unk0 > 0) {
+                if (--n < 0) {
+                    return i;
+                }
+            }
+        }
+    } else {
+        for (i = gCpu->unkAC - 1; i >= 0; i--) {
+            if (gCpuCands[i].unk0 > 0) {
+                if (--n < 0) {
+                    return i;
+                }
+            }
+        }
+    }
+    return -1;
+}
 
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_003853E8);
 
@@ -1574,13 +2088,88 @@ INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00385C80);
 
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00385DF8);
 
+#if 0
+/* NON_MATCHING: 10 lines differ: the list pointer and the entry count are allocated to swapped registers (a1 / a2) */
+extern MoveCmd D_0047F780[];
+
+/* Whether the current move of the CPU's fighter has a command entry of condition kind `kind` (unk3 & 0x7F), looking
+ * into the shared lists (0x8004, unkD entries) [V code; I meaning]. */
+s32 func_00386388(s32 kind) {
+    MoveCmd *c = (MoveCmd *)gCpuSelf->unkC0->unkC;
+    MoveCmd *p;
+    s32 n;
+    s32 i;
+
+    for (; c->unk0 != 0x8000; c++) {
+        n = 1;
+        if (c->unk0 == 0x8004) {
+            n = c->unkD;
+            p = &D_0047F780[c->unk6];
+        } else {
+            p = c;
+        }
+        for (i = 0; i < n; i++, p++) {
+            if ((p->unk3 & ~0x80) == kind) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00386388);
+#endif
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00386428);
+s32 func_00386428(void) {
+    if (gCpuSelf->unk42 != 0) {
+        return 0;
+    }
+    gCpu->unk5C = 0x28;
+    gCpu->unk6C = -1;
+    gCpu->unk50 = 0;
+    gCpu->unk4C = 0;
+    return gCpu->unk340 == 0x217 ? 0x8000 : 0xC000;
+}
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00386470);
+s32 func_00386470(void) {
+    if (gCpuSelf->unk42 != 0) {
+        return 0;
+    }
+    gCpu->unk5C = 0x28;
+    gCpu->unk6C = -1;
+    gCpu->unk50 = 0;
+    gCpu->unk4C = 0;
+    switch (gCpu->unk340) {
+    case 0x217:
+    case 0x31F:
+    case 0x412:
+        return 0x8000;
+    }
+    return 0xC000;
+}
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_003864E8);
+s32 func_00383ED8(CpuCand *c);
+
+s32 func_003864E8(void) {
+    CpuState *c = gCpu;
+    Fighter *s;
+
+    if (c->unk80 == 0 || c->unkAC == 0 || c->unk294 != 0) {
+        return 0;
+    }
+    s = gCpuSelf;
+    if (c->unk2A8 >= s->unkC0->unk2C - s->unkC4 && c->unk20 < 3 && s->unk42 != 2) {
+        return 1;
+    }
+    if (Cpu_PickCands(func_00383ED8) <= 0) {
+        return 1;
+    }
+    if (func_003853E8() >= 0) {
+        gCpu->unk94 = -1;
+        return 1;
+    }
+    return 1;
+}
 
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_003865A0);
 
@@ -1602,19 +2191,48 @@ INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00388530);
 
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00388840);
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00388D70);
+s32 func_00388D70(void) {
+    if (gCpu->unk70 >= 0) {
+        gCpu->unk6 = 0x4000;
+    } else if (gCpu->unk6C >= 0) {
+        gCpu->unk6 = gCpu->unk8 & 0xF000;
+    } else {
+        gCpu->unk6 = 0;
+    }
+    return 1;
+}
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00388DA8);
+extern u16 D_005F5CBC;
+extern u16 gFrameCount;
+
+s32 func_00388DA8(void) {
+    if (D_005F5CBC != 0 && (gFrameCount & 1) == gCpu->unk0) {
+        gCpu->unk6 = gCpu->unk8 & 0xF000;
+        return 1;
+    }
+    return 0;
+}
 
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00388DE0);
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00388F78);
+s32 func_00388F78(void) {
+    s32 r = 0;
+
+    if ((gCpu->unk338 != 0 && gCpu->unk338 != 0x607) || gCpu->unk2B0 > 0) {
+        r = 1;
+    }
+    return r;
+}
 
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00388FA8);
 
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00389488);
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00389B50);
+s32 func_00384708(CpuCand *c);
+
+s32 func_00389B50(void) {
+    return Cpu_PickCands(func_00384708);
+}
 
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00389B70);
 
@@ -1637,9 +2255,57 @@ s32 func_0038A5F8(void) {
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0038A5F8);
 #endif
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0038A630);
+s32 func_0038A630(void) {
+    s32 r = 0x8000;
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0038A690);
+    if ((gCpu->unk4 & 1) == gCpu->unk0) {
+        r = 0;
+    } else if (gCpu->unk4 % 20 == 0) {
+        r = 0x2000;
+    }
+    gCpu->unk6C = -1;
+    gCpu->unk5C = 0x28;
+    gCpu->unk4C = 0;
+    gCpu->unk50 = 0;
+    return r;
+}
+
+extern const u16 D_00507452[][12];
+
+/* Starts one of the side-step commands of D_00507452 (`n`, or for -1 the side chosen from the opponent's body angle and
+ * the two fighters' unk624, randomly when the angle is near 0 or 0x8000) [V code; I meaning]. */
+void func_0038A690(s32 n) {
+    Fighter *s;
+    Fighter *o;
+    u16 ang;
+    s32 far;
+    s16 a;
+    s16 b;
+
+    if (n == -1) {
+        o = gCpuOpponent;
+        s = gCpuSelf;
+        ang = o->unk3E;
+        a = s->unk624;
+        b = o->unk624;
+        far = b < a;
+        if (ang > 0x100 && ang < 0x8000) {
+            n = 0;
+        } else if ((u16)(ang + 0x7FFF) < 0x7EFE) {
+            n = 1;
+        } else {
+            n = (rand() >> 4) & 1;
+        }
+        if (far) {
+            n = 1 - n;
+        }
+    }
+    Cpu_SetCommand((u16 *)D_00507452[n]);
+    gCpu->unk5C = 0x28;
+    gCpu->unk50 = 0;
+    gCpu->unk4C = 0;
+    gCpu->unk6C = -1;
+}
 
 void func_0038A748(void) {
     gCpu->unkBC = func_003840F8;
@@ -1657,9 +2323,47 @@ INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0038A780);
 
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0038A928);
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0038ABE8);
+s32 func_00384C58(CpuCand *c);
+s32 func_003853E8(void);
 
+s32 func_0038ABE8(void) {
+    if (gCpuSelf->unkF7 != 0 && gCpu->unkAC > 0) {
+        if (Cpu_PickCands(func_00384C58) > 0) {
+            func_003853E8();
+            return 1;
+        }
+        return 0;
+    }
+    return 0;
+}
+
+#if 0
+/* NON_MATCHING: 9 lines differ: the original places the shared return 0 at the end and the return 1 of the call path
+ * behind a branch */
+s32 func_00386428(void);
+
+s32 func_0038AC40(void) {
+    s32 v;
+
+    if (gCpu->unk26C == 0) {
+        return 0;
+    }
+    gCpu->unk270--;
+    if (gCpu->unk270 == -1) {
+        v = func_00386428();
+        gCpu->unk26C = 0;
+        if (v == 0) {
+            return 0;
+        }
+        gCpu->unk6 = v;
+    } else if (gCpu->unk270 < 0) {
+        gCpu->unk26C = 0;
+    }
+    return 1;
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0038AC40);
+#endif
 
 #if 0
 /* NON_MATCHING: the original copies the move pointer to a second register and pads the loop with a nop. */
@@ -1683,7 +2387,30 @@ INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0038ACA8);
 
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0038AD00);
 
+#if 0
+/* NON_MATCHING: 41 lines differ: the original computes all addresses and loads of both members before the two clamps
+ * */
+extern TeamMember D_00440940[2][2];
+
+/* Clamps the CPU's per-member values unk27C to the members' maximum life [V code; I meaning]. */
+void func_0038ADF8(s32 side) {
+    Fighter *f = &gFighters[side];
+    CpuState *s = &gCpuStates[side];
+    s32 *p0 = &s->unk27C[f->unk0];
+    s32 *p1 = &s->unk27C[f->unk2];
+    s32 max0 = D_00440940[side][f->unk0].unk14;
+    s32 max1 = D_00440940[side][f->unk2].unk14;
+
+    if (max0 - *p0 < 0) {
+        *p0 = max0;
+    }
+    if (max1 - *p1 < 0) {
+        *p1 = max1;
+    }
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0038ADF8);
+#endif
 
 s32 func_0038AEA0(Fighter *f) {
     return f->unk10C == 0x3D;
@@ -1693,9 +2420,45 @@ s32 func_0038AEB0(s32 n) {
     return n >= gCpu->unk20 ? -1 : 0x2000;
 }
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0038AED0);
+s32 func_0038AED0(void) {
+    Fighter *s = gCpuSelf;
+    Fighter *o = gCpuOpponent;
+    s16 a = s->unk624;
+    s16 b = o->unk624;
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0038AF28);
+    if ((u16)(s->unk3E + 0x2000) > 0x4000 || (s->unkC0->unk4 & 0x400000) || D_005F5C28 > 0x1B58) {
+        return -1;
+    }
+    return a < b;
+}
+
+void func_0038A690(s32 n);
+
+s32 func_0038AF28(void) {
+    Fighter *s = gCpuSelf;
+    Fighter *o = gCpuOpponent;
+    s16 a = s->unk624;
+    s16 b = o->unk624;
+    u16 ang = o->unk3E;
+    s32 far = b < a;
+    s32 r;
+
+    if ((s->unkC0->unk4 & 0x400000) || D_005F5C28 > 0x1B58) {
+        return -1;
+    }
+    if (ang > 0x100 && ang < 0x8000) {
+        r = 0;
+    } else if ((u16)(ang + 0x7FFF) < 0x7EFE) {
+        r = 1;
+    } else {
+        return -1;
+    }
+    if (far) {
+        r = 1 - r;
+    }
+    func_0038A690(r);
+    return r;
+}
 
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0038AFC0);
 
@@ -1706,7 +2469,21 @@ s32 func_0038B690(void) {
     return -1;
 }
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0038B698);
+s32 func_0038B698(void) {
+    switch (gCpuOpponent->unk10C) {
+    case 0x39C:
+        break;
+    case 0x39D:
+        if (gCpu->unk24 < 3) {
+            if (gCpuOpponent->unkC4 >= 0x10) {
+                return 0x8000;
+            }
+            gCpu->unk94 = -1;
+        }
+        break;
+    }
+    return -1;
+}
 
 /* A move handler with nothing to do: -1 = no command. */
 s32 func_0038B6E8(void) {
@@ -1849,7 +2626,22 @@ s32 func_0038BE70(void) {
     return -1;
 }
 
+#if 0
+/* NON_MATCHING: 3 lines differ: the rand() result stays in v0 and the unk2A8 test is not a branch-likely in the
+ * original */
+s32 func_0038BE78(void) {
+    if (gCpuSelf->unk10C == 0xA8B) {
+        if ((u16)(gCpuSelf->unkC4 - 0xD) >= 5 || gCpu->unk2A8 >= 10) {
+            if ((rand() & 0xF) != 0) {
+                return 0x2000;
+            }
+        }
+    }
+    return -1;
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0038BE78);
+#endif
 
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0038BEE0);
 

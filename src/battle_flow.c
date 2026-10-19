@@ -9,7 +9,7 @@
 #include "fighter.h"
 
 /* A 10-byte entry of D_005E8978: lists ended by unk0 == 0xFFFF, a move record's unk14 is the index of its first
- * entry. unk0 is a condition (func_00369008), unk2 the damage (bits 0-13) and its kind (bits 14-15), unk4 / unk6 the
+ * entry. unk0 is a condition (Cmd_CheckCondition), unk2 the damage (bits 0-13) and its kind (bits 14-15), unk4 / unk6 the
  * reaction move of the other fighter, chosen by the distance against unk8 (Battle_ResolveHits) [I]. */
 typedef struct {
     /* 0x0 */ u16 unk0;
@@ -22,6 +22,8 @@ typedef struct {
 extern Fighter gFighters[4];
 extern Fighter D_00884EE0;
 extern Unk5E8978 D_005E8978[];
+extern TeamMember D_00440940[2][2];
+extern u16 D_004EFD44[];
 
 /* 0x879610: two 16-byte records just before gFighters, distances to the fighters in D_005F5C38 [I]. */
 typedef struct {
@@ -61,6 +63,8 @@ extern s32 D_00879630[4];
 extern s32 D_005F6BE0;
 extern s32 D_005F6BE8;
 extern s32 D_005F6BEC;
+extern u32 D_005F5C28;
+extern u16 D_005F5CBA;
 extern s16 D_005F5C2C;
 extern u32 D_005F5C38[2];
 
@@ -97,7 +101,7 @@ void func_003685B8(Fighter *f, Fighter *o, s16 pose);
 s32 func_00368958(Fighter *f, Fighter *o);
 MoveCmd *Move_FindCommand(MoveCmd *list, s16 frame, Fighter *f, Fighter *o);
 Unk5E8978 *func_0036C1A0(Fighter *f, Fighter *o, struct FighterMove *m);
-s32 func_00374048(Fighter *f, Fighter *o);
+s32 Fighter_GetLaunchKind(Fighter *f, Fighter *o);
 u16 func_0036C918(u16 held, u16 pressed);
 void func_0036C988(Fighter *f, u16 held, u16 pressed);
 void func_0036CA68(Fighter *f, u16 held, u16 pressed);
@@ -183,12 +187,35 @@ void func_003D3C68(f32 x, f32 y, f32 z, f32 w);
 void func_003DB690(void);
 void func_003DB698(s32 n);
 void func_0037C8C8(s32 player);
-s32 func_00369008(Fighter *f, Fighter *o, s32 id);
+s32 Cmd_CheckCondition(Fighter *f, Fighter *o, s16 id);
+s32 func_00369E10(MoveCmd *c, Fighter *f, Fighter *o);
+s32 func_0036CD10(u16 cmd, u16 held, u16 pressed);
+s32 func_0036CD78(u16 a, u16 b);
+s32 func_0036CAF8(Fighter *f, s32 dir, s32 n);
+s32 func_0036CDD8(Fighter *f, s16 *seq, u16 held, u16 pressed);
 void func_0036C448(Fighter *f);
 void Fighter_ResetInputHistory(Fighter *f);
 void func_0036C680(Fighter *f);
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_003682F8);
+/* Applies a move record's damage changes (unk20, kind 0xC) to its D_005E8978 entries; the first entry gets the change
+ * twice, as the original does [V]. */
+void func_003682F8(struct FighterMove *m) {
+    struct MoveMod *p;
+    Unk5E8978 *e;
+    u16 n;
+
+    for (p = m->unk20; p->unk0 != 0; p++) {
+        n = p->unk2 & 0xFF;
+        if ((p->unk2 >> 8) == 0xC) {
+            e = &D_005E8978[m->unk14];
+            e->unk2 += n;
+            while (e->unk0 != 0xFFFF) {
+                e->unk2 += n;
+                e++;
+            }
+        }
+    }
+}
 
 #if 0
 /* NON_MATCHING: the pose choice stores to unk184 in each branch instead of one shared store, and the move pointer
@@ -363,7 +390,7 @@ INCLUDE_ASM("asm/nonmatchings/battle_flow", func_003688B0);
 s32 func_00368958(Fighter *f, Fighter *o) {
     void *m;
 
-    f->unkFC = func_00374048(f, o);
+    f->unkFC = Fighter_GetLaunchKind(f, o);
     f->unk184 = func_00374010(f->unkFC)->unk0;
     m = func_00368218(f, f->unk184);
     f->unk188 = m;
@@ -425,19 +452,136 @@ s32 func_00368B08(Fighter *f, Fighter *o) {
 
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00368B90);
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00368F78);
+/* Whether a command entry may start now: within its frame window c->unkB..unkC while the move plays forwards, or up
+ * to 5 frames before the window when a button (history bits 4-8) is pressed this frame [V code; I meaning]. */
+s32 func_00368F78(Fighter *f, MoveCmd *c) {
+    s32 r = 0;
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00369008);
+    if ((f->unkC4 >= c->unkB - 5 && f->unkC4 < c->unkB && f->unkDA > 0
+         && (f->unk438.unk4[f->unk438.unk0] & 0x1F0))
+        || (f->unkC4 >= c->unkB && f->unkC4 <= c->unkC && f->unkDA > 0)) {
+        r = 1;
+    }
+    return r;
+}
+
+#if 0
+/* NON_MATCHING: 16 lines differ: the 0xED test's sltiu is cross-jumped into the shared == tail (the original keeps
+ * it), the last test loads unk28 into the other register, and the branch-likely choices follow */
+s16 func_003AD8E0(s16 x);
+
+/* A command entry's condition (MoveCmd.unk2): 0 always; 1-0x21 the fighter's variant unk28 is id - 1; 0x22-0x42 it is
+ * not id - 0x22; 0x43-0x63 the other fighter's unk28 is id - 0x43; 0x64-0x84 the partner's character class
+ * (func_003AD8E0) is id - 0x64; 0x85-0xA6 the character unk2A is id - 0x85; 0xA7-0xC8 the partner's character is
+ * id - 0xA7 (both partner tests fail while unk402 is set); 0xC9-0xEA the character is not id - 0xC9; 0xEB unk418;
+ * 0xEC unk124; 0xED unk124 == 0; above, always [V code; I meaning]. */
+s32 Cmd_CheckCondition(Fighter *f, Fighter *o, s16 id) {
+    s32 c;
+
+    if (id == 0) {
+        return 1;
+    }
+    if (id >= 0xEB) {
+        if (id == 0xEB) {
+            return f->unk418;
+        }
+        if (id == 0xEC) {
+            return f->unk124;
+        }
+        if (id == 0xED) {
+            return f->unk124 == 0;
+        }
+        return 1;
+    }
+    if (id >= 0xC9) {
+        return id - 0xC9 != f->unk2A;
+    }
+    if (id >= 0xA7) {
+        c = D_00440940[f->unk1E][f->unk2].unk0;
+        if (f->unk402 != 0) {
+            return 0;
+        }
+        return id - 0xA7 == c;
+    }
+    if (id >= 0x85) {
+        return id - 0x85 == f->unk2A;
+    }
+    if (id >= 0x64) {
+        c = D_00440940[f->unk1E][f->unk2].unk0;
+        if (f->unk402 != 0) {
+            return 0;
+        }
+        return id - 0x64 == func_003AD8E0(c * 8);
+    }
+    if (id >= 0x43) {
+        return id - 0x43 == o->unk28;
+    }
+    if (id >= 0x22) {
+        return id - 0x22 != f->unk28;
+    }
+    return f->unk28 == id - 1;
+}
+#else
+INCLUDE_ASM("asm/nonmatchings/battle_flow", Cmd_CheckCondition);
+#endif
 
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_004FF8D0);
+#if 0
+/* NON_MATCHING: 2 lines differ: the original returns the | 0x20 value without the final andi 0xFF and masks only the
+ * other path; no type or form tried gives both */
+/* A copy of the 9 bytes of D_004FF8D0 (a local array of the original, initialised from .rodata). */
+typedef struct {
+    u8 b[9];
+} Dir9;
+extern const Dir9 D_004FF8D0;
+
+/* One input history entry (func_0036C918) as a code: the D_004FF8D0 byte of its direction 1-9, or'ed with 0x20 when a
+ * button is pressed [V code; I meaning]. */
+u8 func_00369188(u16 code) {
+    Dir9 t = D_004FF8D0;
+    u8 c = t.b[(code & 0xF) - 1];
+
+    if (code & 0x1F0) {
+        return c + 0x20;
+    }
+    return c;
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00369188);
+#endif
 
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_003691D8);
 
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", jtbl_004FF8E0);
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_003693E0);
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", Move_FindCommand);
+extern MoveCmd D_0047F780[];
+s32 Cmd_MatchInput(Fighter *f, u16 code, u16 dir, u16 held, u16 pressed);
+
+/* The first entry of a command list that applies at `frame` (see docs/systems/fighter.md section 5.2): 0x8004 enters
+ * the shared list D_0047F780[unk6], 0x8005 returns from it, 0x8000 ends the list (and is returned when nothing
+ * matched) [V]. */
+MoveCmd *Move_FindCommand(MoveCmd *c, s16 frame, Fighter *f, Fighter *o) {
+    u16 dir = f->unk438.unk7C;
+    u16 pressed = f->unk438.unk7E;
+    u16 held = f->unk438.unk80;
+    MoveCmd *ret;
+
+    for (; c->unk0 != 0x8000; c++) {
+        if (c->unk0 == 0x8004) {
+            ret = c;
+            c = &D_0047F780[ret->unk6];
+        } else if (c->unk0 == 0x8005) {
+            c = ret;
+            continue;
+        }
+        if (frame >= c->unkB && frame <= c->unkC && Cmd_MatchInput(f, c->unk0, dir, held, pressed)
+            && Cmd_CheckCondition(f, o, c->unk2) && (c->unk3 & ~0x80) >= 0x61 && func_00369E10(c, f, o)) {
+            return c;
+        }
+    }
+    return c;
+}
 
 s32 func_0036A008(u8 *list, u16 v);
 s32 func_003682A8(s32 a, s16 b);
@@ -518,7 +662,7 @@ INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036A008);
 
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036A050);
 
-s16 func_0036A2D0(Fighter *f) {
+s16 func_0036A2D0(Fighter *f, Fighter *o) {
     s16 n = 0;
 
     if (!(f->unkC0->unk24 & 0x10)) {
@@ -531,22 +675,49 @@ s16 func_0036A2D0(Fighter *f) {
     return n;
 }
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036A330);
+/* The frames of a reaction (kind 0x24, Fighter_StepMove): unk162 from the attacker's move record (its byte 0x1B, else
+ * the longer of the two lengths, 0-300), unk160 from the reaction entry's damage (func_0036C1A0) as 0x22-0x42 [I]. */
+void func_0036A330(Fighter *f, Fighter *o) {
+    struct FighterMove *m = o->unk188;
+    s32 d;
+
+    if (m->unk1B != 0) {
+        f->unk162 = m->unk1B + f->unk188->unk18;
+    } else {
+        d = m->unk18 - f->unk188->unk18;
+        if (d > 0) {
+            f->unk162 = f->unk188->unk18 + d;
+        } else {
+            f->unk162 = m->unk18;
+        }
+        if (f->unk162 < 0) {
+            f->unk162 = 0;
+        }
+        if (f->unk162 > 300) {
+            f->unk162 = 300;
+        }
+    }
+    f->unk160 = (func_0036C1A0(o, f, o->unk188)->unk2 << 5) / 45 + 0x22;
+    if (f->unk160 > 0x41) {
+        f->unk160 = 0x42;
+    }
+    if (f->unk160 < 0x23) {
+        f->unk160 = 0x22;
+    }
+}
 
 #if 0
-/* NON_MATCHING: a first draft from m2c with the types fixed (gotos kept): 1484 instructions instead of 1546, 1089
- * differ. It shows the structure read in docs/systems/fighter.md section 5.3: the frame step, the start of the
- * pending move (tag, resets, flags from the record), the switch on the move kind unk17A (0x2E kinds) and the common
- * tail; the block order, the shared tails of the kinds and the register allocation are far from the original. */
-void func_0036A330(Fighter *f, Fighter *o, s16 n);
-void func_0036C128(Fighter *f);
-void func_00370F28(Fighter *f, Fighter *o, s32 a, s32 b);
+/* NON_MATCHING: rewritten from the assembly in T14 b5 in the original's case order with its shared tails (the frame
+ * step, the move start, the 0x2E kinds, the common tail); 394 of 1546 instruction lines still differ in fdiff: the
+ * order of the stores inside the cases (orders searched per run of stores), the register numbering of the move record
+ * / kind kept for the tail (t3 / t5 against t2 / t3) and a few blocks the original cross-jumps */
+void func_0036A330(Fighter *f, Fighter *o);
+void func_00370F28(Fighter *f, Fighter *o);
 void func_003D2A38(Fighter *f, Fighter *o);
 s32 func_0035BA00(s32 side);
 void Fighter_TagSwap(s32 side);
 void Snd_StopVoiceSeq(Fighter *f);
-void func_00374148(Fighter *f, Fighter *o);
-void Battle_UpdateFacing(Fighter *a, Fighter *b);
+void Fighter_StartLaunch(Fighter *f, Fighter *o);
 s32 func_0036BF00(Fighter *f);
 s16 func_0036C278(s32 cur);
 s16 func_0036C318(s16 cur, s16 k);
@@ -554,1179 +725,922 @@ void func_0036C228(Fighter *f, Fighter *o, struct FighterMove *m);
 void func_00368168(Fighter *f);
 void func_0036BCD0(Fighter *f, s32 arg1);
 void func_0036BDA0(Fighter *f);
-s16 func_0036A2D0(Fighter *f);
+void func_0036C128(Fighter *f);
+
+/* The frame of a move that continues from the current one (func_0036BF00), else frame 1, clamped to its length. */
+#define STEP_CONTINUE(f)                                                                                              \
+    if (func_0036BF00(f) != 0) {                                                                                      \
+        f->unkC4++;                                                                                                   \
+        f->unkBC++;                                                                                                   \
+    } else {                                                                                                          \
+        f->unkBC = f->unkC4 = 1;                                                                                      \
+    }                                                                                                                 \
+    if (f->unk188->unk18 < f->unkC4) {                                                                                \
+        f->unkBC = f->unkC4 = f->unk188->unk18;                                                                       \
+    }
+
 void Fighter_StepMove(Fighter *f, Fighter *o) {
-    s16 temp_a0;
-    s16 temp_a0_6;
-    s16 temp_a1_8;
-    s16 temp_a2_5;
-    s16 temp_v0;
-    s16 temp_v0_10;
-    s16 temp_v0_11;
-    s16 temp_v0_13;
-    s16 temp_v0_15;
-    s16 temp_v0_20;
-    s16 temp_v0_29;
-    s16 temp_v0_2;
-    s16 temp_v0_8;
-    s16 temp_v0_9;
-    s16 temp_v1;
-    s16 temp_v1_2;
-    s16 var_v0_11;
-    s16 var_v0_14;
-    s16 var_v0_18;
-    s16 var_v0_19;
-    s16 var_v0_2;
-    s16 var_v0_9;
-    s16 *temp_a1_10;
-    s32 temp_a1_9;
-    s32 temp_s3;
-    s16 *temp_v0_26;
-    s32 temp_v0_28;
-    s16 *var_a0;
-    s16 *var_a2;
-    s32 var_s0;
-    s32 var_v0_12;
-    s32 var_v0_13;
-    s16 *var_v0_15;
-    s32 var_v0_17;
-    s32 var_v0_3;
-    s32 var_v1;
-    struct FighterMove *temp_a0_8;
-    struct FighterUnk18C *temp_a3_2;
-    struct FighterUnk18C *temp_t1;
-    struct FighterMove *temp_t2;
-    struct FighterMove *temp_t2_10;
-    struct FighterMove *temp_t2_11;
-    struct FighterMove *temp_t2_12;
-    struct FighterMove *temp_t2_13;
-    struct FighterMove *temp_t2_14;
-    struct FighterMove *temp_t2_2;
-    struct FighterMove *temp_t2_3;
-    struct FighterMove *temp_t2_4;
-    struct FighterMove *temp_t2_5;
-    struct FighterMove *temp_t2_6;
-    struct FighterMove *temp_t2_7;
-    struct FighterMove *temp_t2_8;
-    struct FighterMove *temp_t2_9;
-    struct FighterMove *temp_a0_3;
-    struct FighterMove *temp_a0_4;
-    struct FighterMove *temp_a2_7;
-    struct FighterMove *temp_v1_4;
-    u16 temp_a0_5;
-    u16 temp_a0_7;
-    u16 temp_a1;
-    u16 temp_a1_11;
-    u16 temp_a1_2;
-    u16 temp_a1_4;
-    u16 temp_a1_5;
-    u16 temp_a1_6;
-    u16 temp_a1_7;
-    u16 temp_a2_2;
-    u16 temp_a2_3;
-    u16 temp_a2_4;
-    u16 temp_a2_6;
-    u16 temp_t3;
-    u16 temp_v0_23;
-    u16 temp_v0_24;
-    u16 temp_v0_25;
-    u16 temp_v0_3;
-    u16 temp_v0_6;
-    u16 temp_v1_5;
-    u16 temp_v1_6;
-    u16 temp_v1_7;
-    u16 var_a0_2;
-    u16 var_v0_16;
-    u16 var_v0_6;
-    u16 var_v1_2;
-    u16 var_v1_3;
-    u16 var_v1_4;
-    u32 temp_a3;
-    s16 *temp_v0_27;
-    u32 temp_v0_5;
-    MoveCmd *var_s0_2;
-    u8 temp_a0_2;
-    u8 temp_a1_3;
-    u8 temp_a2;
-    u8 temp_v0_12;
-    u8 temp_v0_14;
-    u8 temp_v0_16;
-    u8 temp_v0_17;
-    u8 temp_v0_18;
-    u8 temp_v0_19;
-    u8 temp_v0_21;
-    u8 temp_v0_22;
-    u8 temp_v0_4;
-    u8 temp_v0_7;
-    u8 temp_v1_3;
-    u8 var_v0;
-    u8 var_v0_10;
-    u8 var_v0_4;
-    u8 var_v0_5;
-    u8 var_v0_7;
-    u8 var_v0_8;
+    s32 start;
+    s32 snap;
+    MoveCmd *c;
+    u16 id;
+    u32 fl;
+    u16 w;
+    struct FighterMove *m;
+    struct FighterUnk18C *p;
+    Unk5E8978 *e;
 
-    if (f->unk127 != 0) {
-        temp_v0 = (u16) f->unk170 - 1;
-        f->unk170 = temp_v0;
-        if (temp_v0 & 0x8000) {
-            f->unk170 = 0;
+    if (f->unk127 == 0) {
+        return;
+    }
+    f->unk170--;
+    if (f->unk170 < 0) {
+        f->unk170 = 0;
+    }
+    start = 1;
+    if (f->unk188 != NULL) {
+        if (f->unkDA > 0) {
+            start = 0;
+            if (f->unkC4 >= f->unk178 || f->unkC4 >= f->unkC0->unk18) {
+                start = 1;
+            }
+        } else if (f->unkDA < 0) {
+            start = 0;
+            if (f->unkC4 <= f->unk178 || f->unkC4 <= 0) {
+                start = 1;
+            }
         }
-        var_s0 = 1;
-        if (f->unk188 != NULL) {
-            temp_v0_2 = f->unkDA;
-            if (temp_v0_2 > 0) {
-                temp_a0 = f->unkC4;
-                var_s0 = 0;
-                if (temp_a0 < f->unk178) {
-                    if (temp_a0 >= (s32) f->unkC0->unk18) {
-                        var_s0 = 1;
-                    }
-                } else {
-                    goto block_11;
-                }
-            } else if ((temp_v0_2 < 0) && ((temp_v1 = f->unkC4, var_s0 = 0, ((f->unk178 < temp_v1) == 0)) || (temp_v1 <= 0))) {
-block_11:
-                var_s0 = 1;
-            }
-        } else {
-            var_s0 = 0;
-        }
-        func_0036BCD0(f, var_s0);
-        if (var_s0 != 0) {
-            if ((u16) f->unk180 != 0) {
-                if (D_005F5EF4 != 0) {
-                    var_s0_2 = (MoveCmd *)f->unkC0->unkC;
-                    if (var_s0_2->unk0 != 0x8000) {
-                        do {
-                            var_s0_2++;
-                        } while (var_s0_2->unk0 != 0x8000);
-                    }
-                    temp_v0_3 = var_s0_2->unk6;
-                    f->unk184 = temp_v0_3;
-                    f->unk188 = func_00368218(f, (s16) temp_v0_3);
-                    f->unkD8 = var_s0_2->unkC - (u16) f->unkC4;
-                    f->unk17A = func_0036BE08(f, var_s0_2->unk8 & 0x7F);
-                    f->unk17C = var_s0_2->unk8 & 0x8000;
-                    f->unk180 = 0;
-                    f->unk182 = 0;
-                    f->unk17E = var_s0_2->unk8 & 0x4000;
-                    if (f->unkDA < 0) {
-                        var_v0 = var_s0_2->unkC;
-                    } else {
-                        var_v0 = var_s0_2->unkD;
-                    }
-                    f->unk178 = (s16) var_v0;
-                    if (f->unk178 == 0xFF) {
-                        f->unk178 = (s16) f->unkC0->unk18;
-                    }
-                    f->unkF8 = 2;
-                    f->unk12D = 1;
-                } else {
-                    temp_a1 = (u16) f->unk182;
-                    if (temp_a1 != 0) {
-                        if ((f->unk418 == 0) && (f->unk2A == 0x21)) {
-                            var_v0_2 = func_0036C278(f->unk28);
-                        } else {
-                            var_v0_2 = func_0036C318(f->unk28, (s16) temp_a1);
-                        }
-                        f->unk28 = var_v0_2;
-                        func_00368168(f);
-                    } else {
-                        Fighter_TagSwap((s32) f->unk1E);
-                        f->unkB134 = 1;
-                        Battle_UpdateFacing(f, o);
-                    }
-                    f->unk188 = func_00368218(f, (s16) f->unk184);
-                    func_0036C228(o, f, o->unkC0);
-                }
-                if (o->unkC0->unk4 & 0x400) {
-                    o->unk100 = -1;
-                }
-                f->unk182 = 0;
-                f->unk180 = 0;
-            }
-            func_003D2A38(f, o);
-            func_0036BDA0(f);
-            if (f->unkF8 == 3) {
-                f->unk178 = 1;
-            }
-            f->unkF2 = 0;
-            f->unkD6 = -1;
-            f->unk11D = 0;
-            f->unkF0 = 0;
-            f->unk11E = 0;
-            f->unk110 = o->unk51C;
-            f->unkDA = 1;
-            f->unk114 = o->unk524;
-            f->unkF1 = 0;
-            f->unk46 = 0;
-            f->unk11A = 0;
-            f->unk438.unk82 = 0;
-            f->unk11F = 0;
+    } else {
+        start = 0;
+    }
+    func_0036BCD0(f, start);
+    if (start == 0) {
+        f->unkC8++;
+        f->unk134 = 0;
+        if (f->unkE4 > 0 && f->unkFE != 0) {
             f->unkE4 = 0;
-            f->unk120 = 0;
-            f->unk122 = 0;
-            f->unk124 = 0;
-            f->unk14E = 0;
-            if (f->unk148 != 0) {
-                f->unkCA = (s16) (u16) f->unk148;
+        }
+        if (f->unkE4 < 0 || (f->unkE4 > 0 && f->unkFE == 0)) {
+            if (f->unkE4 < 0) {
+                f->unkE4++;
             } else {
-                func_0036C228(f, o, f->unk188);
+                f->unkE4--;
             }
-            temp_t2 = f->unk188;
-            temp_a2 = f->unk12C;
-            temp_a3 = temp_t2->unk4;
-            f->unkCC = (s32) temp_a3;
-            temp_a1_2 = temp_t2->unk8;
-            f->unkD5 = (temp_a3 >> 0xB) & 0x1F;
-            f->unkD4 = (u8) (temp_a1_2 >> 8);
-            f->unkD2 = (u16) f->unkCC & 0x18;
-            f->unkD0 = temp_a1_2;
-            if ((temp_a2 == 0) && (temp_a3 & 0x100)) {
-                f->unkD2 = 0;
-                f->unkCC = temp_a3 & 0xFFFFFFE7;
+            if (f->unkE4 != 0) {
+                return;
             }
-            if (f->unk130 != 0) {
-                f->unkF6 = 1;
-            } else {
-                f->unkF6 = 0;
-            }
-            temp_a1_3 = f->unk12F;
-            if (temp_a1_3 == 0) {
-                f->unkF3 = 0;
-                f->unkFE = 0;
-                f->unk100 = 0;
-            }
-            if (f->unk132 == 0) {
-                f->unkF4 = 0;
-            }
-            temp_a0_2 = f->unk4C0.unk11;
-            f->unkF5 = 0;
-            if (temp_a0_2 != 0) {
-                if (f->unk131 == 0) {
-                    if (f->unkF7 == 0) {
-                        f->unkF9 = 0;
-                    } else {
-                        goto block_91;
+            f->unkBC = f->unkC4 = f->unkC4 + 1;
+            f->unkB8 = f->unkC0;
+            return;
+        }
+        {
+            if (f->unkD6 >= 0) {
+                if (f->unkC4 == f->unkC0->unk1B) {
+                    if (f->unkD6 > 0) {
+                        f->unkD6--;
+                        f->unkBC++;
+                    } else if (f->unkD6 == 0) {
+                        f->unkB8 = f->unkC0;
+                        f->unkBC = f->unkC4 = f->unkC4 + 1;
                     }
                 } else {
-block_91:
-                    f->unkF9 = 1;
+                    f->unkC4++;
+                    f->unkBC++;
+                }
+            } else if (f->unkFE != 0) {
+                if (f->unkC4 != f->unkC0->unk1B) {
+                    f->unkBC = f->unkC4 = f->unkC4 + 1;
                 }
             } else {
-                temp_v0_4 = f->unk131;
-                f->unkF9 = temp_v0_4;
-                f->unkF7 = temp_v0_4;
-            }
-            var_v0_3 = temp_a0_2 & 0xFF;
-            if (temp_a1_3 & 0xFF) {
-                var_v0_3 = temp_a0_2 & 0xFF;
-                if (f->unk40C != 0) {
-                    f->unkE4 = (s16) f->unk14C;
-                    var_v0_3 = temp_a0_2 & 0xFF;
-                }
-            }
-            if (var_v0_3 != 0) {
-                if (f->unkE0 != 0) {
-                    f->unkE2 = (s16) (u16) f->unkE0;
-                    goto block_101;
-                }
-                var_v1 = f->unkF8 & 0xFF;
-                if (f->unkE2 == 0) {
-                    goto block_100;
-                }
-            } else {
-block_100:
-                f->unkE2 = 0;
-block_101:
-                var_v1 = f->unkF8 & 0xFF;
-            }
-            if (var_v1 != 3) {
-                if (var_v1 != 1) {
-                    if (temp_t2->unk0 != f->unkC0->unk0) {
-                        goto block_108;
-                    }
-                } else {
-                    goto block_107;
-                }
-            } else {
-block_107:
-block_108:
-                f->unk134 = 1;
-            }
-            temp_v0_5 = f->unkC0->unk24;
-            temp_s3 = (temp_v0_5 >> 0x13) & 1;
-            if (temp_v0_5 & 0x200) {
-                f->unk16A = 0x78;
-            }
-            if (temp_t2->unk24 & 8) {
-                f->unk164 = 9;
-            }
-            if (f->unk17C != 0) {
-                f->unk17C = 0;
-                f->unk3C = (u16) f->unk3C - 0x8000;
-                f->unk1A -= 0x8000;
-            }
-            if ((f->unk12D != 0) && (f->unk17A != 0x24)) {
-                temp_v0_6 = (u16) f->unk3C + f->unkC0->unk12;
-                f->unk1A = temp_v0_6;
-                f->unk3C = (s16) temp_v0_6;
-            }
-            f->unk12D = 0;
-            func_00370F28(f, o, (s32) temp_a2, (s32) temp_a3);
-            if (!(f->unk188->unk4 & 0x01000000)) {
-                f->unk129 = 0;
-            } else {
-                f->unk129 = func_0035BA00((s32) f->unk1E) + 1;
-            }
-            temp_t3 = (u16) f->unk17A;
-            switch ((s16) temp_t3) {                /* switch 1 */
-            case 0:                                 /* switch 1 */
-                temp_a1_4 = (u16) f->unk3A;
-                f->unkBC = 1;
-                f->unk1A = temp_a1_4;
-                f->unk4 = f->unk51C;
-                f->unkC = f->unk524;
-                f->unkC4 = 1;
-                f->unkB8 = f->unk188;
-                f->unk3C = (s16) temp_a1_4;
-block_125:
-                f->unkE0 = 0;
-                break;
-            case 1:                                 /* switch 1 */
-                f->unk1A = (u16) f->unk3C;
-                /* fallthrough */
-            case 2:                                 /* switch 1 */
-            case 3:                                 /* switch 1 */
-                if (func_0036BF00(f) != 0) {
-                    f->unkC4 = (u16) f->unkC4 + 1;
-                    f->unkBC = (u16) f->unkBC + 1;
-                } else {
-                    f->unkBC = 1;
+                f->unkC4 += f->unkDA;
+                if (f->unkC4 <= 0) {
                     f->unkC4 = 1;
                 }
-                temp_t2_2 = f->unk188;
-                if ((s32) temp_t2_2->unk18 < f->unkC4) {
-                    temp_v0_7 = temp_t2_2->unk18;
-                    f->unkBC = (s16) temp_v0_7;
-                    f->unkC4 = (s16) temp_v0_7;
-                }
-                f->unk11E = 0xB;
-                f->unk4 = f->unk51C;
-                f->unkC = f->unk524;
-                f->unk126 = 1;
-                f->unkB8 = temp_t2_2;
-                f->unkE0 = 0;
-                break;
-            case 4:                                 /* switch 1 */
-                f->unkC4 = 1;
-                temp_v1_2 = (u16) f->unkBC + 1;
-                temp_a0_3 = f->unkB8;
-                f->unkBC = temp_v1_2;
-                if ((s32) temp_a0_3->unk18 < temp_v1_2) {
-                    f->unkBC = (s16) temp_a0_3->unk18;
-                }
-                temp_a1_5 = (u16) f->unk3C;
-                f->unkD6 = (s16) (u16) f->unkD8;
-                f->unk11E = 0xB;
-                f->unk1A = temp_a1_5;
-                if ((s16) f->unk40 < 0x4FA5) {
-                    temp_v0_8 = f->unk188->unk2C - 1;
-                    f->unk15C = temp_v0_8;
-                    if (temp_v0_8 <= 0) {
-                        f->unk15C = 1;
-                    }
-                    f->unk15E = (s16) ((s16) ((u16) f->unk3A - temp_a1_5) / (s16) f->unk15C);
-                }
-                goto block_125;
-            case 5:                                 /* switch 1 */
-                f->unkC4 = 1;
-                temp_v0_9 = (u16) f->unkBC + 1;
-                temp_a0_4 = f->unkB8;
-                f->unkBC = temp_v0_9;
-                if ((s32) temp_a0_4->unk18 < temp_v0_9) {
-                    f->unkBC = (s16) temp_a0_4->unk18;
-                }
-                f->unkD6 = (s16) (u16) f->unkD8;
-                f->unk1A = (u16) f->unk3C;
-                if ((s16) f->unk40 < 0x4FA4) {
-                    var_v0_4 = 4;
-                } else {
-                    var_v0_4 = 6;
-                }
-                f->unk11E = var_v0_4;
-                f->unk15C = 0;
-                f->unk15E = 0;
-                f->unkE0 = 0;
-                /* fallthrough */
-                break;
-            case 6:                                 /* switch 1 */
-                f->unkBC = 1;
-                f->unk1A = (u16) f->unk3C;
-                f->unkC4 = 1;
-                f->unkB8 = f->unk188;
-                if (temp_s3 != 0) {
-                    f->unk4 = f->unk51C;
-                    f->unkC = f->unk524;
-                }
-                goto block_125;
-            case 7:                                 /* switch 1 */
-                temp_t2_3 = f->unk188;
-                temp_v1_3 = temp_t2_3->unk18;
-                f->unk1A = (u16) f->unk3C;
-                f->unkBC = (s16) temp_v1_3;
-                f->unkC4 = (s16) temp_v1_3;
-                f->unkB8 = temp_t2_3;
-                if (temp_s3 != 0) {
-                    f->unk4 = f->unk51C;
-                    f->unkC = f->unk524;
-                }
-                f->unkE0 = 0;
-                f->unkDA = -1;
-                break;
-            case 8:                                 /* switch 1 */
-                temp_v0_10 = (u16) f->unkC4 - 1;
-                f->unkC4 = temp_v0_10;
-                if ((temp_v0_10 << 0x10) <= 0) {
-                    f->unkC4 = 1;
-                }
-                f->unkBC = (s16) (u16) f->unkC4;
-                f->unk1A = (u16) f->unk3C;
-                f->unkDA = -1;
-                f->unk4 = f->unk51C;
-                f->unkC = f->unk524;
-                f->unk126 = 1;
-                f->unkB8 = f->unk188;
-                goto block_125;
-            case 9:                                 /* switch 1 */
-                f->unkBC = 1;
-                f->unk1A = (u16) f->unk44;
-                f->unk11E = 5;
-                f->unkC4 = 1;
-                f->unkB8 = f->unk188;
-                f->unkE0 = 0;
-                f->unk15C = 0;
-                f->unk15E = 0;
-block_314:
-                if (temp_s3 != 0) {
-                    f->unk4 = f->unk51C;
-                    f->unkC = f->unk524;
-                }
-                break;
-            case 10:                                /* switch 1 */
-                f->unk1A = (u16) f->unk3C;
-block_158:
-                temp_t2_4 = f->unk188;
-                f->unkBC = 1;
-                f->unkC4 = 1;
-                f->unkB8 = temp_t2_4;
-                if (temp_t2_4->unk2C == 0) {
-                    temp_v1_4 = f->unkC0;
-                    if ((u8) temp_v1_4->unk18 < 0x10U) {
-                        var_v0_5 = temp_v1_4->unk18;
-                    } else {
-                        var_v0_5 = 0x10;
-                    }
-                } else {
-                    var_v0_5 = temp_t2_4->unk2C - 1;
-                }
-                f->unk15C = (s16) var_v0_5;
-                var_v1_2 = (u16) f->unk15C;
-                if (f->unk15C <= 0) {
-                    var_v1_2 = 1;
-                    f->unk15C = 1;
-                }
-                var_v0_6 = (u16) f->unk3A;
-                if ((u16) f->unk40 < 0x4000U) {
-
-                } else {
-                    var_v0_6 -= 0x8000;
-                }
-                f->unk44 = (s16) var_v0_6;
-                f->unk15E = (s16) ((s16) ((u16) f->unk44 - (u16) f->unk3C) / (s16) var_v1_2);
-                if (temp_s3 != 0) {
-                    f->unk4 = f->unk51C;
-                    f->unkC = f->unk524;
-                }
-                var_v0_7 = 0xB;
-block_235:
-                f->unkE0 = 0;
-                f->unk11E = var_v0_7;
-                break;
-            case 11:                                /* switch 1 */
-                f->unk1A = (u16) f->unk44;
-                goto block_158;
-            case 12:                                /* switch 1 */
-                f->unkBC = 1;
-                f->unkC4 = 1;
-                f->unkB8 = f->unk188;
-                if ((s16) f->unk40 < 0x4FA4) {
-                    var_v1_3 = (u16) f->unk3A;
-                    var_v0_8 = 4;
-                } else {
-                    var_v1_3 = (u16) f->unk44;
-                    var_v0_8 = 6;
-                }
-                f->unk11E = var_v0_8;
-                f->unk1A = var_v1_3;
-                f->unkE0 = 0;
-                f->unk15C = 0;
-                f->unk15E = 0;
-                goto block_314;
-            case 13:                                /* switch 1 */
-                f->unkBC = 1;
-                f->unkC4 = 1;
-                f->unkB8 = f->unk188;
-                f->unk1A = (u16) f->unk44;
-                if ((s16) f->unk40 < 0x4FA4) {
-                    f->unk11E = 3;
-                    f->unk1A = (u16) f->unk3A;
-                } else {
-                    f->unk11E = 6;
-                }
-                f->unkE0 = 0;
-                f->unk15C = 0;
-                f->unk15E = 0;
-                goto block_314;
-            case 14:                                /* switch 1 */
-                f->unkBC = 1;
-                f->unkC4 = 1;
-                f->unkB8 = f->unk188;
-                f->unk1A = (u16) f->unk44;
-                if ((s16) f->unk40 < 0x4FA4) {
-                    f->unk11E = 2;
-                    f->unk1A = (u16) f->unk3A;
-                } else {
-                    f->unk11E = 6;
-                }
-                f->unkE0 = 0;
-                f->unk15C = 0;
-                f->unk15E = 0;
-                goto block_314;
-            case 15:                                /* switch 1 */
-                f->unk11E = 1;
-                f->unk1A = (u16) f->unk44;
-                f->unkC4 = 1;
-                f->unkBC = 1;
-                f->unkB8 = f->unk188;
-                f->unkE0 = 0;
-                f->unk15C = 0;
-                f->unk15E = 0;
-                goto block_314;
-            case 16:                                /* switch 1 */
-                temp_t2_5 = f->unk188;
-                temp_a1_6 = (u16) f->unk3A;
-                f->unk11E = 0xB;
-                f->unkC4 = 1;
-                f->unkBC = 1;
-                f->unkB8 = temp_t2_5;
-                f->unk1A = temp_a1_6;
-                temp_v0_11 = temp_t2_5->unk2C - 1;
-                f->unk15C = temp_v0_11;
-                if (temp_v0_11 <= 0) {
-                    f->unk15C = 1;
-                }
-                f->unkF0 = 1;
-                f->unkE0 = 0;
-                f->unkE8 = 0;
-                f->unkEC = 0;
-                f->unk15E = (s16) ((s16) (temp_a1_6 - (u16) f->unk3C) / (s16) f->unk15C);
-                goto block_314;
-            case 18:                                /* switch 1 */
-                if (func_0036BF00(f) != 0) {
-                    f->unkC4 = (u16) f->unkC4 + 1;
-                    f->unkBC = (u16) f->unkBC + 1;
-                } else {
-                    f->unkBC = 1;
-                    f->unkC4 = 1;
-                }
-                temp_t2_6 = f->unk188;
-                if ((s32) temp_t2_6->unk18 < f->unkC4) {
-                    temp_v0_12 = temp_t2_6->unk18;
-                    f->unkBC = (s16) temp_v0_12;
-                    f->unkC4 = (s16) temp_v0_12;
-                }
-                temp_a0_5 = (u16) f->unk3A;
-                f->unkF0 = 1;
-                f->unk11E = 0xB;
-                f->unkB8 = temp_t2_6;
-                f->unkE0 = 0;
-                f->unkE8 = 0;
-                f->unkEC = 0;
-                f->unk1A = temp_a0_5;
-                temp_v0_13 = temp_t2_6->unk2C - 1;
-                f->unk15C = temp_v0_13;
-                if (temp_v0_13 <= 0) {
-                    f->unk15C = 1;
-                }
-                var_v0_9 = temp_a0_5 - (u16) f->unk3C;
-block_198:
-                f->unk15E = (s16) (var_v0_9 / f->unk15C);
-block_199:
-                if (temp_s3 != 0) {
-                    f->unk4 = f->unk51C;
-                    f->unkC = f->unk524;
-                }
-                break;
-            case 19:                                /* switch 1 */
-                if (func_0036BF00(f) != 0) {
-                    f->unkC4 = (u16) f->unkC4 + 1;
-                    f->unkBC = (u16) f->unkBC + 1;
-                } else {
-                    f->unkBC = 1;
-                    f->unkC4 = 1;
-                }
-                temp_t2_7 = f->unk188;
-                if ((s32) temp_t2_7->unk18 < f->unkC4) {
-                    temp_v0_14 = temp_t2_7->unk18;
-                    f->unkBC = (s16) temp_v0_14;
-                    f->unkC4 = (s16) temp_v0_14;
-                }
-                temp_a1_7 = (u16) f->unk3A;
-                f->unkF0 = 1;
-                f->unk11E = 0xB;
-                f->unk3C = (u16) f->unk3C - 0x8000;
-                f->unkB8 = temp_t2_7;
-                f->unkE0 = 0;
-                f->unkE8 = 0;
-                f->unkEC = 0;
-                f->unk1A = temp_a1_7;
-                temp_v0_15 = temp_t2_7->unk2C - 1;
-                f->unk15C = temp_v0_15;
-                if (temp_v0_15 <= 0) {
-                    f->unk15C = 1;
-                }
-                var_v0_9 = temp_a1_7 - (u16) f->unk3C;
-                goto block_198;
-            case 20:                                /* switch 1 */
-                if (func_0036BF00(f) != 0) {
-                    f->unkC4 = (u16) f->unkC4 + 1;
-                    f->unkBC = (u16) f->unkBC + 1;
-                } else {
-                    f->unkBC = 1;
-                    f->unkC4 = 1;
-                }
-                temp_t2_8 = f->unk188;
-                if ((s32) temp_t2_8->unk18 < f->unkC4) {
-                    temp_v0_16 = temp_t2_8->unk18;
-                    f->unkBC = (s16) temp_v0_16;
-                    f->unkC4 = (s16) temp_v0_16;
-                }
-                f->unkB8 = temp_t2_8;
-                if ((s16) f->unk40 < 0x4FA4) {
-                    var_v0_10 = 4;
-                } else {
-block_216:
-                    var_v0_10 = 6;
-                }
-block_217:
-                f->unk11E = var_v0_10;
-                f->unk4 = f->unk51C;
-                f->unkC = f->unk524;
-                f->unk126 = 1;
-block_218:
-                f->unkE0 = 0;
-                f->unk15C = 0;
-                f->unk15E = 0;
-                break;
-            case 21:                                /* switch 1 */
-                if (func_0036BF00(f) != 0) {
-                    f->unkC4 = (u16) f->unkC4 + 1;
-                    f->unkBC = (u16) f->unkBC + 1;
-                } else {
-                    f->unkBC = 1;
-                    f->unkC4 = 1;
-                }
-                temp_t2_9 = f->unk188;
-                if ((s32) temp_t2_9->unk18 < f->unkC4) {
-                    temp_v0_17 = temp_t2_9->unk18;
-                    f->unkBC = (s16) temp_v0_17;
-                    f->unkC4 = (s16) temp_v0_17;
-                }
-                f->unkB8 = temp_t2_9;
-                if ((s16) f->unk40 < 0x4FA4) {
-                    var_v0_10 = 2;
-                } else {
-                    goto block_216;
-                }
-                goto block_217;
-            case 22:                                /* switch 1 */
-                if (func_0036BF00(f) != 0) {
-                    f->unkC4 = (u16) f->unkC4 + 1;
-                    f->unkBC = (u16) f->unkBC + 1;
-                } else {
-                    f->unkBC = 1;
-                    f->unkC4 = 1;
-                }
-                temp_t2_10 = f->unk188;
-                if ((s32) temp_t2_10->unk18 < f->unkC4) {
-                    temp_v0_18 = temp_t2_10->unk18;
-                    f->unkBC = (s16) temp_v0_18;
-                    f->unkC4 = (s16) temp_v0_18;
-                }
-                f->unk11E = 8;
-                f->unk4 = f->unk51C;
-                f->unkC = f->unk524;
-                f->unk126 = 1;
-                f->unkB8 = temp_t2_10;
-                goto block_218;
-            case 23:                                /* switch 1 */
-                f->unkBC = 1;
-                f->unk1A = (u16) f->unk3C;
-                f->unkC4 = 1;
-                f->unkB8 = f->unk188;
-                if (temp_s3 != 0) {
-                    f->unk4 = f->unk51C;
-                    f->unkC = f->unk524;
-                }
-                var_v0_7 = 9;
-                goto block_235;
-            case 24:                                /* switch 1 */
-                f->unkBC = 1;
-                f->unk1A = (u16) f->unk44;
-                f->unk11E = 8;
-                f->unkC4 = 1;
-                f->unkB8 = f->unk188;
-                f->unkE0 = 0;
-                goto block_314;
-            case 25:                                /* switch 1 */
-                f->unkE0 = 0;
-                if (func_0036BF00(f) != 0) {
-                    f->unkC4 = (u16) f->unkC4 + 1;
-                    f->unkBC = (u16) f->unkBC + 1;
-                } else {
-                    f->unkBC = 1;
-                    f->unkC4 = 1;
-                }
-                temp_t2_11 = f->unk188;
-                if ((s32) temp_t2_11->unk18 < f->unkC4) {
-                    temp_v0_19 = temp_t2_11->unk18;
-                    f->unkBC = (s16) temp_v0_19;
-                    f->unkC4 = (s16) temp_v0_19;
-                }
-                f->unk11E = 8;
-                f->unk4 = f->unk51C;
-                f->unkC = f->unk524;
-                f->unk126 = 1;
-                f->unkB8 = temp_t2_11;
-                break;
-            case 26:                                /* switch 1 */
-            case 27:                                /* switch 1 */
-                temp_v0_20 = (u16) f->unkC4 + 1;
-                temp_t2_12 = f->unk188;
-                f->unkC4 = temp_v0_20;
-                f->unkBC = (u16) f->unkBC + 1;
-                if ((s32) temp_t2_12->unk18 < temp_v0_20) {
-                    temp_v0_21 = temp_t2_12->unk18;
-                    f->unkBC = (s16) temp_v0_21;
-                    f->unkC4 = (s16) temp_v0_21;
-                }
-                f->unkB8 = temp_t2_12;
-                f->unk1A = (u16) f->unk3C;
-                if ((s16) temp_t3 == 0x1A) {
-                    f->unk11A = 1;
-                } else {
-                    f->unk11A = 2;
-                }
-                break;
-            case 28:                                /* switch 1 */
-                f->unkBC = 1;
-                f->unk1A = (u16) f->unk3C;
-                f->unk11E = 0xA;
-                f->unkC4 = 1;
-                f->unkB8 = f->unk188;
-                f->unkE0 = 0;
-                f->unk15C = 0;
-                f->unk15E = 0;
-                if (temp_s3 != 0) {
-                    f->unk4 = f->unk51C;
-                    f->unkC = f->unk524;
-                }
-                f->unk170 = 0x18;
-                break;
-            case 29:                                /* switch 1 */
-                if (func_0036BF00(f) != 0) {
-                    f->unkC4 = (u16) f->unkC4 + 1;
-                    f->unkBC = (u16) f->unkBC + 1;
-                } else {
-                    f->unkBC = 1;
-                    f->unkC4 = 1;
-                }
-                temp_t2_13 = f->unk188;
-                if ((s32) temp_t2_13->unk18 < f->unkC4) {
-                    temp_v0_22 = temp_t2_13->unk18;
-                    f->unkBC = (s16) temp_v0_22;
-                    f->unkC4 = (s16) temp_v0_22;
-                }
-                f->unk11E = 0xA;
-                f->unk1A = (u16) f->unk3C;
-                f->unkB8 = temp_t2_13;
-                f->unkE0 = 0;
-                f->unk15C = 0;
-                f->unk15E = 0;
-                goto block_199;
-            case 30:                                /* switch 1 */
-                f->unkFA = 1;
-                f->unk8 = f->unk520;
-                f->unkFC = 4;
-                f->unk184 = func_00374010(4)->unk0;
-                func_00374148(f, o);
-                temp_a2_2 = (u16) f->unk178;
-                f->unkFE = 1;
-                f->unk11D = 1;
-                f->unkE0 = 0;
-                f->unkBC = (s16) temp_a2_2;
-                f->unkB8 = f->unk188;
-                f->unk100 = (u16) f->unk100 + 1;
-                f->unkC4 = (s16) temp_a2_2;
-                f->unk160 = func_0036A2D0(f);
-                f->unk11E = 0xB;
-                if (!(f->unkC0->unk24 & 0x10)) {
-block_261:
-                    f->unk1A = (u16) f->unk44;
-                } else {
-block_260:
-                    f->unk1A = (u16) f->unk44 + f->unk18C->unk0;
-                }
-block_262:
-                f->unk15C = 0;
-                f->unk15E = 0;
-                if (temp_s3 != 0) {
-                    f->unk4 = f->unk51C;
-                    f->unkC = f->unk524;
-                }
-                break;
-            case 31:                                /* switch 1 */
-            case 32:                                /* switch 1 */
-                temp_a2_3 = (u16) f->unkE0;
-                temp_t2_14 = f->unk188;
-                f->unkBC = 1;
-                f->unkC4 = 1;
-                f->unkB8 = temp_t2_14;
-                if ((s16) temp_a2_3 == 0) {
-                    temp_a1_8 = (u16) f->unk3A - 0x8000;
-                    f->unk3C = temp_a1_8;
-                    temp_a0_6 = o->unk42;
-                    switch (temp_a0_6) {            /* switch 2; irregular */
-                    default:                        /* switch 2 */
-                        var_v0_11 = temp_a1_8 - 0x4000;
-                        if (temp_a0_6 != 3) {
-
-                        } else {
-block_272:
-                            f->unk3C = var_v0_11;
-                        }
-                        break;
-                    case 1:                         /* switch 2 */
-                        var_v0_11 = temp_a1_8 + 0x4000;
-                        goto block_272;
-                    case 2:                         /* switch 2 */
-                        var_v0_11 = temp_a1_8 - 0x8000;
-                        goto block_272;
-                    }
-                    temp_a0_7 = (u16) f->unk3C;
-                    f->unk15C = 0x10;
-                    f->unk1A = temp_a0_7;
-                    f->unk15E = (s16) ((s16) ((u16) o->unk3C - temp_a0_7) / 16);
-                    goto block_278;
-                }
-                if ((s16) temp_a2_3 >= 0) {
-                    var_v0_12 = temp_a2_3 << 0x10;
-                    if (temp_t2_14->unk24 & 0x1000) {
-                        f->unk3C = (u16) f->unk3C + (u16) f->unkC0->unk12;
-                        temp_v1_5 = o->unk1A;
-                        f->unk1A = temp_v1_5;
-                        f->unk3C = (s16) temp_v1_5;
-                        f->unk4 = o->unk51C;
-                        f->unkC = o->unk524;
-                        goto block_281;
-                    }
-                } else {
-                    temp_v0_23 = o->unk1A;
-                    f->unk1A = temp_v0_23;
-                    f->unk3C = (s16) temp_v0_23;
-block_278:
-                    f->unk4 = o->unk51C;
-                    f->unkC = o->unk524;
-block_281:
-                    var_v0_12 = temp_a2_3 << 0x10;
-                }
-                f->unk150 = 0;
-                f->unk152 = 0;
-                f->unk154 = 0;
-                if (var_v0_12 < 0) {
-                    f->unkE0 = 1;
-                } else {
-                    f->unkE0 = temp_a2_3 + 1;
-                }
-                break;
-            case 36:                                /* switch 1 */
-                if (f->unkE0 >= 0) {
-                    if (((func_0036C1A0(f, o, f->unkC0)->unk2 != 0) && (f->unkC4 < (s32) f->unkC0->unk2C)) || (o->unk16A != 0)) {
-                        f->unk120 = 1;
-                    }
-                }
-                temp_a0_8 = f->unk188;
-                f->unkF2 = 1;
-                f->unkC4 = 1;
-                f->unkBC = 1;
-                f->unkB8 = temp_a0_8;
-                if (!((u16) f->unkE0 & 0x8000)) {
-                    temp_a1_9 = f->unk524;
-                    temp_v0_24 = (u16) f->unk3C - 0x8000;
-                    f->unk1A = temp_v0_24;
-                    f->unk4 = f->unk51C;
-                    f->unkC = temp_a1_9;
-                    f->unk3C = (s16) temp_v0_24;
-                    Snd_StopVoiceSeq(f);
-                    goto block_295;
-                }
-                var_v0_13 = (u16) f->unkE0 << 0x10;
-                if (temp_a0_8->unk24 & 0x1000) {
-                    temp_v0_25 = (u16) f->unk3C + (u16) f->unkC0->unk12;
-                    f->unk1A = temp_v0_25;
-                    f->unk4 = f->unk51C;
-                    f->unkC = f->unk524;
-                    f->unk3C = (s16) temp_v0_25;
-block_295:
-                    var_v0_13 = (u16) f->unkE0 << 0x10;
-                }
-                var_v0_14 = -1;
-                if (var_v0_13 <= 0) {
-                    var_v0_14 = (u16) f->unkE0 - 1;
-                }
-                f->unkE0 = var_v0_14;
-                func_0036A330(f, o, f->unkE0);
-                f->unk150 = 0;
-                f->unk152 = 0;
-                f->unk154 = 0;
-                break;
-            case 37:                                /* switch 1 */
-                var_v0_15 = f->unk18C->unk18;
-                f->unk158 = var_v0_15;
-                var_a0 = var_v0_15 + 1;
-                var_a2 = var_v0_15 + 2;
-block_300:
-                f->unk158 = var_a0;
-                f->unk150 = var_v0_15[0];
-                f->unk158 = var_a2;
-                f->unk152 = var_v0_15[1];
-                f->unk154 = 8;
-                f->unkBC = 1;
-                f->unkC4 = 1;
-                f->unkB8 = f->unk188;
-                f->unk156 = (u16) f->unk3A + (f->unk18C->unk0 - 0x8000);
-                f->unkE0 = 0;
-                f->unk11E = 7;
-                f->unk1A = (u16) f->unk44;
-                f->unk15C = 0;
-                f->unk15E = 0;
-                goto block_314;
-            case 38:                                /* switch 1 */
-                f->unk8 = f->unk520;
-                func_00374148(f, o);
-                temp_a2_4 = (u16) f->unk178;
-                f->unkE0 = 0;
-                f->unkBC = (s16) temp_a2_4;
-                f->unkB8 = f->unk188;
-                f->unk11D = 1;
-                f->unkFE = 1;
-                f->unk100 = (u16) f->unk100 + 1;
-                f->unkC4 = (s16) temp_a2_4;
-                f->unk160 = func_0036A2D0(f);
-                f->unk11E = 0xB;
-                if (!(f->unkC0->unk24 & 0x10)) {
-                    goto block_261;
-                }
-                goto block_260;
-                goto block_262;
-            case 39:                                /* switch 1 */
-                f->unk160 = func_0036A2D0(f);
-                temp_a3_2 = f->unk18C;
-                temp_v0_26 = temp_a3_2->unk14;
-                f->unk158 = temp_v0_26;
-                f->unk158 = temp_v0_26 + 1;
-                f->unk150 = temp_v0_26[0];
-                f->unk158 = temp_v0_26 + 2;
-                f->unk152 = temp_v0_26[1];
-                f->unk154 = 8;
-                f->unkBC = 1;
-                f->unk160 = 0;
-                f->unkC4 = 1;
-                f->unk156 = (u16) f->unk3A + (temp_a3_2->unk10 - 0x8000);
-block_309:
-                f->unkB8 = f->unk188;
-                f->unkE0 = 0;
-                f->unk11E = 0xB;
-                f->unk1A = (u16) f->unk3C;
-                f->unk15C = 0;
-                f->unk15E = 0;
-                goto block_199;
-            case 40:                                /* switch 1 */
-                f->unk160 = func_0036A2D0(f);
-                var_v0_15 = f->unk18C->unkC;
-                f->unk158 = var_v0_15;
-                var_a0 = var_v0_15 + 1;
-                var_a2 = var_v0_15 + 2;
-                goto block_300;
-            case 41:                                /* switch 1 */
-            case 42:                                /* switch 1 */
-            case 43:                                /* switch 1 */
-            case 44:                                /* switch 1 */
-            case 45:                                /* switch 1 */
-                f->unk160 = func_0036A2D0(f);
-                temp_t1 = f->unk18C;
-                temp_a2_5 = f->unk17A;
-                temp_v0_27 = temp_t1->unk4;
-                f->unk158 = temp_v0_27;
-                temp_a1_10 = temp_v0_27 + 2;
-                f->unk158 = temp_v0_27 + 1;
-                f->unk150 = temp_v0_27[0];
-                f->unk158 = temp_a1_10;
-                f->unk152 = temp_v0_27[1];
-                f->unk154 = 8;
-                if (temp_a2_5 == 0x2C) {
-                    var_v1_4 = (u16) f->unk44;
-                } else {
-                    var_v1_4 = (u16) f->unk3A;
-                }
-                f->unk156 = var_v1_4 + (temp_t1->unk0 - 0x8000);
-                func_0036C128(f);
-                f->unkBC = 1;
-                f->unkC4 = 1;
-                goto block_309;
-            case 33:                                /* switch 1 */
-                temp_a2_6 = (u16) f->unk3A;
-                f->unkBC = 1;
-                f->unk1A = temp_a2_6;
-                f->unk4 = f->unk51C;
-                f->unkC = f->unk524;
-                f->unk11E = 8;
-                f->unkC4 = 1;
-                f->unkB8 = f->unk188;
-                f->unk3C = (s16) temp_a2_6;
-                goto block_125;
-            case 34:                                /* switch 1 */
-                f->unkBC = 1;
-                f->unk1A = (u16) f->unk44;
-                f->unk11E = 0xC;
-                f->unkC4 = 1;
-                f->unkB8 = f->unk188;
-                f->unkE0 = 0;
-                goto block_314;
-            case 35:                                /* switch 1 */
-                f->unkBC = 1;
-                f->unk1A = (u16) f->unk44;
-                f->unk11E = 0xD;
-                f->unkC4 = 1;
-                f->unkB8 = f->unk188;
-                f->unkE0 = 0;
-                goto block_314;
-            default:                                /* switch 1 */
-                temp_v1_6 = (u16) f->unk3A;
-                f->unkBC = 1;
-                f->unk3C = (s16) temp_v1_6;
-                f->unkC4 = 1;
-                f->unkB8 = f->unk188;
-                f->unk1A = temp_v1_6;
-                goto block_314;
+                f->unkBC = f->unkC4;
             }
-            temp_v1_7 = (u16) f->unk10C;
-            f->unk10C = (s16) f->unk184;
-            f->unk176 = (s16) temp_v1_7;
-            f->unk184 = -1;
-            f->unkC0 = f->unk188;
-            f->unk188 = NULL;
-            if (temp_t2->unk2C != 0) {
-                if (temp_t2->unk2A != 0) {
-                    f->unk118 = 2;
-                } else if (temp_t2->unk28 != 0) {
-                    f->unk118 = 1;
-                } else {
-                    goto block_323;
-                }
-            } else {
-block_323:
-                f->unk118 = 0;
-            }
-            var_v0_16 = 1;
-            if (f->unk134 == 0) {
-                var_v0_16 = (u16) f->unkC4;
-            }
-            f->unkC8 = (s16) var_v0_16;
-            f->unk10E = (s16) (u16) f->unk17A;
-            f->unk17E = 0;
-            f->unk17A = 0;
-            f->unk17C = 0;
-        } else {
-            f->unk134 = 0;
-            f->unkC8 = (u16) f->unkC8 + 1;
-            var_a0_2 = (u16) f->unkE4;
-            if (f->unkE4 > 0) {
-                var_v0_17 = var_a0_2 << 0x10;
-                if (f->unkFE != 0) {
-                    f->unkE4 = 0;
-                    var_a0_2 = 0;
-                    goto block_20;
-                }
-            } else {
-block_20:
-                var_v0_17 = var_a0_2 << 0x10;
-            }
-            temp_v0_28 = var_v0_17 >> 0x10;
-            if (temp_v0_28 < 0) {
-                var_v0_18 = var_a0_2 + 1;
-                goto block_31;
-            }
-            if (temp_v0_28 <= 0) {
-                goto block_33;
-            }
-            if (f->unkFE != 0) {
-block_33:
-                if (f->unkD6 >= 0) {
-                    temp_a2_7 = f->unkC0;
-                    temp_a1_11 = (u16) f->unkC4;
-                    if (f->unkC4 == temp_a2_7->unk1B) {
-                        if (f->unkD6 > 0) {
-                            f->unkD6 = (u16) f->unkD6 - 1;
-                            goto block_40;
-                        }
-                        if (f->unkD6 == 0) {
-                            var_v0_19 = temp_a1_11 + 1;
-                            f->unkB8 = temp_a2_7;
-                            goto block_46;
-                        }
-                    } else {
-                        f->unkC4 = temp_a1_11 + 1;
-block_40:
-                        f->unkBC = (u16) f->unkBC + 1;
-                    }
-                } else if (f->unkFE == 0) {
-                    temp_v0_29 = (u16) f->unkC4 + (u16) f->unkDA;
-                    f->unkC4 = temp_v0_29;
-                    if ((temp_v0_29 << 0x10) <= 0) {
-                        f->unkC4 = 1;
-                    }
-                    f->unkBC = (s16) (u16) f->unkC4;
-                } else if (f->unkC4 != f->unkC0->unk1B) {
-                    var_v0_19 = (u16) f->unkC4 + 1;
-                    goto block_46;
-                }
-            } else {
-                var_v0_18 = var_a0_2 - 1;
-block_31:
-                f->unkE4 = var_v0_18;
-                if (f->unkE4 == 0) {
-                    var_v0_19 = (u16) f->unkC4 + 1;
-                    f->unkB8 = f->unkC0;
-block_46:
-                    f->unkBC = var_v0_19;
-                    f->unkC4 = var_v0_19;
-                }
-            }
+            return;
         }
     }
+
+    if (f->unk180 != 0) {
+        if (D_005F5EF4 != 0) {
+            c = (MoveCmd *)f->unkC0->unkC;
+            while (c->unk0 != 0x8000) {
+                c++;
+            }
+            id = c->unk6;
+            f->unk184 = id;
+            f->unk188 = func_00368218(f, id);
+            f->unkD8 = c->unkC - f->unkC4;
+            f->unk17A = func_0036BE08(f, c->unk8 & 0x7F);
+            f->unk17C = c->unk8 & 0x8000;
+            f->unk17E = c->unk8 & 0x4000;
+            f->unk180 = 0;
+            f->unk182 = 0;
+            if (f->unkDA < 0) {
+                f->unk178 = c->unkC;
+            } else {
+                f->unk178 = c->unkD;
+            }
+            if (f->unk178 == 0xFF) {
+                f->unk178 = f->unkC0->unk18;
+            }
+            f->unkF8 = 2;
+            f->unk12D = 1;
+        } else {
+            if (f->unk182 != 0) {
+                if (f->unk418 == 0 && f->unk2A == 0x21) {
+                    f->unk28 = func_0036C278(f->unk28);
+                } else {
+                    f->unk28 = func_0036C318(f->unk28, f->unk182);
+                }
+                func_00368168(f);
+            } else {
+                Fighter_TagSwap(f->unk1E);
+                f->unkB134 = 1;
+                Battle_UpdateFacing(f, o);
+            }
+            f->unk188 = func_00368218(f, f->unk184);
+            func_0036C228(o, f, o->unkC0);
+        }
+        if (o->unkC0->unk4 & 0x400) {
+            o->unk100 = -1;
+        }
+        f->unk182 = 0;
+        f->unk180 = 0;
+    }
+    func_003D2A38(f, o);
+    func_0036BDA0(f);
+    if (f->unkF8 == 3) {
+        f->unk178 = 1;
+    }
+    f->unkE4 = 0;
+    f->unkD6 = -1;
+    f->unk120 = 0;
+    f->unkF0 = 0;
+    f->unk122 = 0;
+    f->unk11F = 0;
+    f->unk110 = o->unk51C;
+    f->unk114 = o->unk524;
+    f->unk11A = 0;
+    f->unk46 = 0;
+    f->unkF1 = 0;
+    f->unk11D = 0;
+    f->unk14E = 0;
+    f->unk124 = 0;
+    f->unkF2 = 0;
+    f->unk438.unk82 = 0;
+    f->unkDA = 1;
+    f->unk11E = 0;
+    if (f->unk148 != 0) {
+        f->unkCA = f->unk148;
+    } else {
+        func_0036C228(f, o, f->unk188);
+    }
+    m = f->unk188;
+    fl = m->unk4;
+    w = m->unk8;
+    f->unkCC = fl;
+    f->unkD5 = (fl >> 11) & 0x1F;
+    f->unkD4 = w >> 8;
+    f->unkD2 = f->unkCC & 0x18;
+    f->unkD0 = w;
+    if (f->unk12C == 0 && (fl & 0x100)) {
+        f->unkD2 = 0;
+        f->unkCC = fl & 0xFFFFFFE7;
+    }
+    if (f->unk130 != 0) {
+        f->unkF6 = 1;
+    } else {
+        f->unkF6 = 0;
+    }
+    if (f->unk12F == 0) {
+        f->unkF3 = 0;
+        f->unkFE = 0;
+        f->unk100 = 0;
+    }
+    if (f->unk132 == 0) {
+        f->unkF4 = 0;
+    }
+    f->unkF5 = 0;
+    if (f->unk4C0.unk11 != 0) {
+        f->unkF9 = f->unk131 != 0 || f->unkF7 != 0;
+    } else {
+        f->unkF9 = f->unkF7 = f->unk131;
+    }
+    if (f->unk12F != 0 && f->unk40C != 0) {
+        f->unkE4 = f->unk14C;
+    }
+    if (f->unk4C0.unk11 != 0 && f->unkE0 != 0) {
+        f->unkE2 = f->unkE0;
+    } else if (f->unk4C0.unk11 == 0 || f->unkE2 == 0) {
+        f->unkE2 = 0;
+    }
+    if (f->unkF8 == 3 || f->unkF8 == 1 || m->unk0 != f->unkC0->unk0) {
+        f->unk134 = 1;
+    }
+    snap = f->unkC0->unk24 >> 19;
+    snap &= 1;
+    if (f->unkC0->unk24 & 0x200) {
+        f->unk16A = 0x78;
+    }
+    if (m->unk24 & 8) {
+        f->unk164 = 9;
+    }
+    if (f->unk17C != 0) {
+        f->unk17C = 0;
+        f->unk3C -= 0x8000;
+        f->unk1A -= 0x8000;
+    }
+    if (f->unk12D != 0 && f->unk17A != 0x24) {
+        f->unk1A = f->unk3C = f->unk3C + f->unkC0->unk12;
+    }
+    f->unk12D = 0;
+    func_00370F28(f, o);
+    if (f->unk188->unk4 & 0x1000000) {
+        f->unk129 = func_0035BA00(f->unk1E) + 1;
+    } else {
+        f->unk129 = 0;
+    }
+
+    switch (f->unk17A) {
+    case 0:
+        f->unkBC = 1;
+        f->unkC4 = 1;
+        f->unkB8 = f->unk188;
+        f->unk4 = f->unk51C;
+        f->unk3C = f->unk3A;
+        f->unkC = f->unk524;
+        f->unk1A = f->unk3A;
+        f->unkE0 = 0;
+        break;
+    case 1:
+        f->unk1A = f->unk3C;
+    case 2:
+    case 3:
+        STEP_CONTINUE(f);
+        f->unk11E = 0xB;
+        f->unk4 = f->unk51C;
+        f->unkC = f->unk524;
+        f->unk126 = 1;
+        f->unkB8 = f->unk188;
+        f->unkE0 = 0;
+        break;
+    case 4:
+        f->unkC4 = 1;
+        f->unkBC++;
+        if (f->unkB8->unk18 < f->unkBC) {
+            f->unkBC = f->unkB8->unk18;
+        }
+        f->unkD6 = f->unkD8;
+        f->unk11E = 0xB;
+        f->unk1A = f->unk3C;
+        if ((s16)f->unk40 < 0x4FA5) {
+            f->unk15C = f->unk188->unk2C - 1;
+            if (f->unk15C <= 0) {
+                f->unk15C = 1;
+            }
+            f->unk15E = (s16)(f->unk3A - f->unk1A) / f->unk15C;
+        }
+        f->unkE0 = 0;
+        break;
+    case 5:
+        f->unkC4 = 1;
+        f->unkBC++;
+        if (f->unkB8->unk18 < f->unkBC) {
+            f->unkBC = f->unkB8->unk18;
+        }
+        f->unkD6 = f->unkD8;
+        f->unk1A = f->unk3C;
+        if ((s16)f->unk40 < 0x4FA4) {
+            f->unk11E = 4;
+        } else {
+            f->unk11E = 6;
+        }
+        f->unk15C = 0;
+        f->unk15E = 0;
+        f->unkE0 = 0;
+        break;
+    case 0x11:
+        break;
+    case 6:
+        f->unkBC = 1;
+        f->unkC4 = 1;
+        f->unkB8 = f->unk188;
+        f->unk1A = f->unk3C;
+        if (snap) {
+            f->unk4 = f->unk51C;
+            f->unkC = f->unk524;
+        }
+        f->unkE0 = 0;
+        break;
+    case 7:
+        f->unkBC = f->unkC4 = f->unk188->unk18;
+        f->unk1A = f->unk3C;
+        f->unkB8 = f->unk188;
+        if (snap) {
+            f->unk4 = f->unk51C;
+            f->unkC = f->unk524;
+        }
+        f->unkE0 = 0;
+        f->unkDA = -1;
+        break;
+    case 8:
+        f->unkC4--;
+        if (f->unkC4 <= 0) {
+            f->unkC4 = 1;
+        }
+        f->unkBC = f->unkC4;
+        f->unk1A = f->unk3C;
+        f->unkDA = -1;
+        f->unk4 = f->unk51C;
+        f->unkC = f->unk524;
+        f->unk126 = 1;
+        f->unkB8 = f->unk188;
+        f->unkE0 = 0;
+        break;
+    case 9:
+        f->unkBC = 1;
+        f->unkB8 = f->unk188;
+        f->unkC4 = 1;
+        f->unk1A = f->unk44;
+        f->unkE0 = 0;
+        f->unk15C = 0;
+        f->unk15E = 0;
+        f->unk11E = 5;
+        if (snap) {
+            f->unk4 = f->unk51C;
+            f->unkC = f->unk524;
+        }
+        break;
+    case 0xA:
+        f->unk1A = f->unk3C;
+        goto turn;
+    case 0xB:
+        f->unk1A = f->unk44;
+    turn:
+        m = f->unk188;
+        f->unkBC = 1;
+        f->unkC4 = 1;
+        f->unkB8 = m;
+        if (m->unk2C != 0) {
+            f->unk15C = m->unk2C - 1;
+        } else if (f->unkC0->unk18 >= 0x10) {
+            f->unk15C = 0x10;
+        } else {
+            f->unk15C = f->unkC0->unk18;
+        }
+        if (f->unk15C <= 0) {
+            f->unk15C = 1;
+        }
+        if (f->unk40 < 0x4000) {
+            f->unk44 = f->unk3A;
+        } else {
+            f->unk44 = f->unk3A - 0x8000;
+        }
+        f->unk15E = (s16)(f->unk44 - f->unk3C) / f->unk15C;
+        if (snap) {
+            f->unk4 = f->unk51C;
+            f->unkC = f->unk524;
+        }
+        f->unkE0 = 0;
+        f->unk11E = 0xB;
+        break;
+    case 0xC:
+        f->unkBC = 1;
+        f->unkC4 = 1;
+        f->unkB8 = f->unk188;
+        if ((s16)f->unk40 < 0x4FA4) {
+            f->unk11E = 4;
+            f->unk1A = f->unk3A;
+        } else {
+            f->unk11E = 6;
+            f->unk1A = f->unk44;
+        }
+        f->unkE0 = 0;
+        f->unk15C = 0;
+        f->unk15E = 0;
+        if (snap) {
+            f->unk4 = f->unk51C;
+            f->unkC = f->unk524;
+        }
+        break;
+    case 0xD:
+        f->unkBC = 1;
+        f->unkC4 = 1;
+        f->unk1A = f->unk44;
+        f->unkB8 = f->unk188;
+        if ((s16)f->unk40 < 0x4FA4) {
+            f->unk11E = 3;
+            f->unk1A = f->unk3A;
+        } else {
+            f->unk11E = 6;
+        }
+        f->unkE0 = 0;
+        f->unk15C = 0;
+        f->unk15E = 0;
+        if (snap) {
+            f->unk4 = f->unk51C;
+            f->unkC = f->unk524;
+        }
+        break;
+    case 0xE:
+        f->unkBC = 1;
+        f->unkC4 = 1;
+        f->unk1A = f->unk44;
+        f->unkB8 = f->unk188;
+        if ((s16)f->unk40 < 0x4FA4) {
+            f->unk11E = 2;
+            f->unk1A = f->unk3A;
+        } else {
+            f->unk11E = 6;
+        }
+        f->unkE0 = 0;
+        f->unk15C = 0;
+        f->unk15E = 0;
+        if (snap) {
+            f->unk4 = f->unk51C;
+            f->unkC = f->unk524;
+        }
+        break;
+    case 0xF:
+        f->unkBC = 1;
+        f->unkB8 = f->unk188;
+        f->unkC4 = 1;
+        f->unk15E = 0;
+        f->unk1A = f->unk44;
+        f->unkE0 = 0;
+        f->unk15C = 0;
+        f->unk11E = 1;
+        if (snap) {
+            f->unk4 = f->unk51C;
+            f->unkC = f->unk524;
+        }
+        break;
+    case 0x10:
+        m = f->unk188;
+        f->unk11E = 0xB;
+        f->unkC4 = 1;
+        f->unkBC = 1;
+        f->unkB8 = m;
+        f->unk1A = f->unk3A;
+        f->unk15C = m->unk2C - 1;
+        if (f->unk15C <= 0) {
+            f->unk15C = 1;
+        }
+        f->unk15E = (s16)(f->unk3A - f->unk3C) / f->unk15C;
+        f->unkF0 = 1;
+        f->unkE0 = 0;
+        f->unkE8 = 0;
+        f->unkEC = 0;
+        if (snap) {
+            f->unk4 = f->unk51C;
+            f->unkC = f->unk524;
+        }
+        break;
+    case 0x12:
+        STEP_CONTINUE(f);
+        f->unkF0 = 1;
+        f->unk11E = 0xB;
+        f->unkB8 = f->unk188;
+        f->unkE0 = 0;
+        f->unkE8 = 0;
+        f->unkEC = 0;
+        f->unk1A = f->unk3A;
+        f->unk15C = f->unk188->unk2C - 1;
+        if (f->unk15C <= 0) {
+            f->unk15C = 1;
+        }
+        f->unk15E = (s16)(f->unk3A - f->unk3C) / f->unk15C;
+        if (snap) {
+            f->unk4 = f->unk51C;
+            f->unkC = f->unk524;
+        }
+        break;
+    case 0x13:
+        STEP_CONTINUE(f);
+        f->unkF0 = 1;
+        f->unk11E = 0xB;
+        f->unk3C -= 0x8000;
+        f->unkB8 = f->unk188;
+        f->unkE0 = 0;
+        f->unkE8 = 0;
+        f->unkEC = 0;
+        f->unk1A = f->unk3A;
+        f->unk15C = f->unk188->unk2C - 1;
+        if (f->unk15C <= 0) {
+            f->unk15C = 1;
+        }
+        f->unk15E = (s16)(f->unk3A - f->unk3C) / f->unk15C;
+        if (snap) {
+            f->unk4 = f->unk51C;
+            f->unkC = f->unk524;
+        }
+        break;
+    case 0x14:
+        STEP_CONTINUE(f);
+        f->unkB8 = f->unk188;
+        if ((s16)f->unk40 < 0x4FA4) {
+            f->unk11E = 4;
+        } else {
+            f->unk11E = 6;
+        }
+        f->unk4 = f->unk51C;
+        f->unkC = f->unk524;
+        f->unk126 = 1;
+        f->unkE0 = 0;
+        f->unk15C = 0;
+        f->unk15E = 0;
+        break;
+    case 0x15:
+        STEP_CONTINUE(f);
+        f->unkB8 = f->unk188;
+        if ((s16)f->unk40 < 0x4FA4) {
+            f->unk11E = 2;
+        } else {
+            f->unk11E = 6;
+        }
+        f->unk4 = f->unk51C;
+        f->unkC = f->unk524;
+        f->unk126 = 1;
+        f->unkE0 = 0;
+        f->unk15C = 0;
+        f->unk15E = 0;
+        break;
+    case 0x16:
+        STEP_CONTINUE(f);
+        f->unk11E = 8;
+        f->unk4 = f->unk51C;
+        f->unkC = f->unk524;
+        f->unk126 = 1;
+        f->unkB8 = f->unk188;
+        f->unkE0 = 0;
+        f->unk15C = 0;
+        f->unk15E = 0;
+        break;
+    case 0x17:
+        f->unkBC = 1;
+        f->unkC4 = 1;
+        f->unkB8 = f->unk188;
+        f->unk1A = f->unk3C;
+        if (snap) {
+            f->unk4 = f->unk51C;
+            f->unkC = f->unk524;
+        }
+        f->unkE0 = 0;
+        f->unk11E = 9;
+        break;
+    case 0x18:
+        f->unkC4 = 1;
+        f->unkE0 = 0;
+        f->unkB8 = f->unk188;
+        f->unk1A = f->unk44;
+        f->unkBC = 1;
+        f->unk11E = 8;
+        if (snap) {
+            f->unk4 = f->unk51C;
+            f->unkC = f->unk524;
+        }
+        break;
+    case 0x19:
+        f->unkE0 = 0;
+        STEP_CONTINUE(f);
+        f->unk11E = 8;
+        f->unk4 = f->unk51C;
+        f->unkC = f->unk524;
+        f->unk126 = 1;
+        f->unkB8 = f->unk188;
+        break;
+    case 0x1A:
+    case 0x1B:
+        f->unkC4++;
+        f->unkBC++;
+        if (f->unk188->unk18 < f->unkC4) {
+            f->unkBC = f->unkC4 = f->unk188->unk18;
+        }
+        f->unkB8 = f->unk188;
+        f->unk1A = f->unk3C;
+        if (f->unk17A == 0x1A) {
+            f->unk11A = 1;
+        } else {
+            f->unk11A = 2;
+        }
+        break;
+    case 0x1C:
+        f->unkC4 = 1;
+        f->unkE0 = 0;
+        f->unkBC = 1;
+        f->unk1A = f->unk3C;
+        f->unk15C = 0;
+        f->unkB8 = f->unk188;
+        f->unk15E = 0;
+        f->unk11E = 0xA;
+        if (snap) {
+            f->unk4 = f->unk51C;
+            f->unkC = f->unk524;
+        }
+        f->unk170 = 0x18;
+        break;
+    case 0x1D:
+        STEP_CONTINUE(f);
+        f->unk11E = 0xA;
+        f->unk1A = f->unk3C;
+        f->unkB8 = f->unk188;
+        f->unkE0 = 0;
+        f->unk15C = 0;
+        f->unk15E = 0;
+        if (snap) {
+            f->unk4 = f->unk51C;
+            f->unkC = f->unk524;
+        }
+        break;
+    case 0x1E:
+        f->unkFA = 1;
+        f->unk8 = f->unk520;
+        f->unkFC = 4;
+        f->unk184 = func_00374010(4)->unk0;
+        Fighter_StartLaunch(f, o);
+        f->unk100++;
+        f->unk11D = 1;
+        f->unkFE = 1;
+        f->unkE0 = 0;
+        f->unkBC = f->unk178;
+        f->unkB8 = f->unk188;
+        f->unkC4 = f->unk178;
+        f->unk160 = func_0036A2D0(f, o);
+        f->unk11E = 0xB;
+        if (f->unkC0->unk24 & 0x10) {
+            f->unk1A = f->unk44 + f->unk18C->unk0;
+        } else {
+            f->unk1A = f->unk44;
+        }
+        f->unk15C = 0;
+        f->unk15E = 0;
+        if (snap) {
+            f->unk4 = f->unk51C;
+            f->unkC = f->unk524;
+        }
+        break;
+    case 0x1F:
+    case 0x20:
+        f->unkBC = 1;
+        f->unkC4 = 1;
+        f->unkB8 = f->unk188;
+        if (f->unkE0 == 0) {
+            f->unk3C = f->unk3A - 0x8000;
+            switch (o->unk42) {
+            case 0:
+                break;
+            case 1:
+                f->unk3C += 0x4000;
+                break;
+            case 2:
+                f->unk3C -= 0x8000;
+                break;
+            case 3:
+                f->unk3C -= 0x4000;
+                break;
+            }
+            f->unk1A = f->unk3C;
+            f->unk15C = 0x10;
+            f->unk15E = (s16)(o->unk3C - f->unk3C) / f->unk15C;
+            f->unk4 = o->unk51C;
+            f->unkC = o->unk524;
+        } else if (f->unkE0 < 0) {
+            f->unk1A = f->unk3C = o->unk1A;
+            f->unk4 = o->unk51C;
+            f->unkC = o->unk524;
+        } else if (f->unk188->unk24 & 0x1000) {
+            f->unk3C += f->unkC0->unk12;
+            f->unk1A = f->unk3C = o->unk1A;
+            f->unk4 = o->unk51C;
+            f->unkC = o->unk524;
+        }
+        f->unk150 = 0;
+        f->unk152 = 0;
+        f->unk154 = 0;
+        if (f->unkE0 < 0) {
+            f->unkE0 = 1;
+        } else {
+            f->unkE0++;
+        }
+        break;
+    case 0x24:
+        if (f->unkE0 >= 0) {
+            e = func_0036C1A0(f, o, f->unkC0);
+            if ((e->unk2 != 0 && f->unkC4 < f->unkC0->unk2C) || o->unk16A != 0) {
+                f->unk120 = 1;
+            }
+        }
+        f->unkF2 = f->unkC4 = f->unkBC = 1;
+        f->unkB8 = f->unk188;
+        if (f->unkE0 >= 0) {
+            f->unk1A = f->unk3C = f->unk3C - 0x8000;
+            f->unk4 = f->unk51C;
+            f->unkC = f->unk524;
+            Snd_StopVoiceSeq(f);
+        } else if (f->unk188->unk24 & 0x1000) {
+            f->unk1A = f->unk3C = f->unk3C + f->unkC0->unk12;
+            f->unk4 = f->unk51C;
+            f->unkC = f->unk524;
+        }
+        if (f->unkE0 > 0) {
+            f->unkE0 = -1;
+        } else {
+            f->unkE0--;
+        }
+        func_0036A330(f, o);
+        f->unk150 = 0;
+        f->unk152 = 0;
+        f->unk154 = 0;
+        break;
+    case 0x25:
+        p = f->unk18C;
+        f->unk158 = p->unk18;
+        f->unk150 = *f->unk158++;
+        f->unk152 = *f->unk158++;
+        f->unk154 = 8;
+        f->unkBC = 1;
+        f->unkC4 = 1;
+        f->unk156 = f->unk3A + (s16)(p->unk0 + 0x8000);
+        f->unkB8 = f->unk188;
+        f->unkE0 = 0;
+        f->unk11E = 7;
+        f->unk1A = f->unk44;
+        f->unk15C = 0;
+        f->unk15E = 0;
+        if (snap) {
+            f->unk4 = f->unk51C;
+            f->unkC = f->unk524;
+        }
+        break;
+    case 0x26:
+        f->unk8 = f->unk520;
+        Fighter_StartLaunch(f, o);
+        f->unk100++;
+        f->unkE0 = 0;
+        f->unkBC = f->unk178;
+        f->unkB8 = f->unk188;
+        f->unk11D = 1;
+        f->unkFE = 1;
+        f->unkC4 = f->unk178;
+        f->unk160 = func_0036A2D0(f, o);
+        f->unk11E = 0xB;
+        if (f->unkC0->unk24 & 0x10) {
+            f->unk1A = f->unk44 + f->unk18C->unk0;
+        } else {
+            f->unk1A = f->unk44;
+        }
+        f->unk15C = 0;
+        f->unk15E = 0;
+        if (snap) {
+            f->unk4 = f->unk51C;
+            f->unkC = f->unk524;
+        }
+        break;
+    case 0x27:
+        f->unk160 = func_0036A2D0(f, o);
+        p = f->unk18C;
+        f->unk158 = p->unk14;
+        f->unk150 = *f->unk158++;
+        f->unk152 = *f->unk158++;
+        f->unk154 = 8;
+        f->unkBC = 1;
+        f->unk156 = f->unk3A + (s16)(p->unk10 + 0x8000);
+        f->unk160 = 0;
+        f->unkC4 = 1;
+        f->unkB8 = f->unk188;
+        f->unkE0 = 0;
+        f->unk11E = 0xB;
+        f->unk1A = f->unk3C;
+        f->unk15C = 0;
+        f->unk15E = 0;
+        if (snap) {
+            f->unk4 = f->unk51C;
+            f->unkC = f->unk524;
+        }
+        break;
+    case 0x28:
+        f->unk160 = func_0036A2D0(f, o);
+        p = f->unk18C;
+        f->unk158 = p->unkC;
+        f->unk150 = *f->unk158++;
+        f->unk152 = *f->unk158++;
+        f->unk154 = 8;
+        f->unkBC = 1;
+        f->unkC4 = 1;
+        f->unk156 = f->unk3A + (s16)(p->unk0 + 0x8000);
+        f->unkB8 = f->unk188;
+        f->unkE0 = 0;
+        f->unk11E = 7;
+        f->unk1A = f->unk44;
+        f->unk15C = 0;
+        f->unk15E = 0;
+        if (snap) {
+            f->unk4 = f->unk51C;
+            f->unkC = f->unk524;
+        }
+        break;
+    case 0x29:
+    case 0x2A:
+    case 0x2B:
+    case 0x2C:
+    case 0x2D:
+        f->unk160 = func_0036A2D0(f, o);
+        p = f->unk18C;
+        f->unk158 = p->unk4;
+        f->unk150 = *f->unk158++;
+        f->unk152 = *f->unk158++;
+        f->unk154 = 8;
+        if (f->unk17A == 0x2C) {
+            f->unk156 = f->unk44 + (s16)(p->unk0 + 0x8000);
+        } else {
+            f->unk156 = f->unk3A + (s16)(p->unk0 + 0x8000);
+        }
+        func_0036C128(f);
+        f->unkBC = 1;
+        f->unkC4 = 1;
+        f->unkB8 = f->unk188;
+        f->unkE0 = 0;
+        f->unk11E = 0xB;
+        f->unk1A = f->unk3C;
+        f->unk15C = 0;
+        f->unk15E = 0;
+        if (snap) {
+            f->unk4 = f->unk51C;
+            f->unkC = f->unk524;
+        }
+        break;
+    case 0x21:
+        f->unkBC = 1;
+        f->unkB8 = f->unk188;
+        f->unkC4 = 1;
+        f->unk3C = f->unk3A;
+        f->unk1A = f->unk3A;
+        f->unkC = f->unk524;
+        f->unk4 = f->unk51C;
+        f->unkE0 = 0;
+        f->unk11E = 8;
+        break;
+    case 0x22:
+        f->unkC4 = 1;
+        f->unkE0 = 0;
+        f->unkB8 = f->unk188;
+        f->unk1A = f->unk44;
+        f->unkBC = 1;
+        f->unk11E = 0xC;
+        if (snap) {
+            f->unk4 = f->unk51C;
+            f->unkC = f->unk524;
+        }
+        break;
+    case 0x23:
+        f->unkB8 = f->unk188;
+        f->unkBC = 1;
+        f->unkC4 = 1;
+        f->unk1A = f->unk44;
+        f->unk11E = 0xD;
+        f->unkE0 = 0;
+        if (snap) {
+            f->unk4 = f->unk51C;
+            f->unkC = f->unk524;
+        }
+        break;
+    default:
+        f->unkBC = 1;
+        f->unkC4 = 1;
+        f->unk1A = f->unk3A;
+        f->unk3C = f->unk3A;
+        f->unkB8 = f->unk188;
+        if (snap) {
+            f->unk4 = f->unk51C;
+            f->unkC = f->unk524;
+        }
+        break;
+    }
+    f->unk176 = f->unk10C;
+    f->unk10C = f->unk184;
+    f->unk184 = -1;
+    f->unkC0 = f->unk188;
+    f->unk188 = NULL;
+    if (f->unkC0->unk2C == 0) {
+        f->unk118 = 0;
+    } else if (f->unkC0->unk2A != 0) {
+        f->unk118 = 2;
+    } else if (f->unkC0->unk28 != 0) {
+        f->unk118 = 1;
+    } else {
+        f->unk118 = 0;
+    }
+    if (f->unk134 != 0) {
+        f->unkC8 = 1;
+    } else {
+        f->unkC8 = f->unkC4;
+    }
+    f->unk10E = f->unk17A;
+    f->unk17E = 0;
+    f->unk17A = 0;
+    f->unk17C = 0;
 }
 #else
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", jtbl_004FFA80);
@@ -1880,7 +1794,70 @@ INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036BF8C);
 
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036BF94);
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036BFA0);
+/* The hit reaction direction unk172 of the attacker f against o, while f's hit lands (unk132) and o is neither juggled
+ * nor protected: by o's facing quadrant unk42 (0, 1, 3, 2) and o's guard mask, 0xE-0x11 (mask 0x80 and 0x200), 0xA-0xD
+ * (0x80), 2-5 (0x40), 6-9 (0x20) when f's body angle unk40 is below 0x2AAA, 0x12 / 0x13 (0x02) when it is 0x5556 or
+ * more; else -1 [V code; I meaning]. */
+void func_0036BFA0(Fighter *f, Fighter *o) {
+    s16 r = -1;
+
+    if (f->unk132 != 0 && o->unk135 == 0 && o->unk139 == 0) {
+        if ((s16)f->unk40 < 0x2AAA) {
+            if (o->unkCC & 0x80) {
+                if (o->unkCC & 0x200) {
+                    if (o->unk42 == 0) {
+                        r = 0xE;
+                    } else if (o->unk42 == 1) {
+                        r = 0x10;
+                    } else if (o->unk42 == 3) {
+                        r = 0x11;
+                    } else if (o->unk42 == 2) {
+                        r = 0xF;
+                    }
+                } else {
+                    if (o->unk42 == 0) {
+                        r = 0xA;
+                    } else if (o->unk42 == 1) {
+                        r = 0xC;
+                    } else if (o->unk42 == 3) {
+                        r = 0xD;
+                    } else if (o->unk42 == 2) {
+                        r = 0xB;
+                    }
+                }
+            } else if (o->unkCC & 0x40) {
+                if (o->unk42 == 0) {
+                    r = 2;
+                } else if (o->unk42 == 1) {
+                    r = 4;
+                } else if (o->unk42 == 3) {
+                    r = 5;
+                } else if (o->unk42 == 2) {
+                    r = 3;
+                }
+            } else if (o->unkCC & 0x20) {
+                if (o->unk42 == 0) {
+                    r = 6;
+                } else if (o->unk42 == 1) {
+                    r = 8;
+                } else if (o->unk42 == 3) {
+                    r = 9;
+                } else if (o->unk42 == 2) {
+                    r = 7;
+                }
+            }
+        } else if ((s16)f->unk40 >= 0x5556) {
+            if (o->unkCC & 2) {
+                if (o->unk42 == 0) {
+                    r = 0x12;
+                } else if (o->unk42 == 2) {
+                    r = 0x13;
+                }
+            }
+        }
+    }
+    f->unk172 = r;
+}
 
 void func_0036C128(Fighter *f) {
     u16 st = f->unk17A;
@@ -1902,7 +1879,7 @@ Unk5E8978 *func_0036C1A0(Fighter *f, Fighter *o, struct FighterMove *m) {
     Unk5E8978 *e = &D_005E8978[m->unk14];
 
     while (e->unk0 != 0xFFFF) {
-        if (func_00369008(f, o, (s16)e->unk0) != 0) {
+        if (Cmd_CheckCondition(f, o, (s16)e->unk0) != 0) {
             break;
         }
         e++;
@@ -2077,10 +2054,52 @@ void Fighter_ResetInputHistory(Fighter *f) {
     f->unk140 = 0;
 }
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036C578);
+typedef struct {
+    /* 0x0 */ s32 unk0;                       /* 0: up, 1: down */
+    /* 0x4 */ s32 unk4;                       /* frames left */
+} Unk42D2C0;
+extern Unk42D2C0 D_0042D2C0[];
+
+/* The pad's sidestep shortcuts [I]: a press of pad bit 0x02 (0x08) adds up 0x1000 (down 0x4000) to this frame's
+ * presses and, on its first frame, to the held buttons, and keeps the shortcut for 0x23 frames; while it runs and the
+ * same bit is held with none of the buttons 0xF4, the held and pressed buttons are cut to the directions [V code]. */
+void func_0036C578(s32 i, u16 *held, u16 *pressed) {
+    Unk42D2C0 *e = &D_0042D2C0[i];
+    u16 h = D_005F5C40[i];
+    u16 p = D_005F5C48[i];
+    u16 addh = 0;
+    u16 addp = 0;
+
+    if (p & 2) {
+        e->unk0 = 0;
+        e->unk4 = 0x23;
+        addp = 0x1000;
+    } else if (p & 8) {
+        e->unk0 = 1;
+        addp = 0x4000;
+        e->unk4 = 0x23;
+    }
+    if (e->unk4 > 0) {
+        e->unk4--;
+        if (e->unk4 >= 0x22) {
+            addh = 0x4000;
+            if (e->unk0 == 0) {
+                addh = 0x1000;
+            }
+        }
+        if ((e->unk0 == 0 && (h & 2)) || (e->unk0 == 1 && (h & 8))) {
+            if (!(*held & 0xF4)) {
+                *held &= 0xFFF;
+                *pressed &= 0xFFF;
+            }
+        }
+    }
+    *held |= addh;
+    *pressed |= addp;
+}
 
 s32 func_0035B9E8(s32 side);
-void func_0036C578(s32 i, s32 *held, s32 *pressed);
+void func_0036C578(s32 i, u16 *held, u16 *pressed);
 void func_00380A50(Fighter *f, u16 *held, u16 *pressed);
 u16 func_0037C950(s32 player);
 void Prac_RecInput(s32 player, u16 buttons);
@@ -2111,7 +2130,7 @@ void func_0036C680(Fighter *f) {
     case 1: {
         s32 side = func_0035B9E8(f->unk1E);
 
-        func_0036C578(f->unk428, &D_005F5C40[f->unk428], &D_005F5C48[f->unk428]);
+        func_0036C578(f->unk428, (u16 *)&D_005F5C40[f->unk428], (u16 *)&D_005F5C48[f->unk428]);
         b = Input_MirrorLeftRight(side, D_005F5C40[f->unk428]);
         f->unk432 = b;
         if (f->unk402 != 0) {
@@ -2195,13 +2214,152 @@ u16 func_0036C918(u16 held, u16 pressed) {
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036C918);
 #endif
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036C988);
+s32 func_0036CFC0(u16 held);
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036CA68);
+/* This frame's input as bits: the direction bit 1 << (4 + direction) at unk7C, and the buttons held (unk80) and pressed
+ * (unk7E) as 1 (0x80), 2 (0x10), 4 (0x40), 8 (0x20) and 0x4000 (0x04, tag) [V code; I names]. */
+void func_0036C988(Fighter *f, u16 held, u16 pressed) {
+    u16 dir;
+    u16 h;
+    u16 p;
 
+    dir = 1 << ((func_0036CFC0(held) & 0xF) + 4);
+    if (held & 0x80) {
+        h = 1;
+    } else {
+        h = 0;
+    }
+    if (held & 0x10) {
+        h |= 2;
+    }
+    if (held & 0x40) {
+        h |= 4;
+    }
+    if (held & 0x20) {
+        h |= 8;
+    }
+    if (held & 4) {
+        h |= 0x4000;
+    }
+    if (pressed & 0x80) {
+        p = 1;
+    } else {
+        p = 0;
+    }
+    if (pressed & 0x10) {
+        p |= 2;
+    }
+    if (pressed & 0x40) {
+        p |= 4;
+    }
+    if (pressed & 0x20) {
+        p |= 8;
+    }
+    if (pressed & 4) {
+        p |= 0x4000;
+    }
+    f->unk438.unk80 = h;
+    f->unk438.unk7E = p;
+    f->unk438.unk7C = dir;
+}
+
+/* Latches the buttons 0x80 / 0x10 pressed this frame (unk83 / unk84) and the pair 0x90 (unk85) while unk82 is set
+ * [V code; I meaning]. */
+void func_0036CA68(Fighter *f, u16 held, u16 pressed) {
+    u16 b10;
+    u16 b80;
+
+    if (f->unk438.unk82 == 0 || (f->unk438.unk83 == 0 && f->unk438.unk84 == 0 && f->unk438.unk85 == 0)) {
+        b80 = pressed & 0x80;
+        b10 = pressed & 0x10;
+        if (((held & 0x90) ^ 0x90) == 0 && (b80 != 0 || b10 != 0)) {
+            f->unk438.unk85 = 1;
+        } else if (b80 != 0) {
+            f->unk438.unk83 = 1;
+        } else if (b10 != 0) {
+            f->unk438.unk84 = 1;
+        } else {
+            f->unk438.unk85 = 0;
+            f->unk438.unk83 = 0;
+            f->unk438.unk84 = 0;
+        }
+    }
+}
+
+#if 0
+/* NON_MATCHING: 22 lines differ: the original enters the neutral loop through a peeled first step that reuses the 5
+ * already in a register, and reloads 5 inside the loop */
+/* A double tap: `dir` in this frame's history entry, then neutral (5), then `dir` again, the taps within `n` entries
+ * (0x8001 forward 6, 0x8002 back 4) [V code; I meaning]. */
+s32 func_0036CAF8(Fighter *f, s32 dir, s32 n) {
+    s32 i = f->unk438.unk0;
+    s16 *hist = f->unk438.unk4;
+    s32 r = 0;
+    s32 x;
+
+    if (dir == (hist[i] & 0xF)) {
+        i = i < 1 ? 0x3B : i - 1;
+        if ((hist[i] & 0xF) == 5) {
+            n--;
+            while (n > 0) {
+                i = i < 1 ? 0x3B : i - 1;
+                x = hist[i] & 0xF;
+                if (x != 5) {
+                    if (dir != x) {
+                        goto end;
+                    }
+                    while (n > 0) {
+                        i = i < 1 ? 0x3B : i - 1;
+                        if (dir != (hist[i] & 0xF)) {
+                            break;
+                        }
+                        n--;
+                    }
+                    break;
+                }
+                n--;
+            }
+            r = n > 0;
+        }
+    }
+end:
+    return r;
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036CAF8);
+#endif
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036CBE8);
+/* Whether the input code of a command entry is entered (Move_FindCommand): below 0x8000 a direction / button test of
+ * this frame (func_0036CD10; bits 0x3FE0 also need one of this frame's direction bits); 0x8001 / 0x8002 a double tap
+ * forward / back within 20 entries (func_0036CAF8); 0x8003 the flag unk12B, or for character 0x21 the button latch
+ * unk140 while the round runs (both clear unk12B); above 0x8005 a sequence of D_004EFD44 (func_0036CDD8) [V code; I
+ * meaning]. */
+s32 Cmd_MatchInput(Fighter *f, u16 code, u16 dir, u16 held, u16 pressed) {
+    if ((s16)code >= 0) {
+        if ((code & 0x3FE0) && !(code & dir)) {
+            return 0;
+        }
+        return func_0036CD10(code, held, pressed);
+    }
+    if (code <= 0x8005) {
+        switch (code) {
+        case 0x8000:
+            return 0;
+        case 0x8001:
+            return func_0036CAF8(f, 6, 0x14);
+        case 0x8002:
+            return func_0036CAF8(f, 4, 0x14);
+        case 0x8003:
+            if (f->unk12B || (f->unk2A == 0x21 && D_005F5EF4 == 0 && f->unk140)) {
+                f->unk12B = 0;
+                return 1;
+            }
+            return 0;
+        }
+        return 0;
+    }
+    return func_0036CDD8(f, (s16 *)&D_004EFD44[code], held, pressed);
+}
 
 #if 0
 /* NON_MATCHING: the shared `return 1` block is placed after the second test; the original keeps it after the first */
@@ -2249,14 +2407,80 @@ s32 func_0036CD78(u16 a, u16 b) {
     return ((lo ^ hi) & mask) == 0;
 }
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036CDD8);
+/* Whether a command sequence (`seq`: a frame count, then 16-bit steps ended by 0) was entered: its last step against
+ * this frame (direction and buttons, func_0036CD10), then each earlier step against the input history, walking back at
+ * most seq[0] entries; a history entry with a button that does not match ends the search [V code; I meaning]. */
+s32 func_0036CDD8(Fighter *f, s16 *seq, u16 held, u16 pressed) {
+    s32 r = 0;
+    s16 *hist = f->unk438.unk4;
+    s16 *p;
+    s32 n;
+    s32 i;
+    u16 cur;
+    u16 e;
+
+    i = f->unk438.unk0;
+    n = seq[0];
+    for (p = seq + 1; *p != 0; p++) {
+    }
+    p--;
+    cur = *p;
+    if ((cur & 0xF) == cur) {
+        i = (u32)i > 0x3A ? 0 : i + 1;
+    } else {
+        e = hist[i];
+        if ((cur & 0xF) != (e & 0xF)) {
+            goto end;
+        }
+        if (!func_0036CD10(cur >> 8, held, pressed)) {
+            goto end;
+        }
+        if (--p == seq) {
+            r = 1;
+            goto end;
+        }
+        cur = *p;
+    }
+    while (n > 0) {
+        i = i < 1 ? 0x3B : i - 1;
+        e = hist[i];
+        if (func_0036CD78(cur, e)) {
+            if (--p == seq) {
+                r = 1;
+                break;
+            }
+            cur = *p;
+        } else if (e >> 4) {
+            break;
+        }
+        n--;
+    }
+end:
+    return r;
+}
 
 /* 8-aligned after the jump table of func_0036C680 (0x4FFD34). */
 RODATA_ALIGN8();
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_004FFD38);
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_004FFFD4);
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_004FFFE0);
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036CF30);
+extern const u16 D_004FFFD4[];
+extern const u16 D_004FFFE0[];
+
+/* The input sequence of a command code: codes above 0x8005 index D_004EFD44, 0x8001 / 0x8002 are the two double taps
+ * (D_004FFFD4, D_004FFFE0), others have none [V code; I meaning]. */
+u16 *func_0036CF30(u16 code) {
+    if (code <= 0x8005) {
+        switch (code) {
+        case 0x8001:
+            return (u16 *)D_004FFFD4;
+        case 0x8002:
+            return (u16 *)D_004FFFE0;
+        }
+        return NULL;
+    }
+    return &D_004EFD44[code];
+}
 
 u16 Input_MirrorLeftRight(s32 side, u16 b) {
     if (side != 0) {
@@ -2270,7 +2494,23 @@ u16 Input_MirrorLeftRight(s32 side, u16 b) {
     return b;
 }
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036CFC0);
+extern const u16 D_004FFD38[];
+
+/* The direction 1-9 (numpad) of the pad bits 0xF000, looked up in D_004FFD38; 5 (neutral) when none [V code]. */
+s32 func_0036CFC0(u16 held) {
+    const u16 *p;
+    s32 i;
+    s32 dir;
+
+    held &= 0xF000;
+    for (i = 0, dir = 5, p = D_004FFD38; i < 9; i++, p++) {
+        if (held == *p) {
+            dir = i + 1;
+            break;
+        }
+    }
+    return dir;
+}
 
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036D010);
 
@@ -2285,7 +2525,6 @@ INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500204);
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500240);
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500300);
 
-extern TeamMember D_00440940[2][2];
 extern s32 D_005F5CD0;
 extern u16 D_005F5CBC;
 extern s32 D_005F5F00;
@@ -2704,17 +2943,106 @@ INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036EC50);
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500470);
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500488);
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_005004A0);
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036EDE0);
+extern u16 D_005F5C72;
+extern const char D_00500470[];
+extern const char D_00500488[];
+extern const char D_005004A0[];
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036EEE0);
+/* The round start texts by the round timer D_005F5EE8 (a longer window in round 1): "ROUND %d" (D_00500488), or
+ * D_00500470 when D_005F5C72 is 1 and neither fighter has unk402, then "READY!" (D_005004A0) [V calls; I texts]. */
+void func_0036EDE0(void) {
+    if ((gRoundNumber == 1 ? D_005F5EE8 < 0x69 : D_005F5EE8 < 0x2D)
+        && (gRoundNumber == 1 ? D_005F5EE8 >= 0x42 : D_005F5EE8 >= 6)) {
+        if (D_005F5C72 == 1 && gFighters[0].unk402 == 0 && gFighters[1].unk402 == 0) {
+            Text_Printf(D_00500470, 0x74, 0xDC, 0xA, 2);
+        } else {
+            Text_Printf(D_00500488, 0xA5, 0xDC, 0xA, 2, gRoundNumber);
+        }
+    } else if (gRoundNumber == 1 ? D_005F5EE8 >= 0x6A : D_005F5EE8 >= 0x2E) {
+        Text_Printf(D_005004A0, 0xC0, 0xDC, 0xA, 2);
+    }
+}
+
+void Snd_PlaySe(s32 id, s32 player);
+
+/* A sound effect chosen by the round result bits D_005F5CAC while D_005F5F28 is 1 [I]. */
+void func_0036EEE0(void) {
+    if (D_005F5F28 == 1) {
+        if (D_005F5CAC & 1) {
+            Snd_PlaySe(0x1054, 0);
+        } else if (D_005F5CAC & 8) {
+            Snd_PlaySe(0x1058, 0);
+        } else if (D_005F5CAC & 4) {
+            Snd_PlaySe(0x1000, 0);
+        } else if (D_005F5CAC & 0x10) {
+            Snd_PlaySe(0x1057, 0);
+        } else {
+            Snd_PlaySe(0x1059, 0);
+        }
+    }
+}
 
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_005004B0);
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_005004C0);
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_005004D8);
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_005004F0);
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036EF58);
+extern const char D_005004B0[];
+extern const char D_005004C0[];
+extern const char D_005004D8[];
+extern const char D_005004F0[];
+s32 Text_Printf(const char *fmt, ...);
 
+/* The round end text chosen by the result bits D_005F5CAC (Battle_SetRoundResult) [V calls; I meaning]. */
+void func_0036EF58(void) {
+    if (D_005F5CAC & 1) {
+        Text_Printf(D_005004B0, 0xBC, 0xDC, 0xA, 0xC);
+    } else if (D_005F5CAC & 8) {
+        Text_Printf(D_005004C0, 0xAA, 0xDC, 0xA, 0xB);
+    } else if (D_005F5CAC & 4) {
+        Text_Printf(D_005004D8, 0x72, 0xDC, 0xA, 0xC);
+    } else if (D_005F5CAC & 0x10) {
+        Text_Printf(D_005004F0, 0xF5, 0xDC, 0xA, 0xC, 0xC);
+    } else {
+        Text_Printf(D_005004F0, 0xF5, 0xDC, 0xA, 0xC, 0xC);
+    }
+}
+
+#if 0
+/* NON_MATCHING: 1 line differs: the original loads D_005F5CBA a second time for the shift (ours reuses the first
+ * load) */
+void Snd_PlaySe(s32 id, s32 player);
+void func_00350578(Fighter *f, s32 side);
+
+/* At the end of a round (D_005F5F28 1: the result sound effect 0x1000 on a draw by unkB4, else 0x1052 / 0x1053 by the
+ * winner's bit in D_005F5CBA), then, below state 6, func_00350578 for both fighters [V calls; I meaning]. */
+void func_0036F010(void) {
+    s32 id;
+    s32 side;
+
+    if (D_005F5F28 == 1) {
+        if (gFighters[0].unkB4 == gFighters[1].unkB4) {
+            id = 0x1000;
+        } else {
+            side = 1;
+            if (gFighters[1].unkB4 < gFighters[0].unkB4) {
+                side = 0;
+            }
+            if (D_005F5CBA == 3 || ((D_005F5CBA >> side) & 1)) {
+                id = 0x1052;
+            } else {
+                id = 0x1053;
+            }
+        }
+        Snd_PlaySe(id, 0);
+    }
+    if ((u32)D_005F5F28 < 6) {
+        func_00350578(&gFighters[0], gFighters[0].unk1E);
+        func_00350578(&D_00884EE0, gFighters[1].unk1E);
+    }
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036F010);
+#endif
 
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500500);
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500510);
@@ -2737,9 +3065,83 @@ s32 func_0036F3F8(void) {
     return D_005F5CAC & 1;
 }
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036F408);
+/* The life gauge unk408 of both sides: 10, else the average (one member: the value) of the members' life against their
+ * maximum in 20.12, 0 when a member in the team has no life left, at least 1 [V code; I meaning]. */
+void Battle_UpdateGauges(Fighter *a, Fighter *b) {
+    Fighter *f;
+    s32 side;
+    s32 m;
+    s32 any;
+    s32 cnt;
+    u32 pct[2];
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036F570);
+    for (side = 0, f = a; side < 2; side++, f = b) {
+        f->unk408 = 10;
+        any = 0;
+        cnt = 0;
+        for (m = 0; m < 2; m++) {
+            if (D_00440940[side][m].unk8 == 1) {
+                cnt++;
+                if (D_00440940[side][m].unkC == 0) {
+                    any = 1;
+                }
+                pct[m] = ((u32)(D_00440940[side][m].unkC / 2) << 12) / (D_00440940[side][m].unk14 / 2);
+            } else {
+                pct[m] = 0;
+            }
+        }
+        if (cnt != 1) {
+            f->unk408 = (pct[0] + pct[1]) >> 1;
+        } else {
+            f->unk408 = pct[0] + pct[1];
+        }
+        if (any == 1) {
+            f->unk408 = 0;
+        } else if (f->unk408 == 0) {
+            f->unk408 = 1;
+        }
+    }
+}
+
+/* The result bits of the round in D_005F5CAC: 1 time up with both standing, 0x20 draw (6 when both gauges are empty),
+ * 2 K.O., 8 when the winning side lost no red life (perfect) and was not chip damaged, else 0x10 when the winner's
+ * gauge is at most 0xCC [V code; I meaning]. */
+void Battle_SetRoundResult(Fighter *a, Fighter *b) {
+    s32 r = 0;
+    Fighter *w;
+    Fighter *l;
+    s32 side;
+
+    if (gRoundTimer <= 0 && a->unk408 != 0 && b->unk408 != 0) {
+        r = 1;
+    }
+    if (a->unk408 == b->unk408) {
+        r |= 0x20;
+        if (a->unk408 == 0) {
+            r |= 6;
+        }
+    } else {
+        if (b->unk408 < a->unk408) {
+            w = a;
+            side = 0;
+            l = b;
+        } else {
+            w = b;
+            side = 1;
+            l = a;
+        }
+        if (l->unk408 == 0) {
+            r |= 2;
+            if (D_00440940[side][0].unk2C == D_00440940[side][0].unk10
+                && D_00440940[side][1].unk2C == D_00440940[side][1].unk10 && D_005F6670[side] == 0) {
+                r |= 8;
+            } else if (w->unk408 <= 0xCC) {
+                r |= 0x10;
+            }
+        }
+    }
+    D_005F5CAC = r;
+}
 
 s32 func_0036F658(void) {
     return (D_005F5CAC >> 3) & 1;
@@ -2749,11 +3151,103 @@ s32 func_0036F668(void) {
     return (D_005F5CAC >> 4) & 1;
 }
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036F678);
+extern u8 D_005F5CBE;
 
+s32 func_0036F678(void) {
+    switch (D_005F5CBA) {
+    case 0:
+    case 2:
+    default:
+        return 0;
+    case 1:
+        return 1;
+    case 3:
+        return D_005F5CBE;
+    }
+}
+
+#if 0
+/* NON_MATCHING: 16 lines differ: the winner / loser pointers of a draw are allocated to swapped registers (a3 / a2)
+ * and the option test's blocks are ordered differently */
+extern u16 D_005F5C70;
+
+/* Counts the round: the side with the higher gauge unk408 wins it (unkB4 = 1 / -1, unk5A + 1); on a draw both get a
+ * win point (the leader, or func_0036F678's pick, first) and the rounds left D_005F5C72 drop by one; with the option
+ * D_0043B7F8[5] a draw at match point decides the match, else a side reaching D_005F5C70 wins it and the other loses
+ * its extra point; the match result goes to func_0036F860 when the match is over [V code; I meanings]. */
+void func_0036F6B8(Fighter *a, Fighter *b) {
+    Fighter *x;
+    Fighter *y;
+
+    if (a->unk408 > b->unk408) {
+        a->unkB4 = 1;
+        b->unkB4 = -1;
+        a->unk5A++;
+    } else if (a->unk408 < b->unk408) {
+        a->unkB4 = -1;
+        b->unkB4 = 1;
+        b->unk5A++;
+    } else {
+        D_005F5C72--;
+        if (a->unk5A > b->unk5A || (a->unk5A >= b->unk5A && func_0036F678() == 0)) {
+            x = a;
+            y = b;
+        } else {
+            x = b;
+            y = a;
+        }
+        x->unk5A++;
+        y->unk5A++;
+        y->unkB4 = -1;
+        x->unkB4 = -1;
+        if (D_0043B7F8[5] != 0) {
+            if (x->unk5A >= D_005F5C70 && y->unk5A < D_005F5C70) {
+                x->unkB4 = 1;
+            }
+        } else {
+            if (x->unk5A >= D_005F5C70) {
+                x->unkB4 = 1;
+            }
+            if (y->unk5A >= D_005F5C70) {
+                y->unk5A--;
+            }
+        }
+    }
+    if (gRoundNumber < D_005F5C72 && a->unk5A < D_005F5C70 && b->unk5A < D_005F5C70) {
+        return;
+    }
+    func_0036F860(a, b);
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036F6B8);
+#endif
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036F860);
+s32 func_0036F678(void);
+
+/* The round winner from the fighters' unk5A (func_0036F678 on a draw): D_0043B7F8[0x1F] = 1, 2 or 3, [0x20] / [0x21]
+ * the two sides' results [I]. */
+void func_0036F860(Fighter *a, Fighter *b) {
+    s32 r1;
+    s32 kind;
+    s32 r0;
+
+    if (a->unk5A > b->unk5A) {
+        r1 = 1;
+        kind = 1;
+        r0 = 0;
+    } else if (a->unk5A < b->unk5A) {
+        r0 = 1;
+        r1 = 0;
+        kind = 2;
+    } else {
+        r0 = func_0036F678();
+        kind = 3;
+        r1 = (r0 + 1) & 1;
+    }
+    D_0043B7F8[0x1F] = kind;
+    D_0043B7F8[0x20] = r0;
+    D_0043B7F8[0x21] = r1;
+}
 
 void func_0036F8D8(Fighter *f) {
     if (f->unk188 != NULL && f->unk12F == 0 && f->unk4C0.unk12 != 0) {
@@ -2772,7 +3266,27 @@ INCLUDE_RODATA("asm/nonmatchings/battle_flow", jtbl_00500570);
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", jtbl_005005B0);
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036FB40);
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00370E20);
+void func_003A8890(Fighter *f);
+void func_003A88A0(Fighter *f);
+
+/* Follows move flag 0x20000 (unk13E) and calls func_003A8890 / func_003A88A0 when it turns on / off; `reset` clears
+ * it [V code; I meaning]. */
+void func_00370E20(Fighter *f, s32 reset) {
+    if (reset != 0) {
+        f->unk13F = 0;
+        f->unk13E = 0;
+    } else {
+        f->unk13E = (f->unkC0->unk24 >> 17) & 1;
+        if (f->unk13E != f->unk13F) {
+            if (f->unk13E != 0) {
+                func_003A8890(f);
+            } else {
+                func_003A88A0(f);
+            }
+        }
+        f->unk13F = f->unk13E;
+    }
+}
 
 #if 0
 /* NON_MATCHING: the original clamps with slt / movz on a sign-extended v and an unextended lim; ours branches */
@@ -2787,12 +3301,158 @@ s16 func_00370E98(s16 v, s32 lim) {
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00370E98);
 #endif
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00370ED0);
+s32 abs(s32 x);
 
+/* What is left of `lim` beyond |b| when |a| + |b| exceeds it, with the sign of a; else 0 [I: overlap along an axis]. */
+s32 func_00370ED0(s16 a, s16 b, s32 lim) {
+    s32 n = abs(b);
+    s16 r;
+
+    if (lim < n + abs(a)) {
+        r = lim - n;
+        if (a < 0) {
+            return -r;
+        }
+        return r;
+    }
+    return 0;
+}
+
+#if 0
+/* NON_MATCHING: 88 lines differ: register allocation (t0 / t1 swapped for the -1 and table constants, a2 / a3 for the
+ * angles) and the order of the unk48 - 0x4000 computation */
+s32 func_00366108(s32 dx, s32 dz);
+
+/* Per frame, for both fighters (from Fighter_StepMove): the body angle against the facing (unk3E, unk40) and its
+ * quadrant unk42, the facing target unk44 when far apart, the direction to the other fighter against the camera
+ * (unk4C) and the quadrants / octants of the body angle against the camera (unk50-unk58) [V code; I meaning]. */
+void func_00370F28(Fighter *f, Fighter *o) {
+    Fighter *a;
+    Fighter *b;
+    s32 i;
+    u16 c;
+    u16 d;
+    s16 v;
+    s16 e;
+    s16 r;
+    s32 unused[12]; /* not referenced: the original frame has 0x30 bytes of locals below the caller-save slots */
+
+    for (i = 0, a = f, b = o; i < 2; i++, a = o, b = f) {
+        a->unk3E = a->unk3C - a->unk3A;
+        a->unk42 = a->unk3E + 0x2000;
+        if ((u16)a->unk42 < 0x4000) {
+            a->unk42 = 0;
+        } else if (a->unk42 >= 0) {
+            a->unk42 = 1;
+        } else if ((u16)a->unk42 <= 0xBFFF) {
+            a->unk42 = 2;
+        } else {
+            a->unk42 = 3;
+        }
+        a->unk40 = a->unk3E;
+        if ((s16)a->unk3E < 0) {
+            a->unk40 = 0xFFFF - a->unk3E;
+        }
+        if (D_005F5C28 > 0x200) {
+            if (a->unk40 < 0x4000) {
+                a->unk44 = a->unk3A;
+            } else {
+                a->unk44 = a->unk3A - 0x8000;
+            }
+        }
+        a->unk4C = (func_00366108(a->unk51C - b->unk51C, a->unk524 - b->unk524) - D_00415808[1]) % 0x1000;
+        if (a->unk4C < 0) {
+            a->unk4C += 0x1000;
+        }
+        c = a->unk3C;
+        d = c - a->unk48;
+        if ((s16)d < 0) {
+            d = 0xFFFF - d;
+        }
+        if (d < 0x4000) {
+            r = a->unk48;
+        } else {
+            r = a->unk48 - 0x8000;
+        }
+        v = (u16)a->unk48 + 0xC000;
+        d = c - v;
+        a->unk50 = r;
+        if ((s16)d < 0) {
+            d = 0xFFFF - d;
+        }
+        if (d < 0x4000) {
+            r = v;
+        } else {
+            r = v - 0x8000;
+        }
+        a->unk52 = r;
+        e = c - (s16)((0x400 - D_00415808[1] % 0x1000) << 4);
+        v = e + 0x2000;
+        if ((u16)v < 0x4000) {
+            a->unk54 = 0;
+        } else if (v >= 0) {
+            a->unk54 = 1;
+        } else if ((u16)v <= 0xBFFF) {
+            a->unk54 = 2;
+        } else {
+            a->unk54 = 3;
+        }
+        if ((s16)(e + 0x4000) < 0) {
+            a->unk56 = 2;
+        } else {
+            a->unk56 = 0;
+        }
+        v = e + 0x1000;
+        if ((u16)v < 0x2000) {
+            a->unk58 = 0;
+        } else if ((u16)v < 0x4000) {
+            a->unk58 = 1;
+        } else if ((u16)v < 0x6000) {
+            a->unk58 = 2;
+        } else if (v >= 0) {
+            a->unk58 = 3;
+        } else if ((u16)v <= 0x9FFF) {
+            a->unk58 = 4;
+        } else if ((u16)v <= 0xBFFF) {
+            a->unk58 = 5;
+        } else if ((u16)v <= 0xDFFF) {
+            a->unk58 = 6;
+        } else {
+            a->unk58 = 7;
+        }
+    }
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00370F28);
+#endif
 
-INCLUDE_RODATA("asm/nonmatchings/battle_flow", jtbl_005005E0);
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00371258);
+/* Move state 9 (unkD5): from the frame unkC0->unk19 of the move on, sets bit 4 of the guard mask unkCC [V code; I
+ * meaning]. */
+void func_00371258(Fighter *f) {
+    switch (f->unkD5) {
+    case 1:
+    case 2:
+    case 3:
+    case 4:
+    case 5:
+    case 6:
+    case 7:
+    case 8:
+        break;
+    case 9:
+        if (f->unkC0->unk19 != 0 && f->unkC4 >= f->unkC0->unk19) {
+            f->unkCC |= 4;
+        }
+        break;
+    case 10:
+    case 11:
+    case 12:
+    case 13:
+    case 14:
+    case 15:
+        break;
+    }
+}
 
 u32 func_003712C0(void) {
     u32 r = 0;
@@ -2909,7 +3569,97 @@ void Battle_ApplyVelocity(Fighter *a, Fighter *b) {
     }
 }
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", Battle_ResolveHits);
+s16 func_003772B0(Fighter *a, Fighter *b, HitContact *ca, HitContact *cb);
+
+/* The hits of the frame (Battle_UpdateFrame step 8): clears the hit flags, runs the hit test (func_003772B0, bit 0 when
+ * a hits b, bit 1 when b hits a) and lets each attacker p hit its defender q when its attack level unkD0 meets q's mask
+ * unkCC & 7 (bit 0 added against a crouching q, unk11A == 2), with these exceptions: a throw (level 0x10F) misses a q in
+ * move state 0xE (unkD5) between the frames unk19 and unk1A - 5 of its move or juggled (unk135); level 0x907 only hits a
+ * juggled q or one in move flag 0x400; nothing hits q right after a tag (unkB134), and character 0x1D's moves
+ * 0x12A2-0x12A5 never hit. A hit sets p's unkF1 / unkF4 / unkF5 / unk132 and q's unkF3 / unk12F, the hit freeze unk14C
+ * (byte 0x2E of p's move), the hit kind unk11C, and the pairing record q->unk18C: the reaction entry's unk6 (close,
+ * with unk13B) or unk4 (far, by the distance D_005F5C28 against its unk8) as an index of D_0046BE78, 0x592 or 0 for
+ * none [V code; I meanings]. */
+void Battle_ResolveHits(Fighter *a, Fighter *b) {
+    Fighter *x;
+    Fighter *p;
+    Fighter *q;
+    s16 i;
+    s32 hits;
+    s32 bit;
+    u16 lvl;
+    u16 id;
+
+    for (i = 0, x = a; i < 2; i++, x = b) {
+        x->unk12F = 0;
+        x->unk132 = 0;
+        x->unk133 = 0;
+        x->unk14C = 0;
+        x->unk13B = 0;
+    }
+    hits = func_003772B0(a, b, &a->unk39C, &b->unk39C);
+    for (p = a, q = b, bit = 1, i = 0; i < 2; i++, p = b, q = a, bit = 2) {
+        if (p->unkD0 == 0x10F && q->unkD5 == 0xE
+            && ((q->unkC4 >= q->unkC0->unk19 && q->unkC4 <= q->unkC0->unk1A - 5) || q->unk135 != 0)) {
+            continue;
+        }
+        if (p->unkD0 == 0x907 && q->unk135 == 0 && !(q->unkC0->unk4 & 0x400)) {
+            continue;
+        }
+        if (q->unkB134 != 0) {
+            continue;
+        }
+        if (p->unk2A == 0x1D && (u16)(p->unk10C - 0x12A2) < 4) {
+            continue;
+        }
+        lvl = p->unkD0;
+        if (q->unk11A == 2) {
+            lvl |= 1;
+        }
+        if (p->unk127 == 0 || q->unk127 == 0 || p->unkF1 != 0 || !(hits & bit) || !(lvl & (u16)q->unkCC & 7)) {
+            continue;
+        }
+        if (p->unkCA == 0 && q->unk139 != 0) {
+            continue;
+        }
+        p->unkF1 = 1;
+        p->unkF4 = 1;
+        p->unkF5 = 1;
+        p->unk132 = 1;
+        q->unkF3 = 1;
+        q->unk12F = 1;
+        q->unk14C = (s8)p->unkC0->unk2E;
+        q->unk11C = p->unk11B;
+        if (D_005F5C28 < func_0036C1A0(p, q, p->unkC0)->unk8) {
+            id = func_0036C1A0(p, q, p->unkC0)->unk6;
+            if (id == 0x592) {
+                q->unk18C = NULL;
+            } else if (id == 0) {
+                q->unk18C = NULL;
+            } else {
+                q->unk18C = (struct FighterUnk18C *)&D_0046BE78[func_0036C1A0(p, q, p->unkC0)->unk6];
+                q->unk13B = 1;
+            }
+        } else {
+            id = func_0036C1A0(p, q, p->unkC0)->unk4;
+            if (id == 0x592) {
+                q->unk18C = NULL;
+            } else if (id == 0) {
+                q->unk18C = NULL;
+            } else {
+                q->unk18C = (struct FighterUnk18C *)&D_0046BE78[func_0036C1A0(p, q, p->unkC0)->unk4];
+            }
+        }
+        if (p->unkCA != 0 || q->unk135 != 0) {
+            q->unk14E = 4;
+        }
+    }
+    for (i = 0, p = a; i < 2; i++, p = b) {
+        if (p->unkC0->unk2D == p->unkC4 && p->unkF5 == 0) {
+            p->unk133 = 1;
+        }
+    }
+}
 
 #define ABS(x) ((x) < 0 ? -(x) : (x))
 
@@ -3219,9 +3969,133 @@ void func_00373080(Fighter *f, Fighter *o) {
     func_00376C30();
 }
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_003730E8);
+#if 0
+/* NON_MATCHING: 11 lines differ: the order of the position stores (unk70C ... unk710) and the registers of their two
+ * constants */
+extern u16 D_005F5C62;
+void Snd_StopVoiceSeq(Fighter *f);
+void func_00377F58(Fighter *f);
+void func_0034E8B8(Fighter *f);
+void func_00373218(Fighter *f);
+void func_0036BC50(Fighter *f);
+void func_0036BD50(Fighter *f);
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00373218);
+/* Puts a fighter at its round start: side 0 at x -1000 facing 0x4000, side 1 at 1000 facing -0x4000, both on z 0,
+ * velocity and gauge cleared, then the move state (func_00373218), voice, body spheres and input state reset [V]. */
+void func_003730E8(Fighter *f, Fighter *o, s32 side) {
+    f->unkB12C = NULL;
+    f->unk4 = side == 0 ? -1000 : 1000;
+    f->unk8 = 0;
+    f->unkC = 0;
+    f->unk18 = 0;
+    if (side == 0) {
+        f->unk1A = 0x4000;
+    } else {
+        f->unk1A = -0x4000;
+    }
+    f->unk1C = 0;
+    f->unk40 = f->unk3C = f->unk1A;
+    if (side == 0) {
+        f->unk624 = -100;
+    } else {
+        f->unk624 = 100;
+    }
+    f->unk3E8 = 0;
+    f->unk3EC = 0;
+    f->unk3F0 = 0;
+    f->unk408 = 0;
+    f->unk70C = -0x591;
+    f->unk6B8 = f->unk4;
+    f->unk6BC = -0x41B;
+    f->unk6C0 = f->unkC;
+    f->unk51C = f->unk4;
+    f->unk524 = f->unkC;
+    f->unk708 = f->unk4;
+    f->unk710 = f->unkC;
+    func_00373218(f);
+    Snd_StopVoiceSeq(f);
+    func_00377F58(f);
+    func_0034E8B8(f);
+    func_00371B78(f);
+    f->unkB132 = 1;
+    f->unkB134 = 0;
+    f->unk12A = 0;
+    f->unk12B = 0;
+    if (D_005F5C62 != 0 && f->unk418 == 0) {
+        f->unk12C = 1;
+    } else {
+        f->unk12C = 0;
+    }
+    func_0036BC50(f);
+    func_0036BD50(f);
+}
+#else
+INCLUDE_ASM("asm/nonmatchings/battle_flow", func_003730E8);
+#endif
+
+/* Clears the move and hit state of a fighter for a new round (then func_00370E20(f, 1)) [V stores]. */
+void func_00373218(Fighter *f) {
+    f->unkD6 = -1;
+    f->unkE4 = 0;
+    f->unkF0 = 0;
+    f->unkFE = 0;
+    f->unk100 = 0;
+    f->unk106 = 0;
+    f->unk108 = 0;
+    f->unk10A = 0;
+    f->unk119 = 0;
+    f->unkF4 = 0;
+    f->unkF5 = 0;
+    f->unkF3 = 0;
+    f->unkF6 = 0;
+    f->unkF7 = 0;
+    f->unk11B = 0;
+    f->unk438.unk82 = 0;
+    f->unk120 = 0;
+    f->unk11D = 0;
+    f->unkF9 = 0;
+    f->unk122 = 0;
+    f->unkE2 = 0;
+    f->unkB4 = 0;
+    f->unkB6 = 0;
+    f->unk14E = 0;
+    f->unk150 = 0;
+    f->unk154 = 0;
+    f->unk15C = 0;
+    f->unk15E = 0;
+    f->unk160 = 0;
+    f->unk162 = 0;
+    f->unk16C = 0;
+    f->unk16E = 0;
+    f->unk16A = 0;
+    f->unk170 = 0;
+    f->unk12D = 0;
+    f->unk172 = 0;
+    f->unk12F = 0;
+    f->unk132 = 0;
+    f->unk133 = 0;
+    f->unk13A = 0;
+    f->unk13B = 0;
+    f->unk130 = 0;
+    f->unk131 = 0;
+    f->unk138 = 0;
+    f->unk146 = 0;
+    f->unk135 = 0;
+    f->unk14A = 0;
+    f->unk14C = 0;
+    f->unk126 = 0;
+    f->unk12E = 0;
+    f->unkB878 = 0;
+    f->unkB880 = 0;
+    f->unkB884 = 0;
+    f->unkB870[0] = 0;
+    f->unkB870[1] = 0;
+    f->unkB870[2] = 0;
+    f->unk3E8 = 0;
+    f->unk3EC = 0;
+    f->unk3F0 = 0;
+    func_00370E20(f, 1);
+}
 
 void func_00373320(void) {
     s32 i;
@@ -3242,21 +4116,169 @@ void func_00373390(Fighter *f, s32 n) {
     func_00373398(f);
 }
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00373398);
+void func_00373400(Fighter *f);
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00373400);
+/* Resets the motion blend of a fighter (func_00373400 first) [I]. */
+void func_00373398(Fighter *f) {
+    s32 i;
+
+    func_00373400(f);
+    f->unkB5E0 = 0;
+    f->unkB5DC = 0;
+    f->unkB878 = 0;
+    f->unkB880 = 0;
+    f->unkB884 = 0;
+    for (i = 0; i < 3; i++) {
+        f->unkB870[i] = 0;
+    }
+}
+
+/* Keeps the current move record, unk32 and frame as the start of a motion blend [I]. */
+void func_00373400(Fighter *f) {
+    f->unkB5E8 = f->unkC0;
+    f->unkB5D2 = f->unk32;
+    f->unkB5F0 = f->unkC4;
+}
 
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00373428);
 
+#if 0
+/* NON_MATCHING: 34 lines differ: the original keeps the move record in two registers (t0 and a0) and computes unk2C -
+ * (unkC4 + 1) apart from the window test */
+/* Starts a blend at the end of the current move (state 1, up to 16 frames before its window, 4 or 16 frames without
+ * one, at most the frames left) when the move changed or unk134 is set; returns whether a blend runs [I]. */
+s32 func_003736B8(Fighter *f) {
+    struct FighterMove *m = f->unkC0;
+    s32 rem;
+    s32 n;
+
+    if (f->unkB5E8 == m && f->unkF8 != 3) {
+        return 0;
+    }
+    if (f->unk134 != 0 || f->unkB5E8 != m) {
+        rem = m->unk18 - f->unkC4;
+        if (rem < 0) {
+            rem = 0;
+        }
+        n = 0;
+        if (rem != 0) {
+            if (m->unk2C != 0) {
+                if (f->unkC4 < m->unk2C - 1) {
+                    n = m->unk2C - (f->unkC4 + 1);
+                    if (n > 16) {
+                        n = 16;
+                    }
+                }
+            } else {
+                n = 4;
+                if (f->unkE0 < 0) {
+                    n = 16;
+                }
+            }
+        }
+        if (rem < n) {
+            n = rem;
+        }
+        if (n >= 2) {
+            f->unkB5DC = 1;
+            f->unkB5E0 = 1;
+            f->unkB5E4 = n;
+        }
+    }
+    return f->unkB5E0;
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_003736B8);
+#endif
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_003737B0);
+s32 func_0036BF58(Fighter *f);
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_003738C0);
+/* Starts a blend into the pending move (state 2, unkB5E4 frames: those left before it starts) unless the current move is
+ * still inside its window unkC0->unk2D or the pending move's window holds the frame it will start on
+ * (func_0036BF58); returns whether a blend runs [I]. */
+s32 func_003737B0(Fighter *f) {
+    struct FighterMove *m;
+    s32 n;
+    s16 frame;
+
+    if (f->unk188 != NULL && f->unkF8 != 3 && f->unkC4 < f->unk178) {
+        m = func_00368218(f, f->unk184);
+        frame = f->unkC4;
+        f->unkB5E4 = f->unk178 - frame + 1;
+        if (f->unkC0->unk2D >= frame) {
+            f->unkB5E4 = 0;
+        } else if (m->unk2C != 0) {
+            n = func_0036BF58(f) + 1;
+            if (n >= m->unk2C && n <= m->unk2D) {
+                f->unkB5E4 = 0;
+            }
+        }
+        if (f->unkB5E4 < 2) {
+            f->unkB5E4 = 0;
+        } else {
+            f->unkB5DC = 2;
+            f->unkB5E0 = 1;
+        }
+    }
+    return f->unkB5E0;
+}
+
+/* Starts a blend over the last frames of the current move when no move is pending and fewer than 16 frames are left
+ * (3, unkB5E4 frames); returns whether a blend is running [I]. */
+s32 func_003738C0(Fighter *f) {
+    s32 len = f->unkC0->unk18;
+    s32 left;
+    s32 n;
+
+    if (f->unk188 == NULL) {
+        left = len - f->unkC4;
+        if (left < 0x10) {
+            n = left + 1;
+            if (f->unkDA <= 0) {
+                n = f->unkC4;
+            }
+            if (n >= 2) {
+                f->unkB5DC = 3;
+                f->unkB5E0 = 1;
+                f->unkB5E4 = n;
+            }
+        }
+    }
+    return f->unkB5E0;
+}
 
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00373930);
 
+#if 0
+/* NON_MATCHING: 13 lines differ: block order; the original places the case 2 / 3 'unkB878 < unkB880' branch after
+ * case 1 and case 1's negative branch as a return */
+/* Steps the blend weight unkB880 by the blend state unkB5DC: 0 clears, 1 counts down to 0, 2 / 3 count up to unkB878 [I]. */
+void func_00373D48(Fighter *f) {
+    switch (f->unkB5DC) {
+    case 2:
+    case 3:
+        if (f->unkB880 < f->unkB878) {
+            f->unkB880++;
+        } else if (f->unkB878 < f->unkB880) {
+            f->unkB880 = f->unkB878;
+        }
+        break;
+    case 0:
+        f->unkB880 = 0;
+        f->unkB878 = 0;
+        break;
+    case 1:
+        if (f->unkB880 > 0) {
+            f->unkB880--;
+        } else if (f->unkB880 < 0) {
+            f->unkB880 = 0;
+        }
+        break;
+    }
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00373D48);
+#endif
 
 void func_00373DE0(void) {
     s32 i;
@@ -3280,9 +4302,196 @@ Unk500678 *func_00374010(s32 i) {
     return &D_005F2BA8[i];
 }
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00374048);
+s32 abs(s32 x);
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00374148);
+/* The launch kind (unkFC, record func_00374010) of a fighter thrown in the air by the other's move: the move's byte
+ * 0x2F, else 1 for a fast fall (unk3E0 >= 110), 2 / 3 / 0 by the facing quadrant unk42; while the fighter is in move
+ * flag 0x200 or moves 0x129B-0x129F: 7 for a fast fall, else 5 / 6 by the height |unk520| [V code; I meaning]. */
+s32 Fighter_GetLaunchKind(Fighter *f, Fighter *o) {
+    s32 r = 0;
+    s32 c;
+    s16 h;
+
+    c = 0;
+    do { /* fake */
+        if (!(f->unkCC & 0x200)) {
+            c = 1;
+        }
+        if ((u16)(f->unk10C - 0x129B) <= 2) {
+            c = 0;
+        }
+        if (f->unk10C == 0x129E && f->unkC4 >= 0x13) {
+            c = 0;
+        }
+        if (f->unk10C == 0x129F && f->unkC4 >= 0x13) {
+            c = 0;
+        }
+    } while (0);
+    if (c != 0) {
+        if (o->unkC0->unk2F != 0) {
+            r = o->unkC0->unk2F;
+        } else if (f->unk3E0 >= 0x6E) {
+            r = 1;
+        } else if (f->unk10C != 0x1279) {
+            if (f->unk42 == 3) {
+                r = 2;
+            } else if (f->unk42 == 1) {
+                r = 3;
+            } else {
+                r = 0;
+            }
+        }
+    } else if (f->unk3E0 >= 0x6E) {
+        r = 7;
+    } else {
+        h = abs(f->unk520);
+        r = 5;
+        if (!(h > 0x2DF)) {
+            r = 6;
+        }
+    }
+    return r;
+}
+
+#if 0
+/* NON_MATCHING: 148 lines differ: the original places the juggle branch (unk100 != 0) as an 8-aligned block before
+ * its test, reached by a backward branch, and the t - 1 + t1 branch out of line after the first if (a loop or goto
+ * structure not found yet); register allocation follows from it */
+s16 Math_Sin(s32 angle);
+s32 abs(s32 x);
+s16 Math_Cos(s32 angle);
+void func_00363AB8(s32 move, s16 *pos, s32 frame, Fighter *f);
+
+/* The launch of a fighter (Fighter_StepMove kinds 0x1E and 0x26, record func_00374010(unkFC)): the height to reach
+ * (record unk2, else the move's position at its last frame, func_00363AB8), the launch speed unk104 (0-100, more with
+ * each hit of the juggle unk100) split by the facing into unk106 / unk10A, the vertical speed unk108 and the frames in
+ * the air unk178, so that the arc lands where the move continues [V code; I meaning]. */
+void Fighter_StartLaunch(Fighter *f, Fighter *o) {
+    Unk500678 *rec;
+    struct FighterMove *m;
+    s32 len;
+    s32 n;
+    s16 h;
+    s32 y;
+    s32 dy;
+    s32 speed;
+    s32 vy;
+    s32 t;
+    s32 t1;
+    s32 cs;
+    s16 pos[4];
+
+    rec = func_00374010(f->unkFC);
+    m = f->unk188;
+    f->unk178 = t1 = 1;
+    len = m->unk1B;
+    if (len <= 0) {
+        len = m->unk18;
+    }
+    y = -f->unk520;
+    if (rec->unk2 != 0) {
+        h = f->unk102 = rec->unk2;
+    } else {
+        n = m->unk1B - 1;
+        if (n < 0) {
+            n = m->unk18;
+        }
+        func_00363AB8(m->unk0, pos, n, f);
+        h = pos[1];
+        f->unk102 = h;
+    }
+    speed = (f->unk100 + 1) * 7 + 10;
+    speed = f->unk146 + speed;
+    if (f->unkFC == 4) {
+        speed += 10;
+    }
+    dy = h - y;
+    if (speed < 0) {
+        speed = 0;
+    }
+    if (speed > 100) {
+        speed = 100;
+    }
+    f->unk104 = speed;
+    f->unk106 = f->unk104 * Math_Sin((s16)(f->unk3A - 0x8000)) / 0x8000;
+    cs = Math_Cos((s16)(f->unk3A - 0x8000));
+    vy = f->unk100 * 7 - 40;
+    vy = f->unk146 * 4 - ((f->unk3C8 + f->unk3E0) >> 3) - vy;
+    if (vy < -100) {
+        vy = -100;
+    }
+    if (vy > 100) {
+        vy = 100;
+    }
+    f->unk108 = -vy;
+    n = abs(vy * vy + dy * 12);
+    f->unk10A = f->unk104 * cs / 0x8000;
+    t = (vy + Math_Isqrt(n)) / 6;
+    if (t <= 0) {
+        t = 1;
+    }
+    t1 = len - t + 1;
+    if (t1 <= 0) {
+        t1 = 1;
+    }
+    if (rec->unk6 != 0) {
+        t += t1 - rec->unk6;
+        t1 = rec->unk6;
+    } else if ((f->unkCC & 4) || t1 == 1) {
+        if (f->unk100 != 0) {
+            if (f->unkC0->unk0 == f->unk188->unk0) {
+                if (abs(f->unkC4 - t1) < 10) {
+                    n = f->unkC4 - 10;
+                    if (n <= 0) {
+                        n = 1;
+                    }
+                    t += t1 - n;
+                    t1 = n;
+                }
+            }
+        } else {
+            t += 10;
+            t1 = len - t + 1;
+            if (t1 <= 0) {
+                t1 = 1;
+            }
+        }
+    } else {
+        t = t - 1 + t1;
+        t1 = 1;
+    }
+    f->unk178 = t1;
+    if (rec->unk4 != 0) {
+        f->unk108 = rec->unk4;
+    }
+    if (rec->unk6 != 0) {
+        f->unk178 = rec->unk6;
+    }
+    f->unk158 = &rec->unk8;
+    if (rec->unk8 != 0) {
+        f->unk150 = *f->unk158++;
+        f->unk152 = *f->unk158++;
+    } else {
+        f->unk150 = 0;
+        f->unk158 += 2;
+        f->unk152 = 0;
+    }
+    f->unk154 = 8;
+    f->unk156 = f->unk3A - 0x8000;
+    if (rec->unk4 == 0) {
+        n = t + 1;
+        if (vy * n - 3 * n * n + y < h) {
+            f->unk108 = -((dy + 3 * n * n) / n);
+        }
+        n = len - t1 + 4;
+        if (n < t) {
+            f->unk108 = -((3 * n * n + dy) / n);
+        }
+    }
+}
+#else
+INCLUDE_ASM("asm/nonmatchings/battle_flow", Fighter_StartLaunch);
+#endif
 
 /* 0x374520-0x3745E8: the last functions of the object. Its .rodata ends with D_00500758, so the sound object starts
  * at Snd_Init with its .rodata at 0x500780 (the 16-byte alignment of its jump tables). */

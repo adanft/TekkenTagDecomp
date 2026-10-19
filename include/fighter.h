@@ -3,6 +3,13 @@
 
 #include "types.h"
 
+/* An entry of a move record's unk20 list, ended by unk0 == 0: kind 0xC in the high byte of unk2 adds its low byte to
+ * the damage of every D_005E8978 entry of the record (func_003682F8) [V code; I meaning]. */
+struct MoveMod {
+    /* 0x0 */ u16 unk0;
+    /* 0x2 */ u16 unk2;
+};
+
 /* A move record (0x34 bytes). Fighter fields 0xB8, 0xC0 (the current move) and 0x188 (the move looked up by id,
  * or NULL: func_00368218) point to one, and so does each CPU candidate (CpuCand.unk4 in src/fighter_core.c). unk2C /
  * unk2D bound a frame window compared with Fighter.unkC4 [I]. */
@@ -17,10 +24,10 @@ struct FighterMove {
     /* 0x16 */ u8 pad16[0x2];
     /* 0x18 */ u8 unk18;                      /* length in frames */
     /* 0x19 */ u8 unk19;
-    /* 0x1A */ u8 pad1A[0x1];
+    /* 0x1A */ u8 unk1A;
     /* 0x1B */ u8 unk1B;
     /* 0x1C */ u16 *unk1C;
-    /* 0x20 */ u8 pad20[0x4];
+    /* 0x20 */ struct MoveMod *unk20;         /* damage changes applied when the record is loaded (func_003682F8) */
     /* 0x24 */ u32 unk24;                     /* flags */
     /* 0x28 */ u8 unk28;
     /* 0x29 */ u8 unk29;
@@ -28,17 +35,18 @@ struct FighterMove {
     /* 0x2B */ u8 unk2B;
     /* 0x2C */ u8 unk2C;
     /* 0x2D */ u8 unk2D;
-    /* 0x2E */ u8 pad2E[0x2];
+    /* 0x2E */ u8 unk2E;                      /* hit freeze given to the other fighter (Battle_ResolveHits) */
+    /* 0x2F */ u8 unk2F;                      /* launch kind given to the other fighter (Fighter_GetLaunchKind) */
     /* 0x30 */ u16 unk30;                     /* hit effect kind (func_00377AE8) [I] */
 };
 
 /* One entry of a move's command list (0xE bytes; the lists are in D_0047F780 and a move record points to its own at
- * 0x0C). Move_FindCommand walks a list at the current frame: unk0 is the input to match (func_0036CBE8 against the input
+ * 0x0C). Move_FindCommand walks a list at the current frame: unk0 is the input to match (Cmd_MatchInput against the input
  * history) or a marker (0x8000 end, 0x8004 continue in the shared list unk6, 0x8005 return), unk2 a condition
- * (func_00369008), unkB..unkC the frame window, unk6 the move it starts [V for the walk; I for the meanings]. */
+ * (Cmd_CheckCondition), unkB..unkC the frame window, unk6 the move it starts [V for the walk; I for the meanings]. */
 typedef struct {
     /* 0x0 */ u16 unk0;                       /* input, or 0x8000 / 0x8004 / 0x8005; 0x10 and bit 0x4000 tested */
-    /* 0x2 */ u8 unk2;                        /* condition id (func_00369008) */
+    /* 0x2 */ u8 unk2;                        /* condition id (Cmd_CheckCondition) */
     /* 0x3 */ u8 unk3;
     /* 0x4 */ s16 unk4;
     /* 0x6 */ u16 unk6;                       /* move started */
@@ -73,7 +81,11 @@ typedef struct {
     /* 0x7E */ s16 unk7E;                     /* this frame: buttons pressed */
     /* 0x80 */ s16 unk80;                     /* this frame: buttons held */
     /* 0x82 */ u8 unk82;                      /* cleared when a move starts (Fighter_StepMove) */
-} FighterUnk438;
+    /* 0x83 */ u8 unk83;                      /* button 0x80 pressed (func_0036CA68) */
+    /* 0x84 */ u8 unk84;                      /* button 0x10 pressed */
+    /* 0x85 */ u8 unk85;                      /* buttons 0x90 held and one of them pressed */
+    /* 0x86 */ u8 pad86[0x2];
+} __attribute__((aligned(8))) FighterUnk438;
 
 /* What Fighter.unkB12C points to: a move and a start position used instead of the defaults [I]. */
 struct FighterUnkB12C {
@@ -152,9 +164,10 @@ typedef struct {
     /* 0x0004 */ s32 unk4;
     /* 0x0008 */ s32 unk8;
     /* 0x000C */ s32 unkC;
-    /* 0x0010 */ u8 pad10[0xA];
-    /* 0x001A */ u16 unk1A;
-    /* 0x001C */ u8 pad1C[0x2];
+    /* 0x0010 */ u8 pad10[0x8];
+    /* 0x0018 */ s16 unk18;
+    /* 0x001A */ s16 unk1A;
+    /* 0x001C */ s16 unk1C;
     /* 0x001E */ s16 unk1E;                   /* set to 0, 1, 0, 1 at boot [I: side]; the player of its sound effects */
     /* 0x0020 */ u16 unk20;                   /* set to the slot index at boot */
     /* 0x0022 */ s16 unk22;                   /* command list slot (gPracCmdLists) [I] */
@@ -164,16 +177,27 @@ typedef struct {
     /* 0x002A */ s16 unk2A;                   /* character */
     /* 0x002C */ s16 unk2C;                   /* index of its voice set (D_00501808) */
     /* 0x002E */ s16 unk2E;
-    /* 0x0030 */ u8 pad30[0xA];
+    /* 0x0030 */ u8 pad30[0x2];
+    /* 0x0032 */ s16 unk32;
+    /* 0x0034 */ u8 pad34[0x6];
     /* 0x003A */ s16 unk3A;                   /* facing angle (0x4000 / -0x4000 at a practice reset) [I] */
     /* 0x003C */ s16 unk3C;                   /* facing angle of the body [I] */
-    /* 0x003E */ u8 pad3E[0x2];
-    /* 0x0040 */ u16 unk40;
+    /* 0x003E */ u16 unk3E;                   /* unk3C - unk3A (func_00370F28) */
+    /* 0x0040 */ u16 unk40;                   /* |unk3E| as an angle, 0-0x7FFF */
     /* 0x0042 */ s16 unk42;
     /* 0x0044 */ s16 unk44;                   /* facing target of a turn (Fighter_StepMove) */
     /* 0x0046 */ s16 unk46;
     /* 0x0048 */ s16 unk48;                   /* angle from the camera angle D_00415808[1] (Battle_UpdateFacing) */
-    /* 0x004A */ u8 pad4A[0x6C];
+    /* 0x004A */ u8 pad4A[0x2];
+    /* 0x004C */ s32 unk4C;                   /* direction to the other fighter against the camera, 0-0xFFF */
+    /* 0x0050 */ s16 unk50;
+    /* 0x0052 */ s16 unk52;
+    /* 0x0054 */ s16 unk54;                   /* quadrant of unk3C against the camera (func_00370F28) */
+    /* 0x0056 */ s16 unk56;
+    /* 0x0058 */ s16 unk58;                   /* octant of unk3C against the camera */
+    /* 0x005A */ s16 unk5A;                   /* compared between the fighters at the end of a round (func_0036F860) */
+    /* 0x005C */ u8 pad5C[0x58];
+    /* 0x00B4 */ s16 unkB4;                   /* compared between the fighters at the end of a round (func_0036F010) */
     /* 0x00B6 */ s16 unkB6;
     /* 0x00B8 */ struct FighterMove *unkB8;
     /* 0x00BC */ s16 unkBC;
@@ -200,11 +224,11 @@ typedef struct {
     /* 0x00E8 */ s32 unkE8;
     /* 0x00EC */ s32 unkEC;
     /* 0x00F0 */ u8 unkF0;
-    /* 0x00F1 */ s8 unkF1;
+    /* 0x00F1 */ u8 unkF1;                    /* the attack hit (Battle_ResolveHits) */
     /* 0x00F2 */ u8 unkF2;
     /* 0x00F3 */ u8 unkF3;
     /* 0x00F4 */ s8 unkF4;
-    /* 0x00F5 */ s8 unkF5;
+    /* 0x00F5 */ u8 unkF5;
     /* 0x00F6 */ u8 unkF6;
     /* 0x00F7 */ u8 unkF7;
     /* 0x00F8 */ u8 unkF8;
@@ -213,16 +237,20 @@ typedef struct {
     /* 0x00FC */ s16 unkFC;
     /* 0x00FE */ s16 unkFE;
     /* 0x0100 */ s16 unk100;
-    /* 0x0102 */ u8 pad102[0xA];
+    /* 0x0102 */ s16 unk102;                  /* launch: height to reach (Fighter_StartLaunch) */
+    /* 0x0104 */ s16 unk104;                  /* launch: horizontal speed, 0-100 */
+    /* 0x0106 */ s16 unk106;                  /* launch: speed along x */
+    /* 0x0108 */ s16 unk108;                  /* launch: vertical speed */
+    /* 0x010A */ s16 unk10A;                  /* launch: speed along z */
     /* 0x010C */ s16 unk10C;                  /* current move id [I] */
     /* 0x010E */ s16 unk10E;                  /* kind of the current move (unk17A when it started) */
     /* 0x0110 */ s32 unk110;                  /* the other fighter's x when the move started */
     /* 0x0114 */ s32 unk114;                  /* the other fighter's z when the move started */
     /* 0x0118 */ u8 unk118;
-    /* 0x0119 */ u8 pad119[0x1];
+    /* 0x0119 */ u8 unk119;
     /* 0x011A */ u8 unk11A;
     /* 0x011B */ s8 unk11B;
-    /* 0x011C */ u8 pad11C[0x1];
+    /* 0x011C */ u8 unk11C;                   /* hit kind of the attacker (its unk11B, Battle_ResolveHits) */
     /* 0x011D */ u8 unk11D;
     /* 0x011E */ u8 unk11E;                   /* state code set per move kind (Fighter_StepMove) */
     /* 0x011F */ u8 unk11F;
@@ -235,7 +263,7 @@ typedef struct {
     /* 0x0128 */ u8 pad128[0x1];
     /* 0x0129 */ u8 unk129;
     /* 0x012A */ u8 unk12A;                   /* juggle: red life drops by 1.4x (Fighter_ApplyDamage) */
-    /* 0x012B */ u8 pad12B[0x1];
+    /* 0x012B */ u8 unk12B;                   /* command 0x8003 armed (Cmd_MatchInput) */
     /* 0x012C */ u8 unk12C;
     /* 0x012D */ u8 unk12D;
     /* 0x012E */ u8 unk12E;
@@ -243,19 +271,20 @@ typedef struct {
     /* 0x0130 */ u8 unk130;
     /* 0x0131 */ u8 unk131;
     /* 0x0132 */ u8 unk132;
-    /* 0x0133 */ u8 pad133[0x1];
+    /* 0x0133 */ u8 unk133;
     /* 0x0134 */ u8 unk134;
     /* 0x0135 */ u8 unk135;
     /* 0x0136 */ u8 unk136;
     /* 0x0137 */ u8 unk137;
     /* 0x0138 */ u8 unk138;
-    /* 0x0139 */ u8 pad139[0x1];
+    /* 0x0139 */ u8 unk139;
     /* 0x013A */ u8 unk13A;
     /* 0x013B */ u8 unk13B;                   /* counter hit [I] */
     /* 0x013C */ u8 unk13C;                   /* number of attack volumes at unk190 */
     /* 0x013D */ u8 unk13D;                   /* 1: the other's damage, 2: own, 3: heal (Fighter_ApplyDamage) */
-    /* 0x013E */ u8 pad13E[0x2];
-    /* 0x0140 */ s8 unk140;
+    /* 0x013E */ u8 unk13E;                   /* move flag 0x20000 of the current move (func_00370E20) */
+    /* 0x013F */ u8 unk13F;                   /* unk13E of the previous frame */
+    /* 0x0140 */ u8 unk140;
     /* 0x0141 */ u8 pad141[0x1];
     /* 0x0142 */ u16 unk142;                  /* damage taken this frame (Fighter_ApplyDamage) */
     /* 0x0144 */ u16 unk144;
@@ -280,15 +309,15 @@ typedef struct {
     /* 0x016C */ u16 unk16C;
     /* 0x016E */ s16 unk16E;
     /* 0x0170 */ s16 unk170;
-    /* 0x0172 */ u8 pad172[0x2];
+    /* 0x0172 */ s16 unk172;
     /* 0x0174 */ s16 unk174;
     /* 0x0176 */ s16 unk176;                  /* previous move id */
     /* 0x0178 */ s16 unk178;
     /* 0x017A */ s16 unk17A;
     /* 0x017C */ s16 unk17C;
     /* 0x017E */ s16 unk17E;
-    /* 0x0180 */ s16 unk180;
-    /* 0x0182 */ s16 unk182;
+    /* 0x0180 */ u16 unk180;                  /* tag requested (func_00368B90) [I] */
+    /* 0x0182 */ u16 unk182;                  /* character variant requested instead of a tag */
     /* 0x0184 */ u16 unk184;
     /* 0x0186 */ u8 pad186[0x2];
     /* 0x0188 */ struct FighterMove *unk188;
@@ -325,7 +354,9 @@ typedef struct {
     /* 0x0400 */ u8 unk400;
     /* 0x0401 */ u8 pad401[0x1];
     /* 0x0402 */ s8 unk402;
-    /* 0x0403 */ u8 pad403[0x9];
+    /* 0x0403 */ u8 pad403[0x5];
+    /* 0x0408 */ u16 unk408;                  /* life shown on the gauge (Battle_SetRoundResult) [I] */
+    /* 0x040A */ u8 pad40A[0x2];
     /* 0x040C */ s32 unk40C;                  /* still standing: cleared at 0 life / red life
                                                  * (Fighter_ApplyDamage), read by Battle_IsRoundOver */
     /* 0x0410 */ s32 unk410;
@@ -341,7 +372,6 @@ typedef struct {
     /* 0x0434 */ u16 unk434;                  /* buttons held the previous frame */
     /* 0x0436 */ u16 unk436;                  /* buttons pressed this frame [V] */
     /* 0x0438 */ FighterUnk438 unk438;
-    /* 0x04BC */ u8 pad4BC[0x4];
     /* 0x04C0 */ MoveCmdState unk4C0;
     /* 0x04D4 */ MoveCmdSlot unk4D4;       /* a command matched this frame, buffered [I] */
     /* 0x04E8 */ MoveCmdSlot unk4E8;       /* copy of unk4D4 kept for the next frame [I] */
@@ -349,7 +379,13 @@ typedef struct {
     /* 0x051C */ s32 unk51C;
     /* 0x0520 */ s32 unk520;
     /* 0x0524 */ s32 unk524;
-    /* 0x0528 */ u8 pad528[0x1E0];
+    /* 0x0528 */ u8 pad528[0xFC];
+    /* 0x0624 */ s16 unk624;
+    /* 0x0626 */ u8 pad626[0x92];
+    /* 0x06B8 */ s32 unk6B8;
+    /* 0x06BC */ s32 unk6BC;
+    /* 0x06C0 */ s32 unk6C0;
+    /* 0x06C4 */ u8 pad6C4[0x44];
     /* 0x0708 */ s32 unk708;
     /* 0x070C */ s32 unk70C;
     /* 0x0710 */ s32 unk710;
@@ -357,9 +393,26 @@ typedef struct {
     /* 0x1BF0 */ f32 unk1BF0[4][4];             /* a matrix (func_00378760) */
     /* 0x1C30 */ u8 pad1C30[0x94FC];
     /* 0xB12C */ struct FighterUnkB12C *unkB12C;  /* start position and move of the round (or NULL) [I] */
-    /* 0xB130 */ u8 padB130[0x4];
-    /* 0xB134 */ s32 unkB134;                 /* set by a tag (Fighter_StepMove) */
-    /* 0xB138 */ u8 padB138[0x768];
+    /* 0xB130 */ u8 padB130[0x2];
+    /* 0xB132 */ s16 unkB132;
+    /* 0xB134 */ s16 unkB134;                 /* set by a tag (Fighter_StepMove) */
+    /* 0xB136 */ u8 padB136[0x49C];
+    /* 0xB5D2 */ s16 unkB5D2;                 /* unk32 when the blend started (func_00373400) */
+    /* 0xB5D4 */ u8 padB5D4[0x8];
+    /* 0xB5DC */ s32 unkB5DC;                 /* motion blend state (func_00373398, func_003738C0) [I] */
+    /* 0xB5E0 */ s32 unkB5E0;
+    /* 0xB5E4 */ s32 unkB5E4;
+    /* 0xB5E8 */ struct FighterMove *unkB5E8; /* unkC0 when the blend started */
+    /* 0xB5EC */ u8 padB5EC[0x4];
+    /* 0xB5F0 */ s32 unkB5F0;                 /* unkC4 when the blend started */
+    /* 0xB5F4 */ u8 padB5F4[0x27C];
+    /* 0xB870 */ s16 unkB870[3];
+    /* 0xB876 */ u8 padB876[0x2];
+    /* 0xB878 */ s32 unkB878;
+    /* 0xB87C */ u8 padB87C[0x4];
+    /* 0xB880 */ s32 unkB880;
+    /* 0xB884 */ s16 unkB884;
+    /* 0xB886 */ u8 padB886[0x1A];
 } Fighter;
 
 /* A team member's record, per side and member (D_00440940, 2 x 2 x 0x30): the character and costume, and the life
@@ -368,7 +421,7 @@ typedef struct {
 typedef struct {
     /* 0x00 */ s32 unk0;                      /* character */
     /* 0x04 */ s32 unk4;                      /* costume */
-    /* 0x08 */ u8 pad8[0x4];
+    /* 0x08 */ s32 unk8;                      /* 1 while the member is in the team (Battle_UpdateGauges) [I] */
     /* 0x0C */ s32 unkC;                      /* life, 20.12 */
     /* 0x10 */ s32 unk10;                     /* red life */
     /* 0x14 */ s32 unk14;                     /* maximum life */

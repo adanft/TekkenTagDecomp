@@ -560,6 +560,47 @@ Tools:
 - `pkill -f 'decomp-permute[r]'` also kills its own shell when the same command line names `decomp-permuter/...`
   (starting the permuter in the same command): run the `pkill` alone.
 
+### Lessons from T14 batch 5 (2026-10-19)
+
+Code shapes:
+
+- **`abs()` is the compiler's builtin** (`s32 abs(s32 x);`): `x = abs(x)` gives `bltzl x / negu x` in place, `abs(a)`
+  into another variable `bgez / move / negu`. A written `if (x < 0) x = -x;` is if-converted to `slt / negu / movz`
+  instead (`func_00370ED0`, `Fighter_StartLaunch`).
+- **Store runs**: the scheduler emits the last store of a run of independent stores first: source `[s1 ... sn]` gives
+  `sn, s1, ..., sn-1` (`func_0038A690`: `5C, 50, 4C, 6C` in the source for `6C, 5C, 50, 4C` in the assembly). A chain
+  `a = b = v` stores `a` first. Field order in the source is usually right; when it is not, try the rotation.
+- A result variable returned at the end (`r` in a saved register, `move v0, s2` before the epilogue) needs `goto end`
+  for the early exits: `return r;` in the middle lets the compiler substitute the known constant (`func_0036CDD8`,
+  `func_003847D8`).
+- A load hoisted above an `if` in the assembly was read before the test in the source (`len = f->unkC0->unk18;` first,
+  `func_003738C0`); a value loaded once and used by later tests after stores is a local (`frame = f->unkC4;`,
+  `func_003737B0`).
+- `x - 0x8000` on a `u16` operand narrows to `li 0x8000 / addu`; on an `s16` operand to `addiu -0x8000`. A sign
+  extension done as `(w << 16) + 0xC0000000 >> 16` is `(u16)w + 0xC000` (`func_00370F28`).
+- Range tests: `a == 0x39C` then `a == 0x39D` kept as two branches is a `switch` with a `case 0x39C: break;`
+  (`func_0038B698`); `beq 1 / slti 2 / beq 2 / beq 3` trees come from four cases with `case 0: break;`.
+- A three-byte `== 0` test merged into one `ld` and a mask (`func_0036CA68`) needs the struct holding the bytes to be
+  8-aligned: `FighterUnk438` got `__attribute__((aligned(8)))` (no other function changed).
+- `if (x) { ...; return 1; } return 0;` against `if (!x) return 0;`: the block placed first in the assembly is the
+  one written first; flip the test when the return blocks are in the other order (`func_00383D10`, `Cmd_MatchInput`).
+- A small local array initialised from `.rodata` (`ldl / ldr / lb` into the stack) is a struct copy from an `extern
+  const` of the right size (`Dir9 t = D_004FF8D0;`, `func_00369188`): the data stays in the split.
+
+Not matched yet (closest attempts in `#if 0`): `Fighter_StepMove` (394 of 1546 instructions differ, store order
+inside the cases), `Fighter_StartLaunch` (the launch: two branches moved out of line), `func_00370F28` (register
+allocation), `Cmd_CheckCondition` (one `sltiu` cross-jumped), `func_0036CAF8` (a peeled loop entry), and a few register
+allocations listed in their notes.
+
+Tools:
+
+- `scripts/permute.py` writes an `objdump.sh` that stops at the first symbol after the function, and splat's `jlabel`
+  jump-table targets are symbols: for a function with a jump table the permuter compares only its head. Until the
+  script is fixed (F01), edit `permuter/<Func>/objdump.sh` to skip `<.L...>` labels.
+- Decomp-permuter's score 0 can hide one differing instruction (`func_0036F010`): check with fdiff.
+- For a large function, trying the orders of each run of plain stores (a few hundred orders per run, scored against
+  `target.o`) converged faster than the permuter (`Fighter_StepMove`, 494 to 394 differing lines in fdiff).
+
 ## Decompiled so far
 
 | File | Range | C / functions | Notes |
@@ -576,8 +617,8 @@ Tools:
 | `src/sound.c` | 0x3745E8-0x376C30 | 59 / 65 | SPU2 set-up, sound effect voices and banks, delayed effects, fighter voices |
 | `src/sound_if.c` | 0x399FC8-0x39A2B8 | 13 / 13 | sound byte-code queue (BGM, movie audio) |
 | `src/gte.c` | 0x39A2B8-0x39BBF0 | 19 / 19 | GTE-style fixed-point matrices and vectors |
-| `src/fighter_core.c` | 0x37BA88-0x38BF98 | 141 / 277 | practice mode recorder and command lists, CPU opponent predicates and handlers ([systems/fighter.md](systems/fighter.md)) |
-| `src/battle_flow.c` | 0x3682F8-0x3745E8 | 75 / 150 | the fight simulation: per-frame update, input fetch and history, move start, round state ([systems/fighter.md](systems/fighter.md) section 5); includes the four functions of the former `src/374520.c`; `.rodata` 0x4FF8D0-0x500780 included in place; damage `Fighter_ApplyDamage` and its `.lit4` 0x5F5168 |
+| `src/fighter_core.c` | 0x37BA88-0x38BF98 | 170 / 277 | practice mode recorder and command lists, CPU opponent input, commands, predicates and handlers ([systems/fighter.md](systems/fighter.md)) |
+| `src/battle_flow.c` | 0x3682F8-0x3745E8 | 104 / 150 | the fight simulation: per-frame update, input fetch and history, command matching, move start, hits and throws (`Battle_ResolveHits`), launches, round state and results ([systems/fighter.md](systems/fighter.md) section 5); includes the four functions of the former `src/374520.c`; `.rodata` 0x4FF8D0-0x500780 included in place; damage `Fighter_ApplyDamage` and its `.lit4` 0x5F5168 |
 | `src/fight_misc.c` | 0x376C30-0x3790C8 | 26 / 29 | the hit test (attack volumes against body spheres), body sphere radii, push sphere radii, the special attack volume of character 0x1D ([systems/fighter.md](systems/fighter.md) section 5.5); `.rodata` 0x506150-0x506260, `.lit4` 0x5F5170 |
 | `src/select_results.c` | 0x3C1470-0x3C1A78 | 2 / 4 | team life at round start and its per-frame recovery ([systems/fighter.md](systems/fighter.md) section 5.6); a cut inside the `select_results` module, not an object edge |
 | `src/model_anim.c` | 0x3D3288-0x3D33F0 | 1 / 1 | the tag swap ([systems/fighter.md](systems/fighter.md) section 5.7); a cut inside the `model_anim` module, not an object edge |

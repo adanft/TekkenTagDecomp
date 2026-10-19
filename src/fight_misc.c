@@ -282,9 +282,11 @@ s32 func_00366108(s32 dx, s32 dz);
  * how far each moved since func_003772F0 saved their positions, along their facings; the result is written to the
  * velocities unk3E8-unk3F0 (halved unless the forced case) [V code; I meaning]. */
 #if 0
-/* NON_MATCHING: register allocation and scheduling all through (338 of 490 instructions differ; one instruction
- * more): the copy of the other fighter's spheres runs with other pointer registers, and the overlap test and the
- * facing test load their operands in another order. */
+/* NON_MATCHING: register allocation and scheduling all through (329 lines of 490 differ in T14 b5 after abs() for the
+ * height test; a long decomp-permuter run from that base, best score 9885, found no structural change): the copy of
+ * the other fighter's spheres runs with other pointer registers, and the overlap test and the facing test load their
+ * operands in another order */
+s32 abs(s32 x);
 void Fighter_Push(Fighter *a, Fighter *b) {
     PushSphere sb[8];
     PushSphere *p;
@@ -339,7 +341,7 @@ void Fighter_Push(Fighter *a, Fighter *b) {
         }
     }
     if (a->unkC0->unk2C != 0 && b->unkC0->unk2C != 0) {
-        if (pen > 0 || ABS(a->unk520 - b->unk520) < 300) {
+        if (pen > 0 || abs(a->unk520 - b->unk520) < 300) {
             ib = (0x400 - (s16)b->unk1A / 16) & 0xFFF;
             ia = (0x400 - (s16)a->unk1A / 16) & 0xFFF;
             ex = (b->unk51C + gSinTable[ib + 0x400] * 200 / 4096) - (a->unk51C + gSinTable[ia + 0x400] * 200 / 4096);
