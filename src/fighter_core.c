@@ -167,7 +167,7 @@ void func_003730E8(Fighter *a, Fighter *b, s32 arg2);
 void func_00373390(Fighter *f, s32 arg1);
 void func_0037DA08(Fighter *f, s32 state);
 s32 func_0037DC38(s32 state);
-void func_0038C0F0(void);
+void Cam_Reset(void);
 void func_00390E08(Fighter *a, Fighter *b);
 
 /* The move data of the fighter's current move (inlined at every use). */
@@ -1706,7 +1706,7 @@ void Prac_ResetPositions(Fighter *f) {
     func_0037DA08(f, gPracReset.unk8);
     func_0037DA08(o, gPracReset.unkC);
     func_0035B9A8(f, o);
-    func_0038C0F0();
+    Cam_Reset();
     func_00390E08(f, o);
     func_0037D8B8();
     func_0034CB38(0);

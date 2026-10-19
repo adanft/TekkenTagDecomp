@@ -814,7 +814,7 @@ Objects and data:
   `force_not_migration`). The `INCLUDE_RODATA` lines were placed by script in front of each symbol's first reader, clamped
   to address order; tables read only from `.data` (`D_00508BA0`-`D_005095A0`) sit between their neighbours.
 - When a function with a jump table becomes C, its `INCLUDE_RODATA` of the table must go in the same change, or the link
-  fails with undefined `.L` labels from the included table. `func_0038D518`'s two tables (`jtbl_00507F70`,
+  fails with undefined `.L` labels from the included table. `Cam_Update`'s two tables (`jtbl_00507F70`,
   `jtbl_00507FC0`) needed no `RODATA_ALIGN`.
 - The file's `.lit4` words (0x5F5174-0x5F519C) belong to four float functions; they stay in the generic `.lit4` chunk
   while those functions are assembly (`LIT4_WORD` would allow a subsegment before all four are C).
@@ -829,10 +829,10 @@ Code shapes:
   variable that holds 0 (`r = 0; ... r = x >= r;`, `func_00393810`, marked fake), the same mechanism as the T14 b8 inline
   parameter.
 - **A dropped call result still sets registers**: declaring `func_0038C1E8` `s32` instead of `void` made the load after
-  the call use `v1` and matched `func_0038D518`; an unused third argument passed by the caller (`func_00396320(a, b,
+  the call use `v1` and matched `Cam_Update`; an unused third argument passed by the caller (`func_00396320(a, b,
   -1)`) must be in the prototype or the call is one instruction short.
 - **Nested switches whose inner cases jump into the outer cases** are an inner `switch` of `goto`s to labels placed on
-  the outer `case` bodies (`func_0038D518`); an outer range with a trailing `case 19: break;` gives the original's
+  the outer `case` bodies (`Cam_Update`); an outer range with a trailing `case 19: break;` gives the original's
   `sltiu 20`.
 - Store order again: four stores in a branch came out as the original only with the first store of the asm written last
   (`func_0038D1B8`, `D_00433330` 0x3C / 0x38 / 0x00 / 0x40); a sweep of the 24 orders found it in about a minute.
@@ -850,6 +850,60 @@ Tools:
 - For a module with many small functions, a generator that rebuilds the C file from per-function snippets and a state
   list (C / draft / asm), plus a sweep that writes each variant, builds and runs `fdiff.py`, kept the build
   byte-identical between attempts (about 3 s per variant for `stage.c`).
+
+### Lessons from T15 batch 2 (2026-10-19)
+
+Objects and data:
+
+- **A `.lit4` subsegment before its functions are C**: `[0x2B6174, .lit4, stage]` in the yaml, and `LIT4_WORD(D_005F5174,
+  0x487FFF00);` (include/include_asm.h) inside the `#else` in front of each float function's `INCLUDE_ASM`, one per word
+  in pool order. The clean rebuild stayed byte-identical; a function that becomes C drops its `LIT4_WORD` lines.
+- **An 8-byte array the original reaches through `$gp` needs its size in its first declaration**: `extern s32
+  D_005F6170[];` is never small data (reached with `lui`), and a later `[2]` redeclaration does not change that; with
+  `[2]` at the top `func_0038EC08` went from 180 to 53 lines and `func_00390E08` lost one line. Declaring the per-fighter
+  words `D_005F6150` / `D_005F6158` as `[2]` arrays instead of four scalars took `func_0038C1E8` from 8 to 4 lines.
+- A field indexed by a fighter slot is an array member: `D_00433330.unk7C[slot]` (`s32 unk7C[2]`) gives the original's
+  `&D_00433330` + 0x7C, where `(&D_00433330.unk7C)[slot]` folded the offset into the symbol (`func_0038C1E8`, 2 lines).
+- An initialised local array (`s32 kind[2] = { x, y };`, built in a temporary and copied whole) is written with an
+  array typedef (`S32x2 kind = { x, y };`) so that no `] = {` appears in the sources (the guard against transcribed
+  tables); a struct wrapper (`struct { s32 v[2]; }`) compiled 4 instructions shorter.
+
+Code shapes:
+
+- **An aggregate initialiser gives the stack pair**: `U32Pair k = { a, b };` matched `func_0038F6B0` (the two values stored
+  to a temporary and copied with `ldl / sdl`), where separate stores to a temporary pair and a copy took other registers.
+- **Return types again**: `func_0038DC68` returns the distance it computes; with an `s32` prototype `func_0038E610`
+  matched after one swapped store. `Cam_SetDistance`, `func_0038E6D0`, `func_0038FD90` and `func_00391358` end with
+  `move v0, zero`: `s32` and `return 0;`.
+- `x += f() - K;` keeps the original's `(x - K) + f()` (`addiu` on the loaded field, then the add); `x = x - K + f();`
+  is reassociated into `x + (f() - K)` (`func_00396AB0`).
+- `if (r > 0) return 0; if (r < 0) return 1; return 0;` keeps the original's `bgtz` and `slti`; every single-expression
+  form (`r > 0 ? 0 : r < 0`, a result variable) was if-converted to `movn` (`func_003927F0`).
+- A chained store `a[i] = b[i] = 0;` in a loop gave the original's store order with the base registers in source order
+  (`Cam_Reset`); written as two statements, either the stores or the bases came out swapped.
+- The clamp `d < lo ? lo : (d > hi ? hi : d)` gave the original's `bnel` / `movz` (`Cam_SetDistance`); the `if` forms
+  branch the other way.
+- Float functions need file-scope prototypes of `atan2f` and `sqrtf`: an implicit declaration is `double` and the link
+  fails on `fptodp`.
+
+Assembler limits (both need a change of `include/gcc_prelude.inc`, a follow-up):
+
+- gas puts a hazard `nop` between the `lui / mtc1 $at` it makes of `li.s` and a following prelude `mtc1` `.word`
+  (`mtc1 $0, $f24`): `Cam_SetDistance` matches in every instruction but has this extra `nop`.
+- The prelude's `sqrt.s` `.word` cannot fill a delay slot, but the original has `sqrt.s` in the delay slot of `jal
+  atan2f` (`func_00392F80`, `func_003932F0`, `func_00393550`).
+
+Not matched yet: the 47 drafts of [systems/stage.md](systems/stage.md) section 4.5. Three functions (`func_0038C1E8`,
+`func_0038D290`, `func_0038D3D0`) differ only in where the store to `D_00433330.unk3C` lands next to the mode store
+`unk0`, which every store order tried (all 120 / 24 orders of the blocks) left in place.
+
+Tools:
+
+- Several agents tested drafts against the one `src/stage.c` at the same time through a script that swaps the draft in,
+  runs `fdiff.py` and restores the file under a file lock; the restore needs a `SIGTERM` handler, or killing a sweep
+  leaves the file changed.
+- decomp-permuter on `func_00395718` (2 lines) found only a change of meaning; on `func_0038D3D0` its best was score 20
+  (from 50), not a match; on `func_00394300` nothing beat the base score in about 87,000 iterations (a few minutes).
 
 ## Decompiled so far
 
@@ -872,8 +926,8 @@ Tools:
 | `src/fight_misc.c` | 0x376C30-0x3790C8 | 26 / 29 | the hit test (attack volumes against body spheres), body sphere radii, push sphere radii, the special attack volume of character 0x1D ([systems/fighter.md](systems/fighter.md) section 5.5); `.rodata` 0x506150-0x506260, `.lit4` 0x5F5170 |
 | `src/select_results.c` | 0x3C1470-0x3C1A78 | 2 / 4 | team life at round start and its per-frame recovery ([systems/fighter.md](systems/fighter.md) section 5.6); a cut inside the `select_results` module, not an object edge |
 | `src/model_anim.c` | 0x3D3288-0x3D33F0 | 1 / 1 | the tag swap ([systems/fighter.md](systems/fighter.md) section 5.7); a cut inside the `model_anim` module, not an object edge |
-| `src/stage.c` | 0x38BF98-0x396D00 | 53 / 105 | the fight camera and its per-stage values (module `camera_stage`): the per-frame camera step on `gRoundPhase`, camera keys and blends, camera scripts, reaction cameras drawn at random, stage camera distances ([systems/stage.md](systems/stage.md)); `.rodata` 0x507EE0-0x509D00 included in place; its `.lit4` words stay generic |
+| `src/stage.c` | 0x38BF98-0x396D00 | 58 / 105 | the fight camera and its per-stage values (module `camera_stage`): the per-frame camera step `Cam_Update` on `gRoundPhase`, camera keys and blends, camera scripts, reaction cameras drawn at random, stage camera distances ([systems/stage.md](systems/stage.md)); `.rodata` 0x507EE0-0x509D00 included in place; `.lit4` 0x5F5174-0x5F519C (`LIT4_WORD` for the float functions still in assembly) |
 
 Functions left as `INCLUDE_ASM` carry their closest attempt above them in `#if 0` with a `NON_MATCHING:` note; in
 `fighter_core.c`, `battle_flow.c` and `fight_misc.c` every remaining function has one (T14 b9); in `stage.c` every
-function has one, 16 of them raw m2c output that does not compile yet (T15 b1).
+remaining function has one that compiles when enabled (T15 b2).

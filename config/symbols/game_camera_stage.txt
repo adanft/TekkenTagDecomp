@@ -1,3 +1,11 @@
 // Game module camera_stage (docs/game_overview.md section 4; the range is provisional).
 // Naming rules: docs/decomp_guide.md, "Naming".
 // range: 0x0038BF98 0x00396D00
+Cam_Reset = 0x0038C0F0; // type:func
+Cam_Update = 0x0038D518; // type:func
+Cam_SetDistance = 0x0038DA28; // type:func
+Cam_SetKey = 0x0038E4F8; // type:func
+CamScript_Step = 0x003923F0; // type:func
+CamScript_Load = 0x00392E00; // type:func
+Stage_GetCamScriptBank = 0x00393838; // type:func
+Cam_PickReaction = 0x00393A90; // type:func

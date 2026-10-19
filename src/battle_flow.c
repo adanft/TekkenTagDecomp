@@ -176,7 +176,7 @@ void func_00378600(Fighter *f);
 void func_003796B8(void);
 void func_0037A258(void);
 void func_0037D668(Fighter *f);
-void func_0038D518(Fighter *a, Fighter *b, s32 *state);
+void Cam_Update(Fighter *a, Fighter *b, s32 *state);
 void func_003A3148(s16 n);
 void func_003A6390(Fighter *f, s32 n);
 void func_003BAEF0(void);
@@ -3094,8 +3094,8 @@ s32 func_00367850(void);
 void func_00367938(u16 n);
 s16 func_00368288(s16 n);
 void func_0037BA98(void);
-void func_00392E00(s32 n);
-s32 func_00393838(u16 n);
+void CamScript_Load(s32 n);
+s32 Stage_GetCamScriptBank(u16 n);
 void func_003A6BD0(void);
 void func_003A6EB0(s32 n);
 s32 func_003ADB58(s32 side, s32 member);
@@ -3215,9 +3215,9 @@ void func_0036D010(s16 cpu1, s16 cpu2) {
         func_00353DB0();
         func_00353E08();
         if (D_005F5CBC != 0 && func_003ABCC0() == 0) {
-            k = func_00393838(D_005F5CB6);
+            k = Stage_GetCamScriptBank(D_005F5CB6);
             if (k >= 0) {
-                func_00392E00(k + 0x40);
+                CamScript_Load(k + 0x40);
             }
         }
         func_00367938(D_005F5CB6);
@@ -3558,7 +3558,7 @@ s32 Battle_UpdateFrame(void) {
 }
 
 void func_0036DDD0(Fighter *a, Fighter *b) {
-    func_0038D518(a, b, &gRoundPhase);
+    Cam_Update(a, b, &gRoundPhase);
     func_0035B9A8(a, b);
 }
 
@@ -6006,11 +6006,11 @@ void Fighter_RunMoveEvents(Fighter *f) {
 }
 
 s32 func_0038E2D0(Fighter *a, Fighter *b);
-void func_0038C0F0(void);
+void Cam_Reset(void);
 
 /* Keeps the fight near the origin: when a fighter's x (unk4) or z (unkC) leaves -0x78000..0x78000, moves both fighters
  * so that `a` stands at 0 (unk51C / unk524 move with them), stores the shift in both fighters' unk10 / unk14 and calls
- * func_0038C0F0 and func_00350578 for both; otherwise the shift is 0. The shift is also cleared when func_0036E158 is
+ * Cam_Reset and func_00350578 for both; otherwise the shift is 0. The shift is also cleared when func_0036E158 is
  * not 1 or func_0038E2D0 fails [V code; I meaning]. */
 void func_00372E98(Fighter *a, Fighter *b) {
     s32 da;
@@ -6042,7 +6042,7 @@ void func_00372E98(Fighter *a, Fighter *b) {
     a->unk524 = a->unkC + ea;
     b->unk51C = b->unk4 + db;
     b->unk524 = b->unkC + eb;
-    func_0038C0F0();
+    Cam_Reset();
     func_00350578(a, a->unk1E);
     func_00350578(b, b->unk1E);
 }

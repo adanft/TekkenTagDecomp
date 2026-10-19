@@ -677,7 +677,7 @@ with the option `D_0043B7F8[0x39]`, which counts up to 3 repeats, 0x32 `func_003
 and 0x87, where it returns 1 and sets `D_005F5C74`). `func_003685B8` starts the pose move 0x12A2-0x12A5 chosen by
 `func_00368528` (with `unk2E` 0x21 the pose 0 becomes one of the other three by `gFrameCount % 3`; `unkB12C` overrides
 move and position). `func_00372E98` keeps the fight near the origin: when a fighter's x / z leaves +-0x78000 both
-fighters move so that the first one stands at 0, the shift is kept in `unk10` / `unk14` of both and `func_0038C0F0` /
+fighters move so that the first one stands at 0, the shift is kept in `unk10` / `unk14` of both and `Cam_Reset` /
 `func_00350578` follow. `func_003691D8` is `Move_FindCommand` for the situation kinds below 0x60, filtered by the input
 class of the newest history entry (`func_00369188` against the entry's `unkA`).
 

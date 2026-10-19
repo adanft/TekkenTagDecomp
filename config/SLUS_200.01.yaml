@@ -167,7 +167,7 @@ segments:
       - [0x2B6100, lit4]
       - [0x2B6168, .lit4, battle_flow]
       - [0x2B6170, .lit4, fight_misc]
-      - [0x2B6174, lit4]
+      - [0x2B6174, .lit4, stage]
       - [0x2B619C, .lit4, gfx]
       - [0x2B61A0, lit4]
       - [0x2B6C00, sdata]
