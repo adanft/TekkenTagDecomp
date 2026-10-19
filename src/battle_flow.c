@@ -2,9 +2,9 @@
  * fight itself: the per-frame update of the two fighters on screen (Battle_UpdateFrame, called by Mode_Battle), the
  * input fetch of each fighter (func_0036C680), the round flow and its texts ("ROUND %d", "K.O.", "TIME UP"), and
  * the end of the object (0x374520-0x3745E8). The start is provisional [I]; the end is
- * where the sound object starts (Snd_Init, .rodata 0x500780). No .rodata, .lit4 or .sdata of its own is emitted:
- * the tables, strings and jump tables it reads stay in the split data, and functions with jump tables or float
- * constants stay in assembly. */
+ * where the sound object starts (Snd_Init, .rodata 0x500780). The object's .rodata (0x4FF8D0-0x500780: tables, the
+ * round texts, jump tables) is included in place with INCLUDE_RODATA, except the jump tables of the functions that
+ * are C. Its two .lit4 words belong to func_003720C8 (asm) and stay in the split data. */
 #include "common.h"
 #include "fighter.h"
 
@@ -104,7 +104,7 @@ void func_0036CA68(Fighter *f, u16 held, u16 pressed);
 s32 func_0036CFC0(u16 held);
 Unk500678 *func_00374010(s32 i);
 void func_0036BD98(Fighter *f);
-s16 func_0036BE08(Fighter *f, s32 kind);
+s16 func_0036BE08(Fighter *f, s16 kind);
 s32 func_003B6220(void);
 s32 func_003D29E8(Fighter *f, s16 move);
 u16 Math_Atan2(s16 x, s16 y);
@@ -429,15 +429,68 @@ INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00368F78);
 
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00369008);
 
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_004FF8D0);
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00369188);
 
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_003691D8);
 
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", jtbl_004FF8E0);
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_003693E0);
 
 INCLUDE_ASM("asm/nonmatchings/battle_flow", Move_FindCommand);
 
+s32 func_0036A008(u8 *list, u16 v);
+s32 func_003682A8(s32 a, s16 b);
+
+/* The extra condition of a command entry (Move_FindCommand), selected by unk3 & 0x7F (0x60-0x66): both fighters below
+ * 0x2AAA in unk40 [I: height], and per kind the other fighter's hit flag unk12F, the attack level unkD0 of the current
+ * move (0x412, 0x217, 0x10F) with unk4 among the move's four bytes at unkC0 + 0x28, or the current move id unk10C. */
+#if 0
+/* NON_MATCHING: `c` and the result are in swapped registers (t0 / a3) and the failing tests of cases 0x61-0x64 branch
+ * to a shared `r = 0` the original keeps in each delay slot */
+s32 func_00369E10(MoveCmd *c, Fighter *o, Fighter *f) {
+    s32 r = 0;
+
+    switch (c->unk3 & 0x7F) {
+    case 0x60:
+        r = o->unk12F != 0 && (s16)o->unk40 < 0x2AAA && (s16)f->unk40 < 0x2AAA;
+        break;
+    case 0x61:
+        if (!(f->unkC0->unk24 & 8) && (s16)o->unk40 < 0x2AAA && (s16)f->unk40 < 0x2AAA && f->unkD0 == 0x412) {
+            r = func_0036A008(&f->unkC0->unk28, c->unk4);
+        }
+        break;
+    case 0x62:
+        if (!(f->unkC0->unk24 & 8) && (s16)o->unk40 < 0x2AAA && (s16)f->unk40 < 0x2AAA && f->unkD0 == 0x217) {
+            r = func_0036A008(&f->unkC0->unk28, c->unk4);
+        }
+        break;
+    case 0x63:
+        if (!(f->unkC0->unk24 & 8) && (s16)o->unk40 < 0x2AAA && (s16)f->unk40 < 0x2AAA && f->unkD0 == 0x10F) {
+            r = func_0036A008(&f->unkC0->unk28, c->unk4);
+        }
+        break;
+    case 0x64:
+        if (!(f->unkC0->unk24 & 8) && (s16)o->unk40 < 0x2AAA && (s16)f->unk40 < 0x2AAA
+            && (f->unkD0 == 0x412 || f->unkD0 == 0x217)) {
+            r = func_0036A008(&f->unkC0->unk28, c->unk4);
+        }
+        break;
+    case 0x65:
+        r = (u16)c->unk4 == f->unk10C && (s16)o->unk40 < 0x2AAA && (s16)f->unk40 < 0x2AAA;
+        break;
+    case 0x66:
+        if ((s16)o->unk40 < 0x2AAA && (s16)f->unk40 < 0x2AAA) {
+            r = func_003682A8(f->unkC0->unk0, c->unk4);
+        }
+        break;
+    }
+    return r;
+}
+#else
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", jtbl_004FFA60);
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00369E10);
+#endif
 
 #if 0
 /* NON_MATCHING: the loop is entered at its test in the original (`b` to the compare); ours copies the test to the
@@ -480,6 +533,7 @@ s16 func_0036A2D0(Fighter *f) {
 
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036A330);
 
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", jtbl_004FFA80);
 INCLUDE_ASM("asm/nonmatchings/battle_flow", Fighter_StepMove);
 
 void func_0036BC50(Fighter *f) {
@@ -560,7 +614,35 @@ s32 func_0036BDD0(Fighter *f) {
     return 0;
 }
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036BE08);
+s32 func_0036BEC0(Fighter *f);
+
+/* The kind of a move about to start, adjusted to the current move (kinds 2, 0xC-0xF, 0x14, 0x15, 0x19) [I]. */
+s16 func_0036BE08(Fighter *f, s16 kind) {
+    s16 r = kind;
+
+    switch (kind) {
+    case 2:
+        r = func_0036BEC0(f) ? 0x14 : kind;
+        break;
+    case 0xC:
+    case 0xD:
+    case 0xE:
+    case 0xF:
+        r = f->unk188->unk2C ? kind : 0xB;
+        break;
+    case 0x14:
+    case 0x15:
+        r = func_0036BEC0(f) ? kind : 0xB;
+        break;
+    case 0x19:
+        r = func_0036BEC0(f) ? 0x16 : kind;
+        break;
+    case 0x10:
+        r = 0x10;
+        break;
+    }
+    return r;
+}
 
 s32 func_0036BEC0(Fighter *f) {
     struct FighterMove *m = f->unk188;
@@ -593,6 +675,7 @@ s32 func_0036BF00(Fighter *f) {
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036BF00);
 #endif
 
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", jtbl_004FFBA0);
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036BF58);
 
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036BF8C);
@@ -640,9 +723,95 @@ void func_0036C228(Fighter *f, Fighter *o, struct FighterMove *m) {
     }
 }
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036C278);
+s32 func_003800D8(s32 n);
+s16 func_003AD8E0(s16 x);
+s32 func_003ADA08(u8 *set, s32 i);
+extern u8 D_0043B968[];
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036C318);
+/* Picks at random (func_003800D8, the CPU's generator) a character other than `cur` among 0-0x21, leaving out
+ * 0xB, 0xE-0x11, 0x14-0x16, 0x1B, 0x1D and 0x21 [I: characters that have no such variant]. */
+#if 0
+/* NON_MATCHING: the count and `cur` are allocated to swapped registers (a3 / t0) */
+s16 func_0036C278(s32 cur) {
+    s32 list[34];
+    s32 i, c;
+    s32 n = 0;
+    s32 *p = list;
+
+    for (i = 0; i < 0x22; i++) {
+        switch (i) {
+        case 0xB:
+        case 0xE:
+        case 0xF:
+        case 0x10:
+        case 0x11:
+        case 0x14:
+        case 0x15:
+        case 0x16:
+        case 0x1B:
+        case 0x1D:
+        case 0x21:
+            break;
+        default:
+            if (cur != i) {
+                *p++ = i;
+                n++;
+            }
+            break;
+        }
+    }
+    if (n != 0) {
+        c = list[func_003800D8(n)];
+    } else {
+        c = cur;
+    }
+    return func_003AD8E0(c * 8);
+}
+#else
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", jtbl_004FFC60);
+INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036C278);
+#endif
+
+/* The character a move of kind k turns the fighter into [I]: k = 0x10 a random one allowed by D_0043B968 other than
+ * `cur`, 0xF and 0x21; k = 0x23 a random one outside the list of func_0036C278; otherwise character k - 1. */
+s16 func_0036C318(s16 cur, s16 k) {
+    s16 id = k - 1;
+    u8 c;
+
+    if (id == 0xF) {
+        for (;;) {
+            c = func_003800D8(0x22);
+            if (!func_003ADA08(D_0043B968, c)) {
+                continue;
+            }
+            if (cur == func_003AD8E0(c * 8) || c == 0xF || c == 0x21) {
+                continue;
+            }
+            return func_003AD8E0(c * 8);
+        }
+    }
+    if (id == 0x22) {
+        for (;;) {
+            c = func_003800D8(0x22);
+            switch (c) {
+            case 0xB:
+            case 0xE:
+            case 0xF:
+            case 0x10:
+            case 0x11:
+            case 0x14:
+            case 0x15:
+            case 0x16:
+            case 0x1B:
+            case 0x1D:
+            case 0x21:
+                continue;
+            }
+            return func_003AD8E0(c * 8);
+        }
+    }
+    return func_003AD8E0(id * 8);
+}
 
 void func_0036C420(Fighter *f, s32 arg1) {
     f->unk41C = arg1;
@@ -712,7 +881,85 @@ void Fighter_ResetInputHistory(Fighter *f) {
 
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036C578);
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036C680);
+s32 func_0035B9E8(s32 side);
+void func_0036C578(s32 i, s32 *held, s32 *pressed);
+void func_00380A50(Fighter *f, u16 *held, u16 *pressed);
+u16 func_0037C950(s32 player);
+void Prac_RecInput(s32 player, u16 buttons);
+void func_0037CFA0();
+u16 Input_MirrorLeftRight(s32 side, u16 b);
+void Fighter_RecordInput(Fighter *f, u16 held, u16 pressed);
+extern s32 D_005F6678;
+
+/* The buttons of a fighter for this frame, from its input source unk420 (2, the CPU, while D_005F6678 is set):
+ * 0 none, 1 the pad of its port unk428 (mirrored for side 1), 2 the CPU opponent, 3 the practice playback, 4 the
+ * buttons forced by the practice dummy (unk430). Held buttons go to unk432, their rising edge to unk436, and the
+ * frame is recorded in the input history (Fighter_RecordInput). Pad bit 0x04 is masked while unk402 is set. */
+void func_0036C680(Fighter *f) {
+    s32 src = f->unk420;
+    u16 b;
+    u16 cur, prev;
+
+    if (D_005F6678 != 0) {
+        src = 2;
+    }
+    switch (src) {
+    case 0:
+    default:
+        f->unk436 = 0;
+        f->unk434 = 0;
+        f->unk432 = 0;
+        break;
+    case 1: {
+        s32 side = func_0035B9E8(f->unk1E);
+
+        func_0036C578(f->unk428, &D_005F5C40[f->unk428], &D_005F5C48[f->unk428]);
+        b = Input_MirrorLeftRight(side, D_005F5C40[f->unk428]);
+        f->unk432 = b;
+        if (f->unk402 != 0) {
+            f->unk432 = b & 0xFFFB;
+        } else if (D_005F5C40[f->unk428] & 0x400) {
+            if (f->unk418 == 0 && f->unk2A == 0x21) {
+                f->unk432 = b | 0x400;
+            } else {
+                f->unk432 = f->unk432 | 4;
+            }
+        }
+        break;
+    }
+    case 2:
+        func_00380A50(f, &f->unk432, &f->unk436);
+        f->unk434 = 0;
+        break;
+    case 3: {
+        u16 play = func_0037C950(f->unk1E);
+
+        f->unk430 = play;
+        f->unk432 = play;
+        break;
+    }
+    case 4:
+        f->unk432 = f->unk430;
+        break;
+    }
+    if (f->unk402 != 0) {
+        f->unk432 &= 0xFFFB;
+    }
+    if (src == 1 || src == 2) {
+        Prac_RecInput(f->unk1E, f->unk432);
+    }
+    cur = f->unk432;
+    if (f->unk410 != 0) {
+        f->unk410 = 0;
+        f->unk434 = cur;
+    }
+    prev = f->unk434;
+    f->unk434 = cur;
+    f->unk436 = cur & (cur ^ prev);
+    f->unk140 = (f->unk436 >> 10) & 1;
+    func_0037CFA0(f->unk436);
+    Fighter_RecordInput(f, f->unk432, f->unk436);
+}
 
 void Fighter_RecordInput(Fighter *f, u16 held, u16 pressed) {
     if (D_005F5C38[f->unk1E] >= 0x1D15 || D_005F5EF4 != 0) {
@@ -806,6 +1053,11 @@ s32 func_0036CD78(u16 a, u16 b) {
 
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036CDD8);
 
+/* 8-aligned after the jump table of func_0036C680 (0x4FFD34). */
+RODATA_ALIGN8();
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_004FFD38);
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_004FFFD4);
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_004FFFE0);
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036CF30);
 
 u16 Input_MirrorLeftRight(s32 side, u16 b) {
@@ -824,7 +1076,163 @@ INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036CFC0);
 
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036D010);
 
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500000);
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500010);
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_0050003C);
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500104);
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500108);
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500114);
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500120);
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500204);
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500240);
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500300);
+/* A team member's record, per side and member (D_00440940, 2 x 2 x 0x30): +0x0 character, +0x4 costume, +0xC life,
+ * +0x10 red life, +0x14 maximum life (func_003C1900, func_003D3288) [V offsets; I names]. */
+typedef struct {
+    /* 0x00 */ u8 pad0[0x10];
+    /* 0x10 */ s32 unk10;                     /* red life */
+    /* 0x14 */ u8 pad14[0x18];
+    /* 0x2C */ s32 unk2C;
+} TeamMember;
+
+extern TeamMember D_00440940[2][2];
+extern s32 D_005F5CD0;
+extern u16 D_005F5CBC;
+extern s32 D_005F5F00;
+extern u16 D_005F5CB6;
+extern s32 D_005F5EFC;
+extern s32 D_005F6670;
+extern s32 D_005F6674;
+void func_0038D508(void);
+s32 func_003ABCC0(void);
+void func_00393718(s32 a, u16 b);
+void func_003645D8(s32 n);
+void func_0035C230(void);
+void func_0035C2B0(void);
+void func_003B4DC0(Fighter *a, Fighter *b);
+void func_00390E08(Fighter *a, Fighter *b);
+void func_00395400(s32 n, Fighter *a, Fighter *b);
+void func_00380560(void);
+void func_003C1C98(void);
+void func_003533E8(s32 n);
+void func_00378018(void);
+void func_00366DB0(u16 n);
+void func_003465E0(void);
+void func_003A8B08(void);
+void func_00344318(void);
+void func_003A82C8(Fighter *f);
+void func_003A96B0(s32 n);
+void func_003790D8(void);
+void func_00346600(void);
+void func_00344BE0(void);
+void func_003A42B8(void);
+void func_003A5FA0(void);
+void func_003A7198(void);
+void func_0037D630(void);
+void func_003753A8(void);
+void func_003751A0(u16 n);
+void func_00375868(u16 n);
+void func_003768C0(Fighter *a, Fighter *b, s32 n);
+void func_003772D8(void);
+void func_00373038(Fighter *a, Fighter *b);
+void func_00373380(Fighter *f);
+
+/* Start of a round (from Mode_Battle): the round number, the round timer in frames from the time setting
+ * D_0043B7F8[0xB] (0x870, 0xB04, 0x10A4, 0x1608, 0x1B30), the round flags, then the reset of both fighters
+ * (func_0036E138, func_00373038) and of the systems around them. */
+#if 0
+/* NON_MATCHING: the original rebuilds the two fighter addresses after func_00395400 and keeps their %hi parts in
+ * s3 / s4 (a 0x60 frame) */
+void func_0036D5D0(void) {
+    Fighter *a = gFighters;
+    Fighter *b = &D_00884EE0;
+
+    gRoundNumber++;
+    D_005F5EE8 = 0;
+    D_005F5EEC = 0;
+    switch (D_0043B7F8[0xB]) {
+    case 0:
+        gRoundTimer = 0x870;
+        break;
+    case 1:
+        gRoundTimer = 0xB04;
+        break;
+    case 2:
+        gRoundTimer = 0x10A4;
+        break;
+    case 3:
+        gRoundTimer = 0x1608;
+        break;
+    case 4:
+    case 5:
+        gRoundTimer = 0x1B30;
+        break;
+    }
+    D_005F5EF4 = 0;
+    gRoundPhase = 0;
+    D_005F5EE0 = 0;
+    D_005F5F08 = 0;
+    D_005F5EE4 = 0;
+    D_005F5F0C = 0;
+    D_005F5CAC = 0;
+    func_0038D508();
+    if (D_005F5CBC != 0 && func_003ABCC0() == 0) {
+        func_00393718(D_005F5CD0, D_005F5CB6);
+    }
+    b->unk127 = 1;
+    a->unk127 = 1;
+    D_005F5EFC = 0;
+    D_005F5F00 = 0;
+    D_005F5EF8 = 0;
+    func_0036E138();
+    func_003645D8(2);
+    func_00373380(a);
+    func_00373380(b);
+    func_003772D8();
+    func_0035C230();
+    func_0035C2B0();
+    func_00373038(a, b);
+    func_003B4DC0(a, b);
+    func_00390E08(a, b);
+    func_00395400(0, a, b);
+    func_00380560();
+    func_003C1C98();
+    D_005F6670 = 0;
+    D_005F6674 = 0;
+    D_00440940[0][0].unk2C = D_00440940[0][0].unk10;
+    D_00440940[0][1].unk2C = D_00440940[0][1].unk10;
+    D_00440940[1][0].unk2C = D_00440940[1][0].unk10;
+    D_00440940[1][1].unk2C = D_00440940[1][1].unk10;
+    func_003533E8(0);
+    func_00378018();
+    func_00366DB0(D_005F5CB6);
+    D_0043B7F8[0x3A] = 2;
+    D_005F5F10 = 1;
+    D_0043B7F8[0x39] = 0;
+    func_003465E0();
+    func_003A8B08();
+    func_00344318();
+    func_003A82C8(a);
+    func_003A82C8(b);
+    func_003A96B0(0);
+    if (D_0043B7F8[0] == 7) {
+        func_003790D8();
+        func_00346600();
+        func_00344BE0();
+        func_003A42B8();
+        func_003A5FA0();
+        func_003A7198();
+    }
+    func_0037D630();
+    func_003753A8();
+    func_003751A0(D_005F5CB6);
+    func_00375868(D_005F5CB6);
+    func_003768C0(a, b, 1);
+}
+#else
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", jtbl_00500400);
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036D5D0);
+#endif
 
 s32 Battle_UpdateFrame(void) {
     Fighter *f0 = &gFighters[0];
@@ -1024,20 +1432,102 @@ s32 func_0036E178(void) {
     return r;
 }
 
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", jtbl_00500420);
 INCLUDE_ASM("asm/nonmatchings/battle_flow", Battle_UpdateRound);
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036EA80);
+extern u16 D_005F5C74;
+void func_003C2EF8(void);
+void func_003BB9C0(void);
+void func_003C2D48(Fighter *a, Fighter *b);
+void func_0036EDE0(void);
+void func_0036EC50(void);
+void func_0036EF58(void);
+void func_0036EEE0(void);
+void func_0036F0D8(void);
+void func_0036F010(void);
+s32 func_0039C778(void);
+s32 func_0035A5D0(void);
+void func_003BBE78(void);
+void func_003C2F40(void);
+void func_003BC540(void);
 
+/* The round texts and their sounds, by the end-of-round step D_005F5E88: 0 "ROUND %d" / "READY!" (func_0036EDE0,
+ * func_0036EC50), 2 the K.O. / time-up texts (func_0036EF58), 4 the win / lose / draw texts (func_0036F0D8). */
+void func_0036EA80(Fighter *a, Fighter *b) {
+    if (D_0043B7F8[0] == 9) {
+        func_003C2EF8();
+        return;
+    }
+    if (D_005F5CBC == 0 && D_0043B7F8[0x11] == 0) {
+        switch (D_005F5E88) {
+        case 0:
+            if (D_005F5EE8 != 0) {
+                func_0036EDE0();
+                func_0036EC50();
+            }
+            break;
+        case 1:
+            func_003BB9C0();
+            break;
+        case 2:
+            func_0036EF58();
+            if (D_005F5CAC & 1) {
+                func_003C2D48(a, b);
+            }
+            if (D_005F5F08 == 0) {
+                func_0036EEE0();
+            }
+            break;
+        case 3:
+            if (D_005F5CAC & 1) {
+                func_003C2D48(a, b);
+            }
+            break;
+        case 4:
+            func_0036F0D8();
+            if (D_005F5CAC & 1) {
+                func_003C2D48(a, b);
+            }
+        case 5:
+            if (D_0043B7F8[0x1F] != 0 || D_005F5F00 == 0 || D_005F5F08 != 0) {
+                func_0036F010();
+            }
+            break;
+        }
+    }
+    if (D_005F5C74 != 0 && func_0039C778() == 0 && func_0035A5D0() == 0) {
+        if (D_0043B7F8[4] != 0) {
+            func_003BBE78();
+        }
+        func_003C2F40();
+        func_003BC540();
+    }
+}
+
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500458);
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036EC50);
 
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500470);
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500488);
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_005004A0);
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036EDE0);
 
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036EEE0);
 
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_005004B0);
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_005004C0);
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_005004D8);
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_005004F0);
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036EF58);
 
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036F010);
 
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500500);
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500510);
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500520);
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500538);
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500548);
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500558);
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036F0D8);
 
 s32 Battle_IsRoundOver(Fighter *a, Fighter *b) {
@@ -1084,6 +1574,8 @@ void func_0036F918(void) {
 
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036F920);
 
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", jtbl_00500570);
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", jtbl_005005B0);
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036FB40);
 
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00370E20);
@@ -1105,6 +1597,7 @@ INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00370ED0);
 
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00370F28);
 
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", jtbl_005005E0);
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00371258);
 
 u32 func_003712C0(void) {
@@ -1298,6 +1791,8 @@ void func_00372BA8(Fighter *a, Fighter *b) {
     func_00372BD0(b);
 }
 
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", jtbl_00500620);
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", jtbl_00500640);
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00372BD0);
 
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00372E98);
@@ -1372,6 +1867,7 @@ void func_00373E18(Fighter *f) {
 
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00373E38);
 
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500678);
 Unk500678 *func_00374010(s32 i) {
     if (i < 8) {
         return &D_00500678[i];
@@ -1408,6 +1904,7 @@ s32 func_00374540(void) {
     return D_005F5EDC;
 }
 
+INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500758);
 void func_00374548(void) {
     u16 held = D_00415718[0] | D_00415718[1] | D_00415718[2] | D_00415718[3];
     u16 trig = D_00415728[0] | D_00415728[1] | D_00415728[2] | D_00415728[3];

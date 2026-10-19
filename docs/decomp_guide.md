@@ -442,6 +442,60 @@ Assembler: `mfc1` got a hazard `nop` from gas that the original does not have (`
   return 1;`), which were not taken.
 - `fdiff.py` runs must not overlap: several at once on the same build report wrong sizes and false differences.
 
+### Lessons from T14 batch 3 (2026-10-18)
+
+Objects and data:
+
+- `battle_flow` and `fight_misc` got their own `.rodata` subsegments (0x4FF8D0-0x500780 and 0x506150-0x506260) and
+  `fight_misc` a `.lit4` one (0x5F5170, 4 bytes). As for `sound`, every table, string and jump table of the range
+  has `force_not_migration` in `data.txt` and an `INCLUDE_RODATA` at its place in the C file, so the order holds
+  whichever functions are C. A jump table the C now emits loses the padding word of its `.s` file: the next
+  `INCLUDE_RODATA` needs `RODATA_ALIGN8()` (after `func_0036C680` and `func_00378398`); a table whose size is already a
+  multiple of 8 needs nothing.
+- splat did not migrate the small 4-byte tables `D_00506248`-`D_0050625C` into their functions even with a single
+  reader: the link failed with undefined references until they got `force_not_migration` and an `INCLUDE_RODATA`.
+- A `.lit4` subsegment is only possible once its functions are C: an `INCLUDE_ASM` function does not carry its float
+  constant (`D_005F5170` stayed undefined until `func_00378760` was C). `battle_flow` therefore has no `.lit4`
+  subsegment yet (`func_003720C8` owns its two words).
+- Data order checks object edges: `func_003790C8` reads `.data` at 0x42F270, after the practice object's own data
+  (0x42F140-0x42F268), so it opens the practice object; the `fight_misc` C file ends at 0x3790C8.
+
+Code shapes:
+
+- A float constant used as a divisor stays a `div.s` only when it comes from a variable assigned after the calls
+  (`turn = 6.2831855f; ... / turn`, `func_00378760`): written as a literal, `-ffast-math` folds `x * 65536 / 2pi` into
+  one multiplication; assigned before the calls, the constant is kept in a saved FPU register.
+- Arguments: `atan2f(b[2] - a[2], b[0] - a[0])` evaluates its second argument first, as the original does; with
+  locals computed in order the subtractions come out swapped.
+- `return f(x);` in every arm of a switch: identical `jal` + epilogue tails are cross-jumped unless the arms differ in
+  the delay slot; the original kept a `do { } while (...)` loop's `return` separate when written as `for (;;)` with
+  `continue` (`func_0036C318`), and `cur == f()` rather than `f() == cur` for the operand order of `beq`.
+- A result variable distinct from the parameter (`s16 r = kind; switch (kind) { ... r = ... }`), with the cases in
+  the order of their code, matched `func_0036BE08`; the same switch with the parameter reassigned put it in a saved
+  register.
+- A switch with four cases 1-4 compiled to a `beq` ladder; the original's jump table has a fifth entry for 0, so the
+  source had `case 0: break;` (`func_00378150`, `func_00378398`). A range test `x < 1 || x > 4` (else branch first)
+  gave the original's `addiu -1 / sltiu 4 / bnezl`.
+- `(s16)(f->unk3C - 0x8000)` gives `lhu / addiu -0x8000 / sll / sra` only when the field is `s16`; on a `u16` field
+  the compiler adds 0x8000 from a hoisted register. A `u32` parameter turns `-0xAAA` into `lui / ori`.
+- Three-store sequences of a `void` function that look like a returned pointer (`move v0, a3`) were three plain
+  array stores: `v0` was just a temporary (`func_00378368`, found from a decomp-permuter result that compiled the
+  function as `void`).
+- Block-local variables again: a value stored to two fields in one `case` (`func_0036C680`, case 3) matched only as a
+  block-local, not as the function-scope variable also used by another case.
+- `r = a && b && c;` gives the original's `move r, zero` in the delay slots of each failing test (`func_00369E10`,
+  cases 0x60 and 0x65).
+
+Not matched yet (closest attempts in `#if 0`): register allocation (`func_0036C278`, `func_00369E10`,
+`func_00378E70`), the fighter addresses rebuilt in the middle of `func_0036D5D0` (two more saved registers for their
+`%hi` parts), the block order and copies of `func_00376CF8` (3 instructions short).
+
+Tools:
+
+- `ninja` output contains `error` only for some failures: a C file that does not compile ("structure has no member")
+  leaves the old build in place, and fdiff then reports OK. Check that the SHA1 step ran (or the exit status) after
+  every change.
+
 ## Decompiled so far
 
 | File | Range | C / functions | Notes |
@@ -459,6 +513,7 @@ Assembler: `mfc1` got a hazard `nop` from gas that the original does not have (`
 | `src/sound_if.c` | 0x399FC8-0x39A2B8 | 13 / 13 | sound byte-code queue (BGM, movie audio) |
 | `src/gte.c` | 0x39A2B8-0x39BBF0 | 19 / 19 | GTE-style fixed-point matrices and vectors |
 | `src/fighter_core.c` | 0x37BA88-0x38BF98 | 141 / 277 | practice mode recorder and command lists, CPU opponent predicates and handlers ([systems/fighter.md](systems/fighter.md)) |
-| `src/battle_flow.c` | 0x3682F8-0x3745E8 | 70 / 150 | the fight simulation: per-frame update, input history, move start, round state ([systems/fighter.md](systems/fighter.md) section 5); includes the four functions of the former `src/374520.c` |
+| `src/battle_flow.c` | 0x3682F8-0x3745E8 | 74 / 150 | the fight simulation: per-frame update, input fetch and history, move start, round state ([systems/fighter.md](systems/fighter.md) section 5); includes the four functions of the former `src/374520.c`; `.rodata` 0x4FF8D0-0x500780 included in place |
+| `src/fight_misc.c` | 0x376C30-0x3790C8 | 21 / 29 | the hit test (attack volumes against body spheres), body sphere radii, the special attack volume of character 0x1D ([systems/fighter.md](systems/fighter.md) section 5.5); `.rodata` 0x506150-0x506260, `.lit4` 0x5F5170 |
 
 Functions left as `INCLUDE_ASM` carry their closest attempt above them in `#if 0` with a `NON_MATCHING:` note.

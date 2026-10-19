@@ -6,7 +6,7 @@
 /* A move record: what fighter field 0xC0 points to (the current move), and the move of each CPU candidate
  * (CpuCand.unk4 in src/fighter_core.c). unk2C / unk2D bound a frame window compared with Fighter.unkC4 [I]. */
 struct FighterUnkC0 {
-    /* 0x00 */ u8 pad0[0x4];
+    /* 0x00 */ s32 unk0;
     /* 0x04 */ s32 unk4;                      /* flags */
     /* 0x08 */ s32 unk8;                      /* flags */
     /* 0x0C */ u8 *unkC;                      /* its command list (MoveCmd entries) */
@@ -18,9 +18,13 @@ struct FighterUnkC0 {
     /* 0x20 */ u8 pad20[0x4];
     /* 0x24 */ u32 unk24;                     /* flags */
     /* 0x28 */ u8 unk28;
-    /* 0x29 */ u8 pad29[0x3];
+    /* 0x29 */ u8 unk29;
+    /* 0x2A */ u8 unk2A;
+    /* 0x2B */ u8 unk2B;
     /* 0x2C */ u8 unk2C;
     /* 0x2D */ u8 unk2D;
+    /* 0x2E */ u8 pad2E[0x2];
+    /* 0x30 */ u16 unk30;                     /* hit effect kind (func_00377AE8) [I] */
 };
 
 /* What fighter field 0x188 points to (move data, or NULL: func_00368218 looks it up by move id) [I]. */
@@ -89,6 +93,43 @@ struct FighterUnkB12C {
     /* 0xA */ u16 unkA;                       /* angle */
 };
 
+/* An attack volume (Fighter + 0x190, up to 4 of 0x18 bytes): a segment from a start point (unk0..unk8) to an end point
+ * (unkC..unk14), tested against the other fighter's body spheres by func_00376CF8 [V layout; I meaning]. */
+typedef struct {
+    /* 0x00 */ s32 unk0;                      /* start x */
+    /* 0x04 */ s32 unk4;                      /* start y */
+    /* 0x08 */ s32 unk8;                      /* start z */
+    /* 0x0C */ s32 unkC;                      /* end x */
+    /* 0x10 */ s32 unk10;                     /* end y */
+    /* 0x14 */ s32 unk14;                     /* end z */
+} AttackVol;
+
+/* A body sphere (Fighter + 0x1F0, 14 of 0x14 bytes): a centre, its radius and the radius squared, set per character
+ * from the table D_0042F098 (func_00377F58) [V layout; I meaning]. */
+typedef struct {
+    /* 0x00 */ s32 unk0;                      /* x */
+    /* 0x04 */ s32 unk4;                      /* y */
+    /* 0x08 */ s32 unk8;                      /* z */
+    /* 0x0C */ s16 unkC;                      /* radius */
+    /* 0x0E */ u8 padE[0x2];
+    /* 0x10 */ s32 unk10;                     /* radius * radius */
+} BodySphere;
+
+/* Fighter + 0x39C: where the last hit landed on this fighter (func_003770E0): the attack volume's end point, its
+ * direction and the body sphere it touched [V stores; I meaning]. */
+typedef struct {
+    /* 0x00 */ s32 unk0;
+    /* 0x04 */ s32 unk4;
+    /* 0x08 */ s32 unk8;
+    /* 0x0C */ u8 padC[0x4];
+    /* 0x10 */ s16 unk10;                     /* end - start, x */
+    /* 0x12 */ s16 unk12;
+    /* 0x14 */ s16 unk14;
+    /* 0x16 */ u8 pad16[0x2];
+    /* 0x18 */ s16 unk18;                     /* index of the body sphere */
+    /* 0x1A */ u8 pad1A[0x2];
+} HitContact;
+
 /* A fighter slot (gFighters, 4 x 0xB8A0 at 0x879640). Only the fields the decompiled code uses are named. */
 typedef struct {
     /* 0x0000 */ s16 unk0;
@@ -110,7 +151,7 @@ typedef struct {
     /* 0x002E */ s16 unk2E;
     /* 0x0030 */ u8 pad30[0xA];
     /* 0x003A */ s16 unk3A;                   /* facing angle (0x4000 / -0x4000 at a practice reset) [I] */
-    /* 0x003C */ u16 unk3C;
+    /* 0x003C */ s16 unk3C;                   /* facing angle of the body [I] */
     /* 0x003E */ u8 pad3E[0x2];
     /* 0x0040 */ u16 unk40;
     /* 0x0042 */ s16 unk42;
@@ -170,7 +211,9 @@ typedef struct {
     /* 0x0136 */ u8 unk136;
     /* 0x0137 */ u8 unk137;
     /* 0x0138 */ u8 unk138;
-    /* 0x0139 */ u8 pad139[0x7];
+    /* 0x0139 */ u8 pad139[0x3];
+    /* 0x013C */ u8 unk13C;                   /* number of attack volumes at unk190 */
+    /* 0x013D */ u8 pad13D[0x3];
     /* 0x0140 */ s8 unk140;
     /* 0x0141 */ u8 pad141[0x5];
     /* 0x0146 */ s16 unk146;
@@ -206,7 +249,10 @@ typedef struct {
     /* 0x019C */ s32 unk19C;
     /* 0x01A0 */ s32 unk1A0;
     /* 0x01A4 */ s32 unk1A4;
-    /* 0x01A8 */ u8 pad1A8[0x210];
+    /* 0x01A8 */ u8 pad1A8[0x48];
+    /* 0x01F0 */ BodySphere unk1F0[14];       /* body spheres hit by the other fighter's attack volumes */
+    /* 0x0308 */ u8 pad308[0x94];
+    /* 0x039C */ HitContact unk39C;           /* where the last hit landed (func_003770E0) */
     /* 0x03B8 */ s32 unk3B8;                  /* unk51C / unk520 / unk524 of the previous frame */
     /* 0x03BC */ s32 unk3BC;
     /* 0x03C0 */ s32 unk3C0;
@@ -222,11 +268,12 @@ typedef struct {
     /* 0x03E8 */ s32 unk3E8;                  /* added to unk4..unkC and unk51C..unk524 (Battle_ApplyVelocity) */
     /* 0x03EC */ s32 unk3EC;
     /* 0x03F0 */ s32 unk3F0;
-    /* 0x03F4 */ s32 unk3F4;
+    /* 0x03F4 */ s32 unk3F4;                  /* life, 20.12 fixed point (func_003720C8) [I] */
     /* 0x03F8 */ u8 pad3F8[0xA];
     /* 0x0402 */ s8 unk402;
     /* 0x0403 */ u8 pad403[0x9];
-    /* 0x040C */ s32 unk40C;                  /* life: the round ends when one side reaches 0 (Battle_IsRoundOver) [I] */
+    /* 0x040C */ s32 unk40C;                  /* still standing: cleared at 0 life / red life (func_003720C8), read by
+                                                 * Battle_IsRoundOver [I] */
     /* 0x0410 */ s32 unk410;
     /* 0x0414 */ s32 unk414;                  /* input is read each frame when non-zero (Fighter_UpdateInput) */
     /* 0x0418 */ s32 unk418;
@@ -237,7 +284,7 @@ typedef struct {
     /* 0x042C */ s32 unk42C;
     /* 0x0430 */ u16 unk430;                  /* input forced by the practice dummy (pad direction bits) [I] */
     /* 0x0432 */ u16 unk432;                  /* buttons held this frame (func_0036C680) [V] */
-    /* 0x0434 */ u8 pad434[0x2];
+    /* 0x0434 */ u16 unk434;                  /* buttons held the previous frame */
     /* 0x0436 */ u16 unk436;                  /* buttons pressed this frame [V] */
     /* 0x0438 */ FighterUnk438 unk438;
     /* 0x04BC */ u8 pad4BC[0x4];
@@ -248,7 +295,13 @@ typedef struct {
     /* 0x051C */ s32 unk51C;
     /* 0x0520 */ s32 unk520;
     /* 0x0524 */ s32 unk524;
-    /* 0x0528 */ u8 pad528[0xAC04];
+    /* 0x0528 */ u8 pad528[0x1E0];
+    /* 0x0708 */ s32 unk708;
+    /* 0x070C */ s32 unk70C;
+    /* 0x0710 */ s32 unk710;
+    /* 0x0714 */ u8 pad714[0x14DC];
+    /* 0x1BF0 */ f32 unk1BF0[4][4];             /* a matrix (func_00378760) */
+    /* 0x1C30 */ u8 pad1C30[0x94FC];
     /* 0xB12C */ struct FighterUnkB12C *unkB12C;  /* start position and move of the round (or NULL) [I] */
     /* 0xB130 */ u8 padB130[0x770];
 } Fighter;
