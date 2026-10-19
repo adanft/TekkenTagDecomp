@@ -3,17 +3,20 @@
 
 Usage: .venv/bin/python configure.py [--split] && ninja
 
-Needs iso/SLUS_200.01 (scripts/setup_disc.py). splat runs when its output is missing or older than the config or
-a symbol file (config/symbols/*.txt, each listed in the config); --split runs it again anyway (needed after adding
-an INCLUDE_ASM to a C file). ninja
-assembles every split file, compiles every C file the config links, links them with the generated linker script
-into build/SLUS_200.01.elf, flattens that with objcopy into build/SLUS_200.01 and compares its SHA-1 with the
-original.
+Needs iso/SLUS_200.01 (scripts/setup_disc.py). splat runs when its output is missing, unfinished or older than the
+config or a symbol file (config/symbols/*.txt, each listed in the config); --split runs it again anyway (needed
+after adding an INCLUDE_ASM to a C file). A split starts from an empty asm/, so no file of an earlier layout stays
+behind, and only a split that ran to the end writes build/split.done. ninja assembles every split file, compiles
+every C file the config links (tracking the headers each one includes), links them with the generated linker
+script into build/SLUS_200.01.elf, flattens that with objcopy into build/SLUS_200.01 and compares its SHA-1 with
+the original.
 """
 
 import argparse
+import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -27,6 +30,10 @@ ORIGINAL = "iso/SLUS_200.01"
 ELF_SHA1 = "c7ad9a022bdc836827a0cc093f91b4281836f2bb"
 LD_SCRIPT = "build/SLUS_200.01.ld"
 LD_SCRIPTS = [LD_SCRIPT, "build/undefined_funcs_auto.txt", "build/undefined_syms_auto.txt"]
+# Everything splat writes besides LD_SCRIPTS: emptied before each split.
+ASM_DIR = "asm"
+# Written last by a split that ran to the end; a split that fails or is killed leaves none, so it runs again.
+SPLIT_DONE = "build/split.done"
 BINUTILS = "tools/binutils/mips-ps2-decompals-"
 
 AS_FLAGS = "-EL -march=r5900 -mabi=eabi -G0 -no-pad-sections -Iinclude"
@@ -146,13 +153,34 @@ def check_symbol_paths(listed, present):
                          f"present but not listed: {', '.join(unlisted) or '-'}")
 
 
+def split_is_current():
+    """Whether the last split ran to the end after the last change to any splat input."""
+    done = ROOT / SPLIT_DONE
+    return (done.exists() and all((ROOT / f).exists() for f in LD_SCRIPTS)
+            and done.stat().st_mtime >= max((ROOT / f).stat().st_mtime for f in SPLIT_INPUTS))
+
+
 def split(force):
-    ld = ROOT / LD_SCRIPT
-    newest = max((ROOT / f).stat().st_mtime for f in SPLIT_INPUTS)
-    if not force and ld.exists() and ld.stat().st_mtime >= newest:
+    """Runs splat from a clean asm/ unless the split is current (and not forced). Nothing else under build/ is
+    touched, so build/ keeps what other tools put there."""
+    if not force and split_is_current():
         return
-    run([sys.executable, "-m", "splat", "split", YAML])
-    ld.write_text(align_bss(ld.read_text()))
+    (ROOT / SPLIT_DONE).unlink(missing_ok=True)
+    for f in LD_SCRIPTS:
+        (ROOT / f).unlink(missing_ok=True)
+    shutil.rmtree(ROOT / ASM_DIR, ignore_errors=True)
+    try:
+        run([sys.executable, "-m", "splat", "split", YAML])
+        ld = ROOT / LD_SCRIPT
+        tmp = ld.with_name(ld.name + ".tmp")
+        tmp.write_text(align_bss(ld.read_text()))
+        os.replace(tmp, ld)
+    except BaseException:
+        # An unfinished linker script must not pass for a split: ninja and the next run see it missing.
+        (ROOT / LD_SCRIPT).unlink(missing_ok=True)
+        raise
+    (ROOT / SPLIT_DONE).parent.mkdir(parents=True, exist_ok=True)
+    (ROOT / SPLIT_DONE).write_text("")
 
 
 def write_ninja():
@@ -161,7 +189,6 @@ def write_ninja():
     c_objs = [o for o in objs if source_of(o).endswith(".c")]
     asm_objs = [o for o in objs if o not in c_objs]
     includes = {o: included_asm((ROOT / source_of(o)).read_text()) for o in c_objs}
-    headers = " ".join(str(p.relative_to(ROOT)) for p in sorted((ROOT / "include").rglob("*.h")))
     out = [
         f"as = {BINUTILS}as",
         f"ld = {BINUTILS}ld",
@@ -172,11 +199,15 @@ def write_ninja():
         "  command = $as $as_flags $in -o $out",
         "  description = AS $in",
         "",
+        # -Wp,-MD: the preprocessor lists every header the file includes in $out.d (ee-gcc 2.9 has no -MF), which
+        # ninja keeps in .ninja_deps, so a header change rebuilds exactly the objects that include it.
         "rule cc",
-        f"  command = {CC} {CC_FLAGS} $gflag -S $in -o $out.s && "
+        f"  command = {CC} {CC_FLAGS} $gflag -Wp,-MD,$out.d -S $in -o $out.s && "
         f"$as {CC_AS_FLAGS} $gflag include/gcc_prelude.inc $out.s -o $out && "
         f"{sys.executable} configure.py --eabi64 $out",
         "  description = CC $in",
+        "  depfile = $out.d",
+        "  deps = gcc",
         "",
         "rule ld",
         "  command = $ld -EL $scripts -Map $out.map -o $out",
@@ -203,7 +234,7 @@ def write_ninja():
         "",
         # splat writes the linker script and the assembly (also the files INCLUDE_ASM pulls into C files), so a
         # missing one reruns it
-        f"build {' '.join(LD_SCRIPTS)} {' '.join(source_of(o) for o in asm_objs)} "
+        f"build {SPLIT_DONE} {' '.join(LD_SCRIPTS)} {' '.join(source_of(o) for o in asm_objs)} "
         f"{' '.join(f for o in c_objs for f in includes[o])}: split {' '.join(SPLIT_INPUTS)}",
         "",
         "rule vuasm",
@@ -219,7 +250,7 @@ def write_ninja():
         out.append(f"build {obj}: as {src} | include/macro.inc{extra}")
     for obj in c_objs:
         src = source_of(obj)
-        out.append(f"build {obj}: cc {src} | {headers} include/gcc_prelude.inc include/macro.inc "
+        out.append(f"build {obj}: cc {src} | include/gcc_prelude.inc include/macro.inc "
                    f"{' '.join(includes[obj])}")
         out.append(f"  gflag = {g_flag(src)}")
     out += [

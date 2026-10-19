@@ -1,7 +1,9 @@
 """Tests for the pure helpers of scripts/permute.py (synthetic data only)."""
 
 import importlib.util
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -45,6 +47,59 @@ class Settings(unittest.TestCase):
         self.assertIn('func_name = "func_00340AF0"\n', out)
         self.assertIn('compiler_type = "gcc"\n', out)
         self.assertIn('objdump_command = "/w/objdump.sh"\n', out)
+
+
+class CheckArgs(unittest.TestCase):
+    """The C file and the function are checked before anything is written."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        (self.root / "src" / "sub").mkdir(parents=True)
+        (self.root / "src" / "a.c").write_text('INCLUDE_ASM("asm/nonmatchings/a", func_00100000);\nvoid Foo(void) {\n}\n')
+        (self.root / "src" / "sub" / "b.c").write_text("void Bar(void) {\n}\n")
+        (self.root / "src" / "v.s").write_text("Foo:\n")
+        (self.root / "configure.py").write_text("Foo\n")
+
+    def check(self, src, func):
+        return permute.check_args(src, func, self.root)
+
+    def test_valid(self):
+        self.assertEqual(self.check("src/a.c", "Foo"), "src/a.c")
+        self.assertEqual(self.check("./src/a.c", "func_00100000"), "src/a.c")
+        self.assertEqual(self.check(str(self.root / "src" / "sub" / "b.c"), "Bar"), "src/sub/b.c")
+
+    def test_file_outside_src_or_not_c(self):
+        for src in ("src/../configure.py", "configure.py", "src/v.s", "src/missing.c", "src", "/etc/passwd"):
+            with self.subTest(src=src), self.assertRaisesRegex(ValueError, "not a C file under src/"):
+                self.check(src, "Foo")
+
+    def test_function_name(self):
+        for func in ("", "../../x", "a/b", "Foo bar", "1abc", "Foo;"):
+            with self.subTest(func=func), self.assertRaisesRegex(ValueError, "not a function name"):
+                self.check("src/a.c", func)
+
+    def test_function_not_in_file(self):
+        with self.assertRaisesRegex(ValueError, "no Bar in src/a.c"):
+            self.check("src/a.c", "Bar")
+        with self.assertRaisesRegex(ValueError, "no Fo in src/a.c"):
+            self.check("src/a.c", "Fo")
+
+
+class CommandLine(unittest.TestCase):
+    def run_permute(self, *args):
+        return subprocess.run([sys.executable, str(ROOT / "scripts" / "permute.py"), *args], cwd=ROOT,
+                              capture_output=True, text=True)
+
+    def test_bad_arguments_give_a_message_not_a_traceback(self):
+        for args in (["src/no_such_file.c", "Foo"], ["src/main.c", "../escape"], ["src/main.c", "NoSuchFunction"]):
+            with self.subTest(args=args):
+                r = self.run_permute(*args)
+                self.assertNotEqual(r.returncode, 0)
+                self.assertTrue(r.stderr.startswith("permute.py: "), r.stderr)
+                self.assertNotIn("Traceback", r.stderr)
+                self.assertFalse((permute.WORK / args[1]).exists())
 
 
 if __name__ == "__main__":

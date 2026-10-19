@@ -111,7 +111,7 @@ u16 Math_Atan2(s16 x, s16 y);
 u32 Math_Isqrt(u32 x);
 void func_0034E8B0(Fighter *f);
 void func_003532A0(void);
-struct FighterUnkC0 *func_00368248(s32 id);
+struct FighterMove *func_00368248(s32 id);
 void func_003688B0(Fighter *a, Fighter *b);
 void Fighter_StartCommandMove(Fighter *a, Fighter *b);
 s32 func_00368B08(Fighter *a, Fighter *b);
@@ -227,13 +227,13 @@ void func_00368398(Fighter *f, Fighter *o) {
     f->unkB8 = m;
     if (func_003B6220() != 0) {
         frame = func_003D29E8(f, (s16)f->unk184);
-        if (((struct FighterMove *)f->unkC0)->unk18 < frame + 0x5A) {
-            frame = ((struct FighterMove *)f->unkC0)->unk18 - 0x5A;
+        if (f->unkC0->unk18 < frame + 0x5A) {
+            frame = f->unkC0->unk18 - 0x5A;
         }
     } else {
         frame = 1;
-        if (gRoundNumber == 1 && ((struct FighterMove *)f->unkC0)->unk18 >= 0x97) {
-            frame = ((struct FighterMove *)f->unkC0)->unk18 - 0x95;
+        if (gRoundNumber == 1 && f->unkC0->unk18 >= 0x97) {
+            frame = f->unkC0->unk18 - 0x95;
         }
     }
     f->unkC4 = 1;
@@ -609,10 +609,10 @@ void Fighter_StepMove(Fighter *f, Fighter *o) {
     struct FighterMove *temp_t2_7;
     struct FighterMove *temp_t2_8;
     struct FighterMove *temp_t2_9;
-    struct FighterUnkC0 *temp_a0_3;
-    struct FighterUnkC0 *temp_a0_4;
-    struct FighterUnkC0 *temp_a2_7;
-    struct FighterUnkC0 *temp_v1_4;
+    struct FighterMove *temp_a0_3;
+    struct FighterMove *temp_a0_4;
+    struct FighterMove *temp_a2_7;
+    struct FighterMove *temp_v1_4;
     u16 temp_a0_5;
     u16 temp_a0_7;
     u16 temp_a1;
@@ -738,7 +738,7 @@ block_11:
                         Battle_UpdateFacing(f, o);
                     }
                     f->unk188 = func_00368218(f, (s16) f->unk184);
-                    func_0036C228(o, f, (struct FighterMove *)o->unkC0);
+                    func_0036C228(o, f, o->unkC0);
                 }
                 if (o->unkC0->unk4 & 0x400) {
                     o->unk100 = -1;
@@ -889,7 +889,7 @@ block_108:
                 f->unk4 = f->unk51C;
                 f->unkC = f->unk524;
                 f->unkC4 = 1;
-                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                f->unkB8 = f->unk188;
                 f->unk3C = (s16) temp_a1_4;
 block_125:
                 f->unkE0 = 0;
@@ -916,7 +916,7 @@ block_125:
                 f->unk4 = f->unk51C;
                 f->unkC = f->unk524;
                 f->unk126 = 1;
-                f->unkB8 = (struct FighterUnkC0 *) temp_t2_2;
+                f->unkB8 = temp_t2_2;
                 f->unkE0 = 0;
                 break;
             case 4:                                 /* switch 1 */
@@ -965,7 +965,7 @@ block_125:
                 f->unkBC = 1;
                 f->unk1A = (u16) f->unk3C;
                 f->unkC4 = 1;
-                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                f->unkB8 = f->unk188;
                 if (temp_s3 != 0) {
                     f->unk4 = f->unk51C;
                     f->unkC = f->unk524;
@@ -977,7 +977,7 @@ block_125:
                 f->unk1A = (u16) f->unk3C;
                 f->unkBC = (s16) temp_v1_3;
                 f->unkC4 = (s16) temp_v1_3;
-                f->unkB8 = (struct FighterUnkC0 *) temp_t2_3;
+                f->unkB8 = temp_t2_3;
                 if (temp_s3 != 0) {
                     f->unk4 = f->unk51C;
                     f->unkC = f->unk524;
@@ -997,14 +997,14 @@ block_125:
                 f->unk4 = f->unk51C;
                 f->unkC = f->unk524;
                 f->unk126 = 1;
-                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                f->unkB8 = f->unk188;
                 goto block_125;
             case 9:                                 /* switch 1 */
                 f->unkBC = 1;
                 f->unk1A = (u16) f->unk44;
                 f->unk11E = 5;
                 f->unkC4 = 1;
-                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                f->unkB8 = f->unk188;
                 f->unkE0 = 0;
                 f->unk15C = 0;
                 f->unk15E = 0;
@@ -1020,7 +1020,7 @@ block_158:
                 temp_t2_4 = f->unk188;
                 f->unkBC = 1;
                 f->unkC4 = 1;
-                f->unkB8 = (struct FighterUnkC0 *) temp_t2_4;
+                f->unkB8 = temp_t2_4;
                 if (temp_t2_4->unk2C == 0) {
                     temp_v1_4 = f->unkC0;
                     if ((u8) temp_v1_4->unk18 < 0x10U) {
@@ -1060,7 +1060,7 @@ block_235:
             case 12:                                /* switch 1 */
                 f->unkBC = 1;
                 f->unkC4 = 1;
-                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                f->unkB8 = f->unk188;
                 if ((s16) f->unk40 < 0x4FA4) {
                     var_v1_3 = (u16) f->unk3A;
                     var_v0_8 = 4;
@@ -1077,7 +1077,7 @@ block_235:
             case 13:                                /* switch 1 */
                 f->unkBC = 1;
                 f->unkC4 = 1;
-                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                f->unkB8 = f->unk188;
                 f->unk1A = (u16) f->unk44;
                 if ((s16) f->unk40 < 0x4FA4) {
                     f->unk11E = 3;
@@ -1092,7 +1092,7 @@ block_235:
             case 14:                                /* switch 1 */
                 f->unkBC = 1;
                 f->unkC4 = 1;
-                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                f->unkB8 = f->unk188;
                 f->unk1A = (u16) f->unk44;
                 if ((s16) f->unk40 < 0x4FA4) {
                     f->unk11E = 2;
@@ -1109,7 +1109,7 @@ block_235:
                 f->unk1A = (u16) f->unk44;
                 f->unkC4 = 1;
                 f->unkBC = 1;
-                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                f->unkB8 = f->unk188;
                 f->unkE0 = 0;
                 f->unk15C = 0;
                 f->unk15E = 0;
@@ -1120,7 +1120,7 @@ block_235:
                 f->unk11E = 0xB;
                 f->unkC4 = 1;
                 f->unkBC = 1;
-                f->unkB8 = (struct FighterUnkC0 *) temp_t2_5;
+                f->unkB8 = temp_t2_5;
                 f->unk1A = temp_a1_6;
                 temp_v0_11 = temp_t2_5->unk2C - 1;
                 f->unk15C = temp_v0_11;
@@ -1150,7 +1150,7 @@ block_235:
                 temp_a0_5 = (u16) f->unk3A;
                 f->unkF0 = 1;
                 f->unk11E = 0xB;
-                f->unkB8 = (struct FighterUnkC0 *) temp_t2_6;
+                f->unkB8 = temp_t2_6;
                 f->unkE0 = 0;
                 f->unkE8 = 0;
                 f->unkEC = 0;
@@ -1187,7 +1187,7 @@ block_199:
                 f->unkF0 = 1;
                 f->unk11E = 0xB;
                 f->unk3C = (u16) f->unk3C - 0x8000;
-                f->unkB8 = (struct FighterUnkC0 *) temp_t2_7;
+                f->unkB8 = temp_t2_7;
                 f->unkE0 = 0;
                 f->unkE8 = 0;
                 f->unkEC = 0;
@@ -1213,7 +1213,7 @@ block_199:
                     f->unkBC = (s16) temp_v0_16;
                     f->unkC4 = (s16) temp_v0_16;
                 }
-                f->unkB8 = (struct FighterUnkC0 *) temp_t2_8;
+                f->unkB8 = temp_t2_8;
                 if ((s16) f->unk40 < 0x4FA4) {
                     var_v0_10 = 4;
                 } else {
@@ -1244,7 +1244,7 @@ block_218:
                     f->unkBC = (s16) temp_v0_17;
                     f->unkC4 = (s16) temp_v0_17;
                 }
-                f->unkB8 = (struct FighterUnkC0 *) temp_t2_9;
+                f->unkB8 = temp_t2_9;
                 if ((s16) f->unk40 < 0x4FA4) {
                     var_v0_10 = 2;
                 } else {
@@ -1269,13 +1269,13 @@ block_218:
                 f->unk4 = f->unk51C;
                 f->unkC = f->unk524;
                 f->unk126 = 1;
-                f->unkB8 = (struct FighterUnkC0 *) temp_t2_10;
+                f->unkB8 = temp_t2_10;
                 goto block_218;
             case 23:                                /* switch 1 */
                 f->unkBC = 1;
                 f->unk1A = (u16) f->unk3C;
                 f->unkC4 = 1;
-                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                f->unkB8 = f->unk188;
                 if (temp_s3 != 0) {
                     f->unk4 = f->unk51C;
                     f->unkC = f->unk524;
@@ -1287,7 +1287,7 @@ block_218:
                 f->unk1A = (u16) f->unk44;
                 f->unk11E = 8;
                 f->unkC4 = 1;
-                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                f->unkB8 = f->unk188;
                 f->unkE0 = 0;
                 goto block_314;
             case 25:                                /* switch 1 */
@@ -1309,7 +1309,7 @@ block_218:
                 f->unk4 = f->unk51C;
                 f->unkC = f->unk524;
                 f->unk126 = 1;
-                f->unkB8 = (struct FighterUnkC0 *) temp_t2_11;
+                f->unkB8 = temp_t2_11;
                 break;
             case 26:                                /* switch 1 */
             case 27:                                /* switch 1 */
@@ -1322,7 +1322,7 @@ block_218:
                     f->unkBC = (s16) temp_v0_21;
                     f->unkC4 = (s16) temp_v0_21;
                 }
-                f->unkB8 = (struct FighterUnkC0 *) temp_t2_12;
+                f->unkB8 = temp_t2_12;
                 f->unk1A = (u16) f->unk3C;
                 if ((s16) temp_t3 == 0x1A) {
                     f->unk11A = 1;
@@ -1335,7 +1335,7 @@ block_218:
                 f->unk1A = (u16) f->unk3C;
                 f->unk11E = 0xA;
                 f->unkC4 = 1;
-                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                f->unkB8 = f->unk188;
                 f->unkE0 = 0;
                 f->unk15C = 0;
                 f->unk15E = 0;
@@ -1361,7 +1361,7 @@ block_218:
                 }
                 f->unk11E = 0xA;
                 f->unk1A = (u16) f->unk3C;
-                f->unkB8 = (struct FighterUnkC0 *) temp_t2_13;
+                f->unkB8 = temp_t2_13;
                 f->unkE0 = 0;
                 f->unk15C = 0;
                 f->unk15E = 0;
@@ -1377,7 +1377,7 @@ block_218:
                 f->unk11D = 1;
                 f->unkE0 = 0;
                 f->unkBC = (s16) temp_a2_2;
-                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                f->unkB8 = f->unk188;
                 f->unk100 = (u16) f->unk100 + 1;
                 f->unkC4 = (s16) temp_a2_2;
                 f->unk160 = func_0036A2D0(f);
@@ -1403,7 +1403,7 @@ block_262:
                 temp_t2_14 = f->unk188;
                 f->unkBC = 1;
                 f->unkC4 = 1;
-                f->unkB8 = (struct FighterUnkC0 *) temp_t2_14;
+                f->unkB8 = temp_t2_14;
                 if ((s16) temp_a2_3 == 0) {
                     temp_a1_8 = (u16) f->unk3A - 0x8000;
                     f->unk3C = temp_a1_8;
@@ -1463,7 +1463,7 @@ block_281:
                 break;
             case 36:                                /* switch 1 */
                 if (f->unkE0 >= 0) {
-                    if (((func_0036C1A0(f, o, (struct FighterMove *)f->unkC0)->unk2 != 0) && (f->unkC4 < (s32) f->unkC0->unk2C)) || (o->unk16A != 0)) {
+                    if (((func_0036C1A0(f, o, f->unkC0)->unk2 != 0) && (f->unkC4 < (s32) f->unkC0->unk2C)) || (o->unk16A != 0)) {
                         f->unk120 = 1;
                     }
                 }
@@ -1471,7 +1471,7 @@ block_281:
                 f->unkF2 = 1;
                 f->unkC4 = 1;
                 f->unkBC = 1;
-                f->unkB8 = (struct FighterUnkC0 *) temp_a0_8;
+                f->unkB8 = temp_a0_8;
                 if (!((u16) f->unkE0 & 0x8000)) {
                     temp_a1_9 = f->unk524;
                     temp_v0_24 = (u16) f->unk3C - 0x8000;
@@ -1515,7 +1515,7 @@ block_300:
                 f->unk154 = 8;
                 f->unkBC = 1;
                 f->unkC4 = 1;
-                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                f->unkB8 = f->unk188;
                 f->unk156 = (u16) f->unk3A + (f->unk18C->unk0 - 0x8000);
                 f->unkE0 = 0;
                 f->unk11E = 7;
@@ -1529,7 +1529,7 @@ block_300:
                 temp_a2_4 = (u16) f->unk178;
                 f->unkE0 = 0;
                 f->unkBC = (s16) temp_a2_4;
-                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                f->unkB8 = f->unk188;
                 f->unk11D = 1;
                 f->unkFE = 1;
                 f->unk100 = (u16) f->unk100 + 1;
@@ -1556,7 +1556,7 @@ block_300:
                 f->unkC4 = 1;
                 f->unk156 = (u16) f->unk3A + (temp_a3_2->unk10 - 0x8000);
 block_309:
-                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                f->unkB8 = f->unk188;
                 f->unkE0 = 0;
                 f->unk11E = 0xB;
                 f->unk1A = (u16) f->unk3C;
@@ -1604,7 +1604,7 @@ block_309:
                 f->unkC = f->unk524;
                 f->unk11E = 8;
                 f->unkC4 = 1;
-                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                f->unkB8 = f->unk188;
                 f->unk3C = (s16) temp_a2_6;
                 goto block_125;
             case 34:                                /* switch 1 */
@@ -1612,7 +1612,7 @@ block_309:
                 f->unk1A = (u16) f->unk44;
                 f->unk11E = 0xC;
                 f->unkC4 = 1;
-                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                f->unkB8 = f->unk188;
                 f->unkE0 = 0;
                 goto block_314;
             case 35:                                /* switch 1 */
@@ -1620,7 +1620,7 @@ block_309:
                 f->unk1A = (u16) f->unk44;
                 f->unk11E = 0xD;
                 f->unkC4 = 1;
-                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                f->unkB8 = f->unk188;
                 f->unkE0 = 0;
                 goto block_314;
             default:                                /* switch 1 */
@@ -1628,7 +1628,7 @@ block_309:
                 f->unkBC = 1;
                 f->unk3C = (s16) temp_v1_6;
                 f->unkC4 = 1;
-                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                f->unkB8 = f->unk188;
                 f->unk1A = temp_v1_6;
                 goto block_314;
             }
@@ -1636,12 +1636,12 @@ block_309:
             f->unk10C = (s16) f->unk184;
             f->unk176 = (s16) temp_v1_7;
             f->unk184 = -1;
-            f->unkC0 = (struct FighterUnkC0 *) f->unk188;
+            f->unkC0 = f->unk188;
             f->unk188 = NULL;
-            if (((struct FighterUnkC0 *) temp_t2)->unk2C != 0) {
-                if (((struct FighterUnkC0 *) temp_t2)->unk2A != 0) {
+            if (temp_t2->unk2C != 0) {
+                if (temp_t2->unk2A != 0) {
                     f->unk118 = 2;
-                } else if (((struct FighterUnkC0 *) temp_t2)->unk28 != 0) {
+                } else if (temp_t2->unk28 != 0) {
                     f->unk118 = 1;
                 } else {
                     goto block_323;
@@ -2758,7 +2758,7 @@ INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036F860);
 void func_0036F8D8(Fighter *f) {
     if (f->unk188 != NULL && f->unk12F == 0 && f->unk4C0.unk12 != 0) {
         f->unk188 = NULL;
-        f->unk178 = ((struct FighterMove *)f->unkC0)->unk18;
+        f->unk178 = f->unkC0->unk18;
     }
 }
 
@@ -2890,7 +2890,7 @@ void func_00371C08(Fighter *a, Fighter *b) {
 }
 
 void Battle_ApplyVelocity(Fighter *a, Fighter *b) {
-    struct FighterUnkC0 *m = func_00368248(0x1019);
+    struct FighterMove *m = func_00368248(0x1019);
     Fighter *f;
     s32 i;
 

@@ -188,7 +188,7 @@ typedef struct {
 typedef struct {
     /* 0x00 */ s16 unk0; /* 0 candidate, 1 picked, -1 rejected */
     /* 0x02 */ u8 pad2[2];
-    /* 0x04 */ struct FighterUnkC0 *unk4;
+    /* 0x04 */ struct FighterMove *unk4;
     /* 0x08 */ CpuCmd *unk8;
 } CpuCand;
 
@@ -223,7 +223,7 @@ typedef struct {
     /* 0x0C0 */ u8 padC0[0x1EC];
     /* 0x2AC */ s32 unk2AC;
     /* 0x2B0 */ u8 pad2B0[0x20];
-    /* 0x2D0 */ struct FighterUnkC0 *unk2D0[0x14];
+    /* 0x2D0 */ struct FighterMove *unk2D0[0x14];
     /* 0x320 */ u8 pad320[0x1C];
     /* 0x33C */ s32 unk33C;
     /* 0x340 */ u8 pad340[4];
@@ -1219,7 +1219,7 @@ INCLUDE_ASM("asm/nonmatchings/fighter_core", func_003835A0);
 
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_003838B0);
 
-s32 func_00383B88(struct FighterUnkC0 *m, s32 arg1, s32 arg2) {
+s32 func_00383B88(struct FighterMove *m, s32 arg1, s32 arg2) {
     s32 fl = m->unk8 & 0xFFFF0000;
 
     if (!(fl & 0x1C0000)) {
@@ -1300,7 +1300,7 @@ INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00384130);
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00384210);
 
 s32 func_00384338(CpuCand *c) {
-    struct FighterUnkC0 *m = c->unk4;
+    struct FighterMove *m = c->unk4;
     s32 fl = m->unk4;
     s32 r = 0;
 
@@ -1321,7 +1321,7 @@ INCLUDE_ASM("asm/nonmatchings/fighter_core", func_003844B0);
 #if 0
 /* NON_MATCHING: the result lives in a2 instead of v0, and the original has a load-delay nop. */
 s32 func_00384578(CpuCand *c) {
-    struct FighterUnkC0 *m;
+    struct FighterMove *m;
     s32 fl;
 
     if (c->unk8->unk0 != 0x8001) {
@@ -1383,7 +1383,7 @@ s32 func_00384688(CpuCand *c) {
 }
 
 s32 func_003846D0(CpuCand *c) {
-    struct FighterUnkC0 *m = c->unk4;
+    struct FighterMove *m = c->unk4;
     s32 r = 0;
 
     if ((m->unkC[3] & 0x7F) == 0x38) {
@@ -1412,7 +1412,7 @@ INCLUDE_ASM("asm/nonmatchings/fighter_core", func_003848F0);
 #if 0
 /* NON_MATCHING: the original keeps the flag bit in a register and clears it with movn; ours folds it to sltiu. */
 s32 func_00384920(CpuCand *c) {
-    struct FighterUnkC0 *m = c->unk4;
+    struct FighterMove *m = c->unk4;
     s32 b = m->unk4 & 1;
     s32 r = 0;
 
@@ -1426,7 +1426,7 @@ INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00384920);
 #endif
 
 s32 func_00384950(CpuCand *c) {
-    struct FighterUnkC0 *m = c->unk4;
+    struct FighterMove *m = c->unk4;
     s32 r = 0;
 
     if ((m->unk8 & 0x10000) && m->unk19 == 0) {
@@ -1466,7 +1466,7 @@ INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00384A10);
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00384A50);
 
 s32 func_00384AB8(CpuCand *c) {
-    struct FighterUnkC0 *m = c->unk4;
+    struct FighterMove *m = c->unk4;
     s32 fl;
     s32 r = 0;
 
@@ -1480,7 +1480,7 @@ s32 func_00384AB8(CpuCand *c) {
 }
 
 s32 func_00384B08(CpuCand *c) {
-    struct FighterUnkC0 *m = c->unk4;
+    struct FighterMove *m = c->unk4;
     s32 fl;
     s32 r = 0;
 
@@ -1664,7 +1664,7 @@ INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0038AC40);
 #if 0
 /* NON_MATCHING: the original copies the move pointer to a second register and pads the loop with a nop. */
 s32 func_0038ACA8(void) {
-    struct FighterUnkC0 *m = gCpuOpponent->unkC0;
+    struct FighterMove *m = gCpuOpponent->unkC0;
     s32 n = 0;
     s32 i;
 

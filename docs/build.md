@@ -5,12 +5,16 @@
 ```
 
 `configure.py` needs `iso/SLUS_200.01` ([setup.md](setup.md), step 6) and the game's compiler (step 4). It runs
-splat on `config/SLUS_200.01.yaml` when the split is missing or older than the config (`--split` forces it) and
-writes `build.ninja`. ninja then:
+splat on `config/SLUS_200.01.yaml` when the split is missing, unfinished or older than the config (`--split` forces
+it) and writes `build.ninja`. A split first empties `asm/`, so no file of an earlier layout stays behind (tools such
+as `scripts/callgraph.py` read every file there), and writes `build/split.done` only when it ran to the end: a split
+that fails or is killed runs again next time. It touches nothing else under `build/`. ninja then:
 
 1. assembles every split file under `asm/` with the project's binutils (`include/macro.inc` defines splat's
    labels);
-2. compiles every C file the config links (a `c` subsegment) with ee-gcc and assembles the output (below);
+2. compiles every C file the config links (a `c` subsegment) with ee-gcc and assembles the output (below); the
+   compiler lists the headers each file includes (`-Wp,-MD`, kept in `.ninja_deps`), so a header change rebuilds
+   exactly the objects that include it;
 3. links everything with the generated `build/SLUS_200.01.ld` into `build/SLUS_200.01.elf`;
 4. flattens that with `objcopy -O binary` into `build/SLUS_200.01`;
 5. checks its SHA-1 against the original (`build/SLUS_200.01.ok` is written only on a match).
@@ -19,7 +23,9 @@ The build counts only if ninja ends without `FAILED`. Editing the config, `confi
 `configure.py` makes ninja run `configure.py` again by itself (splat reads the symbol file, so a new name
 reaches the split assembly).
 
-`asm/`, `assets/`, `build/` and `build.ninja` are generated from the disc and ignored by git.
+`asm/`, `assets/`, `build/` and `build.ninja` are generated from the disc and ignored by git. A clean rebuild is
+`rm -rf build && .venv/bin/python configure.py && ninja`; `permuter/` (scripts/permute.py) lives outside `build/`
+so that it survives one.
 
 ## C files
 

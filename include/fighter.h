@@ -3,16 +3,17 @@
 
 #include "types.h"
 
-/* A move record: what fighter field 0xC0 points to (the current move), and the move of each CPU candidate
- * (CpuCand.unk4 in src/fighter_core.c). unk2C / unk2D bound a frame window compared with Fighter.unkC4 [I]. */
-struct FighterUnkC0 {
+/* A move record (0x34 bytes). Fighter fields 0xB8, 0xC0 (the current move) and 0x188 (the move looked up by id,
+ * or NULL: func_00368218) point to one, and so does each CPU candidate (CpuCand.unk4 in src/fighter_core.c). unk2C /
+ * unk2D bound a frame window compared with Fighter.unkC4 [I]. */
+struct FighterMove {
     /* 0x00 */ s32 unk0;
-    /* 0x04 */ s32 unk4;                      /* flags */
-    /* 0x08 */ s32 unk8;                      /* flags */
+    /* 0x04 */ u32 unk4;                      /* flags */
+    /* 0x08 */ u32 unk8;                      /* flags */
     /* 0x0C */ u8 *unkC;                      /* its command list (MoveCmd entries) */
     /* 0x10 */ u16 unk10;                     /* move id */
     /* 0x12 */ s16 unk12;                     /* facing offset applied when the move starts */
-    /* 0x14 */ u16 unk14;
+    /* 0x14 */ u16 unk14;                     /* index of its first entry in D_005E8978 */
     /* 0x16 */ u8 pad16[0x2];
     /* 0x18 */ u8 unk18;                      /* length in frames */
     /* 0x19 */ u8 unk19;
@@ -29,24 +30,6 @@ struct FighterUnkC0 {
     /* 0x2D */ u8 unk2D;
     /* 0x2E */ u8 pad2E[0x2];
     /* 0x30 */ u16 unk30;                     /* hit effect kind (func_00377AE8) [I] */
-};
-
-/* What fighter field 0x188 points to (move data, or NULL: func_00368218 looks it up by move id) [I]. */
-struct FighterMove {
-    /* 0x00 */ s32 unk0;
-    /* 0x04 */ u32 unk4; /* flags */
-    /* 0x08 */ u32 unk8; /* flags */
-    /* 0x0C */ u8 padC[0x8];
-    /* 0x14 */ u16 unk14; /* index of its first entry in D_005E8978 */
-    /* 0x16 */ u8 pad16[0x2];
-    /* 0x18 */ u8 unk18;  /* length in frames [I] */
-    /* 0x19 */ u8 pad19[0x2];
-    /* 0x1B */ u8 unk1B;
-    /* 0x1C */ u8 pad1C[0x8];
-    /* 0x24 */ u32 unk24; /* flags */
-    /* 0x28 */ u8 pad28[0x4];
-    /* 0x2C */ u8 unk2C;
-    /* 0x2D */ u8 unk2D;
 };
 
 /* One entry of a move's command list (0xE bytes; the lists are in D_0047F780 and a move record points to its own at
@@ -192,10 +175,10 @@ typedef struct {
     /* 0x0048 */ s16 unk48;                   /* angle from the camera angle D_00415808[1] (Battle_UpdateFacing) */
     /* 0x004A */ u8 pad4A[0x6C];
     /* 0x00B6 */ s16 unkB6;
-    /* 0x00B8 */ struct FighterUnkC0 *unkB8;
+    /* 0x00B8 */ struct FighterMove *unkB8;
     /* 0x00BC */ s16 unkBC;
     /* 0x00BE */ u8 padBE[0x2];
-    /* 0x00C0 */ struct FighterUnkC0 *unkC0;
+    /* 0x00C0 */ struct FighterMove *unkC0;
     /* 0x00C4 */ s16 unkC4;                   /* frame of the current move [I] */
     /* 0x00C6 */ s16 unkC6;                   /* unkC4 of the previous frame */
     /* 0x00C8 */ s16 unkC8;                   /* frames since the move started (Fighter_StepMove) */

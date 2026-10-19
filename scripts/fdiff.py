@@ -3,8 +3,9 @@
 
 Usage: .venv/bin/python scripts/fdiff.py <function or address> [--no-build]
 
-Runs `ninja build/SLUS_200.01` first (--no-build skips it), then takes the function's bytes from the flattened
-build (build/SLUS_200.01) and from iso/SLUS_200.01. Prints `OK` only when the instruction words are identical
+Runs `ninja build/SLUS_200.01` first and stops when ninja fails or leaves the image out of date; --no-build skips
+the build but refuses an image that is out of date (`ninja -n` has work to do). Then it takes the function's bytes
+from the flattened build (build/SLUS_200.01) and from iso/SLUS_200.01. Prints `OK` only when the instruction words are identical
 and every load or store through $gp reaches the same data in both: the same bytes (a .lit4 constant one ulp
 off differs) and, where both sides have a name for the address, the same name (two globals swapped at the
 same offset differ). Otherwise it prints the data that differs, or both disassemblies side by side, aligned,
@@ -13,17 +14,25 @@ with a mark on each line that differs:
   !  different instruction        <  only in the original        >  only in the build
   ~  same instruction, different call or branch target (relocated: something else moved; still a difference)
 
-The function's address and size in the build come from the symbol table of build/SLUS_200.01.elf; its original
-address from its placeholder name (func_XXXXXXXX) or config/symbols/*.txt. The original function ends where
-the next one starts; the alignment nops after it are dropped while it is longer than the build's.
+Addresses: the build side comes only from the symbol table of build/SLUS_200.01.elf (each function's address and
+size); the original side only from names: a function's original address is the one its placeholder name
+(func_XXXXXXXX) or config/symbols/*.txt gives, never its build address, and a function with neither is refused.
+An address on the command line is an original address. The original function ends where the next original
+function starts; the alignment nops after it are dropped while it is longer than the build's.
+
+Several fdiff.py runs may overlap: the build, the symbol table and the image are read under a lock
+(build/fdiff.lock), and every disassembly goes through a private temporary file.
 Exit status: 0 when it prints OK, 1 otherwise.
 """
 
 import argparse
+import contextlib
 import difflib
+import fcntl
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -33,7 +42,8 @@ ORIGINAL = "iso/SLUS_200.01"
 # Symbol files (splat format), one per library or game module; each lists in `// range:` lines the addresses it
 # names (docs/decomp_guide.md, "Naming").
 SYMBOL_DIR = "config/symbols"
-SCRATCH = "build/fdiff"
+# Held while one run builds or reads the build, so that another run cannot relink it underneath.
+LOCK = "build/fdiff.lock"
 BINUTILS = "tools/binutils/mips-ps2-decompals-"
 # Address of file offset 0 (config/SLUS_200.01.yaml: the header segment): address = file offset + LOAD_BASE.
 LOAD_BASE = 0x33F000
@@ -107,6 +117,31 @@ def symbol_files(root=ROOT):
 def parse_address(arg):
     """An address given on the command line (0x340AF0 or 00340AF0), or None for a name."""
     return int(arg, 16) if re.fullmatch(r"(0x)?[0-9A-Fa-f]{6,8}", arg) else None
+
+
+def original_addr(name, named):
+    """The original address of a build function: its address in the symbol files (named), else the one its
+    placeholder name stands for, else None. Never the address it links at in the build."""
+    addr = named.get(name)
+    return addr if addr is not None else placeholder_addr(name)
+
+
+def resolve(arg, funcs, named):
+    """(name, original start, original end) of the function given on the command line: a name, or an original
+    address. funcs is the build's functions (name -> (address, size)), named the symbol files' name -> address.
+    Raises ValueError for an unknown function or one without an original address."""
+    orig = {n: original_addr(n, named) for n in funcs}
+    addr = parse_address(arg)
+    if addr is not None:
+        name = next((n for n, a in orig.items() if a == addr), None)
+    else:
+        name = arg if arg in funcs else None
+    if name is None:
+        raise ValueError(f"no function {arg} in {ELF}")
+    start = orig[name]
+    if start is None:
+        raise ValueError(f"{name}: no original address (not a func_XXXXXXXX name and not in {SYMBOL_DIR}/*.txt)")
+    return name, start, original_end({a for a in orig.values() if a is not None}, start, funcs[name][1])
 
 
 def original_end(starts, addr, size):
@@ -197,18 +232,52 @@ def sh(*cmd):
     return subprocess.run([str(c) for c in cmd], cwd=ROOT, check=True, capture_output=True, text=True).stdout
 
 
-def disassemble(data, addr, name):
-    blob = ROOT / SCRATCH / name
-    blob.parent.mkdir(parents=True, exist_ok=True)
-    blob.write_bytes(data)
-    return parse_objdump(sh(ROOT / (BINUTILS + "objdump"), "-D", "-z", "-b", "binary", "-m", "mips:5900", "-EL",
-                            f"--adjust-vma={addr:#x}", blob))
+def build_is_current(target=BUILT, root=ROOT):
+    """(current, detail): whether ninja has nothing left to do for target (`ninja -n`: no input of the link, no
+    compiler flag, no generated file is newer than it), with ninja's output when it has."""
+    r = subprocess.run(["ninja", "-n", target], cwd=root, capture_output=True, text=True)
+    out = (r.stdout + r.stderr).strip()
+    return r.returncode == 0 and "ninja: no work to do." in r.stdout, out
 
 
-def read_at(path, addr, size):
-    with open(ROOT / path, "rb") as f:
-        f.seek(addr - LOAD_BASE)
-        return f.read(size)
+def rebuild(target=BUILT, root=ROOT):
+    """Runs ninja on target. None when it succeeded and left target up to date, else the message to print. The
+    exit status decides, not the output: a C file that does not compile prints no `error`."""
+    r = subprocess.run(["ninja", target], cwd=root, capture_output=True, text=True)
+    out = (r.stdout + r.stderr).rstrip()
+    if r.returncode:
+        return f"{out}\nfdiff.py: the build failed (ninja exit status {r.returncode})"
+    current, detail = build_is_current(target, root)
+    if not current:
+        return f"{out}\n{detail}\nfdiff.py: ninja succeeded but {target} is still out of date"
+    return None
+
+
+@contextlib.contextmanager
+def build_lock(root=ROOT):
+    """Exclusive lock on root/LOCK for the block: one run at a time builds or reads the build."""
+    path = Path(root) / LOCK
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
+def disassemble(data, addr):
+    """parse_objdump() rows of data loaded at addr. The bytes go through a temporary file of this call only."""
+    with tempfile.TemporaryDirectory(prefix="fdiff-") as tmp:
+        blob = Path(tmp) / "code.bin"
+        blob.write_bytes(data)
+        return parse_objdump(sh(ROOT / (BINUTILS + "objdump"), "-D", "-z", "-b", "binary", "-m", "mips:5900", "-EL",
+                                f"--adjust-vma={addr:#x}", blob))
+
+
+def read_at(image, addr, size):
+    """size bytes at addr of a loaded image (the bytes of the flattened executable)."""
+    return image[addr - LOAD_BASE:addr - LOAD_BASE + size]
 
 
 def known_names(root=ROOT):
@@ -225,38 +294,36 @@ def main():
     parser.add_argument("--no-build", action="store_true", help="do not run ninja first")
     args = parser.parse_args()
 
-    if not args.no_build:
-        r = subprocess.run(["ninja", BUILT], cwd=ROOT, capture_output=True, text=True)
-        if r.returncode:
-            sys.exit(r.stdout + r.stderr + "fdiff.py: the build failed")
-    readelf = sh(ROOT / (BINUTILS + "readelf"), "-sW", ROOT / ELF)
+    with build_lock():
+        if args.no_build:
+            current, detail = build_is_current()
+            if not current:
+                sys.exit(f"{detail}\nfdiff.py: {BUILT} is out of date (ninja has work to do): run ninja, or drop "
+                         f"--no-build")
+        else:
+            message = rebuild()
+            if message:
+                sys.exit(message)
+        readelf = sh(ROOT / (BINUTILS + "readelf"), "-sW", ROOT / ELF)
+        built = (ROOT / BUILT).read_bytes()
+    original = (ROOT / ORIGINAL).read_bytes()
     syms = parse_symbols(readelf)
     funcs = functions(syms)
     named = known_names()
-
-    def orig_addr(name):
-        return named.get(name, placeholder_addr(name) or funcs[name][0])
-
-    addr = parse_address(args.function)
-    if addr is not None:
-        name = next((n for n, (a, _) in funcs.items() if a == addr), None) or \
-            next((n for n in funcs if orig_addr(n) == addr), None)
-    else:
-        name = args.function if args.function in funcs else None
-    if name is None:
-        sys.exit(f"fdiff.py: no function {args.function} in {ELF}")
+    try:
+        name, start, end = resolve(args.function, funcs, named)
+    except ValueError as e:
+        sys.exit(f"fdiff.py: {e}")
 
     built_addr, size = funcs[name]
-    start = orig_addr(name)
-    end = original_end({orig_addr(n) for n in funcs}, start, size)
-    mine = disassemble(read_at(BUILT, built_addr, size), built_addr, "build.bin")
-    orig = strip_padding(disassemble(read_at(ORIGINAL, start, end - start), start, "original.bin"), len(mine))
+    mine = disassemble(read_at(built, built_addr, size), built_addr)
+    orig = strip_padding(disassemble(read_at(original, start, end - start), start), len(mine))
 
     orig_names = {a: n for n, a in named.items()}
     built_names = {a: n for n, (a, s, t) in syms.items() if t == "OBJECT" and not n.endswith(".NON_MATCHING")}
     ok, data = compare(orig, mine, ORIGINAL_GP, gp_value(readelf) or ORIGINAL_GP,
-                       lambda a, n: (orig_names.get(a), read_at(ORIGINAL, a, n)),
-                       lambda a, n: (built_names.get(a), read_at(BUILT, a, n)))
+                       lambda a, n: (orig_names.get(a), read_at(original, a, n)),
+                       lambda a, n: (built_names.get(a), read_at(built, a, n)))
     if ok:
         print("OK" if built_addr == start else f"OK (linked at {built_addr:#x}, original {start:#x})")
         return
@@ -267,7 +334,7 @@ def main():
                   f"build {b:#x} {bn or ''} {bb.hex()}")
         print(f"{len(data)} data references differ")
         sys.exit(1)
-    by_orig = {orig_addr(n): n for n in funcs}
+    by_orig = {a: n for n in funcs if (a := original_addr(n, named)) is not None}
     by_built = {a: n for n, (a, _) in funcs.items()}
     rows = align(orig, mine,
                  lambda r: normalize(r[2], start, end - start, by_orig),

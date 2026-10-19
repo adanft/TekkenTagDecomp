@@ -23,6 +23,8 @@ build.ninja
 tools/compilers/
 tools/binutils/
 tools/decomp-permuter/
+# scripts/permute.py work folders (kept out of build/ so a clean rebuild leaves running jobs alone)
+permuter/
 __pycache__/
 *.pyc
 

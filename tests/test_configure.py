@@ -4,8 +4,11 @@ Run: .venv/bin/python -m unittest discover -s tests -v
 """
 
 import importlib.util
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -146,6 +149,99 @@ class SymbolPaths(unittest.TestCase):
             configure.check_symbol_paths(["a.txt"], ["a.txt", "c.txt"])
         with self.assertRaisesRegex(ValueError, "d.txt"):
             configure.check_symbol_paths(["a.txt", "d.txt"], ["a.txt"])
+
+
+class FakeSplat:
+    """Stands in for `splat split`: writes the given asm files and unaligned linker scripts under configure.ROOT,
+    or fails half way (after writing the asm files) when fail is set."""
+
+    def __init__(self, files, fail=False):
+        self.files, self.fail, self.calls = files, fail, 0
+
+    def __call__(self, cmd):
+        self.calls += 1
+        root = configure.ROOT
+        for name in self.files:
+            (root / "asm" / name).parent.mkdir(parents=True, exist_ok=True)
+            (root / "asm" / name).write_text("glabel func_00100000\n")
+        if self.fail:
+            raise subprocess.CalledProcessError(1, cmd)
+        for f in configure.LD_SCRIPTS:
+            (root / f).parent.mkdir(parents=True, exist_ok=True)
+            (root / f).write_text(SCRIPT if f == configure.LD_SCRIPT else "")
+
+
+class Split(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        for f in configure.SPLIT_INPUTS:
+            (self.root / f).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / f).write_text("x")
+        patcher = mock.patch.object(configure, "ROOT", self.root)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(self.tmp.cleanup)
+
+    def split(self, splat, force=True):
+        with mock.patch.object(configure, "run", splat):
+            configure.split(force)
+
+    def test_resplit_removes_files_of_an_earlier_layout(self):
+        self.split(FakeSplat(["1E048.s", "nonmatchings/a/func_00100000.s"]))
+        self.split(FakeSplat(["1E000.s"]))
+        files = sorted(p.relative_to(self.root / "asm").as_posix() for p in (self.root / "asm").rglob("*.s"))
+        self.assertEqual(files, ["1E000.s"])
+
+    def test_resplit_keeps_the_rest_of_build(self):
+        keep = self.root / "build" / "permuter" / "Func" / "settings.toml"
+        keep.parent.mkdir(parents=True)
+        keep.write_text("x")
+        self.split(FakeSplat(["1000.s"]))
+        self.assertTrue(keep.exists())
+
+    def test_linker_script_aligned_and_split_marked_done(self):
+        self.split(FakeSplat(["1000.s"]))
+        self.assertIn(configure.BSS_ALIGNED, (self.root / configure.LD_SCRIPT).read_text())
+        self.assertTrue((self.root / configure.SPLIT_DONE).exists())
+
+    def test_up_to_date_split_is_not_rerun(self):
+        self.split(FakeSplat(["1000.s"]))
+        splat = FakeSplat(["1000.s"])
+        self.split(splat, force=False)
+        self.assertEqual(splat.calls, 0)
+
+    def test_failed_split_leaves_no_done_mark_and_reruns(self):
+        self.split(FakeSplat(["1000.s"]))
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.split(FakeSplat(["1000.s", "half.s"], fail=True))
+        self.assertFalse((self.root / configure.SPLIT_DONE).exists())
+        self.assertFalse((self.root / configure.LD_SCRIPT).exists())
+        splat = FakeSplat(["1000.s"])
+        self.split(splat, force=False)
+        self.assertEqual(splat.calls, 1)
+        self.assertFalse((self.root / "asm" / "half.s").exists())
+
+
+class NinjaFile(unittest.TestCase):
+    """build.ninja from a tiny tree: one asm object and one C object."""
+
+    def test_c_objects_have_compiler_dependencies(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "build").mkdir()
+            (root / configure.LD_SCRIPT).write_text("        build/asm/1000.o(.text);\n        build/src/x.o(.text);\n")
+            (root / "src").mkdir()
+            (root / "src" / "x.c").write_text('#include "y.h"\n')
+            with mock.patch.object(configure, "ROOT", root):
+                configure.write_ninja()
+            text = (root / "build.ninja").read_text()
+        cc = text[text.index("rule cc"):text.index("rule ld")]
+        self.assertIn("-Wp,-MD,$out.d", cc)
+        self.assertIn("depfile = $out.d", cc)
+        self.assertIn("deps = gcc", cc)
+        split = next(line for line in text.splitlines() if line.endswith(f": split {' '.join(configure.SPLIT_INPUTS)}"))
+        self.assertIn(configure.SPLIT_DONE, split.split(":")[0].split())
 
 
 if __name__ == "__main__":

@@ -11,9 +11,11 @@ compiles a C file and links it: [build.md](build.md), "C files".
    `.venv/bin/python scripts/fdiff.py func_XXXXXXXX` (a name or an address works too). It rebuilds and compares
    the function's linked bytes with the original: `OK`, or both disassemblies aligned, with `!` on a different
    instruction, `<` / `>` on one only in the original / the build, and `~` on a call or branch whose target
-   moved only because something before it changed size.
+   moved only because something before it changed size. It stops when ninja fails (the exit status decides: a C
+   file that does not compile prints no `error`); `--no-build` skips the build but refuses an out-of-date image
+   (`ninja -n` has work to do). Several runs may overlap (a lock in `build/fdiff.lock`, private temporary files).
 3. For a near miss (registers, instruction order), put the attempt back in `#if 0` and run
-   `.venv/bin/python scripts/permute.py src/<file>.c func_XXXXXXXX` (setup in `build/permuter/<Func>/`, the
+   `.venv/bin/python scripts/permute.py src/<file>.c func_XXXXXXXX` (setup in `permuter/<Func>/`, the
    original from `asm/nonmatchings/`); add `--run -j8` to start decomp-permuter. A score of 0 ignores some
    differences: apply the candidate by hand and check it with fdiff.
 4. When fdiff says OK, remove the `#if 0` / INCLUDE_ASM pair and run `.venv/bin/python configure.py && ninja`:
@@ -200,6 +202,10 @@ T13 (`main`, `rng_misc`, `pad`, `file`, `gfx`) needed no `-G` other than 8. Ever
   (`v = cond ? a : b; g = v;`), not as two stores (`func_00342360`).
 - `sqrtf` needs a prototype (`float sqrtf(float);`); with `-ffast-math` the compiler inlines it.
 
+- `fdiff.py` takes the build side only from the symbol table of `build/SLUS_200.01.elf` (address and size of each
+  function) and the original side only from names: the address a `func_XXXXXXXX` name or `config/symbols/*.txt`
+  gives, never the build address. A function with neither is refused (add it to its symbol file); an address on the
+  command line is an original address, and the original function ends at the next original function start.
 - `fdiff.py` prints OK only for identical instruction words (a relocated call or branch target, `~`, counts as
   a difference) whose `$gp` loads and stores reach the same bytes and, where both sides name the address, the
   same symbol: a float literal one ulp off (`3.1415925f` gives 0x40490FDA, the original 0x40490FD8 is
@@ -397,7 +403,8 @@ Assembler: `mfc1` got a hazard `nop` from gas that the original does not have (`
 
 - **Check that the build really ran.** A C file that fails to compile (conflicting prototypes) or to link (a `.data`
   byte reached through `$gp`) leaves the old `build/SLUS_200.01` in place, and `fdiff.py --no-build` then reports OK
-  against stale bytes. After a batch, confirm ninja ended with the SHA1 step before trusting any OK.
+  against stale bytes. After a batch, confirm ninja ended with the SHA1 step before trusting any OK. (F01: fdiff.py
+  now stops on a failed build, and `--no-build` refuses an out-of-date image.)
 - A function whose size changes moves every later function, `.data`, `.sdata` and `.bss` symbol: in a batch, wrap the
   size-changing misses first, rebuild, then judge the rest (their diffs were only relocations).
 - `(fl & 0x400000) == 0` as a value compiles to `sra / xori / andi`; the original's `lui / and / sltiu` comes from
@@ -441,6 +448,8 @@ Assembler: `mfc1` got a hazard `nop` from gas that the original does not have (`
   (`func_0036C918`). decomp-permuter matches two of them only with fakes (`m++; m--;`, `if (f) return 1; else
   return 1;`), which were not taken.
 - `fdiff.py` runs must not overlap: several at once on the same build report wrong sizes and false differences.
+  (F01: they shared `build/fdiff/*.bin`; each run now disassembles through its own temporary file and builds and
+  reads the build under a lock, so parallel runs are safe.)
 
 ### Lessons from T14 batch 3 (2026-10-18)
 
@@ -494,7 +503,7 @@ Tools:
 
 - `ninja` output contains `error` only for some failures: a C file that does not compile ("structure has no member")
   leaves the old build in place, and fdiff then reports OK. Check that the SHA1 step ran (or the exit status) after
-  every change.
+  every change. (F01: fdiff.py goes by ninja's exit status and checks that the image is up to date afterwards.)
 
 ### Lessons from T14 batch 4 (2026-10-18)
 
@@ -545,8 +554,9 @@ Tools:
 
 - m2c needs the jump table file next to the function (`m2c ... Fighter_StepMove.s jtbl_004FFA80.s`), or it stops at
   the `jr`.
-- `configure.py` (re-split) removes `build/permuter/`: copy a permuter folder to the scratchpad and point
-  `objdump_command` in its `settings.toml` there before a long run.
+- A long permuter run lost its folder under `build/permuter/`. Neither splat nor `configure.py` removes anything
+  under `build/` (a re-split only empties `asm/`); the clean rebuild (`rm -rf build`) does. F01 moved the folders to
+  `permuter/<Func>/` (ignored by git), which a re-split and a clean rebuild leave alone.
 - `pkill -f 'decomp-permute[r]'` also kills its own shell when the same command line names `decomp-permuter/...`
   (starting the permuter in the same command): run the `pkill` alone.
 

@@ -2,6 +2,7 @@
  * docs/game_overview.md sections 1-3. */
 #include "common.h"
 #include "fighter.h"
+#include "trig.h"
 
 
 extern Fighter gFighters[4];
@@ -653,8 +654,8 @@ void func_00357DD8(void) {
 }
 
 /* Sine of a 16-bit angle from the table gSinTable, clamped to +-0xFFF, in 1.12 fixed point * 8. */
-s16 Math_Sin(u32 angle) {
-    s32 v = gSinTable[(angle >> 4) & 0xFFF];
+s16 Math_Sin(s32 angle) {
+    s32 v = gSinTable[((u32)angle >> 4) & 0xFFF];
 
     if (v >= 0x1000) {
         v = 0xFFF;

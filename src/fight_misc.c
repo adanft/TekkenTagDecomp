@@ -7,6 +7,7 @@
  * its .lit4 word (2 pi, 0x5F5170) comes from func_00378760. */
 #include "common.h"
 #include "fighter.h"
+#include "trig.h"
 
 #define ABS(x) ((x) < 0 ? -(x) : (x))
 
@@ -660,7 +661,7 @@ void func_003780C8(Fighter *f) {
     p->unk4C = z;
 }
 
-struct FighterUnkC0 *func_00368248(s32 id);
+struct FighterMove *func_00368248(s32 id);
 s32 Snd_PlaySe(s32 id, s32 player);
 void func_003780C8(Fighter *f);
 void func_00378810(Fighter *f);
@@ -674,7 +675,7 @@ void func_003A8C50(s32 side);
  * (sound effect 0x45), which then follow func_00378810 ... func_00378E70 each frame while `step` is set. */
 void func_00378150(Fighter *f, s32 step) {
     Unk8A7AD0 *p = &D_008A7AD0[f->unk1E];
-    struct FighterUnkC0 *m = f->unkC0;
+    struct FighterMove *m = f->unkC0;
 
     if (f->unk2A != 0x1D || f->unk127 == 0) {
         p->unk0 = 0;
@@ -913,8 +914,6 @@ s16 func_00378760(Fighter *f) {
 RODATA_ALIGN8();
 INCLUDE_RODATA("asm/nonmatchings/fight_misc", D_00506248);
 INCLUDE_RODATA("asm/nonmatchings/fight_misc", D_0050624C);
-s16 Math_Sin(s32 angle);
-s16 Math_Cos(s32 angle);
 void func_00378500(Fighter *f);
 extern s16 D_004FF690[];
 extern s16 D_00506248[];

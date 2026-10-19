@@ -3,7 +3,9 @@
 
 Usage: .venv/bin/python scripts/permute.py <src/file.c> <Func> [--run] [-jN] [-- permuter options]
 
-Writes build/permuter/<Func>/:
+<src/file.c> is a C file under src/ (relative to the repository or absolute) and <Func> a C identifier the file
+names; anything else stops with a message before a file is written. Writes permuter/<Func>/ (outside build/, so a
+re-split or a clean rebuild does not take it away from a running permuter):
   base.c         the C file preprocessed with -DPERMUTER (INCLUDE_ASM expands to nothing), with the attempt of
                  <Func> enabled when it sits in an `#if 0` (the usual form of an attempt:
                  `#if 0` C `#else` INCLUDE_ASM(...) `#endif`);
@@ -31,7 +33,8 @@ from pathlib import Path
 import fdiff
 
 ROOT = fdiff.ROOT
-WORK = ROOT / "build" / "permuter"
+# Not under build/: `rm -rf build` (a clean rebuild) must not pull the folder from under a long permuter run.
+WORK = ROOT / "permuter"
 PERMUTER = ROOT / "tools" / "decomp-permuter"
 OBJDUMP = ROOT / (fdiff.BINUTILS + "objdump")
 AS = ROOT / (fdiff.BINUTILS + "as")
@@ -80,6 +83,22 @@ def enable_attempt(text, func):
     return "\n".join(lines)
 
 
+def check_args(src, func, root=ROOT):
+    """The C file as a path relative to root (src/...c), after checking that it is a C file under root/src and
+    that func is a C identifier the file mentions (a definition, an attempt or an INCLUDE_ASM). Raises ValueError."""
+    if not re.fullmatch(r"[A-Za-z_]\w*", func):
+        raise ValueError(f"not a function name: {func!r}")
+    root = Path(root).resolve()
+    path = Path(src)
+    path = (path if path.is_absolute() else root / path).resolve()
+    if path.suffix != ".c" or not path.is_file() or not path.is_relative_to(root / "src"):
+        raise ValueError(f"not a C file under src/: {src}")
+    rel = path.relative_to(root).as_posix()
+    if not re.search(r"\b%s\b" % re.escape(func), path.read_text(errors="replace")):
+        raise ValueError(f"no {func} in {rel}")
+    return rel
+
+
 def settings_toml(func, objdump_sh):
     return f'func_name = "{func}"\ncompiler_type = "gcc"\nobjdump_command = "{objdump_sh}"\n'
 
@@ -112,7 +131,10 @@ def objdump_sh(func):
 
 
 def run(cmd):
-    return subprocess.run([str(c) for c in cmd], cwd=ROOT, capture_output=True, text=True)
+    try:
+        return subprocess.run([str(c) for c in cmd], cwd=ROOT, capture_output=True, text=True)
+    except FileNotFoundError:
+        die(f"cannot run {cmd[0]}: missing tool (docs/setup.md)")
 
 
 def make_target(work, src, func):
@@ -150,10 +172,13 @@ def main():
     pos = [a for a in args if not a.startswith("-")]
     if len(pos) != 2 or any(o != "--run" and not re.fullmatch(r"-j\d+", o) for o in opts):
         sys.exit(__doc__)
-    src, func = Path(pos[0]).as_posix(), pos[1]
+    try:
+        src = check_args(pos[0], pos[1])
+        func = pos[1]
+        text = enable_attempt((ROOT / src).read_text(), func)
+    except ValueError as e:
+        die(str(e))
     jobs = next((o[2:] for o in opts if o.startswith("-j")), "4")
-    if not (ROOT / src).is_file() or not src.startswith("src/"):
-        die(f"not a C file under src/: {src}")
 
     work = WORK / func
     if work.exists():
@@ -165,10 +190,6 @@ def main():
     write_script(work / "objdump.sh", objdump_sh(func))
     (work / "settings.toml").write_text(settings_toml(func, work / "objdump.sh"))
 
-    try:
-        text = enable_attempt((ROOT / src).read_text(), func)
-    except ValueError as e:
-        die(str(e))
     enabled = work / "enabled.c"
     enabled.write_text(text)
     r = run([ROOT / configure.CC, "-E", "-P", "-DPERMUTER", "-Iinclude", f"-I{Path(src).parent}", enabled,

@@ -14,6 +14,8 @@ Usage: .venv/bin/python scripts/callgraph.py COMMAND [ARGS]   (after configure.p
 
 NAME is a symbol as it appears in the assembly (func_XXXXXXXX or a name from config/symbols/*.txt).
 Only direct references are seen: a call through a register (jalr) counts as one indirect call of its function.
+Wrong arguments, an unknown function (callees, reach, strings), a bad config/library_ranges.txt or a split with no
+functions (configure.py not run) end with a message on stderr and exit status 2.
 """
 
 import re
@@ -22,7 +24,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-RANGES = ROOT / "config" / "library_ranges.txt"
+RANGES = "config/library_ranges.txt"
+# Commands and the number of arguments each takes (min, max).
+ARITY = {"callers": (1, 1), "callees": (1, 1), "reach": (1, 1), "ptr": (1, 1), "xref": (1, 1), "strings": (1, 1),
+         "tables": (0, 1), "range": (2, 2)}
+# Commands whose NAME must be a function of the split assembly.
+NEEDS_FUNCTION = ("callees", "reach", "strings")
 
 _GLABEL = re.compile(r"^\s*glabel\s+(\S+)")
 _NONMATCHING = re.compile(r"^\s*nonmatching\s+(\S+),\s*(0x[0-9A-Fa-f]+)")
@@ -193,24 +200,60 @@ def load(root=ROOT):
     return Graph(parse_text(text), parse_data(data))
 
 
-def load_ranges(path=RANGES):
+def load_ranges(path=ROOT / RANGES):
+    """[(start, end, label)] from config/library_ranges.txt. Raises ValueError naming the line of a bad entry."""
     out = []
-    for line in path.read_text().splitlines():
+    for n, line in enumerate(Path(path).read_text().splitlines(), 1):
         line = line.split("#", 1)[0].split()
         if len(line) >= 2:
-            out.append((int(line[0], 16), int(line[1], 16), line[2] if len(line) > 2 else "library"))
+            try:
+                out.append((int(line[0], 16), int(line[1], 16), line[2] if len(line) > 2 else "library"))
+            except ValueError:
+                raise ValueError(f"{RANGES} line {n}: not a hex address range: {' '.join(line[:2])}") from None
     return out
+
+
+def _hex(text):
+    try:
+        return int(text, 16)
+    except ValueError:
+        raise ValueError(f"not a hex address: {text}") from None
+
+
+def _number(text):
+    try:
+        return int(text)
+    except ValueError:
+        raise ValueError(f"not a number: {text}") from None
 
 
 def _lab(g, ranges, name):
     return label_of(g.addr(name), ranges) or "game"
 
 
-def main(argv):
-    if len(argv) < 2:
+def main(argv, root=ROOT):
+    if len(argv) < 2 or argv[1] not in ARITY:
         print(__doc__)
         return 2
-    g, ranges, cmd, args = load(), load_ranges(), argv[1], argv[2:]
+    try:
+        return run(argv[1], argv[2:], Path(root))
+    except (ValueError, OSError) as e:
+        print(f"callgraph.py: {e}", file=sys.stderr)
+        return 2
+
+
+def run(cmd, args, root):
+    least, most = ARITY[cmd]
+    if not least <= len(args) <= most:
+        count = f"{least}" if least == most else f"{least} to {most}"
+        raise ValueError(f"{cmd} takes {count} argument{'s' if most > 1 else ''} (run without arguments for usage)")
+    numbers = [_hex(a) for a in args] if cmd == "range" else [_number(a) for a in args] if cmd == "tables" else []
+    g = load(root)
+    if not g.funcs:
+        raise ValueError("no functions in asm/: run configure.py to split the executable first")
+    ranges = load_ranges(root / RANGES)
+    if cmd in NEEDS_FUNCTION and args[0] not in g.funcs:
+        raise ValueError(f"no function {args[0]} in asm/ (a name as it appears in the split assembly)")
     if cmd == "callers":
         for c in g.callers(args[0]):
             print(f"0x{g.addr(c):08X} {c}")
@@ -234,10 +277,10 @@ def main(argv):
         for a, s in g.strings(args[0]):
             print(f"0x{a:08X} {s!r}")
     elif cmd == "tables":
-        for name, addr, n in g.tables(int(args[0]) if args else 4):
+        for name, addr, n in g.tables(numbers[0] if numbers else 4):
             print(f"0x{addr:08X} {name} {n}")
     elif cmd == "range":
-        lo, hi = int(args[0], 16), int(args[1], 16)
+        lo, hi = numbers
         inside = [f for f in g.funcs.values() if lo <= f.addr < hi]
         names = {f.name for f in inside}
         libs, outside, strs = {}, set(), []
@@ -256,9 +299,6 @@ def main(argv):
         print(f"  used from outside by {len(outside)}: " + " ".join(sorted(outside, key=g.addr)[:20]))
         for a, s in sorted(set(strs))[:40]:
             print(f"  0x{a:08X} {s!r}")
-    else:
-        print(__doc__)
-        return 2
     return 0
 
 

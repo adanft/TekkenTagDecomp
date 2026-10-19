@@ -1,10 +1,13 @@
-"""Tests for the pure helpers of scripts/fdiff.py (synthetic data only, no disc or build needed)."""
+"""Tests for scripts/fdiff.py (synthetic data and throwaway ninja projects only, no disc or build needed)."""
 
+import fcntl
 import importlib.util
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -207,6 +210,105 @@ class Strict(unittest.TestCase):
         ok, data = fdiff.compare(self.rows(0x0C0D5C96), self.rows(0x0C0D5C98), self.GP, self.GP,
                                  self.look(), self.look())
         self.assertFalse(ok)
+
+
+def write_ninja_project(root, rule_command):
+    """A one-edge ninja project in root: `out` built from `in` by rule_command."""
+    (root / "in").write_text("x")
+    (root / "build.ninja").write_text(f"rule r\n  command = {rule_command}\nbuild out: r in\n")
+
+
+class BuildState(unittest.TestCase):
+    """--no-build refuses a stale build, and a rebuild that fails (even silently, without `error` in the output)
+    is reported. A tiny ninja project stands in for the real build."""
+
+    def test_current_after_build_stale_after_input_change(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_ninja_project(root, "cp $in $out")
+            self.assertIsNone(fdiff.rebuild("out", root))
+            self.assertEqual(fdiff.build_is_current("out", root)[0], True)
+            later = (root / "out").stat().st_mtime + 10
+            os.utime(root / "in", (later, later))
+            current, detail = fdiff.build_is_current("out", root)
+            self.assertFalse(current)
+            self.assertIn("cp in out", detail)
+
+    def test_missing_output_is_stale(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_ninja_project(root, "cp $in $out")
+            self.assertFalse(fdiff.build_is_current("out", root)[0])
+
+    def test_failed_compile_without_error_text_is_reported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_ninja_project(root, "echo 'structure has no member named y'; exit 1")
+            message = fdiff.rebuild("out", root)
+            self.assertIsNotNone(message)
+            self.assertIn("structure has no member named y", message)
+            self.assertIn("build failed", message)
+
+    def test_rule_that_does_not_write_its_output_is_reported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_ninja_project(root, "true")
+            message = fdiff.rebuild("out", root)
+            self.assertIsNotNone(message)
+            self.assertIn("out of date", message)
+
+
+class ParallelSafety(unittest.TestCase):
+    def test_disassemble_uses_a_private_file_per_call(self):
+        seen = []
+
+        def fake_sh(*cmd):
+            blob = Path(str(cmd[-1]))
+            seen.append((blob, blob.read_bytes()))
+            return ""
+
+        with mock.patch.object(fdiff, "sh", fake_sh):
+            fdiff.disassemble(b"\x01\x00\x00\x00", 0x340000)
+            fdiff.disassemble(b"\x02\x00\x00\x00", 0x340000)
+        (a, da), (b, db) = seen
+        self.assertNotEqual(a, b)
+        self.assertEqual((da, db), (b"\x01\x00\x00\x00", b"\x02\x00\x00\x00"))
+        self.assertFalse(a.exists() or b.exists())
+        self.assertFalse(a.is_relative_to(fdiff.ROOT))
+
+    def test_build_lock_serializes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with fdiff.build_lock(root):
+                lock = root / fdiff.LOCK
+                with open(lock) as f:
+                    with self.assertRaises(BlockingIOError):
+                        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            with open(lock) as f:
+                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+class Resolve(unittest.TestCase):
+    """Build addresses and sizes come only from the ELF symbol table, original addresses only from names."""
+
+    def test_address_is_an_original_address(self):
+        # Mover grew by 8 bytes: func_00340108 now links at 0x340110, and Named (original 0x340100) at 0x340108.
+        funcs = {"Mover": (0x340000, 0x108), "Named": (0x340108, 8), "func_00340108": (0x340110, 8)}
+        named = {"Mover": 0x340000, "Named": 0x340100}
+        self.assertEqual(fdiff.resolve("0x340108", funcs, named), ("func_00340108", 0x340108, 0x340110))
+        self.assertEqual(fdiff.resolve("Named", funcs, named), ("Named", 0x340100, 0x340108))
+        self.assertEqual(fdiff.resolve("Mover", funcs, named), ("Mover", 0x340000, 0x340100))
+
+    def test_function_without_original_address_is_refused(self):
+        funcs = {"func_00340000": (0x340000, 8), "Helper": (0x340008, 8)}
+        with self.assertRaisesRegex(ValueError, "Helper: no original address"):
+            fdiff.resolve("Helper", funcs, {})
+        # and its build address is not taken as an original function start either
+        self.assertEqual(fdiff.resolve("func_00340000", funcs, {}), ("func_00340000", 0x340000, 0x340008))
+
+    def test_unknown_function(self):
+        with self.assertRaisesRegex(ValueError, "no function Nope"):
+            fdiff.resolve("Nope", {"func_00340000": (0x340000, 8)}, {})
 
 
 if __name__ == "__main__":

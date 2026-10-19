@@ -1,7 +1,11 @@
 """Tests for scripts/callgraph.py (synthetic splat/spimdisasm assembly only)."""
 
+import contextlib
 import importlib.util
+import io
+import shutil
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -127,6 +131,71 @@ class Graph(unittest.TestCase):
         ranges = [(0x100000, 0x100020, "libx")]
         self.assertEqual(callgraph.label_of(0x100010, ranges), "libx")
         self.assertIsNone(callgraph.label_of(0x100020, ranges))
+
+
+class CommandLine(unittest.TestCase):
+    """main() on a small split tree: wrong input and an empty split end with a message and status 2, never a
+    traceback."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        (self.root / "asm" / "data").mkdir(parents=True)
+        (self.root / "asm" / "1000.s").write_text(TEXT)
+        (self.root / "asm" / "data" / "D0.rodata.s").write_text(DATA)
+        (self.root / "config").mkdir()
+        (self.root / "config" / "library_ranges.txt").write_text("0x00100020 0x00100038 libx\n")
+
+    def main(self, *args):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            status = callgraph.main(["callgraph.py", *args], self.root)
+        return status, out.getvalue(), err.getvalue()
+
+    def test_valid_command(self):
+        status, out, _ = self.main("callees", "func_00100000")
+        self.assertEqual(status, 0)
+        self.assertIn("func_00100020 [libx]", out)
+
+    def test_invalid_input(self):
+        cases = [
+            (("callees",), "callees takes 1 argument"),
+            (("callers", "a", "b"), "callers takes 1 argument"),
+            (("range", "0x100000"), "range takes 2 arguments"),
+            (("range", "0x100000", "zz"), "not a hex address: zz"),
+            (("tables", "many"), "not a number: many"),
+            (("callees", "NoSuchFunc"), "no function NoSuchFunc in asm/"),
+            (("strings", "NoSuchFunc"), "no function NoSuchFunc in asm/"),
+            (("reach", "NoSuchFunc"), "no function NoSuchFunc in asm/"),
+        ]
+        for args, message in cases:
+            with self.subTest(args=args):
+                status, _, err = self.main(*args)
+                self.assertEqual(status, 2)
+                self.assertIn(message, err)
+
+    def test_unknown_command_prints_usage(self):
+        status, out, _ = self.main("frobnicate")
+        self.assertEqual(status, 2)
+        self.assertIn("Usage:", out)
+
+    def test_empty_or_missing_asm(self):
+        for f in (self.root / "asm").rglob("*.s"):
+            f.write_text("")
+        status, _, err = self.main("callers", "func_00100020")
+        self.assertEqual(status, 2)
+        self.assertIn("no functions in asm/", err)
+        shutil.rmtree(self.root / "asm")
+        status, _, err = self.main("tables")
+        self.assertEqual(status, 2)
+        self.assertIn("no functions in asm/", err)
+
+    def test_bad_library_ranges(self):
+        (self.root / "config" / "library_ranges.txt").write_text("0x100 nothex lib\n")
+        status, _, err = self.main("callees", "func_00100000")
+        self.assertEqual(status, 2)
+        self.assertIn("library_ranges.txt line 1", err)
 
 
 if __name__ == "__main__":
