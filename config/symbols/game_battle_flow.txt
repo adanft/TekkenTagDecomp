@@ -18,3 +18,4 @@ Fighter_UpdateMotion = 0x00371B98; // type:func
 Battle_ApplyVelocity = 0x00371C68; // type:func
 Battle_ResolveHits = 0x00371D68; // type:func // guess
 Battle_StepMoves = 0x00372A88; // type:func
+Fighter_ApplyDamage = 0x003720C8; // type:func

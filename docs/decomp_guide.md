@@ -496,6 +496,60 @@ Tools:
   leaves the old build in place, and fdiff then reports OK. Check that the SHA1 step ran (or the exit status) after
   every change.
 
+### Lessons from T14 batch 4 (2026-10-18)
+
+Objects and data:
+
+- A C file can cover a few functions in the middle of a large assembly range when it emits no data of its own:
+  `[0x82470, c, select_results]` / `[0x82A78, asm]` (0x3C1470-0x3C1A78, two of its four functions in C) and
+  `[0x94288, c, model_anim]` / `[0x943F0, asm]` (one function). Such a cut is not evidence for an object edge.
+- `battle_flow` got its `.lit4` subsegment (`[0x2B6168, .lit4, battle_flow]`, 0.6f and 1.4f) in the same change that
+  made `Fighter_ApplyDamage` C; the float literals in the source produce the original words.
+- A jump table the C now emits (`Fighter_SetPushRadii`, `jtbl_005061E0`) drops its `INCLUDE_RODATA`; the next table is
+  emitted by C as well and is 16-aligned, so no `RODATA_ALIGN8()` was needed.
+
+Code shapes:
+
+- `lbu` loads of fields that other functions read with `lw` are `s32` fields narrowed to a `u8` parameter: the team
+  member's character and costume (`TeamMember.unk0` / `unk4`) are `s32`, and the narrowing explains the separate
+  `lui / addiu` of `D_00440940` and `D_00440944` for each argument in `Fighter_ApplyDamage`.
+- The original reuses one temporary for unrelated values: the defender's own damage and the extra damage share `n`
+  with the scripted damage (registers `a2` as in the original only that way, `Fighter_ApplyDamage`).
+- `for (i = 0, p = a; i < 2; i++)` instead of `p = a; for (i = 0; ...)` gave the original prologue and loop entry
+  order (`move s6, zero` before the pointer copy).
+- A clamp placed after the join of two assignments (`if (c) t = x; else t = y; t = t < 0 ? 0 : t;`) keeps its `-1`
+  local; inside one branch CSE reuses a `-1` from before the calls (`func_00378810`, `func_00378A28`).
+- A value assigned in both branches and then copied (`up = 110` / `220`, `sy = up`) gives the original `move s5, s3`
+  (`func_00378A28`).
+- A fighter address recomputed after a call (`mult side * 0xB8A0` again) is a second pointer variable
+  (`Fighter *g = &gFighters[side];`, `Battle_RecoverLife`); reassigning the first one keeps it in its saved register.
+- An index read before the stores that change it is a local taken first (`s16 n = f->unk2;` then `f->unk2 ^= 1`,
+  `Fighter_TagSwap`).
+- A `switch` whose decision tree tests `== 0` first, then `> 0`, then `== -1`, has a third case above 0 that shares
+  the default code: `case -1: ... case 0: ... case 1: default: ...` (`Fighter_ApplyDamage`); with only `-1` and `0`
+  the tree tests `-1` first.
+- `if (bit) { if (w != 0) { ... } else on = 1; } else on = 1;` reproduces one shared `on = 1` block placed after the
+  chain, reached from a `beql` delay slot (`Fighter_SetPushRadii`); `((u16)kind >> 12) & 1` gives `srl` where
+  `(kind >> 12) & 1` used the value before the sign extension.
+
+Accepted fakes from decomp-permuter (marked in the source): `do { d->unk12A = 1; } while (0);` gives the constant 1
+its saved register (loop weight) and one index through a reused variable moves a register (`Fighter_ApplyDamage`);
+the address of a local (`pa = &a`) fixes the order of a table value and the rounding `-1` in `func_00378A28` and
+`func_00378E70` (which was NON_MATCHING since T14 b3).
+
+Not matched yet (closest attempts in `#if 0`): `func_00378810` (the store to `unk14` before the one to `unk18`; every
+other instruction matches), `Fighter_Push` (338 of 490 instructions, register allocation and order),
+`Fighter_StepMove` (an m2c draft with fixed types, 1484 instructions instead of 1546).
+
+Tools:
+
+- m2c needs the jump table file next to the function (`m2c ... Fighter_StepMove.s jtbl_004FFA80.s`), or it stops at
+  the `jr`.
+- `configure.py` (re-split) removes `build/permuter/`: copy a permuter folder to the scratchpad and point
+  `objdump_command` in its `settings.toml` there before a long run.
+- `pkill -f 'decomp-permute[r]'` also kills its own shell when the same command line names `decomp-permuter/...`
+  (starting the permuter in the same command): run the `pkill` alone.
+
 ## Decompiled so far
 
 | File | Range | C / functions | Notes |
@@ -513,7 +567,9 @@ Tools:
 | `src/sound_if.c` | 0x399FC8-0x39A2B8 | 13 / 13 | sound byte-code queue (BGM, movie audio) |
 | `src/gte.c` | 0x39A2B8-0x39BBF0 | 19 / 19 | GTE-style fixed-point matrices and vectors |
 | `src/fighter_core.c` | 0x37BA88-0x38BF98 | 141 / 277 | practice mode recorder and command lists, CPU opponent predicates and handlers ([systems/fighter.md](systems/fighter.md)) |
-| `src/battle_flow.c` | 0x3682F8-0x3745E8 | 74 / 150 | the fight simulation: per-frame update, input fetch and history, move start, round state ([systems/fighter.md](systems/fighter.md) section 5); includes the four functions of the former `src/374520.c`; `.rodata` 0x4FF8D0-0x500780 included in place |
-| `src/fight_misc.c` | 0x376C30-0x3790C8 | 21 / 29 | the hit test (attack volumes against body spheres), body sphere radii, the special attack volume of character 0x1D ([systems/fighter.md](systems/fighter.md) section 5.5); `.rodata` 0x506150-0x506260, `.lit4` 0x5F5170 |
+| `src/battle_flow.c` | 0x3682F8-0x3745E8 | 75 / 150 | the fight simulation: per-frame update, input fetch and history, move start, round state ([systems/fighter.md](systems/fighter.md) section 5); includes the four functions of the former `src/374520.c`; `.rodata` 0x4FF8D0-0x500780 included in place; damage `Fighter_ApplyDamage` and its `.lit4` 0x5F5168 |
+| `src/fight_misc.c` | 0x376C30-0x3790C8 | 26 / 29 | the hit test (attack volumes against body spheres), body sphere radii, push sphere radii, the special attack volume of character 0x1D ([systems/fighter.md](systems/fighter.md) section 5.5); `.rodata` 0x506150-0x506260, `.lit4` 0x5F5170 |
+| `src/select_results.c` | 0x3C1470-0x3C1A78 | 2 / 4 | team life at round start and its per-frame recovery ([systems/fighter.md](systems/fighter.md) section 5.6); a cut inside the `select_results` module, not an object edge |
+| `src/model_anim.c` | 0x3D3288-0x3D33F0 | 1 / 1 | the tag swap ([systems/fighter.md](systems/fighter.md) section 5.7); a cut inside the `model_anim` module, not an object edge |
 
 Functions left as `INCLUDE_ASM` carry their closest attempt above them in `#if 0` with a `NON_MATCHING:` note.

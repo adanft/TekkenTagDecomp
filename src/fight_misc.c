@@ -272,15 +272,169 @@ void func_003772F0(Fighter *a, Fighter *b) {
     pb->unkC = b->unk524;
 }
 
-INCLUDE_ASM("asm/nonmatchings/fight_misc", func_00377338);
+extern const s16 gSinTable[];
+s32 func_003985D8(s32 x);
+s32 func_00366108(s32 dx, s32 dz);
 
-void func_00377338(Fighter *a, Fighter *b);
+/* Pushes the two fighters apart (from Battle_ApplyVelocity through func_00377AE0): the deepest overlap of their push
+ * spheres (or 400 when both are inside a frame window, close and moving towards each other), split between them by
+ * how far each moved since func_003772F0 saved their positions, along their facings; the result is written to the
+ * velocities unk3E8-unk3F0 (halved unless the forced case) [V code; I meaning]. */
+#if 0
+/* NON_MATCHING: register allocation and scheduling all through (338 of 490 instructions differ; one instruction
+ * more): the copy of the other fighter's spheres runs with other pointer registers, and the overlap test and the
+ * facing test load their operands in another order. */
+void Fighter_Push(Fighter *a, Fighter *b) {
+    PushSphere sb[8];
+    PushSphere *p;
+    PushSphere *q;
+    s32 n;
+    s16 i;
+    s16 j;
+    s16 pen;
+    s16 d;
+    s16 dx, dy, dz;
+    u16 r;
+    s32 hard;
+    s32 ax, ay, az, bx, by, bz;
+    s32 ia, ib;
+    s32 sa, ca, sbn, cb;
+    s32 ex, ez;
+    u16 da, db;
+    s16 anga, angb;
+    s32 dir, diff, sum, pa, pb;
+
+    pen = 0;
+    a->unk3E8 = 0;
+    a->unk3EC = 0;
+    a->unk3F0 = 0;
+    hard = 0;
+    b->unk3E8 = 0;
+    b->unk3EC = 0;
+    b->unk3F0 = 0;
+    p = b->unk308;
+    q = sb;
+    for (n = 0; n < 8; n++) {
+        *q++ = *p++;
+    }
+    p = a->unk308;
+    for (i = 0; i < 8; i++, p++) {
+        if (p->unkC != 0) {
+            q = sb;
+            for (j = 0; j < 8; j++, q++) {
+                if (q->unkC != 0) {
+                    dx = q->unk0 - p->unk0;
+                    dy = q->unk4 - p->unk4;
+                    dz = q->unk8 - p->unk8;
+                    r = p->unkC + q->unkC;
+                    if (ABS(dx) < r && ABS(dy) < r && ABS(dz) < r) {
+                        d = r - func_003985D8(dx * dx + dy * dy + dz * dz);
+                        if (pen < d) {
+                            pen = d;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if (a->unkC0->unk2C != 0 && b->unkC0->unk2C != 0) {
+        if (pen > 0 || ABS(a->unk520 - b->unk520) < 300) {
+            ib = (0x400 - (s16)b->unk1A / 16) & 0xFFF;
+            ia = (0x400 - (s16)a->unk1A / 16) & 0xFFF;
+            ex = (b->unk51C + gSinTable[ib + 0x400] * 200 / 4096) - (a->unk51C + gSinTable[ia + 0x400] * 200 / 4096);
+            ez = (b->unk524 + gSinTable[ib] * 200 / 4096) - (a->unk524 + gSinTable[ia] * 200 / 4096);
+            if (ABS(ex) < 500 && ABS(ez) < 500 && (b->unk4 - a->unk4) * ex + (b->unkC - a->unkC) * ez < 0) {
+                hard = 1;
+                if (pen < 400) {
+                    pen = 400;
+                }
+            }
+        }
+    }
+    if (pen > 0) {
+        ax = a->unk51C;
+        ay = a->unk520;
+        az = a->unk524;
+        bx = b->unk51C;
+        by = b->unk520;
+        bz = b->unk524;
+        dx = ax - D_008A7A90.unk4;
+        dy = ay - D_008A7A90.unk8;
+        dz = az - D_008A7A90.unkC;
+        da = func_003985D8(dx * dx + dy * dy + dz * dz);
+        dx = bx - D_008A7AA0.unk4;
+        dy = by - D_008A7AA0.unk8;
+        dz = bz - D_008A7AA0.unkC;
+        db = func_003985D8(dx * dx + dy * dy + dz * dz);
+        anga = 0x400 - (s16)a->unk1A / 16;
+        dir = func_00366108(b->unk51C - a->unk51C, b->unk524 - a->unk524);
+        diff = (anga - dir) & 0xFFF;
+        if (diff >= 0x800) {
+            diff = 0x1000 - diff;
+        }
+        if (diff > 0x400) {
+            anga += 0x800;
+        }
+        angb = 0x400 - (s16)b->unk1A / 16;
+        diff = (angb - (s16)(dir + 0x800)) & 0xFFF;
+        if (diff >= 0x800) {
+            diff = 0x1000 - diff;
+        }
+        if (diff > 0x400) {
+            angb += 0x800;
+        }
+        ia = anga & 0xFFF;
+        ib = angb & 0xFFF;
+        sa = gSinTable[ia];
+        ca = gSinTable[ia + 0x400];
+        sbn = gSinTable[ib];
+        cb = gSinTable[ib + 0x400];
+        ax += cb * db / 4096;
+        az += sbn * db / 4096;
+        bx += ca * da / 4096;
+        bz += sa * da / 4096;
+        if ((da | db) == 0) {
+            db = 1;
+            da = 1;
+        }
+        sum = da + db;
+        if (sum == 0) {
+            sum = 1;
+        }
+        pa = pen * da / sum;
+        pb = pen * db / sum;
+        ax -= ca * pa / 4096;
+        az -= sa * pa / 4096;
+        bx -= cb * pb / 4096;
+        bz -= sbn * pb / 4096;
+        if (hard != 0) {
+            a->unk3E8 = ax - a->unk51C;
+            a->unk3EC = ay - a->unk520;
+            a->unk3F0 = az - a->unk524;
+            b->unk3E8 = bx - b->unk51C;
+            b->unk3EC = by - b->unk520;
+            b->unk3F0 = bz - b->unk524;
+        } else {
+            a->unk3E8 = (ax - a->unk51C) / 2;
+            a->unk3EC = (ay - a->unk520) / 2;
+            a->unk3F0 = (az - a->unk524) / 2;
+            b->unk3E8 = (bx - b->unk51C) / 2;
+            b->unk3EC = (by - b->unk520) / 2;
+            b->unk3F0 = (bz - b->unk524) / 2;
+        }
+    }
+}
+#else
+INCLUDE_ASM("asm/nonmatchings/fight_misc", Fighter_Push);
+#endif
+
+void Fighter_Push(Fighter *a, Fighter *b);
 
 void func_00377AE0(Fighter *a, Fighter *b) {
-    func_00377338(a, b);
+    Fighter_Push(a, b);
 }
 
-void func_00377B58(Fighter *f, Fighter *o, s16 kind);
+void Fighter_SetPushRadii(Fighter *f, Fighter *o, s16 kind);
 
 void func_00377AE8(Fighter *a, Fighter *b) {
     s32 ka = a->unkC0->unk30;
@@ -289,12 +443,130 @@ void func_00377AE8(Fighter *a, Fighter *b) {
     if (ka == 6) {
         kb = 6;
     }
-    func_00377B58(a, b, ka);
-    func_00377B58(b, a, kb);
+    Fighter_SetPushRadii(a, b, ka);
+    Fighter_SetPushRadii(b, a, kb);
 }
 
-INCLUDE_RODATA("asm/nonmatchings/fight_misc", jtbl_005061E0);
-INCLUDE_ASM("asm/nonmatchings/fight_misc", func_00377B58);
+extern s16 *D_0042EFD8[];
+
+/* Sets the radii of the eight push spheres (Fighter + 0x308) from the character's table D_0042EFD8 (radii of 0 or 1
+ * turn a sphere off). kind & 0xF picks a rule: 1 / 5 / 6 keep spheres 0 and 3 only (5 / 6 at half size), 2 makes all
+ * of them tiny, 3 halves them, 4 turns them off, 7 / 9 enlarge sphere 0 by 60 (7 also keeps 1-3), 8 enlarges all by
+ * 100, 0 turns off the spheres whose bit (kind >> 4) is set while the move's window is open (bit 12) or always. Then,
+ * by the current move: spheres 1 and 2 are off during a frame window, 6 and 7 for unk135 with unkF3, 4-7 for move
+ * flag 0x400 [V code; I meaning]. */
+void Fighter_SetPushRadii(Fighter *f, Fighter *o, s16 kind) {
+    s16 *tbl = D_0042EFD8[f->unk2A];
+    s32 i;
+    s32 on = 0;
+
+    if ((kind & 0xF) != 0) {
+        switch (kind & 0xF) {
+        case 1:
+            for (i = 0; i < 8; i++) {
+                if (i == 0) {
+                    f->unk308[i].unkC = tbl[i];
+                } else if (i == 3) {
+                    f->unk308[i].unkC = tbl[i];
+                } else {
+                    f->unk308[i].unkC = 1;
+                }
+            }
+            break;
+        case 2:
+            for (i = 0; i < 8; i++) {
+                f->unk308[i].unkC = 1;
+            }
+            break;
+        case 3:
+            for (i = 0; i < 8; i++) {
+                f->unk308[i].unkC = tbl[i] >> 1;
+            }
+            break;
+        case 4:
+            for (i = 0; i < 8; i++) {
+                f->unk308[i].unkC = 0;
+            }
+            break;
+        case 5:
+        case 6:
+            for (i = 0; i < 8; i++) {
+                if (i == 0) {
+                    f->unk308[i].unkC = tbl[i] >> 1;
+                } else if (i == 3) {
+                    f->unk308[i].unkC = tbl[i] >> 1;
+                } else {
+                    f->unk308[i].unkC = 1;
+                }
+            }
+            break;
+        case 7:
+            for (i = 0; i < 8; i++) {
+                if (i == 0) {
+                    f->unk308[i].unkC = tbl[i] + 60;
+                } else if (i == 6 || i == 7 || i == 4 || i == 5) {
+                    f->unk308[i].unkC = 1;
+                } else {
+                    f->unk308[i].unkC = tbl[i];
+                }
+            }
+            break;
+        case 9:
+            for (i = 0; i < 8; i++) {
+                if (i == 0) {
+                    f->unk308[i].unkC = tbl[i] + 60;
+                } else {
+                    f->unk308[i].unkC = 1;
+                }
+            }
+            break;
+        case 8:
+            for (i = 0; i < 8; i++) {
+                f->unk308[i].unkC = tbl[i] + 100;
+            }
+            break;
+        default:
+            for (i = 0; i < 8; i++) {
+                f->unk308[i].unkC = tbl[i];
+            }
+            break;
+        }
+    } else {
+        if (((u16)kind >> 12) & 1) {
+            if (f->unkC0->unk2C != 0) {
+                if (f->unkC0->unk2C - 8 < f->unkC4) {
+                    on = f->unkC4 < f->unkC0->unk2D;
+                }
+            } else {
+                on = 1;
+            }
+        } else {
+            on = 1;
+        }
+        for (i = 0; i < 8; i++) {
+            if (on && ((kind >> (i + 4)) & 1)) {
+                f->unk308[i].unkC = 0;
+            } else {
+                f->unk308[i].unkC = tbl[i];
+            }
+        }
+    }
+    for (i = 0; i < 8; i++) {
+        if (f->unkC0->unk2C != 0) {
+            if (i == 1 || i == 2) {
+                f->unk308[i].unkC = 0;
+            }
+        } else if (f->unk135 != 0 && f->unkF3 != 0) {
+            if (i == 6 || i == 7) {
+                f->unk308[i].unkC = 0;
+            }
+        } else if (f->unkC0->unk24 & 0x400) {
+            if (i == 6 || i == 7 || i == 4 || i == 5) {
+                f->unk308[i].unkC = 0;
+            }
+        }
+    }
+}
 
 
 
@@ -570,7 +842,47 @@ void func_00378500(Fighter *f) {
     }
 }
 
-INCLUDE_ASM("asm/nonmatchings/fight_misc", func_00378600);
+extern u8 D_005F5F58;
+extern u8 D_005F5F59;
+extern u8 D_005F5F5A;
+s32 func_003ABCD0(void);
+void func_003A8D08(Fighter *f, s32 *a, s32 *b, s32 size);
+
+/* Draws the special attack volume of character 0x1D (func_003A8D08 between its two points unk38 and unk44): its size
+ * shrinks over the move's frame window unless func_003ABCD0 holds. The colour scaled into col is never used. */
+void func_00378600(Fighter *f) {
+    Unk8A7AD0 *p = &D_008A7AD0[f->unk1E];
+    u8 col[4];
+    s32 t;
+    s32 n;
+    s32 size;
+
+    if (p->unk0 == 0) {
+        return;
+    }
+    if (func_003ABCD0() != 0) {
+        t = 0x1000;
+    } else {
+        n = f->unkC0->unk2D - f->unkC0->unk2C + 0x1E;
+        if (n <= 0) {
+            n = 1;
+        }
+        t = ((n - (f->unkC4 - f->unkC0->unk2C)) << 12) / n;
+        col[0] = D_005F5F58 * t / 4096;
+        col[1] = D_005F5F59 * t / 4096;
+        col[2] = D_005F5F5A * t / 4096;
+    }
+    switch (p->unkC) {
+    case 0:
+    default:
+        size = t * 100 / 4096 + 50;
+        break;
+    case 1:
+        size = t * 130 / 4096 + 70;
+        break;
+    }
+    func_003A8D08(f, &p->unk38, &p->unk44, size);
+}
 
 typedef f32 FVec4[4] __attribute__((aligned(16)));
 
@@ -601,33 +913,205 @@ s16 func_00378760(Fighter *f) {
 RODATA_ALIGN8();
 INCLUDE_RODATA("asm/nonmatchings/fight_misc", D_00506248);
 INCLUDE_RODATA("asm/nonmatchings/fight_misc", D_0050624C);
-INCLUDE_ASM("asm/nonmatchings/fight_misc", func_00378810);
-
-INCLUDE_RODATA("asm/nonmatchings/fight_misc", D_00506250);
-INCLUDE_RODATA("asm/nonmatchings/fight_misc", D_00506254);
-INCLUDE_ASM("asm/nonmatchings/fight_misc", func_00378A28);
-
-INCLUDE_ASM("asm/nonmatchings/fight_misc", func_00378C48);
-
-INCLUDE_RODATA("asm/nonmatchings/fight_misc", D_00506258);
-INCLUDE_RODATA("asm/nonmatchings/fight_misc", D_0050625C);
 s16 Math_Sin(s32 angle);
 s16 Math_Cos(s32 angle);
 void func_00378500(Fighter *f);
 extern s16 D_004FF690[];
+extern s16 D_00506248[];
+extern s16 D_0050624C[];
+
+/* Kind 1 of the special attack volume of character 0x1D: a velocity of 200 units along the facing (unk3C, or the
+ * angle of func_00378760 while func_003ABCD0 holds), scaled by the frames since the move's window opened (or the
+ * request's frame count), and two offsets from D_00506248 / D_0050624C. */
+#if 0
+/* NON_MATCHING: the store to unk14 is scheduled before the one to unk18 (the original stores unk18, unk14, unk1C);
+ * every other instruction matches. */
+void func_00378810(Fighter *f) {
+    Unk8A7AD0 *p = &D_008A7AD0[f->unk1E];
+    Unk8A7B70 *q = &D_008A7B70[f->unk1E];
+    s16 angle;
+    s16 back;
+    s32 sx, sy, sz, t;
+    s16 *tbl;
+    s32 x, b, a;
+    s32 *pa; /* fake (decomp-permuter): the address of a changes the register order of a and the -1 */
+
+    if (func_003ABCD0() == 0) {
+        angle = f->unk3C;
+    } else {
+        angle = func_00378760(f);
+    }
+    sx = Math_Sin(angle) * 200 / 32768;
+    sz = Math_Cos(angle) * 200 / 32768;
+    sy = 0;
+    if (func_003ABCD0() == 0) {
+        t = f->unkC4 - f->unkC0->unk2C;
+    } else {
+        t = q->unk2;
+    }
+    t = t < 0 ? 0 : t;
+    p->unk14 = t * sx;
+    p->unk18 = t * sy;
+    p->unk1C = t * sz;
+    if (D_004FF690[f->unk26] != 0x6B) {
+        tbl = D_00506248;
+    } else {
+        tbl = D_0050624C;
+    }
+    back = angle - 0x8000;
+    a = tbl[0];
+    b = tbl[1];
+    x = a * Math_Sin(back) / 32768;
+    a = a * Math_Cos(back);
+    p->unk20 = x;
+    p->unk24 = b;
+    p->unk28 = a / 32768;
+    pa = &a;
+    tbl = D_00506248;
+    a = tbl[0];
+    b = tbl[1];
+    x = *pa * Math_Sin(back) / 32768;
+    a = a * Math_Cos(back);
+    p->unk2C = x;
+    p->unk30 = b;
+    p->unk34 = a / 32768;
+    func_00378500(f);
+    p->unkC = 0;
+}
+#else
+INCLUDE_ASM("asm/nonmatchings/fight_misc", func_00378810);
+#endif
+
+INCLUDE_RODATA("asm/nonmatchings/fight_misc", D_00506250);
+INCLUDE_RODATA("asm/nonmatchings/fight_misc", D_00506254);
+extern s16 D_00506250[];
+extern s16 D_00506254[];
+
+/* Kind 2 of the special attack volume of character 0x1D: as kind 1 (func_00378810) with a rising velocity, 102 units
+ * forward and 110 up (204 / 220 while func_003ABCD0 holds), offsets from D_00506250 / D_00506254. */
+void func_00378A28(Fighter *f) {
+    Unk8A7AD0 *p = &D_008A7AD0[f->unk1E];
+    Unk8A7B70 *q = &D_008A7B70[f->unk1E];
+    s16 angle;
+    s16 back;
+    s32 speed, up, sx, sy, sz, t;
+    s16 *tbl;
+    s32 x, b, a;
+    s32 *pa; /* fake (decomp-permuter): the address of a changes the register order of a and the -1 */
+
+    if (func_003ABCD0() == 0) {
+        angle = f->unk3C;
+        speed = 102;
+        up = 110;
+    } else {
+        angle = func_00378760(f);
+        speed = 204;
+        up = 220;
+    }
+    sx = speed * Math_Sin(angle) / 32768;
+    sz = speed * Math_Cos(angle) / 32768;
+    sy = up;
+    if (func_003ABCD0() == 0) {
+        t = f->unkC4 - f->unkC0->unk2C;
+    } else {
+        t = q->unk2;
+    }
+    t = t < 0 ? 0 : t;
+    p->unk14 = t * sx;
+    p->unk18 = t * sy;
+    p->unk1C = t * sz;
+    if (D_004FF690[f->unk26] != 0x6B) {
+        tbl = D_00506250;
+    } else {
+        tbl = D_00506254;
+    }
+    back = angle - 0x8000;
+    a = tbl[0];
+    b = tbl[1];
+    x = a * Math_Sin(back) / 32768;
+    a = a * Math_Cos(back);
+    p->unk20 = x;
+    p->unk24 = b;
+    p->unk28 = a / 32768;
+    pa = &a;
+    tbl = D_00506250;
+    a = tbl[0];
+    b = tbl[1];
+    x = *pa * Math_Sin(back) / 32768;
+    a = a * Math_Cos(back);
+    p->unk2C = x;
+    p->unk30 = b;
+    p->unk34 = a / 32768;
+    func_00378500(f);
+    p->unkC = 1;
+}
+
+extern s16 D_005F5F5C;
+extern u16 D_005F5F5E;
+extern s16 D_005F5F60;
+s32 rand(void);
+
+/* Kind 3 of the special attack volume of character 0x1D: state 0 resets the sweep, state 1 drops the volume (unk18
+ * down by 800 a frame to -6400) for 8 frames, state 2 sweeps it left and right (D_005F5F5C by 0x200 a frame between
+ * -0x2FFF and 0x2FFF) with a random length (rand() & 0x3FF); the offset is 140 units behind and 160 up [I]. */
+void func_00378C48(Fighter *f) {
+    Unk8A7AD0 *p = &D_008A7AD0[f->unk1E];
+    s32 a, b, x, z;
+
+    switch (p->unk8) {
+    case 0:
+        D_005F5F5C = 0;
+        D_005F5F5E = 0;
+        D_005F5F60 = 0;
+        p->unk8 = 1;
+    case 1:
+        p->unk14 = 0;
+        p->unk18 -= 800;
+        p->unk1C = 0;
+        if (p->unk18 < -6400) {
+            p->unk18 = -6400;
+        }
+        if (D_005F5F60++ >= 8) {
+            p->unk8++;
+        }
+        break;
+    case 2:
+        if (D_005F5F5E == 0) {
+            D_005F5F5C += 0x200;
+        } else {
+            D_005F5F5C -= 0x200;
+        }
+        if (D_005F5F5C > 0x2FFF || D_005F5F5C < -0x2FFF) {
+            D_005F5F5E = (D_005F5F5E + 1) & 1;
+        }
+        p->unk14 = (rand() & 0x3FF) * Math_Sin((s16)(f->unk3C + D_005F5F5C)) / 32768;
+        p->unk1C = (rand() & 0x3FF) * Math_Cos((s16)(f->unk3C + D_005F5F5C)) / 32768;
+        break;
+    }
+    a = 140;
+    b = 160;
+    x = Math_Sin((s16)(f->unk3C - 0x8000)) * a / 32768;
+    z = Math_Cos((s16)(f->unk3C - 0x8000)) * a / 32768;
+    p->unk20 = x;
+    p->unk24 = b;
+    p->unk28 = z;
+    func_00378500(f);
+    p->unkC = 1;
+}
+
+INCLUDE_RODATA("asm/nonmatchings/fight_misc", D_00506258);
+INCLUDE_RODATA("asm/nonmatchings/fight_misc", D_0050625C);
 extern s16 D_00506258[];
 extern s16 D_0050625C[];
 
 /* Kind 4 of the special attack volume of character 0x1D: a velocity of 300 units tilted by -0xAAA along the facing
  * unk3C, scaled by the frames since the move's window opened, and two offsets from D_00506258 / D_0050625C. */
-#if 0
-/* NON_MATCHING: register allocation (the tilt length, the offset and the -1 rounding constant in s2 / s1 / s0
- * instead of s0 / s2 / s1) */
 void func_00378E70(Fighter *f) {
     Unk8A7AD0 *p = &D_008A7AD0[f->unk1E];
     s32 r, sx, sy, sz, t;
     s16 *tbl;
     s32 a, b, x;
+    s32 *pa; /* fake (decomp-permuter): the address of a changes the register order of a and the -1 */
 
     r = Math_Cos(-0xAAA) * 300 / 32768;
     sx = r * Math_Sin(f->unk3C) / 32768;
@@ -650,10 +1134,11 @@ void func_00378E70(Fighter *f) {
     p->unk20 = x;
     p->unk24 = b;
     p->unk28 = a / 32768;
+    pa = &a;
     tbl = D_00506258;
     a = tbl[0];
     b = tbl[1];
-    x = a * Math_Sin((s16)(f->unk3C - 0x8000)) / 32768;
+    x = *pa * Math_Sin((s16)(f->unk3C - 0x8000)) / 32768;
     a = a * Math_Cos((s16)(f->unk3C - 0x8000));
     p->unk2C = x;
     p->unk30 = b;
@@ -661,9 +1146,6 @@ void func_00378E70(Fighter *f) {
     func_00378500(f);
     p->unkC = 0;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/fight_misc", func_00378E70);
-#endif
 
 void func_00379090(s32 x, s32 y, s32 z) {
     Unk8A7AB0Sub *q;

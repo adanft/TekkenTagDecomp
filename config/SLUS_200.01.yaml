@@ -138,6 +138,10 @@ segments:
       - [0x5AFC8, c, sound_if]
       - [0x5B2B8, c, gte]
       - [0x5CBF0, asm]
+      - [0x82470, c, select_results]
+      - [0x82A78, asm]
+      - [0x94288, c, model_anim]
+      - [0x943F0, asm]
       - [0xD6700, data] # .data
       # .vudata 0x4F5F00: four VU microcode packets (DMA chains for VIF0/VIF1). configure.py builds this object
       # from the listings in src/vu0 and src/vu1 (scripts/vuasm.py) instead of the split file.
@@ -159,6 +163,7 @@ segments:
       - [0x1DA340, .rodata, dma_gif]
       - [0x1DA3B8, rodata]
       - [0x2B6100, lit4]
+      - [0x2B6168, .lit4, battle_flow]
       - [0x2B6170, .lit4, fight_misc]
       - [0x2B6174, lit4]
       - [0x2B619C, .lit4, gfx]

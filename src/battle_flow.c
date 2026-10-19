@@ -4,7 +4,7 @@
  * the end of the object (0x374520-0x3745E8). The start is provisional [I]; the end is
  * where the sound object starts (Snd_Init, .rodata 0x500780). The object's .rodata (0x4FF8D0-0x500780: tables, the
  * round texts, jump tables) is included in place with INCLUDE_RODATA, except the jump tables of the functions that
- * are C. Its two .lit4 words belong to func_003720C8 (asm) and stay in the split data. */
+ * are C. Its .lit4 (0.6f and 1.4f, 0x5F5168) comes from Fighter_ApplyDamage (the damage). */
 #include "common.h"
 #include "fighter.h"
 
@@ -131,7 +131,7 @@ void func_00373398(Fighter *f);
 void func_00375468(void);
 void func_00376C30(void);
 s32 func_003B00F0(s32 port);
-void func_003C1470(void);
+void Battle_InitTeamLife(void);
 void func_00341AE8(Fighter *a, Fighter *b);
 void func_0034F288(Fighter *f);
 void func_0034F3D8(Fighter *f);
@@ -158,7 +158,7 @@ void Fighter_UpdateMotion(Fighter *f);
 void func_00371C08(Fighter *a, Fighter *b);
 void Battle_ApplyVelocity(Fighter *a, Fighter *b);
 void Battle_ResolveHits(Fighter *a, Fighter *b);
-void func_003720C8(Fighter *a, Fighter *b);
+void Fighter_ApplyDamage(Fighter *a, Fighter *b);
 void func_003729B0(Fighter *a, Fighter *b);
 void func_00372A10(Fighter *a, Fighter *b);
 void Battle_StepMoves(Fighter *a, Fighter *b);
@@ -533,8 +533,1206 @@ s16 func_0036A2D0(Fighter *f) {
 
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036A330);
 
+#if 0
+/* NON_MATCHING: a first draft from m2c with the types fixed (gotos kept): 1484 instructions instead of 1546, 1089
+ * differ. It shows the structure read in docs/systems/fighter.md section 5.3: the frame step, the start of the
+ * pending move (tag, resets, flags from the record), the switch on the move kind unk17A (0x2E kinds) and the common
+ * tail; the block order, the shared tails of the kinds and the register allocation are far from the original. */
+void func_0036A330(Fighter *f, Fighter *o, s16 n);
+void func_0036C128(Fighter *f);
+void func_00370F28(Fighter *f, Fighter *o, s32 a, s32 b);
+void func_003D2A38(Fighter *f, Fighter *o);
+s32 func_0035BA00(s32 side);
+void Fighter_TagSwap(s32 side);
+void Snd_StopVoiceSeq(Fighter *f);
+void func_00374148(Fighter *f, Fighter *o);
+void Battle_UpdateFacing(Fighter *a, Fighter *b);
+s32 func_0036BF00(Fighter *f);
+s16 func_0036C278(s32 cur);
+s16 func_0036C318(s16 cur, s16 k);
+void func_0036C228(Fighter *f, Fighter *o, struct FighterMove *m);
+void func_00368168(Fighter *f);
+void func_0036BCD0(Fighter *f, s32 arg1);
+void func_0036BDA0(Fighter *f);
+s16 func_0036A2D0(Fighter *f);
+void Fighter_StepMove(Fighter *f, Fighter *o) {
+    s16 temp_a0;
+    s16 temp_a0_6;
+    s16 temp_a1_8;
+    s16 temp_a2_5;
+    s16 temp_v0;
+    s16 temp_v0_10;
+    s16 temp_v0_11;
+    s16 temp_v0_13;
+    s16 temp_v0_15;
+    s16 temp_v0_20;
+    s16 temp_v0_29;
+    s16 temp_v0_2;
+    s16 temp_v0_8;
+    s16 temp_v0_9;
+    s16 temp_v1;
+    s16 temp_v1_2;
+    s16 var_v0_11;
+    s16 var_v0_14;
+    s16 var_v0_18;
+    s16 var_v0_19;
+    s16 var_v0_2;
+    s16 var_v0_9;
+    s16 *temp_a1_10;
+    s32 temp_a1_9;
+    s32 temp_s3;
+    s16 *temp_v0_26;
+    s32 temp_v0_28;
+    s16 *var_a0;
+    s16 *var_a2;
+    s32 var_s0;
+    s32 var_v0_12;
+    s32 var_v0_13;
+    s16 *var_v0_15;
+    s32 var_v0_17;
+    s32 var_v0_3;
+    s32 var_v1;
+    struct FighterMove *temp_a0_8;
+    struct FighterUnk18C *temp_a3_2;
+    struct FighterUnk18C *temp_t1;
+    struct FighterMove *temp_t2;
+    struct FighterMove *temp_t2_10;
+    struct FighterMove *temp_t2_11;
+    struct FighterMove *temp_t2_12;
+    struct FighterMove *temp_t2_13;
+    struct FighterMove *temp_t2_14;
+    struct FighterMove *temp_t2_2;
+    struct FighterMove *temp_t2_3;
+    struct FighterMove *temp_t2_4;
+    struct FighterMove *temp_t2_5;
+    struct FighterMove *temp_t2_6;
+    struct FighterMove *temp_t2_7;
+    struct FighterMove *temp_t2_8;
+    struct FighterMove *temp_t2_9;
+    struct FighterUnkC0 *temp_a0_3;
+    struct FighterUnkC0 *temp_a0_4;
+    struct FighterUnkC0 *temp_a2_7;
+    struct FighterUnkC0 *temp_v1_4;
+    u16 temp_a0_5;
+    u16 temp_a0_7;
+    u16 temp_a1;
+    u16 temp_a1_11;
+    u16 temp_a1_2;
+    u16 temp_a1_4;
+    u16 temp_a1_5;
+    u16 temp_a1_6;
+    u16 temp_a1_7;
+    u16 temp_a2_2;
+    u16 temp_a2_3;
+    u16 temp_a2_4;
+    u16 temp_a2_6;
+    u16 temp_t3;
+    u16 temp_v0_23;
+    u16 temp_v0_24;
+    u16 temp_v0_25;
+    u16 temp_v0_3;
+    u16 temp_v0_6;
+    u16 temp_v1_5;
+    u16 temp_v1_6;
+    u16 temp_v1_7;
+    u16 var_a0_2;
+    u16 var_v0_16;
+    u16 var_v0_6;
+    u16 var_v1_2;
+    u16 var_v1_3;
+    u16 var_v1_4;
+    u32 temp_a3;
+    s16 *temp_v0_27;
+    u32 temp_v0_5;
+    MoveCmd *var_s0_2;
+    u8 temp_a0_2;
+    u8 temp_a1_3;
+    u8 temp_a2;
+    u8 temp_v0_12;
+    u8 temp_v0_14;
+    u8 temp_v0_16;
+    u8 temp_v0_17;
+    u8 temp_v0_18;
+    u8 temp_v0_19;
+    u8 temp_v0_21;
+    u8 temp_v0_22;
+    u8 temp_v0_4;
+    u8 temp_v0_7;
+    u8 temp_v1_3;
+    u8 var_v0;
+    u8 var_v0_10;
+    u8 var_v0_4;
+    u8 var_v0_5;
+    u8 var_v0_7;
+    u8 var_v0_8;
+
+    if (f->unk127 != 0) {
+        temp_v0 = (u16) f->unk170 - 1;
+        f->unk170 = temp_v0;
+        if (temp_v0 & 0x8000) {
+            f->unk170 = 0;
+        }
+        var_s0 = 1;
+        if (f->unk188 != NULL) {
+            temp_v0_2 = f->unkDA;
+            if (temp_v0_2 > 0) {
+                temp_a0 = f->unkC4;
+                var_s0 = 0;
+                if (temp_a0 < f->unk178) {
+                    if (temp_a0 >= (s32) f->unkC0->unk18) {
+                        var_s0 = 1;
+                    }
+                } else {
+                    goto block_11;
+                }
+            } else if ((temp_v0_2 < 0) && ((temp_v1 = f->unkC4, var_s0 = 0, ((f->unk178 < temp_v1) == 0)) || (temp_v1 <= 0))) {
+block_11:
+                var_s0 = 1;
+            }
+        } else {
+            var_s0 = 0;
+        }
+        func_0036BCD0(f, var_s0);
+        if (var_s0 != 0) {
+            if ((u16) f->unk180 != 0) {
+                if (D_005F5EF4 != 0) {
+                    var_s0_2 = (MoveCmd *)f->unkC0->unkC;
+                    if (var_s0_2->unk0 != 0x8000) {
+                        do {
+                            var_s0_2++;
+                        } while (var_s0_2->unk0 != 0x8000);
+                    }
+                    temp_v0_3 = var_s0_2->unk6;
+                    f->unk184 = temp_v0_3;
+                    f->unk188 = func_00368218(f, (s16) temp_v0_3);
+                    f->unkD8 = var_s0_2->unkC - (u16) f->unkC4;
+                    f->unk17A = func_0036BE08(f, var_s0_2->unk8 & 0x7F);
+                    f->unk17C = var_s0_2->unk8 & 0x8000;
+                    f->unk180 = 0;
+                    f->unk182 = 0;
+                    f->unk17E = var_s0_2->unk8 & 0x4000;
+                    if (f->unkDA < 0) {
+                        var_v0 = var_s0_2->unkC;
+                    } else {
+                        var_v0 = var_s0_2->unkD;
+                    }
+                    f->unk178 = (s16) var_v0;
+                    if (f->unk178 == 0xFF) {
+                        f->unk178 = (s16) f->unkC0->unk18;
+                    }
+                    f->unkF8 = 2;
+                    f->unk12D = 1;
+                } else {
+                    temp_a1 = (u16) f->unk182;
+                    if (temp_a1 != 0) {
+                        if ((f->unk418 == 0) && (f->unk2A == 0x21)) {
+                            var_v0_2 = func_0036C278(f->unk28);
+                        } else {
+                            var_v0_2 = func_0036C318(f->unk28, (s16) temp_a1);
+                        }
+                        f->unk28 = var_v0_2;
+                        func_00368168(f);
+                    } else {
+                        Fighter_TagSwap((s32) f->unk1E);
+                        f->unkB134 = 1;
+                        Battle_UpdateFacing(f, o);
+                    }
+                    f->unk188 = func_00368218(f, (s16) f->unk184);
+                    func_0036C228(o, f, (struct FighterMove *)o->unkC0);
+                }
+                if (o->unkC0->unk4 & 0x400) {
+                    o->unk100 = -1;
+                }
+                f->unk182 = 0;
+                f->unk180 = 0;
+            }
+            func_003D2A38(f, o);
+            func_0036BDA0(f);
+            if (f->unkF8 == 3) {
+                f->unk178 = 1;
+            }
+            f->unkF2 = 0;
+            f->unkD6 = -1;
+            f->unk11D = 0;
+            f->unkF0 = 0;
+            f->unk11E = 0;
+            f->unk110 = o->unk51C;
+            f->unkDA = 1;
+            f->unk114 = o->unk524;
+            f->unkF1 = 0;
+            f->unk46 = 0;
+            f->unk11A = 0;
+            f->unk438.unk82 = 0;
+            f->unk11F = 0;
+            f->unkE4 = 0;
+            f->unk120 = 0;
+            f->unk122 = 0;
+            f->unk124 = 0;
+            f->unk14E = 0;
+            if (f->unk148 != 0) {
+                f->unkCA = (s16) (u16) f->unk148;
+            } else {
+                func_0036C228(f, o, f->unk188);
+            }
+            temp_t2 = f->unk188;
+            temp_a2 = f->unk12C;
+            temp_a3 = temp_t2->unk4;
+            f->unkCC = (s32) temp_a3;
+            temp_a1_2 = temp_t2->unk8;
+            f->unkD5 = (temp_a3 >> 0xB) & 0x1F;
+            f->unkD4 = (u8) (temp_a1_2 >> 8);
+            f->unkD2 = (u16) f->unkCC & 0x18;
+            f->unkD0 = temp_a1_2;
+            if ((temp_a2 == 0) && (temp_a3 & 0x100)) {
+                f->unkD2 = 0;
+                f->unkCC = temp_a3 & 0xFFFFFFE7;
+            }
+            if (f->unk130 != 0) {
+                f->unkF6 = 1;
+            } else {
+                f->unkF6 = 0;
+            }
+            temp_a1_3 = f->unk12F;
+            if (temp_a1_3 == 0) {
+                f->unkF3 = 0;
+                f->unkFE = 0;
+                f->unk100 = 0;
+            }
+            if (f->unk132 == 0) {
+                f->unkF4 = 0;
+            }
+            temp_a0_2 = f->unk4C0.unk11;
+            f->unkF5 = 0;
+            if (temp_a0_2 != 0) {
+                if (f->unk131 == 0) {
+                    if (f->unkF7 == 0) {
+                        f->unkF9 = 0;
+                    } else {
+                        goto block_91;
+                    }
+                } else {
+block_91:
+                    f->unkF9 = 1;
+                }
+            } else {
+                temp_v0_4 = f->unk131;
+                f->unkF9 = temp_v0_4;
+                f->unkF7 = temp_v0_4;
+            }
+            var_v0_3 = temp_a0_2 & 0xFF;
+            if (temp_a1_3 & 0xFF) {
+                var_v0_3 = temp_a0_2 & 0xFF;
+                if (f->unk40C != 0) {
+                    f->unkE4 = (s16) f->unk14C;
+                    var_v0_3 = temp_a0_2 & 0xFF;
+                }
+            }
+            if (var_v0_3 != 0) {
+                if (f->unkE0 != 0) {
+                    f->unkE2 = (s16) (u16) f->unkE0;
+                    goto block_101;
+                }
+                var_v1 = f->unkF8 & 0xFF;
+                if (f->unkE2 == 0) {
+                    goto block_100;
+                }
+            } else {
+block_100:
+                f->unkE2 = 0;
+block_101:
+                var_v1 = f->unkF8 & 0xFF;
+            }
+            if (var_v1 != 3) {
+                if (var_v1 != 1) {
+                    if (temp_t2->unk0 != f->unkC0->unk0) {
+                        goto block_108;
+                    }
+                } else {
+                    goto block_107;
+                }
+            } else {
+block_107:
+block_108:
+                f->unk134 = 1;
+            }
+            temp_v0_5 = f->unkC0->unk24;
+            temp_s3 = (temp_v0_5 >> 0x13) & 1;
+            if (temp_v0_5 & 0x200) {
+                f->unk16A = 0x78;
+            }
+            if (temp_t2->unk24 & 8) {
+                f->unk164 = 9;
+            }
+            if (f->unk17C != 0) {
+                f->unk17C = 0;
+                f->unk3C = (u16) f->unk3C - 0x8000;
+                f->unk1A -= 0x8000;
+            }
+            if ((f->unk12D != 0) && (f->unk17A != 0x24)) {
+                temp_v0_6 = (u16) f->unk3C + f->unkC0->unk12;
+                f->unk1A = temp_v0_6;
+                f->unk3C = (s16) temp_v0_6;
+            }
+            f->unk12D = 0;
+            func_00370F28(f, o, (s32) temp_a2, (s32) temp_a3);
+            if (!(f->unk188->unk4 & 0x01000000)) {
+                f->unk129 = 0;
+            } else {
+                f->unk129 = func_0035BA00((s32) f->unk1E) + 1;
+            }
+            temp_t3 = (u16) f->unk17A;
+            switch ((s16) temp_t3) {                /* switch 1 */
+            case 0:                                 /* switch 1 */
+                temp_a1_4 = (u16) f->unk3A;
+                f->unkBC = 1;
+                f->unk1A = temp_a1_4;
+                f->unk4 = f->unk51C;
+                f->unkC = f->unk524;
+                f->unkC4 = 1;
+                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                f->unk3C = (s16) temp_a1_4;
+block_125:
+                f->unkE0 = 0;
+                break;
+            case 1:                                 /* switch 1 */
+                f->unk1A = (u16) f->unk3C;
+                /* fallthrough */
+            case 2:                                 /* switch 1 */
+            case 3:                                 /* switch 1 */
+                if (func_0036BF00(f) != 0) {
+                    f->unkC4 = (u16) f->unkC4 + 1;
+                    f->unkBC = (u16) f->unkBC + 1;
+                } else {
+                    f->unkBC = 1;
+                    f->unkC4 = 1;
+                }
+                temp_t2_2 = f->unk188;
+                if ((s32) temp_t2_2->unk18 < f->unkC4) {
+                    temp_v0_7 = temp_t2_2->unk18;
+                    f->unkBC = (s16) temp_v0_7;
+                    f->unkC4 = (s16) temp_v0_7;
+                }
+                f->unk11E = 0xB;
+                f->unk4 = f->unk51C;
+                f->unkC = f->unk524;
+                f->unk126 = 1;
+                f->unkB8 = (struct FighterUnkC0 *) temp_t2_2;
+                f->unkE0 = 0;
+                break;
+            case 4:                                 /* switch 1 */
+                f->unkC4 = 1;
+                temp_v1_2 = (u16) f->unkBC + 1;
+                temp_a0_3 = f->unkB8;
+                f->unkBC = temp_v1_2;
+                if ((s32) temp_a0_3->unk18 < temp_v1_2) {
+                    f->unkBC = (s16) temp_a0_3->unk18;
+                }
+                temp_a1_5 = (u16) f->unk3C;
+                f->unkD6 = (s16) (u16) f->unkD8;
+                f->unk11E = 0xB;
+                f->unk1A = temp_a1_5;
+                if ((s16) f->unk40 < 0x4FA5) {
+                    temp_v0_8 = f->unk188->unk2C - 1;
+                    f->unk15C = temp_v0_8;
+                    if (temp_v0_8 <= 0) {
+                        f->unk15C = 1;
+                    }
+                    f->unk15E = (s16) ((s16) ((u16) f->unk3A - temp_a1_5) / (s16) f->unk15C);
+                }
+                goto block_125;
+            case 5:                                 /* switch 1 */
+                f->unkC4 = 1;
+                temp_v0_9 = (u16) f->unkBC + 1;
+                temp_a0_4 = f->unkB8;
+                f->unkBC = temp_v0_9;
+                if ((s32) temp_a0_4->unk18 < temp_v0_9) {
+                    f->unkBC = (s16) temp_a0_4->unk18;
+                }
+                f->unkD6 = (s16) (u16) f->unkD8;
+                f->unk1A = (u16) f->unk3C;
+                if ((s16) f->unk40 < 0x4FA4) {
+                    var_v0_4 = 4;
+                } else {
+                    var_v0_4 = 6;
+                }
+                f->unk11E = var_v0_4;
+                f->unk15C = 0;
+                f->unk15E = 0;
+                f->unkE0 = 0;
+                /* fallthrough */
+                break;
+            case 6:                                 /* switch 1 */
+                f->unkBC = 1;
+                f->unk1A = (u16) f->unk3C;
+                f->unkC4 = 1;
+                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                if (temp_s3 != 0) {
+                    f->unk4 = f->unk51C;
+                    f->unkC = f->unk524;
+                }
+                goto block_125;
+            case 7:                                 /* switch 1 */
+                temp_t2_3 = f->unk188;
+                temp_v1_3 = temp_t2_3->unk18;
+                f->unk1A = (u16) f->unk3C;
+                f->unkBC = (s16) temp_v1_3;
+                f->unkC4 = (s16) temp_v1_3;
+                f->unkB8 = (struct FighterUnkC0 *) temp_t2_3;
+                if (temp_s3 != 0) {
+                    f->unk4 = f->unk51C;
+                    f->unkC = f->unk524;
+                }
+                f->unkE0 = 0;
+                f->unkDA = -1;
+                break;
+            case 8:                                 /* switch 1 */
+                temp_v0_10 = (u16) f->unkC4 - 1;
+                f->unkC4 = temp_v0_10;
+                if ((temp_v0_10 << 0x10) <= 0) {
+                    f->unkC4 = 1;
+                }
+                f->unkBC = (s16) (u16) f->unkC4;
+                f->unk1A = (u16) f->unk3C;
+                f->unkDA = -1;
+                f->unk4 = f->unk51C;
+                f->unkC = f->unk524;
+                f->unk126 = 1;
+                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                goto block_125;
+            case 9:                                 /* switch 1 */
+                f->unkBC = 1;
+                f->unk1A = (u16) f->unk44;
+                f->unk11E = 5;
+                f->unkC4 = 1;
+                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                f->unkE0 = 0;
+                f->unk15C = 0;
+                f->unk15E = 0;
+block_314:
+                if (temp_s3 != 0) {
+                    f->unk4 = f->unk51C;
+                    f->unkC = f->unk524;
+                }
+                break;
+            case 10:                                /* switch 1 */
+                f->unk1A = (u16) f->unk3C;
+block_158:
+                temp_t2_4 = f->unk188;
+                f->unkBC = 1;
+                f->unkC4 = 1;
+                f->unkB8 = (struct FighterUnkC0 *) temp_t2_4;
+                if (temp_t2_4->unk2C == 0) {
+                    temp_v1_4 = f->unkC0;
+                    if ((u8) temp_v1_4->unk18 < 0x10U) {
+                        var_v0_5 = temp_v1_4->unk18;
+                    } else {
+                        var_v0_5 = 0x10;
+                    }
+                } else {
+                    var_v0_5 = temp_t2_4->unk2C - 1;
+                }
+                f->unk15C = (s16) var_v0_5;
+                var_v1_2 = (u16) f->unk15C;
+                if (f->unk15C <= 0) {
+                    var_v1_2 = 1;
+                    f->unk15C = 1;
+                }
+                var_v0_6 = (u16) f->unk3A;
+                if ((u16) f->unk40 < 0x4000U) {
+
+                } else {
+                    var_v0_6 -= 0x8000;
+                }
+                f->unk44 = (s16) var_v0_6;
+                f->unk15E = (s16) ((s16) ((u16) f->unk44 - (u16) f->unk3C) / (s16) var_v1_2);
+                if (temp_s3 != 0) {
+                    f->unk4 = f->unk51C;
+                    f->unkC = f->unk524;
+                }
+                var_v0_7 = 0xB;
+block_235:
+                f->unkE0 = 0;
+                f->unk11E = var_v0_7;
+                break;
+            case 11:                                /* switch 1 */
+                f->unk1A = (u16) f->unk44;
+                goto block_158;
+            case 12:                                /* switch 1 */
+                f->unkBC = 1;
+                f->unkC4 = 1;
+                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                if ((s16) f->unk40 < 0x4FA4) {
+                    var_v1_3 = (u16) f->unk3A;
+                    var_v0_8 = 4;
+                } else {
+                    var_v1_3 = (u16) f->unk44;
+                    var_v0_8 = 6;
+                }
+                f->unk11E = var_v0_8;
+                f->unk1A = var_v1_3;
+                f->unkE0 = 0;
+                f->unk15C = 0;
+                f->unk15E = 0;
+                goto block_314;
+            case 13:                                /* switch 1 */
+                f->unkBC = 1;
+                f->unkC4 = 1;
+                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                f->unk1A = (u16) f->unk44;
+                if ((s16) f->unk40 < 0x4FA4) {
+                    f->unk11E = 3;
+                    f->unk1A = (u16) f->unk3A;
+                } else {
+                    f->unk11E = 6;
+                }
+                f->unkE0 = 0;
+                f->unk15C = 0;
+                f->unk15E = 0;
+                goto block_314;
+            case 14:                                /* switch 1 */
+                f->unkBC = 1;
+                f->unkC4 = 1;
+                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                f->unk1A = (u16) f->unk44;
+                if ((s16) f->unk40 < 0x4FA4) {
+                    f->unk11E = 2;
+                    f->unk1A = (u16) f->unk3A;
+                } else {
+                    f->unk11E = 6;
+                }
+                f->unkE0 = 0;
+                f->unk15C = 0;
+                f->unk15E = 0;
+                goto block_314;
+            case 15:                                /* switch 1 */
+                f->unk11E = 1;
+                f->unk1A = (u16) f->unk44;
+                f->unkC4 = 1;
+                f->unkBC = 1;
+                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                f->unkE0 = 0;
+                f->unk15C = 0;
+                f->unk15E = 0;
+                goto block_314;
+            case 16:                                /* switch 1 */
+                temp_t2_5 = f->unk188;
+                temp_a1_6 = (u16) f->unk3A;
+                f->unk11E = 0xB;
+                f->unkC4 = 1;
+                f->unkBC = 1;
+                f->unkB8 = (struct FighterUnkC0 *) temp_t2_5;
+                f->unk1A = temp_a1_6;
+                temp_v0_11 = temp_t2_5->unk2C - 1;
+                f->unk15C = temp_v0_11;
+                if (temp_v0_11 <= 0) {
+                    f->unk15C = 1;
+                }
+                f->unkF0 = 1;
+                f->unkE0 = 0;
+                f->unkE8 = 0;
+                f->unkEC = 0;
+                f->unk15E = (s16) ((s16) (temp_a1_6 - (u16) f->unk3C) / (s16) f->unk15C);
+                goto block_314;
+            case 18:                                /* switch 1 */
+                if (func_0036BF00(f) != 0) {
+                    f->unkC4 = (u16) f->unkC4 + 1;
+                    f->unkBC = (u16) f->unkBC + 1;
+                } else {
+                    f->unkBC = 1;
+                    f->unkC4 = 1;
+                }
+                temp_t2_6 = f->unk188;
+                if ((s32) temp_t2_6->unk18 < f->unkC4) {
+                    temp_v0_12 = temp_t2_6->unk18;
+                    f->unkBC = (s16) temp_v0_12;
+                    f->unkC4 = (s16) temp_v0_12;
+                }
+                temp_a0_5 = (u16) f->unk3A;
+                f->unkF0 = 1;
+                f->unk11E = 0xB;
+                f->unkB8 = (struct FighterUnkC0 *) temp_t2_6;
+                f->unkE0 = 0;
+                f->unkE8 = 0;
+                f->unkEC = 0;
+                f->unk1A = temp_a0_5;
+                temp_v0_13 = temp_t2_6->unk2C - 1;
+                f->unk15C = temp_v0_13;
+                if (temp_v0_13 <= 0) {
+                    f->unk15C = 1;
+                }
+                var_v0_9 = temp_a0_5 - (u16) f->unk3C;
+block_198:
+                f->unk15E = (s16) (var_v0_9 / f->unk15C);
+block_199:
+                if (temp_s3 != 0) {
+                    f->unk4 = f->unk51C;
+                    f->unkC = f->unk524;
+                }
+                break;
+            case 19:                                /* switch 1 */
+                if (func_0036BF00(f) != 0) {
+                    f->unkC4 = (u16) f->unkC4 + 1;
+                    f->unkBC = (u16) f->unkBC + 1;
+                } else {
+                    f->unkBC = 1;
+                    f->unkC4 = 1;
+                }
+                temp_t2_7 = f->unk188;
+                if ((s32) temp_t2_7->unk18 < f->unkC4) {
+                    temp_v0_14 = temp_t2_7->unk18;
+                    f->unkBC = (s16) temp_v0_14;
+                    f->unkC4 = (s16) temp_v0_14;
+                }
+                temp_a1_7 = (u16) f->unk3A;
+                f->unkF0 = 1;
+                f->unk11E = 0xB;
+                f->unk3C = (u16) f->unk3C - 0x8000;
+                f->unkB8 = (struct FighterUnkC0 *) temp_t2_7;
+                f->unkE0 = 0;
+                f->unkE8 = 0;
+                f->unkEC = 0;
+                f->unk1A = temp_a1_7;
+                temp_v0_15 = temp_t2_7->unk2C - 1;
+                f->unk15C = temp_v0_15;
+                if (temp_v0_15 <= 0) {
+                    f->unk15C = 1;
+                }
+                var_v0_9 = temp_a1_7 - (u16) f->unk3C;
+                goto block_198;
+            case 20:                                /* switch 1 */
+                if (func_0036BF00(f) != 0) {
+                    f->unkC4 = (u16) f->unkC4 + 1;
+                    f->unkBC = (u16) f->unkBC + 1;
+                } else {
+                    f->unkBC = 1;
+                    f->unkC4 = 1;
+                }
+                temp_t2_8 = f->unk188;
+                if ((s32) temp_t2_8->unk18 < f->unkC4) {
+                    temp_v0_16 = temp_t2_8->unk18;
+                    f->unkBC = (s16) temp_v0_16;
+                    f->unkC4 = (s16) temp_v0_16;
+                }
+                f->unkB8 = (struct FighterUnkC0 *) temp_t2_8;
+                if ((s16) f->unk40 < 0x4FA4) {
+                    var_v0_10 = 4;
+                } else {
+block_216:
+                    var_v0_10 = 6;
+                }
+block_217:
+                f->unk11E = var_v0_10;
+                f->unk4 = f->unk51C;
+                f->unkC = f->unk524;
+                f->unk126 = 1;
+block_218:
+                f->unkE0 = 0;
+                f->unk15C = 0;
+                f->unk15E = 0;
+                break;
+            case 21:                                /* switch 1 */
+                if (func_0036BF00(f) != 0) {
+                    f->unkC4 = (u16) f->unkC4 + 1;
+                    f->unkBC = (u16) f->unkBC + 1;
+                } else {
+                    f->unkBC = 1;
+                    f->unkC4 = 1;
+                }
+                temp_t2_9 = f->unk188;
+                if ((s32) temp_t2_9->unk18 < f->unkC4) {
+                    temp_v0_17 = temp_t2_9->unk18;
+                    f->unkBC = (s16) temp_v0_17;
+                    f->unkC4 = (s16) temp_v0_17;
+                }
+                f->unkB8 = (struct FighterUnkC0 *) temp_t2_9;
+                if ((s16) f->unk40 < 0x4FA4) {
+                    var_v0_10 = 2;
+                } else {
+                    goto block_216;
+                }
+                goto block_217;
+            case 22:                                /* switch 1 */
+                if (func_0036BF00(f) != 0) {
+                    f->unkC4 = (u16) f->unkC4 + 1;
+                    f->unkBC = (u16) f->unkBC + 1;
+                } else {
+                    f->unkBC = 1;
+                    f->unkC4 = 1;
+                }
+                temp_t2_10 = f->unk188;
+                if ((s32) temp_t2_10->unk18 < f->unkC4) {
+                    temp_v0_18 = temp_t2_10->unk18;
+                    f->unkBC = (s16) temp_v0_18;
+                    f->unkC4 = (s16) temp_v0_18;
+                }
+                f->unk11E = 8;
+                f->unk4 = f->unk51C;
+                f->unkC = f->unk524;
+                f->unk126 = 1;
+                f->unkB8 = (struct FighterUnkC0 *) temp_t2_10;
+                goto block_218;
+            case 23:                                /* switch 1 */
+                f->unkBC = 1;
+                f->unk1A = (u16) f->unk3C;
+                f->unkC4 = 1;
+                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                if (temp_s3 != 0) {
+                    f->unk4 = f->unk51C;
+                    f->unkC = f->unk524;
+                }
+                var_v0_7 = 9;
+                goto block_235;
+            case 24:                                /* switch 1 */
+                f->unkBC = 1;
+                f->unk1A = (u16) f->unk44;
+                f->unk11E = 8;
+                f->unkC4 = 1;
+                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                f->unkE0 = 0;
+                goto block_314;
+            case 25:                                /* switch 1 */
+                f->unkE0 = 0;
+                if (func_0036BF00(f) != 0) {
+                    f->unkC4 = (u16) f->unkC4 + 1;
+                    f->unkBC = (u16) f->unkBC + 1;
+                } else {
+                    f->unkBC = 1;
+                    f->unkC4 = 1;
+                }
+                temp_t2_11 = f->unk188;
+                if ((s32) temp_t2_11->unk18 < f->unkC4) {
+                    temp_v0_19 = temp_t2_11->unk18;
+                    f->unkBC = (s16) temp_v0_19;
+                    f->unkC4 = (s16) temp_v0_19;
+                }
+                f->unk11E = 8;
+                f->unk4 = f->unk51C;
+                f->unkC = f->unk524;
+                f->unk126 = 1;
+                f->unkB8 = (struct FighterUnkC0 *) temp_t2_11;
+                break;
+            case 26:                                /* switch 1 */
+            case 27:                                /* switch 1 */
+                temp_v0_20 = (u16) f->unkC4 + 1;
+                temp_t2_12 = f->unk188;
+                f->unkC4 = temp_v0_20;
+                f->unkBC = (u16) f->unkBC + 1;
+                if ((s32) temp_t2_12->unk18 < temp_v0_20) {
+                    temp_v0_21 = temp_t2_12->unk18;
+                    f->unkBC = (s16) temp_v0_21;
+                    f->unkC4 = (s16) temp_v0_21;
+                }
+                f->unkB8 = (struct FighterUnkC0 *) temp_t2_12;
+                f->unk1A = (u16) f->unk3C;
+                if ((s16) temp_t3 == 0x1A) {
+                    f->unk11A = 1;
+                } else {
+                    f->unk11A = 2;
+                }
+                break;
+            case 28:                                /* switch 1 */
+                f->unkBC = 1;
+                f->unk1A = (u16) f->unk3C;
+                f->unk11E = 0xA;
+                f->unkC4 = 1;
+                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                f->unkE0 = 0;
+                f->unk15C = 0;
+                f->unk15E = 0;
+                if (temp_s3 != 0) {
+                    f->unk4 = f->unk51C;
+                    f->unkC = f->unk524;
+                }
+                f->unk170 = 0x18;
+                break;
+            case 29:                                /* switch 1 */
+                if (func_0036BF00(f) != 0) {
+                    f->unkC4 = (u16) f->unkC4 + 1;
+                    f->unkBC = (u16) f->unkBC + 1;
+                } else {
+                    f->unkBC = 1;
+                    f->unkC4 = 1;
+                }
+                temp_t2_13 = f->unk188;
+                if ((s32) temp_t2_13->unk18 < f->unkC4) {
+                    temp_v0_22 = temp_t2_13->unk18;
+                    f->unkBC = (s16) temp_v0_22;
+                    f->unkC4 = (s16) temp_v0_22;
+                }
+                f->unk11E = 0xA;
+                f->unk1A = (u16) f->unk3C;
+                f->unkB8 = (struct FighterUnkC0 *) temp_t2_13;
+                f->unkE0 = 0;
+                f->unk15C = 0;
+                f->unk15E = 0;
+                goto block_199;
+            case 30:                                /* switch 1 */
+                f->unkFA = 1;
+                f->unk8 = f->unk520;
+                f->unkFC = 4;
+                f->unk184 = func_00374010(4)->unk0;
+                func_00374148(f, o);
+                temp_a2_2 = (u16) f->unk178;
+                f->unkFE = 1;
+                f->unk11D = 1;
+                f->unkE0 = 0;
+                f->unkBC = (s16) temp_a2_2;
+                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                f->unk100 = (u16) f->unk100 + 1;
+                f->unkC4 = (s16) temp_a2_2;
+                f->unk160 = func_0036A2D0(f);
+                f->unk11E = 0xB;
+                if (!(f->unkC0->unk24 & 0x10)) {
+block_261:
+                    f->unk1A = (u16) f->unk44;
+                } else {
+block_260:
+                    f->unk1A = (u16) f->unk44 + f->unk18C->unk0;
+                }
+block_262:
+                f->unk15C = 0;
+                f->unk15E = 0;
+                if (temp_s3 != 0) {
+                    f->unk4 = f->unk51C;
+                    f->unkC = f->unk524;
+                }
+                break;
+            case 31:                                /* switch 1 */
+            case 32:                                /* switch 1 */
+                temp_a2_3 = (u16) f->unkE0;
+                temp_t2_14 = f->unk188;
+                f->unkBC = 1;
+                f->unkC4 = 1;
+                f->unkB8 = (struct FighterUnkC0 *) temp_t2_14;
+                if ((s16) temp_a2_3 == 0) {
+                    temp_a1_8 = (u16) f->unk3A - 0x8000;
+                    f->unk3C = temp_a1_8;
+                    temp_a0_6 = o->unk42;
+                    switch (temp_a0_6) {            /* switch 2; irregular */
+                    default:                        /* switch 2 */
+                        var_v0_11 = temp_a1_8 - 0x4000;
+                        if (temp_a0_6 != 3) {
+
+                        } else {
+block_272:
+                            f->unk3C = var_v0_11;
+                        }
+                        break;
+                    case 1:                         /* switch 2 */
+                        var_v0_11 = temp_a1_8 + 0x4000;
+                        goto block_272;
+                    case 2:                         /* switch 2 */
+                        var_v0_11 = temp_a1_8 - 0x8000;
+                        goto block_272;
+                    }
+                    temp_a0_7 = (u16) f->unk3C;
+                    f->unk15C = 0x10;
+                    f->unk1A = temp_a0_7;
+                    f->unk15E = (s16) ((s16) ((u16) o->unk3C - temp_a0_7) / 16);
+                    goto block_278;
+                }
+                if ((s16) temp_a2_3 >= 0) {
+                    var_v0_12 = temp_a2_3 << 0x10;
+                    if (temp_t2_14->unk24 & 0x1000) {
+                        f->unk3C = (u16) f->unk3C + (u16) f->unkC0->unk12;
+                        temp_v1_5 = o->unk1A;
+                        f->unk1A = temp_v1_5;
+                        f->unk3C = (s16) temp_v1_5;
+                        f->unk4 = o->unk51C;
+                        f->unkC = o->unk524;
+                        goto block_281;
+                    }
+                } else {
+                    temp_v0_23 = o->unk1A;
+                    f->unk1A = temp_v0_23;
+                    f->unk3C = (s16) temp_v0_23;
+block_278:
+                    f->unk4 = o->unk51C;
+                    f->unkC = o->unk524;
+block_281:
+                    var_v0_12 = temp_a2_3 << 0x10;
+                }
+                f->unk150 = 0;
+                f->unk152 = 0;
+                f->unk154 = 0;
+                if (var_v0_12 < 0) {
+                    f->unkE0 = 1;
+                } else {
+                    f->unkE0 = temp_a2_3 + 1;
+                }
+                break;
+            case 36:                                /* switch 1 */
+                if (f->unkE0 >= 0) {
+                    if (((func_0036C1A0(f, o, (struct FighterMove *)f->unkC0)->unk2 != 0) && (f->unkC4 < (s32) f->unkC0->unk2C)) || (o->unk16A != 0)) {
+                        f->unk120 = 1;
+                    }
+                }
+                temp_a0_8 = f->unk188;
+                f->unkF2 = 1;
+                f->unkC4 = 1;
+                f->unkBC = 1;
+                f->unkB8 = (struct FighterUnkC0 *) temp_a0_8;
+                if (!((u16) f->unkE0 & 0x8000)) {
+                    temp_a1_9 = f->unk524;
+                    temp_v0_24 = (u16) f->unk3C - 0x8000;
+                    f->unk1A = temp_v0_24;
+                    f->unk4 = f->unk51C;
+                    f->unkC = temp_a1_9;
+                    f->unk3C = (s16) temp_v0_24;
+                    Snd_StopVoiceSeq(f);
+                    goto block_295;
+                }
+                var_v0_13 = (u16) f->unkE0 << 0x10;
+                if (temp_a0_8->unk24 & 0x1000) {
+                    temp_v0_25 = (u16) f->unk3C + (u16) f->unkC0->unk12;
+                    f->unk1A = temp_v0_25;
+                    f->unk4 = f->unk51C;
+                    f->unkC = f->unk524;
+                    f->unk3C = (s16) temp_v0_25;
+block_295:
+                    var_v0_13 = (u16) f->unkE0 << 0x10;
+                }
+                var_v0_14 = -1;
+                if (var_v0_13 <= 0) {
+                    var_v0_14 = (u16) f->unkE0 - 1;
+                }
+                f->unkE0 = var_v0_14;
+                func_0036A330(f, o, f->unkE0);
+                f->unk150 = 0;
+                f->unk152 = 0;
+                f->unk154 = 0;
+                break;
+            case 37:                                /* switch 1 */
+                var_v0_15 = f->unk18C->unk18;
+                f->unk158 = var_v0_15;
+                var_a0 = var_v0_15 + 1;
+                var_a2 = var_v0_15 + 2;
+block_300:
+                f->unk158 = var_a0;
+                f->unk150 = var_v0_15[0];
+                f->unk158 = var_a2;
+                f->unk152 = var_v0_15[1];
+                f->unk154 = 8;
+                f->unkBC = 1;
+                f->unkC4 = 1;
+                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                f->unk156 = (u16) f->unk3A + (f->unk18C->unk0 - 0x8000);
+                f->unkE0 = 0;
+                f->unk11E = 7;
+                f->unk1A = (u16) f->unk44;
+                f->unk15C = 0;
+                f->unk15E = 0;
+                goto block_314;
+            case 38:                                /* switch 1 */
+                f->unk8 = f->unk520;
+                func_00374148(f, o);
+                temp_a2_4 = (u16) f->unk178;
+                f->unkE0 = 0;
+                f->unkBC = (s16) temp_a2_4;
+                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                f->unk11D = 1;
+                f->unkFE = 1;
+                f->unk100 = (u16) f->unk100 + 1;
+                f->unkC4 = (s16) temp_a2_4;
+                f->unk160 = func_0036A2D0(f);
+                f->unk11E = 0xB;
+                if (!(f->unkC0->unk24 & 0x10)) {
+                    goto block_261;
+                }
+                goto block_260;
+                goto block_262;
+            case 39:                                /* switch 1 */
+                f->unk160 = func_0036A2D0(f);
+                temp_a3_2 = f->unk18C;
+                temp_v0_26 = temp_a3_2->unk14;
+                f->unk158 = temp_v0_26;
+                f->unk158 = temp_v0_26 + 1;
+                f->unk150 = temp_v0_26[0];
+                f->unk158 = temp_v0_26 + 2;
+                f->unk152 = temp_v0_26[1];
+                f->unk154 = 8;
+                f->unkBC = 1;
+                f->unk160 = 0;
+                f->unkC4 = 1;
+                f->unk156 = (u16) f->unk3A + (temp_a3_2->unk10 - 0x8000);
+block_309:
+                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                f->unkE0 = 0;
+                f->unk11E = 0xB;
+                f->unk1A = (u16) f->unk3C;
+                f->unk15C = 0;
+                f->unk15E = 0;
+                goto block_199;
+            case 40:                                /* switch 1 */
+                f->unk160 = func_0036A2D0(f);
+                var_v0_15 = f->unk18C->unkC;
+                f->unk158 = var_v0_15;
+                var_a0 = var_v0_15 + 1;
+                var_a2 = var_v0_15 + 2;
+                goto block_300;
+            case 41:                                /* switch 1 */
+            case 42:                                /* switch 1 */
+            case 43:                                /* switch 1 */
+            case 44:                                /* switch 1 */
+            case 45:                                /* switch 1 */
+                f->unk160 = func_0036A2D0(f);
+                temp_t1 = f->unk18C;
+                temp_a2_5 = f->unk17A;
+                temp_v0_27 = temp_t1->unk4;
+                f->unk158 = temp_v0_27;
+                temp_a1_10 = temp_v0_27 + 2;
+                f->unk158 = temp_v0_27 + 1;
+                f->unk150 = temp_v0_27[0];
+                f->unk158 = temp_a1_10;
+                f->unk152 = temp_v0_27[1];
+                f->unk154 = 8;
+                if (temp_a2_5 == 0x2C) {
+                    var_v1_4 = (u16) f->unk44;
+                } else {
+                    var_v1_4 = (u16) f->unk3A;
+                }
+                f->unk156 = var_v1_4 + (temp_t1->unk0 - 0x8000);
+                func_0036C128(f);
+                f->unkBC = 1;
+                f->unkC4 = 1;
+                goto block_309;
+            case 33:                                /* switch 1 */
+                temp_a2_6 = (u16) f->unk3A;
+                f->unkBC = 1;
+                f->unk1A = temp_a2_6;
+                f->unk4 = f->unk51C;
+                f->unkC = f->unk524;
+                f->unk11E = 8;
+                f->unkC4 = 1;
+                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                f->unk3C = (s16) temp_a2_6;
+                goto block_125;
+            case 34:                                /* switch 1 */
+                f->unkBC = 1;
+                f->unk1A = (u16) f->unk44;
+                f->unk11E = 0xC;
+                f->unkC4 = 1;
+                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                f->unkE0 = 0;
+                goto block_314;
+            case 35:                                /* switch 1 */
+                f->unkBC = 1;
+                f->unk1A = (u16) f->unk44;
+                f->unk11E = 0xD;
+                f->unkC4 = 1;
+                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                f->unkE0 = 0;
+                goto block_314;
+            default:                                /* switch 1 */
+                temp_v1_6 = (u16) f->unk3A;
+                f->unkBC = 1;
+                f->unk3C = (s16) temp_v1_6;
+                f->unkC4 = 1;
+                f->unkB8 = (struct FighterUnkC0 *) f->unk188;
+                f->unk1A = temp_v1_6;
+                goto block_314;
+            }
+            temp_v1_7 = (u16) f->unk10C;
+            f->unk10C = (s16) f->unk184;
+            f->unk176 = (s16) temp_v1_7;
+            f->unk184 = -1;
+            f->unkC0 = (struct FighterUnkC0 *) f->unk188;
+            f->unk188 = NULL;
+            if (((struct FighterUnkC0 *) temp_t2)->unk2C != 0) {
+                if (((struct FighterUnkC0 *) temp_t2)->unk2A != 0) {
+                    f->unk118 = 2;
+                } else if (((struct FighterUnkC0 *) temp_t2)->unk28 != 0) {
+                    f->unk118 = 1;
+                } else {
+                    goto block_323;
+                }
+            } else {
+block_323:
+                f->unk118 = 0;
+            }
+            var_v0_16 = 1;
+            if (f->unk134 == 0) {
+                var_v0_16 = (u16) f->unkC4;
+            }
+            f->unkC8 = (s16) var_v0_16;
+            f->unk10E = (s16) (u16) f->unk17A;
+            f->unk17E = 0;
+            f->unk17A = 0;
+            f->unk17C = 0;
+        } else {
+            f->unk134 = 0;
+            f->unkC8 = (u16) f->unkC8 + 1;
+            var_a0_2 = (u16) f->unkE4;
+            if (f->unkE4 > 0) {
+                var_v0_17 = var_a0_2 << 0x10;
+                if (f->unkFE != 0) {
+                    f->unkE4 = 0;
+                    var_a0_2 = 0;
+                    goto block_20;
+                }
+            } else {
+block_20:
+                var_v0_17 = var_a0_2 << 0x10;
+            }
+            temp_v0_28 = var_v0_17 >> 0x10;
+            if (temp_v0_28 < 0) {
+                var_v0_18 = var_a0_2 + 1;
+                goto block_31;
+            }
+            if (temp_v0_28 <= 0) {
+                goto block_33;
+            }
+            if (f->unkFE != 0) {
+block_33:
+                if (f->unkD6 >= 0) {
+                    temp_a2_7 = f->unkC0;
+                    temp_a1_11 = (u16) f->unkC4;
+                    if (f->unkC4 == temp_a2_7->unk1B) {
+                        if (f->unkD6 > 0) {
+                            f->unkD6 = (u16) f->unkD6 - 1;
+                            goto block_40;
+                        }
+                        if (f->unkD6 == 0) {
+                            var_v0_19 = temp_a1_11 + 1;
+                            f->unkB8 = temp_a2_7;
+                            goto block_46;
+                        }
+                    } else {
+                        f->unkC4 = temp_a1_11 + 1;
+block_40:
+                        f->unkBC = (u16) f->unkBC + 1;
+                    }
+                } else if (f->unkFE == 0) {
+                    temp_v0_29 = (u16) f->unkC4 + (u16) f->unkDA;
+                    f->unkC4 = temp_v0_29;
+                    if ((temp_v0_29 << 0x10) <= 0) {
+                        f->unkC4 = 1;
+                    }
+                    f->unkBC = (s16) (u16) f->unkC4;
+                } else if (f->unkC4 != f->unkC0->unk1B) {
+                    var_v0_19 = (u16) f->unkC4 + 1;
+                    goto block_46;
+                }
+            } else {
+                var_v0_18 = var_a0_2 - 1;
+block_31:
+                f->unkE4 = var_v0_18;
+                if (f->unkE4 == 0) {
+                    var_v0_19 = (u16) f->unkC4 + 1;
+                    f->unkB8 = f->unkC0;
+block_46:
+                    f->unkBC = var_v0_19;
+                    f->unkC4 = var_v0_19;
+                }
+            }
+        }
+    }
+}
+#else
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", jtbl_004FFA80);
 INCLUDE_ASM("asm/nonmatchings/battle_flow", Fighter_StepMove);
+#endif
+
 
 void func_0036BC50(Fighter *f) {
     MoveCmdState *p = &f->unk4C0;
@@ -1086,14 +2284,6 @@ INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500120);
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500204);
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500240);
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500300);
-/* A team member's record, per side and member (D_00440940, 2 x 2 x 0x30): +0x0 character, +0x4 costume, +0xC life,
- * +0x10 red life, +0x14 maximum life (func_003C1900, func_003D3288) [V offsets; I names]. */
-typedef struct {
-    /* 0x00 */ u8 pad0[0x10];
-    /* 0x10 */ s32 unk10;                     /* red life */
-    /* 0x14 */ u8 pad14[0x18];
-    /* 0x2C */ s32 unk2C;
-} TeamMember;
 
 extern TeamMember D_00440940[2][2];
 extern s32 D_005F5CD0;
@@ -1101,8 +2291,12 @@ extern u16 D_005F5CBC;
 extern s32 D_005F5F00;
 extern u16 D_005F5CB6;
 extern s32 D_005F5EFC;
-extern s32 D_005F6670;
-extern s32 D_005F6674;
+extern s32 D_005F6670[2];
+void func_0035BFF8(s32 kind, HitContact *hc);
+void func_0035C0D8(s16 n, Fighter *f, s16 side, HitContact *hc);
+s32 func_003CF278(u8 c0, u8 k0, u8 c1, u8 k1, s32 kind, s32 n);
+s32 func_003AE3C0(Fighter *f);
+void func_00364678(Fighter *f);
 void func_0038D508(void);
 s32 func_003ABCC0(void);
 void func_00393718(s32 a, u16 b);
@@ -1197,8 +2391,8 @@ void func_0036D5D0(void) {
     func_00395400(0, a, b);
     func_00380560();
     func_003C1C98();
-    D_005F6670 = 0;
-    D_005F6674 = 0;
+    D_005F6670[0] = 0;
+    D_005F6670[1] = 0;
     D_00440940[0][0].unk2C = D_00440940[0][0].unk10;
     D_00440940[0][1].unk2C = D_00440940[0][1].unk10;
     D_00440940[1][0].unk2C = D_00440940[1][0].unk10;
@@ -1318,7 +2512,7 @@ s32 Battle_UpdateFrame(void) {
             func_00371C08(f1, f0);
             func_003729B0(f0, f1);
             func_00372BA8(f0, f1);
-            func_003720C8(f0, f1);
+            Fighter_ApplyDamage(f0, f1);
             if (D_005F5F24 == 0 && func_0036E178() == 0) {
                 if (f0->unk127 != 0) {
                     func_00375B60(f0, f1);
@@ -1717,7 +2911,218 @@ void Battle_ApplyVelocity(Fighter *a, Fighter *b) {
 
 INCLUDE_ASM("asm/nonmatchings/battle_flow", Battle_ResolveHits);
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_003720C8);
+#define ABS(x) ((x) < 0 ? -(x) : (x))
+
+/* The damage of the frame (docs/systems/fighter.md section 5.6), once per frame for both fighters, each in turn the
+ * defender d of the other o. Life (unk3F4), red life (unk3F8) and maximum (unk3FC) are 20.12 fixed point; damage is
+ * whole points. unk13D applies scripted damage (1: o's, 2: d's own) or a heal (3); a hit (unk12F) takes |o->unkCA|,
+ * as chip damage when guarded or scaled for counter hits, attacks started early, juggles and o's unk400; the red life
+ * drops by 0.6 (1.4 in a juggle) of the damage, never below the life. A fighter at 0 red life, or at 0 life (unless
+ * func_003AE3C0 is 0), is down (unk40C = 0); the first one down calls func_00364678 with the other. */
+void Fighter_ApplyDamage(Fighter *a, Fighter *b) {
+    Fighter *d;
+    Fighter *o;
+    HitContact *hc;
+    Fighter *p;
+    s32 i;
+    s32 chip;
+    s32 life;
+    s32 n;
+    s32 an;
+    s32 dmg;
+    s32 base;
+    s32 win;
+    s32 red;
+
+    chip = 0;
+    for (i = 0, p = a; i < 2; i++) {
+        p->unk13A = 0;
+        p->unk138 = 0;
+        p->unk146 = 0;
+        p->unk142 = 0;
+        p->unk144 = 0;
+        p->unk130 = 0;
+        p->unk131 = 0;
+        p = b;
+    }
+
+    for (i = 0, d = a, o = b; i < 2; i++) {
+        hc = &d->unk39C;
+        life = d->unk3F4;
+        if (o->unk13D == 1) {
+            n = o->unk14A;
+            if (n == 0) {
+                n = o->unkCA;
+            }
+            an = ABS(n);
+            d->unk142 += an;
+            if (o->unk16A == 0 && d->unk16A == 0 && o->unk400 != 0) {
+                n = n * 13 / 10;
+                an = ABS(n);
+            }
+            d->unk3F4 = life - (n << 12);
+            d->unk146 += n;
+            d->unk144 += an;
+            d->unk3F8 = (f32)d->unk3F8 - (f32)(n << 12) * 0.6f;
+        }
+        if (d->unk13D == 2) {
+            n = d->unk14A;
+            if (n == 0) {
+                n = d->unkCA;
+            }
+            an = ABS(n);
+            d->unk142 += an;
+            if (o->unk16A == 0 && d->unk16A == 0 && o->unk400 != 0) {
+                n = n * 13 / 10;
+                an = ABS(n);
+            }
+            d->unk3F4 -= n << 12;
+            d->unk146 += n;
+            d->unk144 += an;
+            d->unk3F8 = (f32)d->unk3F8 - (f32)(n << 12) * 0.6f;
+        }
+        if (d->unk13D == 3) {
+            n = d->unk14A;
+            if (n == 0) {
+                n = o->unkCA;
+            }
+            d->unk3F4 += n << 12;
+        }
+        if (d->unk12F != 0) {
+            dmg = o->unkCA;
+            dmg = ABS(dmg);
+            base = dmg;
+            if (dmg > 0) {
+                if ((d->unkD2 & o->unkD0) && (s16)d->unk40 < 0x4000) {
+                    if (D_0043B7F8[0xC] != 0 || o->unk16A != 0) {
+                        d->unk144 += ABS(o->unkCA / 10);
+                        chip = o->unkCA * 0xA000 / 100;
+                        d->unk130 = 1;
+                        d->unk3F4 -= chip;
+                        D_005F6670[d->unk1E] = 1;
+                    }
+                    if (d->unk3F4 > 0) {
+                        func_0035BFF8(2, hc);
+                        d->unk130 = 1;
+                    } else {
+                        func_0035C0D8(chip >> 16, d, 1 - i, hc);
+                        d->unk131 = 1;
+                    }
+                } else {
+                    d->unk142 += ABS(dmg);
+                    if (d->unk13B != 0) {
+                        dmg += dmg / 2;
+                    }
+                    if ((d->unkCA != 0 && d->unkC4 < d->unkC0->unk2C) || d->unk16A != 0 || o->unk16A != 0
+                        || (d->unk12E != 0 && d->unk100 == 0 && d->unkF7 == 0)) {
+                        d->unk13A = 1;
+                        n = d->unkCA;
+                        n = n > -1 ? n : -n;
+                        if (o->unk16A != 0 || d->unk16A != 0 || d->unk12E != 0) {
+                            n = dmg * 3 / 10;
+                        } else {
+                            win = d->unkC0->unk2C;
+                            if (win == 0 || win < d->unkC4) {
+                                win = d->unkC4;
+                            }
+                            n = n * 3 / 10 * d->unkC4 / win;
+                        }
+                        dmg = dmg * 12 / 10 + n;
+                    }
+                    if (d->unk135 != 0 || (d->unkC0->unk4 & 0x400)) {
+                        switch (d->unk100) {
+                        case -1:
+                            d->unk12A = 1;
+                            dmg = (s16)(dmg * 80 / 100);
+                            d->unk100++;
+                            break;
+                        case 0:
+                            if (func_003AE3C0(o) == 0) {
+                                do {
+                                    d->unk12A = 1;
+                                } while (0); /* fake (decomp-permuter): gives the constant 1 its register (s4) */
+                            }
+                            dmg = (s16)(dmg * 80 / 100);
+                            break;
+                        case 1:
+                        default:
+                            dmg = (s16)(dmg / 2);
+                            break;
+                        }
+                    }
+                    if (o->unk16A == 0 && d->unk16A == 0 && o->unk400 != 0) {
+                        dmg = dmg * 13 / 10;
+                    }
+                    d->unk3F4 -= dmg << 12;
+                    if (d->unk12A == 1) {
+                        red = (f32)d->unk3F8 - (f32)(dmg << 12) * 1.4f;
+                        d->unk3F8 = red;
+                        if (red < d->unk3F4) {
+                            d->unk3F8 = d->unk3F4;
+                        }
+                    } else {
+                        d->unk3F8 = (f32)d->unk3F8 - (f32)(dmg << 12) * 0.6f;
+                    }
+                    if (dmg >= base) {
+                        base = dmg;
+                    }
+                    func_0035C0D8(base, d, 1 - i, hc);
+                    d->unk131 = 1;
+                    win = d->unk1E; /* fake (decomp-permuter): one index through a reused variable moves the window
+                                     * length (win) from a1 to a0 */
+                    D_00440940[d->unk1E][d->unk2].unk28 +=
+                        func_003CF278(D_00440940[win][d->unk2].unk0, D_00440940[d->unk1E][d->unk2].unk4,
+                                      D_00440940[d->unk1E][d->unk0].unk0, D_00440940[d->unk1E][d->unk0].unk4, 4, 1);
+                    d->unk146 += dmg;
+                    d->unk144 += ABS(dmg);
+                }
+            } else if (dmg == 0) {
+                d->unk130 = 1;
+                D_00440940[d->unk1E][d->unk2].unk28 +=
+                    func_003CF278(D_00440940[d->unk1E][d->unk2].unk0, D_00440940[d->unk1E][d->unk2].unk4,
+                                  D_00440940[d->unk1E][d->unk0].unk0, D_00440940[d->unk1E][d->unk0].unk4, 6, 1);
+                func_0035BFF8(1, hc);
+            }
+        }
+        if (D_005F5EF4 != 0) {
+            d->unk3F4 = life;
+        }
+        if (D_0043B7F8[0] == 7) {
+            d->unk3F4 = d->unk3F8 = d->unk3FC;
+        }
+        if (d->unk3F8 <= 0) {
+            d->unk3F8 = 0;
+            if (d->unk40C == 1) {
+                d->unk40C = 0;
+            }
+        }
+        if (d->unk3F4 <= 0) {
+            d->unk3F4 = 0;
+            if (func_003AE3C0(d) != 0 && d->unk40C == 1) {
+                d->unk40C = 0;
+            }
+        }
+        if (d->unk3F8 < d->unk3F4) {
+            d->unk3F4 = d->unk3F8;
+        }
+        d = b;
+        o = a;
+    }
+
+    d = a;
+    o = b;
+    for (i = 0; i < 2; i++) {
+        if (d->unk40C == 0 && D_005F5EF4 == 0) {
+            d->unk138 = 1;
+            if (D_005F5EFC == 0) {
+                func_00364678(o);
+                D_005F5EFC = 1;
+            }
+        }
+        d = b;
+        o = a;
+    }
+}
 
 void func_003729B0(Fighter *a, Fighter *b) {
     Fighter *first;
@@ -1800,7 +3205,7 @@ INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00372E98);
 void func_00373038(Fighter *a, Fighter *b) {
     func_00373080(a, b);
     func_00373080(b, a);
-    func_003C1470();
+    Battle_InitTeamLife();
     func_00375468();
 }
 

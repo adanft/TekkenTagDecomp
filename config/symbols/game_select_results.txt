@@ -4,3 +4,5 @@
 
 Text_Printf = 0x003C6C60; // type:func // guess
 Mode_CharSelect = 0x003CB900; // type:func // guess
+Battle_InitTeamLife = 0x003C1470; // type:func
+Battle_RecoverLife = 0x003C1900; // type:func

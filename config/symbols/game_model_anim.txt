@@ -1,3 +1,4 @@
 // Game module model_anim (docs/game_overview.md section 4; the range is provisional).
 // Naming rules: docs/decomp_guide.md, "Naming".
 // range: 0x003D0660 0x003DB758
+Fighter_TagSwap = 0x003D3288; // type:func

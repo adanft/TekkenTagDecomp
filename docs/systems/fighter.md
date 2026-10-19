@@ -1,11 +1,12 @@
 # Fighters, the fight simulation, practice mode and the CPU opponent
 
 What the decompiled code shows about the fighter state, its input, the per-frame fight simulation
-(`src/battle_flow.c`, module `battle_flow`, 0x3682F8-0x3745E8, section 5), the hit test (`src/fight_misc.c`, module
-`fight_misc`, 0x376C30-0x3790C8, section 5.5), the practice mode tools and the CPU opponent (`src/fighter_core.c`,
-module `fighter_core`, 0x37BA88-0x38BF98). The `fighter_core` name came from the first map
-([game_overview.md](../game_overview.md) section 4); that code turned out to be practice mode and the CPU, while the
-simulation is in `battle_flow`.
+(`src/battle_flow.c`, module `battle_flow`, 0x3682F8-0x3745E8, section 5), the hit test and the push
+(`src/fight_misc.c`, module `fight_misc`, 0x376C30-0x3790C8, section 5.5), the practice mode tools and the CPU opponent
+(`src/fighter_core.c`, module `fighter_core`, 0x37BA88-0x38BF98), and the life and tag functions of two other modules
+(`src/select_results.c`, 0x3C1470-0x3C1A78, and `src/model_anim.c`, 0x3D3288-0x3D33F0, sections 5.6 and 5.7). The
+`fighter_core` name came from the first map ([game_overview.md](../game_overview.md) section 4); that code turned out to
+be practice mode and the CPU, while the simulation is in `battle_flow`.
 
 Tags: **[V]** read in decompiled, matching C or in the disassembly, **[I]** inferred.
 
@@ -132,8 +133,8 @@ assembly are [I] unless marked.
       condition holds (`func_0036C1A0`), field `unk6` when the distance `D_005F5C28` is below its `unk8`, else `unk4`
       [V read of the asm; I meanings].
    9. `func_00371C08` (attack volume motion), `func_003729B0`: **`Fighter_StartCommandMove`** for both, in parity
-      order (section 5.2), `func_00372BA8`, **`func_003720C8`: the damage of the frame** (section 5.6), fighter
-      voices (`func_00375B60`), `Snd_UpdateDelayed`, the practice dummy (`func_0037D668`).
+      order (section 5.2), `func_00372BA8`, **`Fighter_ApplyDamage` (0x3720C8): the damage of the frame** (section
+      5.6), fighter voices (`func_00375B60`), `Snd_UpdateDelayed`, the practice dummy (`func_0037D668`).
    10. **`Fighter_UpdateInput`** per fighter: when `unk414` is set, `func_0036C680` fetches this frame's buttons
        (pad, CPU or practice playback, section 2) and records them (section 5.2).
    11. `unkC6 = unkC4`; `func_00372A10`: `func_00368B90` and `func_00368B08` for both in parity order (the launch
@@ -176,7 +177,8 @@ in frame N+1 [V order]. For netplay the inputs of both sides enter only through 
   (`func_0036BD98`), then one `Fighter_StepMove`. `func_0036BE08` (matching C) adjusts the kind to the current move:
   2 becomes 0x14 and 0x19 becomes 0x16 when `func_0036BEC0` holds, 0xC-0xF and 0x14 / 0x15 become 0xB when the
   move has no frame window [V].
-- **`Fighter_StepMove`** (0x36A428, asm, 0x1828 bytes; read in T14 b3) [V unless marked]:
+- **`Fighter_StepMove`** (0x36A428, asm, 0x1828 bytes; read in T14 b3; an m2c draft with fixed types is in `#if 0`
+  since T14 b4, far from matching) [V unless marked]:
   - nothing happens while `unk127` is 0; `unk170` counts down to 0;
   - the pending move (`unk188`) starts when `unkC4 >= unk178` or the current record's length `unk18` is reached
     (`unkDA > 0`; `unkDA < 0` plays backwards to frame 0; `unkDA == 0` starts at once). A move never ends by itself:
@@ -195,7 +197,34 @@ in frame N+1 [V order]. For netplay the inputs of both sides enter only through 
     fighter's facing and position over `unkE0` frames (0x1F, 0x20 [I]), launches (0x1E, 0x26: `unkFE = 1`,
     `unk100++`), the reaction pick of kind 0x24 (`func_0036C1A0`) and the paths of kinds 0x25-0x2D;
   - common tail: `unk176` = old move id, `unk10C` = `unk184`, `unk184 = -1`, `unkC0` = `unk188`, `unk188` = NULL,
-    `unk10E` = kind, `unk17A`-`unk17E` cleared.
+    `unk10E` = kind, `unk17A`-`unk17E` cleared; `unk118` = 2 / 1 / 0 from the new record's window and bytes 0x2A /
+    0x28; `unkC8` = 1 (or the frame when `unk134` is clear).
+
+  The kinds of the jump table, as the draft reads them ("continue" = `func_0036BF00` keeps the frame running, else
+  frame 1, clamped to the record's length; "snap" = `unk4` / `unkC` set to `unk51C` / `unk524`; `unk11E` is the
+  state code) [V code read; I meanings]:
+
+  | Kind | Effect |
+  |---|---|
+  | 0 | frame 1, facing `unk3A` (body and move), snap |
+  | 1-3 | continue; `unk11E = 0xB`, snap, `unk126 = 1`; 1 takes the facing from `unk3C` |
+  | 4, 5 | frame 1, `unkBC` + 1, `unkD6 = unkD8`; 4 turns to `unk3A` over the window, 5 sets `unk11E` 4 or 6 by `unk40` |
+  | 6 | plain move: frame 1, facing `unk3C`, snap when the record's flag bit 19 is set |
+  | 7 | starts at the last frame and plays backwards (`unkDA = -1`) |
+  | 8 | one frame back (at least 1), backwards, snap |
+  | 9, 0x18 | facing `unk44`; `unk11E` 5 / 8 |
+  | 0xA, 0xB | turn to `unk3A` (or its back when `unk40 >= 0x4000`) over the window, at most 16 frames |
+  | 0xC-0xF | `unk11E` = 4 / 3 / 2 / 1 when `unk40 < 0x4FA4`, else 6 (0xF always 1) |
+  | 0x10, 0x12, 0x13 | turns spread over the window, `unkF0 = 1`; 0x13 also turns the body by 0x8000 |
+  | 0x14, 0x15, 0x16, 0x19 | continue, snap; `unk11E` 4 / 2 or 6, 8 |
+  | 0x17, 0x1C, 0x1D | `unk11E` 9, 0xA, 0xA; 0x1C sets `unk170 = 0x18` |
+  | 0x1A, 0x1B | continue; `unk11A` = 1 / 2 |
+  | 0x1E, 0x26 | launch: frame `unk178`, `unkFE = 1`, `unk11D = 1`, `unk100++`, `func_00374148`, `unk160 = func_0036A2D0`; 0x1E also queues move `func_00374010(4)` (`unkFA = 1`, `unkFC = 4`) |
+  | 0x1F, 0x20 | throw pairing: `unkE0` counts frames; on the first one the fighter turns towards the other (by `o->unk42`: +0x4000, 0x8000, -0x4000) over 16 frames and takes its position |
+  | 0x21, 0x22, 0x23 | facing `unk3A` and snap (0x21); `unk11E` 8, 0xC, 0xD |
+  | 0x24 | thrown / hit reaction: `unk120` from the reaction entry (`func_0036C1A0`), body turned by 0x8000, `Snd_StopVoiceSeq`, `unkE0` counts down, `func_0036A330` |
+  | 0x25, 0x27-0x2D | paired paths read through `unk18C` (`struct FighterUnk18C`) into `unk150`-`unk158`, `unk156` the angle; 0x29-0x2D call `func_0036C128` |
+  | other | frame 1, facing `unk3A` |
 - Round start: `func_0036D5D0` (battle init, from `Mode_Battle`; C attempt in `#if 0`) increments `gRoundNumber`, sets
   `gRoundTimer` in frames from the time setting `D_0043B7F8[0xB]` (0x870, 0xB04, 0x10A4, 0x1608, 0x1B30 for 0-3 and
   4 / 5), clears the round flags, copies each member's red life (`+0x10`) to `+0x2C`, and calls `func_0036E138`
@@ -216,7 +245,7 @@ in frame N+1 [V order]. For netplay the inputs of both sides enter only through 
   into gameplay is open.
 - `Math_Sin` / `Math_Cos` / `Math_Atan2` are integer table lookups (`gSinTable`), and `func_0036FB40` (movement
   [I]) uses only those [V]. The hit test is integer as well (fixed point 20.12, 64-bit products, `__divdi3`) [V].
-- Floats in the simulation path [V]: (1) the red-life loss in `func_003720C8` (`(f32)red - (f32)(damage << 12) *
+- Floats in the simulation path [V]: (1) the red-life loss in `Fighter_ApplyDamage` (`(f32)red - (f32)(damage << 12) *
   0.6f` or `1.4f`, back with `cvt.w.s`), which decides when `unk40C` drops (K.O.); (2) the attack volume of character
   0x1D, whose angle comes from `atan2f` of two points moved with `sceVu0ApplyMatrix` (`func_00378760`). The EE FPU is
   not IEEE 754 (it rounds toward zero, has no denormals or infinities) and `atan2f` is newlib's: two PC peers agree
@@ -228,7 +257,7 @@ in frame N+1 [V order]. For netplay the inputs of both sides enter only through 
   `func_0035C850` -> `Rng_PickRandomEntry` -> `Rng_SpinNext` (characters 0xF and 0x21) [V calls]. Netplay must keep
   `rand()`, `D_005F6C08` and `gRngSpin` in step on both machines.
 - Frame counters that gameplay reads: `gFrameCount` (parity at round start, pose of character 0x21), the round timer
-  `gRoundTimer` (frames, set by `func_0036D5D0`), the per-frame life recovery (`func_003C1900`) [V].
+  `gRoundTimer` (frames, set by `func_0036D5D0`), the per-frame life recovery (`Battle_RecoverLife`) [V].
 
 ### 5.5 Hit test (`fight_misc`, matching C)
 
@@ -251,61 +280,106 @@ in frame N+1 [V order]. For netplay the inputs of both sides enter only through 
   moves 0x104F, 0x1051 / 0x1053, 0x1A48, 0x1054 (`func_00378150`) or by a request in `D_008A7B70`
   (`func_00378368`, `func_00378398`) and stored in `D_008A7AD0[side]` / `Fighter + 0x190` (`func_003780C8`,
   `func_00378500`) [V code; I "projectile"].
-- The two fighters push each other apart in `func_00377338` (asm, via `func_00377AE0` from `Battle_ApplyVelocity`):
-  eight 0x10-byte push spheres at `Fighter + 0x308` per fighter, the result written to the velocities
-  `unk3E8`-`unk3F0` [V for the fields; I for the meaning].
+- **Push** (`Fighter_Push`, 0x377338, via `func_00377AE0` from `Battle_ApplyVelocity`; C draft in `#if 0`, T14 b4)
+  [V read of the asm and the draft; I meanings]: each fighter has eight push spheres (`PushSphere`, 0x10 bytes at
+  `Fighter + 0x308`: a centre and a radius `unkC`, 0 = off). The velocities `unk3E8`-`unk3F0` of both are cleared;
+  the push depth is the largest `r_a + r_b - sqrt(d^2)` over the pairs of active spheres that overlap on all three
+  axes. When both moves are inside a frame window (`unkC0->unk2C`), the two points 200 units ahead of each fighter
+  along its facing (`unk1A`) are less than 500 apart on x and z and the fighters move towards each other, the depth
+  is at least 400 and the push is "hard". The depth is split between the two by how far each moved since
+  `func_003772F0` saved the positions (`D_008A7A90` / `D_008A7AA0`, through `func_003985D8` = integer sqrt), each
+  pushed along its own facing turned towards the other (`func_00366108`, angle between the fighters); the result is
+  the velocity, halved unless the push is hard. Integer math only (`gSinTable`).
+- **Push radii** (`Fighter_SetPushRadii`, 0x377B58, matching C): `func_00377AE8` calls it for both fighters with the
+  current move's `unkC0->unk30` (kind 6 of the attacker forces 6 on the defender). The radii come from the
+  per-character table `D_0042EFD8[unk2A]` (all four point to `D_00506150`); `kind & 0xF` picks a rule: 1 keeps spheres
+  0 and 3 (others radius 1), 5 / 6 the same at half size, 2 makes all of them tiny (1), 3 halves them, 4 turns them
+  off, 7 enlarges sphere 0 by 60 and makes 4-7 tiny, 9 enlarges sphere 0 by 60 and makes the others tiny, 8 enlarges
+  all by 100, 10-15 use the table; kind 0 turns off the spheres whose bit `kind >> (4 + i)` is set, always or (bit 12)
+  only from 8 frames before the window to its end. Then, by the current move: spheres 1 and 2 are off while it has a
+  window, spheres 6 and 7 with `unk135` and `unkF3`, spheres 4-7 for move flag 0x400 (`unk24`) [V].
+- The special attack volume of character 0x1D (kinds 1-4, T14 b4): `func_00378810` / `func_00378A28` move it 200 /
+  102 (204 while `func_003ABCD0` holds) units a frame along the facing, `func_00378A28` also 110 / 220 up;
+  `func_00378C48` drops it for 8 frames (800 a frame down to -6400) then sweeps it from side to side by 0x200 a frame
+  (`D_005F5F5C`, between -0x2FFF and 0x2FFF) with a random length `rand() & 0x3FF`; `func_00378E70` tilts it by
+  -0xAAA at 300 units. `func_00378600` draws it between its two points (`func_003A8D08`) with a size that shrinks
+  over the move's window [V, matching C except `func_00378810`].
 
-### 5.6 Damage and life (`func_003720C8`, asm)
+### 5.6 Damage and life (`Fighter_ApplyDamage`, matching C since T14 b4)
 
-`func_003720C8(a, b)` runs once per frame (step 9) and treats each fighter in turn as the defender `d` of the other
-`o` [V read of the asm; I for the names]:
+`Fighter_ApplyDamage(a, b)` (0x3720C8) runs once per frame (step 9). It first clears the per-frame hit outputs of both
+fighters (`unk130` guarded, `unk131` hit, `unk138`, `unk13A`, `unk142`, `unk144`, `unk146`), then treats each fighter
+in turn as the defender `d` of the other `o` [V; names I]:
 
-- **Life** is `d->unk3F4`, a 20.12 fixed-point value (damage is subtracted as `damage << 12`); the **red
-  (recoverable) life** is `unk3F8`, the maximum `unk3FC`; all three are set at round start from the team member's
-  record (`func_003C1470`, which also sets `unk40C = 1`). The life is clamped to the red life every frame.
-- **`unk40C` is not the life**: it is a "still standing" flag. It is cleared when the red life reaches 0, or when the
-  life reaches 0 (except for character 0x21 with `unk401 == 0`, see `func_003AE3C0`); a fighter with `unk40C == 0`
-  gets `unk138 = 1` and the first one calls `func_00364678` (the K.O. [I]). `Battle_IsRoundOver` reads it.
-- The damage is `|o->unkCA|` (the attacker's move damage, `D_005E8978` entry, `func_0036C228`):
-  - guarded (`d->unkD2 & o->unkD0`, `d->unk40 < 0x4000`): chip damage `o->unkCA * 0xA000 / 100` (one tenth, 20.12)
-    only when the option `D_0043B7F8[0xC]` is on or the attacker is in a juggle (`unk16A`);
-  - a counter hit (`d->unk13B`) adds half; a defender starting its own attack (`d->unkCA` set, before its window
-    `unkC0->unk2C`) or airborne (`unk16A`, `unk12E`) takes `damage * 12 / 10` plus 3/10 of its own move's damage
-    (scaled by its frame); in a juggle (`unk135` or move flag 0x400) the first hit is scaled by 80/100 and sets
-    `unk12A`, later ones (`unk100`) by 1/2; the attacker's `unk400` (ticked by `func_003C1B38` [I: rage]) by
-    13/10 [V arithmetic; I names];
-  - `life -= damage << 12`; the red life goes down by `(damage << 12) * 0.6f` (`D_005F5168`), or `* 1.4f`
-    (`D_005F516C`) when `unk12A` is set, and never below the life;
-  - `func_0035C0D8` / `func_0035BFF8` (hit / guard effects [I]) take the contact `unk39C`; `func_003CF278` gets
-    both members' character and costume bytes, and its result is added to `D_00440968[side][member]` [I: stats].
+- **Life** is `d->unk3F4`, 20.12 fixed point (whole damage points are subtracted as `damage << 12`); the **red
+  (recoverable) life** is `unk3F8`, the maximum `unk3FC`.
+- **Scripted damage** (`unk13D`, before the hit): 1 takes `o->unk14A` (or `o->unkCA` when 0), 2 the defender's own
+  `unk14A` / `unkCA`, both times 13/10 when the attacker's `unk400` is set and neither fighter is airborne
+  (`unk16A`); the red life loses 0.6 of it. 3 heals: `life += (d->unk14A or o->unkCA) << 12`.
+- **A hit** (`d->unk12F`): `damage = |o->unkCA|` (the attacker's move damage, `D_005E8978` entry, `func_0036C228`).
+  - Guarded (`d->unkD2 & o->unkD0` and `d->unk40 < 0x4000`): chip damage `o->unkCA * 0xA000 / 100` (one tenth, in
+    20.12) only when the option `D_0043B7F8[0xC]` is on or the attacker is airborne; it also sets
+    `D_005F6670[side]`. A chip that leaves life calls `func_0035BFF8(2, contact)` (guard effect [I]) and sets
+    `unk130`; a chip K.O. calls `func_0035C0D8` and sets `unk131`.
+  - Otherwise: a counter hit (`d->unk13B`) adds half. When the defender started its own attack (its `unkCA` set and
+    its frame before its window `unk2C`), either fighter is airborne, or `d->unk12E` is set with `unk100` and `unkF7`
+    clear: `unk13A = 1` and `damage = damage * 12 / 10 + extra`, `extra` being 3/10 of the damage when someone is
+    airborne or `unk12E` is set, else 3/10 of the defender's own move damage times its frame divided by its window
+    start. In a juggle (`d->unk135` or move flag 0x400): `unk100 == -1` (first hit) and `unk100 == 0` scale by
+    80/100 and set `unk12A` (for 0 only when `func_003AE3C0(o)` is 0), later hits halve it; the result is truncated
+    to 16 bits. Then the attacker's `unk400` multiplies by 13/10 when neither is airborne [I: rage].
+  - `life -= damage << 12`; the red life loses `(damage << 12) * 1.4f` when `unk12A` is set (never below the life),
+    else `* 0.6f` (the only floats of the function, its `.lit4` 0x5F5168).
+  - `func_0035C0D8(max(damage, original damage), d, 1 - i, contact)` (hit effect [I]), `unk131 = 1`, `unk146` /
+    `unk144` add the damage; `D_00440940[side][unk2].unk28` adds `func_003CF278(character and costume of member unk2,
+    of member unk0, 4, 1)`. A hit of 0 damage only sets `unk130`, adds the same with kind 6 and calls
+    `func_0035BFF8(1, contact)`.
 - While the round is over (`D_005F5EF4`) the life is put back to its value at the start of the frame; in practice
   mode (`D_0043B7F8[0] == 7`) life and red life are reset to the maximum every frame.
-- **Recovery** (`func_003C1900`, from `func_003D3528` at the start of every simulated frame, outside `battle_flow`):
-  the active fighter's life and red life are copied to its member record (`D_00440940[side][unk0]` `+0xC` / `+0x10`),
-  and the partner's record regains `max / 6000` per frame up to its red life; the active fighter regains life only
-  for character 0x21 [V].
+- **`unk40C` is not the life**: it is a "still standing" flag, cleared when the red life reaches 0, or when the life
+  reaches 0 unless `func_003AE3C0(d)` returns 0 (character 0x21 with `unk401 == 0`; other characters return -1). The
+  life is then clamped to the red life. Last, a fighter with `unk40C == 0` (round not over) gets `unk138 = 1`, and
+  the first one (`D_005F5EFC` clear) calls `func_00364678` with the other fighter (the K.O. [I]).
+  `Battle_IsRoundOver` reads `unk40C`.
+- **Round start** (`Battle_InitTeamLife`, 0x3C1470, matching C, `src/select_results.c`): for each side and member
+  whose flag `D_0043B7F8[0x3C + side * 2 + member]` is 1 (`func_003AE420`, cleared by `func_003AE400`), the record's
+  maximum and red life come from `func_003C1350(character, side)` and its life from the maximum (`+0x18`, `+0x1C`
+  cleared); every member's `unk28` restarts at 100, and the side's fighter takes the life, red life and maximum of
+  its active member `unk0` with `unk40C = 1` [V].
+- **Recovery** (`Battle_RecoverLife`, 0x3C1900, matching C, from `func_003D3528` at the start of every simulated
+  frame) [V]: only while `func_0036E158()` is 1 (the round runs), the game is not paused and `func_003A9698` is 0.
+  The active fighter regains `max / 6000` per frame up to its red life only when `func_003AE3C0` is 0 (character
+  0x21 with `unk401 == 0`) and `unkD2` is 0; its life and red life are copied to its member record
+  (`D_00440940[side][unk0]` `+0xC` / `+0x10`); the partner's record regains `max / 6000` per frame up to its red life.
 
 ### 5.7 Tag in / out (outside `battle_flow`)
 
 - The tag is a command (`MoveCmd.unk8` bit 0x2000 with bits 7-12 zero) whose move flags `func_00368B90` copies to
   `unk180` / `unk182`; pad bit 0x04 (history bit 0x100) is the tag button [I] (Fighter_RecordInput drops it while the
   fighters are far apart or the round is over) [V].
-- When the pending move starts, `Fighter_StepMove` (0x36A764) calls **`func_003D3288(side)`** (module
-  `select_results` range, asm), unless the round is over (`D_005F5EF4`: it then starts the list's end move): it flips
-  `unk0` and `unk2` (`^= 1`) of the same slot, reloads life / red life from the incoming member's record, reloads the
-  character (`func_0035C8D0`, `func_0035C850`, `func_00377F58` body spheres ...), sets the per-side tag state
-  `D_01FB6ED0[side] = 2` and `Fighter + 0xB134 = 1`; `Fighter_StepMove` then re-aims (`Battle_UpdateFacing`) and
+- When the pending move starts, `Fighter_StepMove` (0x36A764) calls **`Fighter_TagSwap(side)`** (0x3D3288, module
+  `model_anim`, matching C in `src/model_anim.c` since T14 b4), unless the round is over (`D_005F5EF4`: it then starts
+  the list's end move) [V]. The swap, in order: the incoming member is the old partner `unk2`; `unk0` and `unk2` of
+  the same slot flip (`^= 1`); the life and red life come from the incoming member's record (`+0xC`, `+0x10`);
+  `func_003C1A78(side)` (the outgoing member's `unk28` back to 100, a check of the incoming one's against 120 [I]);
+  `func_003D31F8(side, 2)` sets the per-side tag state `D_01FB6ED0[side] = 2`; the character and costume of the new
+  active member are loaded (`func_0035C8D0(f, character, costume)`, `func_0035C850(f, 1)`), then its body
+  (`func_00368168`, `func_00377F58` body spheres, `func_003465F0`, `func_00344318`, `func_003A82C8`,
+  `func_00370E20(f, 1)`, `func_0038ADF8(side)`); in practice mode (game type 7) `func_0037A970(f)` and
+  `func_0037EA08()` follow. `Fighter_StepMove` itself sets `Fighter + 0xB134 = 1`, re-aims (`Battle_UpdateFacing`) and
   looks the pending move up again for the new character [V]. Slots 2 and 3 of `gFighters` are not used for it [V].
 - With `unk182 != 0` the same command changes the character variant instead (`func_0036C318`, `func_0036C278`, both
   random picks with `func_003800D8`; matching C / `#if 0`) [V].
-- The maximum life `unk3FC` is not reloaded on a tag [V]; `func_003F0008` (under `Mode_Battle`, driven by the table
-  `D_01FC61E0`) also calls the swap [I: scripted tag].
+- The maximum life `unk3FC` is not reloaded on a tag (`Fighter_TagSwap` copies only `+0xC` / `+0x10`) [V];
+  `func_003F0008` (under `Mode_Battle`, driven by the table `D_01FC61E0`) also calls the swap [I: scripted tag].
 
 ## 6. Open
 
-- The meanings of most move kinds (`unk17A`) and move flag bits; the per-kind effects of `func_00377B58` (switch on
-  `unkC0->unk30`, tables `D_0042EFD8` -> `D_00506150`-`D_005061A0`).
-- `func_0036FB40` (movement [I]), `Battle_UpdateRound` (round states), `Fighter_StepMove` and `func_003720C8` (damage)
-  are still assembly (large functions with jump tables).
+- The meanings of most move kinds (`unk17A`, table in section 5.3), of the state code `unk11E` and of the move flag
+  bits; what the push-radius kinds (`unkC0->unk30`) stand for.
+- `func_0036FB40` (movement [I]), `Battle_UpdateRound` (round states) and `Fighter_StepMove` are still assembly
+  (large functions with jump tables); `Fighter_StepMove` and `Fighter_Push` have C drafts in `#if 0`.
+- What `D_00440940[side][member].unk28` counts (100 at round start, raised by `func_003CF278` per hit taken, compared
+  with 120 by `func_003C1A78`); the meaning of `unk400` (13/10 damage) and of `D_005F6670[side]` (set by chip damage).
 - The meaning of `Fighter.unk420` values other than 3 (practice playback); what `func_003F0008` (scripted tag swap)
   serves.

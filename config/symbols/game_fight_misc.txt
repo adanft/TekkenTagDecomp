@@ -1,3 +1,5 @@
 // Game module fight_misc (docs/game_overview.md section 4; the range is provisional).
 // Naming rules: docs/decomp_guide.md, "Naming".
 // range: 0x00376C30 0x003790C8
+Fighter_Push = 0x00377338; // type:func
+Fighter_SetPushRadii = 0x00377B58; // type:func
