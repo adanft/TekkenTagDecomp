@@ -805,6 +805,52 @@ Tools:
   a change of meaning); `func_00385DF8` 2715 to 695 in about 15 minutes, only through a `(double)` cast of a call
   result (a fake, not taken); `Fighter_StepMove` 7765 to 7635 in about 15 minutes with a new temporary (not taken).
 
+### Lessons from T15 batch 1 (2026-10-19)
+
+Objects and data:
+
+- The asm chunk after `fighter_core` (0x38BF98-0x396D00) is one object, `src/stage.c` (`[0x4CF98, c, stage]`), and its
+  `.rodata` is the whole chunk 0x507EE0-0x509D00 up to `pad`'s (`[0x1C8EE0, .rodata, stage]`, 99 symbols with
+  `force_not_migration`). The `INCLUDE_RODATA` lines were placed by script in front of each symbol's first reader, clamped
+  to address order; tables read only from `.data` (`D_00508BA0`-`D_005095A0`) sit between their neighbours.
+- When a function with a jump table becomes C, its `INCLUDE_RODATA` of the table must go in the same change, or the link
+  fails with undefined `.L` labels from the included table. `func_0038D518`'s two tables (`jtbl_00507F70`,
+  `jtbl_00507FC0`) needed no `RODATA_ALIGN`.
+- The file's `.lit4` words (0x5F5174-0x5F519C) belong to four float functions; they stay in the generic `.lit4` chunk
+  while those functions are assembly (`LIT4_WORD` would allow a subsegment before all four are C).
+- An 8-byte `.bss` pair (`D_008BC710`) is small data under `-G8`: declare it with its real, larger struct
+  (`Unk8BC710`, 0x28 bytes) or as an incomplete array, or the link fails with `R_MIPS_GPREL16`.
+
+Code shapes:
+
+- **`-(n - 0x1D)` is folded to `0x1D - n` (`li / subu`)** by fold-const for an unsigned `n`; the original's `addiu -29 /
+  negu` comes from `-(n - 0x1E + 1)` (`func_00393C78`): the two constants fold into a PLUS_EXPR, which negation keeps.
+- **`x >= 0` as a value** gives `nor / srl`; the original's `slti x, 0 / xori 1` came from comparing with the result
+  variable that holds 0 (`r = 0; ... r = x >= r;`, `func_00393810`, marked fake), the same mechanism as the T14 b8 inline
+  parameter.
+- **A dropped call result still sets registers**: declaring `func_0038C1E8` `s32` instead of `void` made the load after
+  the call use `v1` and matched `func_0038D518`; an unused third argument passed by the caller (`func_00396320(a, b,
+  -1)`) must be in the prototype or the call is one instruction short.
+- **Nested switches whose inner cases jump into the outer cases** are an inner `switch` of `goto`s to labels placed on
+  the outer `case` bodies (`func_0038D518`); an outer range with a trailing `case 19: break;` gives the original's
+  `sltiu 20`.
+- Store order again: four stores in a branch came out as the original only with the first store of the asm written last
+  (`func_0038D1B8`, `D_00433330` 0x3C / 0x38 / 0x00 / 0x40); a sweep of the 24 orders found it in about a minute.
+- A counter stored back before its test (`n = D; n++; D = n; if (n >= 10) { D = 0; n = 0; }`) matched where `n = ++D`
+  and `D = n = D + 1` did not (`func_0038C048`).
+- `if (a > 0 || b < 0) { ... } return 1;` nested (m2c's shape) keeps a shared `return 1` block at the end; early returns
+  duplicate it (`func_00393CB8`, still a draft).
+
+Not matched yet: 36 compiled drafts with their differences noted, mostly store order and register allocation; 16 raw
+m2c drafts (the fight camera `func_0038C1E8` and its orbit and throw functions of 680-1060 instructions, and the four
+float functions), which do not compile yet ([systems/stage.md](systems/stage.md) section 4.5).
+
+Tools:
+
+- For a module with many small functions, a generator that rebuilds the C file from per-function snippets and a state
+  list (C / draft / asm), plus a sweep that writes each variant, builds and runs `fdiff.py`, kept the build
+  byte-identical between attempts (about 3 s per variant for `stage.c`).
+
 ## Decompiled so far
 
 | File | Range | C / functions | Notes |
@@ -826,6 +872,8 @@ Tools:
 | `src/fight_misc.c` | 0x376C30-0x3790C8 | 26 / 29 | the hit test (attack volumes against body spheres), body sphere radii, push sphere radii, the special attack volume of character 0x1D ([systems/fighter.md](systems/fighter.md) section 5.5); `.rodata` 0x506150-0x506260, `.lit4` 0x5F5170 |
 | `src/select_results.c` | 0x3C1470-0x3C1A78 | 2 / 4 | team life at round start and its per-frame recovery ([systems/fighter.md](systems/fighter.md) section 5.6); a cut inside the `select_results` module, not an object edge |
 | `src/model_anim.c` | 0x3D3288-0x3D33F0 | 1 / 1 | the tag swap ([systems/fighter.md](systems/fighter.md) section 5.7); a cut inside the `model_anim` module, not an object edge |
+| `src/stage.c` | 0x38BF98-0x396D00 | 53 / 105 | the fight camera and its per-stage values (module `camera_stage`): the per-frame camera step on `gRoundPhase`, camera keys and blends, camera scripts, reaction cameras drawn at random, stage camera distances ([systems/stage.md](systems/stage.md)); `.rodata` 0x507EE0-0x509D00 included in place; its `.lit4` words stay generic |
 
 Functions left as `INCLUDE_ASM` carry their closest attempt above them in `#if 0` with a `NON_MATCHING:` note; in
-`fighter_core.c`, `battle_flow.c` and `fight_misc.c` every remaining function has one (T14 b9).
+`fighter_core.c`, `battle_flow.c` and `fight_misc.c` every remaining function has one (T14 b9); in `stage.c` every
+function has one, 16 of them raw m2c output that does not compile yet (T15 b1).

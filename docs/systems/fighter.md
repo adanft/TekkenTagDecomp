@@ -431,6 +431,10 @@ in frame N+1 [V order]. For netplay the inputs of both sides enter only through 
   `func_003685B8` [V read].
 - The camera angle `D_00415808[1]` enters `Fighter.unk48` (`Battle_UpdateFacing`) [V]; whether `unk48` feeds back
   into gameplay is open.
+- The camera module (`src/stage.c`, T15 b1) runs inside `Battle_UpdateFrame`: it advances `gRoundPhase`, writes
+  `D_00415808` and draws from `rand()` and `func_003800D8` when reaction cameras start; see
+  [stage.md](stage.md) section 5. There is no stage collision: the floor is y = 0, the area is re-centred at
+  +-0x78000 and the fighters are held within about 0x1D00 of each other (stage.md section 1).
 - `Math_Sin` / `Math_Cos` / `Math_Atan2` are integer table lookups (`gSinTable`), and `Battle_UpdateMovement` (section
   5.12) uses only those [V]. The hit test is integer as well (fixed point 20.12, 64-bit products, `__divdi3`) [V].
 - Floats in the simulation path [V]: (1) the red-life loss in `Fighter_ApplyDamage` (`(f32)red - (f32)(damage << 12) *

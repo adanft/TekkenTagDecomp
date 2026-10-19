@@ -1,0 +1,146 @@
+# Stage and camera (`camera_stage`, `src/stage.c`)
+
+What the fight simulation asks of the stage, and the module that answers: `src/stage.c`, 0x38BF98-0x396D00 (the
+`camera_stage` range of [game_overview.md](../game_overview.md) section 4), 105 functions, `.rodata` 0x507EE0-0x509D00.
+Written in T15 batch 1 (2026-10-19).
+
+Tags: **[V]** read in matching C or in the disassembly, **[I]** inferred.
+
+## 1. Summary
+
+- **There is no stage geometry in the simulation** [V for the callers read; I for the asm-only modules]. Tekken Tag's stages are open floors: no walls, no ring-out, no
+  floor height. The simulation calls no stage function for collision; nothing reads a per-stage bound, wall list or
+  height map. What stands in for them is in `battle_flow`:
+  - the floor is the plane y = 0: a fighter above it (`unk8 < 0`, y grows downwards) drifts back with `unk108 += 6`
+    and is snapped to 0 (`Battle_UpdateMovement`, [fighter.md](fighter.md) section 5.12);
+  - the fighters can be at most about 0x1D00 apart: beyond that, a fighter whose move lacks flag 0x2000 is pulled back
+    to its anchor `D_00879610[i]` (`Battle_UpdateDistance`, fighter.md section 5.1);
+  - the floor is infinite: when a fighter's x or z leaves -0x78000..0x78000, `func_00372E98` moves both fighters so
+    that the first one stands at 0, keeps the shift in `unk10` / `unk14` and resets the camera (`func_0038C0F0`, this
+    module) and `func_00350578` for both (fighter.md section 5.11).
+- **The stage index** `D_005F5CB6` (u16, 0-0x18 used; 23 values in the byte tables 0x455D50 / 0x455D68) selects data
+  that is drawn or heard, not simulated: the stage model and textures (`func_00367938`, `func_00340070`,
+  `func_003D3630`), the music (`func_003751A0`, `func_00375868`), the camera distances and camera style (`D_00507FE0`, below)
+  and the demo camera scripts (`func_00393838`). The camera style matters to the simulation (section 5, item 3).
+- **The camera is what the simulation depends on**: `func_0038D518` runs inside `Battle_UpdateFrame` every simulated
+  frame, advances the round's camera phase `gRoundPhase`, writes the camera angles that `Battle_UpdateFacing` reads,
+  and draws random numbers from the same generators as the CPU opponent. Section 5 lists the four channels; a port that
+  replays fights must run this module exactly (or reproduce those four effects).
+
+## 2. Units
+
+| Quantity | Unit | Evidence |
+|---|---|---|
+| Positions | s32 world units; y down (heights are negative) | round start at x = +-1000 (`func_003730E8`); camera heights -0x4B0, -0x590, -0x1F40 |
+| Fight area | infinite, re-centred at +-0x78000 | `func_00372E98` [V] |
+| Angles (simulation, `gSinTable`) | 12 bits per turn (0x1000), cosine at +0x400 | `Math_Sin` / `Math_Cos`, every camera function [V] |
+| Angles (camera keys) | 18 bits per turn (`<< 6` of the 12-bit angle) | `func_0038E308` stores `atan << 6`, `func_0038E4F8` divides by 64 [V] |
+| Sine values | 4096 = 1.0 (results `>> 12` or `/ 4096`) | [V] |
+| Blend weights | 0x1000 = 1.0 | `D_00433330.unk4[0..4]`, `func_0038CFC0` [V] |
+| Camera distance | the projection distance given to `sceVu0ViewScreenMatrix` (`func_0038DA28`), clamped to the stage's minimum and maximum | [V code; I meaning] |
+
+## 3. Data
+
+| Symbol | Where | Layout and use |
+|---|---|---|
+| `D_00433330` | `.data`, `Unk433330` in `src/stage.c` | the camera state: +0 camera mode (1 default blend, 2 preset, 6 script, 7, 8, 0xA, 0xC-0xF reaction cameras) [I names], +4 / +0x18 the five key weights now and on the previous frame, +0x30 / +0x34 the side the camera favours, +0x38-+0x50 counters and the current preset, +0x54 / +0x58 the camera number and its preset index (`Cam_PresetIndex`), +0x5C the entry picked, +0x60 the move whose camera is playing, +0x64-+0x6C the orbit of the fight camera, +0x7C / +0x80 the last move that started a hit camera per fighter slot, +0x84 script frame, +0x8C-+0x94 script origin, +0xA0 mirror flag, +0xA4-+0xB4 the stage's five values from `D_00507FE0` (distance, minimum, maximum, +0xB0 script scaling, +0xB4 the stage's camera style 0-2), +0xC0 the "fighters in a throw" state (`func_0038C188`), +0xC4 a hold flag read by `func_0038E2D0` [V offsets; I names] |
+| `D_008B90B8` | `.bss`, 5 x 0x1C | camera keys `{x, y, z, pitch, yaw, roll, distance}`: key 0 the fight camera, 1 the other blend input, 2 the script / hit camera, 3 the current copy, 4 a saved key (`func_0038EAA0`) [V layout; I roles] |
+| `D_00415808` | `.data` | camera angles used everywhere: [0] pitch, [1] yaw (12-bit), [2] roll (0), [5..7] position; written by `func_0038E4F8` [V] |
+| `D_00507FE0` | `.rodata`, 25 x 5 s16 | per stage: default, minimum and maximum camera distance, script scaling flag and camera style 0-2 (`func_0038DBC0`, `func_0038DB98`; a stage above 0x18 uses entry 0) [V] |
+| `D_00508B60` | `.rodata`, s16 | camera number to preset index (`Cam_PresetIndex`: numbers below 0x1E by table, 0x1E-0x231 give -1, -2 ..., a negative index is a script) [V] |
+| `D_00508908` | `.rodata`, 0x14-byte records | presets: kind, count, four yaw and four distance choices (`func_00394110` picks one of each with `rand() & 3`) [V] |
+| `D_00434C78` | `.data`, 0x134 x 12 | per move kind (`unkC0->unk24 >> 23`): a weighted list of camera reactions `{flags, weight, number[2]}`, its count and two ranges; `func_00393898` turns the weights into cumulative 0-0x1000 thresholds once [V] |
+| `D_005095C0`, `D_00509700`, `D_00509820` | `.rodata` | hit and throw camera lists (`func_003943A8`, `func_00394300`), normalised by `func_003941F0` [V] |
+| `D_00433010` | `.data`, 10 x 0x50 | demo camera sequences, 10 steps `{phase, frames}` each (`func_0038BF98`, `func_0038C048`) [V] |
+| `D_008B92D0`, `D_008B92E8`, `D_008B9280`-`D_008B92C0` | `.bss` | camera script player: decoded eye / target (s16), the 0x3200-byte stream buffer and the 8 channel accumulators (section 4.3) [V] |
+| `D_00433520` | `.data` | the two fighters' tracking points (x, min(head y, y), z), refreshed every 4 frames in the replay camera (`func_003967E0`) [V] |
+
+## 4. What the functions do
+
+### 4.1 Per frame
+
+`func_0036DDD0` (battle_flow) calls `func_0038D518(a, b, &gRoundPhase)` (matching C), then `func_0035B9A8`. It returns at
+once when the demo camera script is playing (`D_005F5CBC` set, `func_00393788` finishing it), stores
+`func_0038C188()` (whether one fighter is in a throw, move kind 0xAE) and switches on the phase:
+
+| Phase | Camera | Next phase |
+|---|---|---|
+| 0 | intro: in the demo a random sequence of `D_00433010` (`func_0038BF98`), else the default blend set-up | 1, or the demo kind's |
+| 1 | the intro blend (`func_0038CFC0`) | 0xD when the blend ends |
+| 2, 3 | cameras of `model_anim` (`func_003D2818`, `func_003D0A38`) | unchanged |
+| 4, 0xD | the fight camera `func_0038C1E8` (4 resets first) | in the demo, `func_0038C048(0xD)` |
+| 5-0xC | four demo camera kinds (orbit, sweep, follow, swing: `func_00395D20`, `func_00395EE0`, `func_00396320`, `func_00396620`), odd phases set up, even phases step | `func_0038C048(phase)` |
+| 0xE, 0xF | win camera of side 0 / 1 (`func_00395718`, then `func_00395750` every frame) | 0x10 |
+| 0x11, 0x12 | K.O. camera (`func_00395C90` on the side that lost, by life `unk3F4 == 0`) | unchanged |
+| 0x13 | nothing | |
+
+`Battle_UpdateRound` sets phases 0xE-0x12 for the round end, and `Battle_ApplyVelocity` only moves the fighters while
+`gRoundPhase < 0xE` (fighter.md section 5.1), so the camera's own phase changes (1 to 0xD, 0xE / 0xF to 0x10) are part
+of the simulation's state [V].
+
+### 4.2 The fight camera
+
+`func_0038C1E8` (886 instructions, m2c draft) runs the camera mode `D_00433330.unk0`: the default orbit behind the
+fighters, and the reaction cameras chosen when a move starts (`func_0038DEA0`: `func_003943A8` looks the attacker's
+move up in the hit / throw lists, `func_00394300` draws from the list with `rand() & 0xFFF`, the camera number goes
+through `Cam_PresetIndex`; scripts via `func_003928B8`, presets via `func_0038D1B8` / `func_0038D290` / `func_0038D3D0`).
+`func_0038EC08` (682) computes the default key from both fighters, `func_0038FD90` / `func_00391358` (about 1060
+each) the orbit keys, `func_00394648` (858) the throw cameras; `func_0038CFC0` blends keys 0 and 2 by the weights and
+`func_0038E6D0` interpolates two keys; `func_0038E4F8` makes the result current and writes `D_00415808`;
+`func_0038DA28` sets the projection (float, `sceVu0ViewScreenMatrix`) [V calls; I roles of the drafts].
+
+### 4.3 Camera scripts
+
+`func_00392E00(file)` loads a bank of scripts (file 0 or 2-0x29 or 0x40-0xA7, 0x14000 bytes) and records each
+script's start (`D_008BC4F8`) and length (`D_008BC578`). `func_003923F0(n, out, flag)` starts script n (it streams the
+data 0x40 bytes at a time into `D_008B92E8` with `func_0035C698`) and returns its first byte (the orientation kind
+used by `func_003928B8`); with n = 0 it decodes one frame: a 16-bit mask gives each of 8 channels a 2-bit code (0 no
+change, 1 repeat the last delta, 2 an s8 delta, 3 an s16 delta), the deltas are accumulated into eye y, target y,
+eye x, eye z, target x, target z, distance and an end flag (`D_008B92D0`). `func_00392B68` turns the frame into a key:
+eye and target relative to the script origin (`unk8C`-`unk94`), rotated by `unk68`, mirrored with `unkA0`, scaled to
+the stage distance when `unkB0` is set [V].
+
+### 4.4 Stage set-up
+
+At the fight set-up (`func_0036D010`, battle_flow): `func_00393838(stage)` and `func_00392E00(0x40 + it)` in the demo,
+`func_0038D508`, `func_00393718` (starts the demo's scripted camera with the projection matrix of `func_00366EB8`),
+`func_00390E08` (clears the keys and loads the stage's values, `func_0038DBC0`), `func_00395400` (the round-start
+zoom of `D_008BC690`, 0x78 frames in round 1, 0x5A later, stepped by `func_003954E8` inside the intro blend), and at boot `func_00393898` and `func_003941F0` normalise the weighted lists once [V].
+
+### 4.5 Status (T15 batch 1)
+
+53 of 105 functions match. 52 are `NON_MATCHING`: 36 compiled drafts with their differences in the note, and 16 raw
+m2c drafts (`func_0038C1E8`, `func_0038EC08`, `func_0038FD90`, `func_00391358`, `func_00394648`, `func_0038F7F8`,
+`func_0038DEA0`, `func_0038E6D0`, `func_00395EE0`, `func_0038DC68`, `func_003959C8`, and the four float functions
+`func_0038DA28`, `func_00392F80`, `func_003932F0`, `func_00393550`) that do not compile yet. The float functions need
+a `.lit4` subsegment for this file (0x5F5174-0x5F519C, ten words) once one of them is C.
+
+## 5. What the simulation depends on (determinism)
+
+1. **The camera phase** `gRoundPhase` (0x5F5EF0): written by `func_0038D518` (and by `battle_flow`), read by
+   `Battle_ApplyVelocity` and the round predicates [V]. The name is from T14 b2; it is the camera's phase as much as the
+   round's.
+2. **The camera angles** `D_00415808`: `Battle_UpdateFacing` copies the yaw `[1]` into `Fighter.unk48`, which the command
+   situation tests use through the quadrants `unk50`-`unk58` (fighter.md sections 5.2, 5.9) [V].
+3. **Random numbers**: the camera draws from newlib `rand()` (`func_00393A90`, `func_00394110`, `func_00394300` when a
+   move, hit or throw starts a reaction camera; `func_00395D20`, `func_00396620`, `func_00396AB0` in demo and replay
+   cameras), from the CPU's generator `func_003800D8` (`D_005F6C08`: `func_0038BF98`, `func_003910D0`, `func_00393A90`
+   on stages of camera style 1 / 2, `func_00396AB0`) and from its own LCG `D_005F5CF4 = (D_005F5CF4 + 1) * 0x10DCD` in the
+   special ending (`func_003957A0`; `Rng_Init` seeds `D_005F5CF4`). The CPU opponent and the intro poses use the same
+   `rand()` state, so a camera that consumes a different number of values changes the CPU's choices [V calls].
+4. **The camera state** `D_00433330`: `func_00372E98` asks `func_0038E2D0` (hold flag `unkC4`, both moves' byte 0x2C)
+   before re-centring, and resets the camera after it [V].
+
+The fight never reads `D_005F5CB6` for gameplay. The stage reaches the simulation only through the camera: its style
+(`D_00507FE0`, fifth value, in `D_00433330.unkB4`) decides whether reaction cameras draw from `rand()` or from the CPU's
+generator, and halves the yaw choices (`func_00394110`) [V for the readers found; I that none is missed in the
+asm-only modules].
+
+## 6. Open
+
+- The meanings of the camera modes and of most `D_00433330` fields; the roles of `func_0038C1E8` and the orbit
+  functions are read from their call graph and m2c output only.
+- `func_003D0A38` / `func_003D2818` (phases 2 and 3) are in `model_anim` and not read.
+- Suggested names once matched: `Cam_Update` (`func_0038D518`), `Cam_Reset` (`func_0038C0F0`), `Cam_SetKey`
+  (`func_0038E4F8`), `Cam_SetDistance` (`func_0038DA28`), `CamScript_Load` / `CamScript_Step` (`func_00392E00` /
+  `func_003923F0`), `Cam_PickReaction` (`func_00393A90`), `Stage_GetCamScriptBank` (`func_00393838`).

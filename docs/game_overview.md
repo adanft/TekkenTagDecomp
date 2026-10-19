@@ -187,7 +187,7 @@ though an edge could still fall between two objects that are both inside the ran
 | `fight_misc` | 0x376C30 | 0x3790C8 | 29 | The hit test of the fight (T14 b3): attack volumes against body spheres (`func_003770E0`, 64-bit division), body sphere radii, fighter push (`Fighter_Push`) and push sphere radii (`Fighter_SetPushRadii`), the special attack volume of character 0x1D (atan2f) [V]. `src/fight_misc.c`; `.rodata` 0x506150-0x506260 (tables read through `D_0042EFD8` in `.data`, three jump tables) and `.lit4` 0x5F5170 are its own [V]; the end is [I]: `func_003790C8` reads `.data` placed after the practice object's, so it starts `practice`. [systems/fighter.md](systems/fighter.md) section 5.5 |
 | `practice` | 0x3790C8 | 0x37BA88 | 44 | "FREESTYLE", "VS CPU", "(CPU)", "(YOU)", "TYPE %d", "RANDOM" |
 | `fighter_core` | 0x37BA88 | 0x38BF98 | 277 | practice mode support (command recorder `gPracRecorder`, command lists, dummy conditions, practice reset) 0x37BA88-0x3800D8 and the CPU opponent (`Cpu_GetInput`, `Cpu_Think`, candidate moves, handler table `D_00507A80`) 0x3800D8-0x38BF98 [V, T14 b1]; not the move interpreter or hit detection. `src/fighter_core.c`, one C file for the range, with the `.rodata` subsegment 0x5064C0-0x507EE0 (T14 b7). The `.rodata` order shows that the object before (`asm/3A0C8.s`, from 0x3790C8) runs past 0x37BF48 and ends before 0x37C370: its menu strings and tables (0x506528-0x506BF0) follow the constants of `func_0037BB70`-`func_0037BF48`, so 0x37BA88 is not an object edge [V order; I edges]. [systems/fighter.md](systems/fighter.md) |
-| `camera_stage` | 0x38BF98 | 0x396D00 | 105 | `sceVu0ViewScreenMatrix` (0x38DA28), camera/stage tables 0x433330 [I] |
+| `camera_stage` | 0x38BF98 | 0x396D00 | 105 | The fight camera and its per-stage values (T15 b1): `func_0038D518` steps the camera every simulated frame from `func_0036DDD0` and advances `gRoundPhase`; camera keys, blends and scripts; reaction cameras drawn with `rand()` and the CPU generator; stage camera distances `D_00507FE0`; `sceVu0ViewScreenMatrix` (0x38DA28) [V]. `src/stage.c`, one C file for the range: both ends are object edges [V: the `.rodata` 0x507EE0-0x509D00 starts right after `fighter_core`'s and ends at `pad`'s, and the C file links byte-identical]; its `.lit4` (0x5F5174-0x5F519C) is not a subsegment yet. No stage geometry exists in the simulation. [systems/stage.md](systems/stage.md) |
 | `pad` | 0x396D00 | 0x397948 | 11 | `scePad*`, `sceMtap*` [V block]; `.rodata` 0x509D00-0x509E38. `src/pad.c` |
 | `file` | 0x397948 | 0x398510 | 29 | `File_*`, `Iop_*` [V block] (section 7); starts with the SIF command 0 handler; `.rodata` 0x509E40-0x50CE58 (file table, BGM tracks, two jump tables). `src/file.c` |
 | `gfx` | 0x398510 | 0x3994C0 | 51 | `Gfx_*` [V block]; 0x398510-0x398858 are small helpers (stubs, fixed-point sqrt/sin, DMA packet table `D_004362A0`) whose `.data` lies between `pad`'s and `gfx`'s, so they open this object [I]. `src/gfx.c` |
@@ -231,13 +231,13 @@ though an edge could still fall between two objects that are both inside the ran
 | 0x8BCC80 | `gPadPorts` | per-port pad state, 0x24-byte stride (`Pad_Update`) | V stride; content I |
 | 0x5F6C5C | `gMultitap` | selects the player-to-port table 0x509D00 (+0 without, +8 with multitap) | I |
 | 0x415778 / 0x4157B8 / 0x4157C8 | `gPlayerInput*` | per-player outputs of `Pad_GetPlayerInput`: 4 words, 4 bytes (reset to 0x80: analog sticks), 12 bytes (pressure) per player | I |
-| 0x5F5CB6 (u16) | | index of the 23-entry byte tables 0x455D50 / 0x455D68 read every frame; read by 60+ functions [I: stage] | I |
+| 0x5F5CB6 (u16) | | stage index: the 23-entry byte tables 0x455D50 / 0x455D68 read every frame, stage loading, music, camera values `D_00507FE0` (25 entries); read by 60+ functions; no gameplay reader ([systems/stage.md](systems/stage.md)) | V for the stage use; I for completeness |
 | 0x509E40 | `gFileTable` | 748 file entries (section 7) | V |
 | 0x8BCD40 / 0x8BCF80 | `gFileReqs` / `gFileQueue` | 24 requests of 0x18 bytes / 24 queue pointers, +0x60 busy word | V |
 | 0x5F6C64 / 0x5F6C60 | | pending request count / IOP status word (`sceSdRemote(1, 0x2030)`) | V |
 | 0x5F61F0 / 0x5F61EC | | sound command buffer write pointer / count | V |
 | 0x5F5F2C | `gBattleParity` | 0/1, flipped every simulated frame; picks which fighter steps first (systems/fighter.md section 5) | V |
-| 0x5F5EF0 | `gRoundPhase` | round state, switched on by `Battle_UpdateRound`; 0xD, 0xE-0x10, 0x11-0x12 tested by small predicates | I |
+| 0x5F5EF0 | `gRoundPhase` | round and camera phase: `Battle_UpdateRound` sets 0xE-0x12 at the round end, the camera step `func_0038D518` switches on it and advances it (1 to 0xD, 0xE / 0xF to 0x10); `Battle_ApplyVelocity` moves the fighters only below 0xE ([systems/stage.md](systems/stage.md) section 4.1) | V |
 | 0x5F5F04 | `gRoundNumber` | 1 on the first round (intro poses) | I |
 | 0x5F5C30 | `gRoundTimer` | the round ends when it reaches 0 or a life (`Fighter.unk40C`) does (`Battle_IsRoundOver`) | I |
 | 0x5F5C28 | | distance between the two fighters, written by `Battle_UpdateDistance` (name not applied: `src/fighter_core.c` reads it) | I |
@@ -264,6 +264,11 @@ Two generators [V]:
 
 For a deterministic port and replays: the boot seed (Timer 0) and the spin LCG depend on real time; the
 reseed adds the VBlank count. All three must become inputs or saved state (T26-T27).
+
+The fight camera (`src/stage.c`, T15 b1) draws from `rand()` and from the CPU's generator `func_003800D8` when moves,
+hits and throws start reaction cameras, and the special ending advances a third LCG, `D_005F5CF4 = (D_005F5CF4 + 1) *
+0x10DCD` (seeded by `Rng_Init`); the camera is part of the synchronised state ([systems/stage.md](systems/stage.md)
+section 5).
 
 Inside the fight simulation (T14 b2, [systems/fighter.md](systems/fighter.md) section 5): `rand()` picks the intro
 pose of a fighter (`func_00368398`), and `gFrameCount` sets the initial `gBattleParity` (`func_0036E138`) and the
