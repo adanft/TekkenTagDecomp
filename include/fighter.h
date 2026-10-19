@@ -194,7 +194,8 @@ typedef struct {
     /* 0x002E */ s16 unk2E;
     /* 0x0030 */ s16 unk30;
     /* 0x0032 */ s16 unk32;
-    /* 0x0034 */ u8 pad34[0x6];
+    /* 0x0034 */ s16 unk34;                   /* root channel 2 of the motion frame, & 0x7FFF (Skel_Update) */
+    /* 0x0036 */ u8 pad36[0x4];
     /* 0x003A */ s16 unk3A;                   /* facing angle (0x4000 / -0x4000 at a practice reset) [I] */
     /* 0x003C */ s16 unk3C;                   /* facing angle of the body [I] */
     /* 0x003E */ u16 unk3E;                   /* unk3C - unk3A (func_00370F28) */
@@ -347,10 +348,19 @@ typedef struct {
     /* 0x019C */ s32 unk19C;
     /* 0x01A0 */ s32 unk1A0;
     /* 0x01A4 */ s32 unk1A4;
-    /* 0x01A8 */ u8 pad1A8[0x48];
+    /* 0x01A8 */ s32 unk1A8;                  /* attack volume 1: start (Skel_SetVolumeStarts) */
+    /* 0x01AC */ s32 unk1AC;
+    /* 0x01B0 */ s32 unk1B0;
+    /* 0x01B4 */ s32 unk1B4;                  /* attack volume 1: end (Skel_PlaceHitShapes) */
+    /* 0x01B8 */ s32 unk1B8;
+    /* 0x01BC */ s32 unk1BC;
+    /* 0x01C0 */ u8 pad1C0[0x30];
     /* 0x01F0 */ BodySphere unk1F0[14];       /* body spheres hit by the other fighter's attack volumes */
     /* 0x0308 */ PushSphere unk308[8];      /* push spheres (Fighter_Push) */
-    /* 0x0388 */ u8 pad388[0x14];
+    /* 0x0388 */ s32 unk388;                  /* copy of body sphere 0's centre (Skel_PlaceHitShapes) */
+    /* 0x038C */ s32 unk38C;
+    /* 0x0390 */ s32 unk390;
+    /* 0x0394 */ u8 pad394[0x8];
     /* 0x039C */ HitContact unk39C;           /* where the last hit landed (func_003770E0) */
     /* 0x03B8 */ s32 unk3B8;                  /* unk51C / unk520 / unk524 of the previous frame */
     /* 0x03BC */ s32 unk3BC;
@@ -394,13 +404,14 @@ typedef struct {
     /* 0x04C0 */ MoveCmdState unk4C0;
     /* 0x04D4 */ MoveCmdSlot unk4D4;       /* a command matched this frame, buffered [I] */
     /* 0x04E8 */ MoveCmdSlot unk4E8;       /* copy of unk4D4 kept for the next frame [I] */
-    /* 0x04FC */ u8 pad4FC[0x20];
+    /* 0x04FC */ s32 unk4FC;                  /* motion scale of the root channels, 1.0 = 0x1000 (Motion_GetScale) */
+    /* 0x0500 */ u8 pad500[0x1C];
     /* 0x051C */ s32 unk51C;
     /* 0x0520 */ s32 unk520;
     /* 0x0524 */ s32 unk524;
     /* 0x0528 */ u8 pad528[0xFC];
     /* 0x0624 */ s16 unk624;
-    /* 0x0626 */ u8 pad626[0x2];
+    /* 0x0626 */ s16 unk626;                  /* returned by the projection of joint 11 (Skel_ProjectJoints) */
     /* 0x0628 */ s16 unk628;                  /* tested against 0x100 / 0x214 / -0x14 (Cmd_CheckSituation, kind 0x5C) */
     /* 0x062A */ s16 unk62A;
     /* 0x062C */ s16 unk62C;
@@ -414,11 +425,18 @@ typedef struct {
     /* 0x0710 */ s32 unk710;
     /* 0x0714 */ u8 pad714[0x14DC];
     /* 0x1BF0 */ f32 unk1BF0[4][4];             /* a matrix (func_00378760) */
-    /* 0x1C30 */ u8 pad1C30[0x9422];
+    /* 0x1C30 */ u8 pad1C30[0x9420];
+    /* 0xB050 */ s16 unkB050;                 /* joint count when above 18 (Skel_ComputeWorld) */
     /* 0xB052 */ u8 unkB052;                  /* set while juggled and unkF7 is clear (Battle_UpdateMovement) */
-    /* 0xB053 */ u8 padB053[0xD9];
+    /* 0xB053 */ u8 padB053[0x19];
+    /* 0xB06C */ s32 unkB06C[2];             /* frame in the clip unkB074 (func_00364390) */
+    /* 0xB074 */ s32 unkB074[2];             /* clip of a second motion bank, 0 = the character's own (func_00364390) */
+    /* 0xB07C */ u8 padB07C[0x8];
+    /* 0xB084 */ s32 unkB084;                 /* frame in the clip unkB088 (func_00364298) */
+    /* 0xB088 */ s32 unkB088;                 /* clip of the motion bank, 0 = the character's own (func_00364298) */
+    /* 0xB08C */ u8 padB08C[0xA0];
     /* 0xB12C */ struct FighterUnkB12C *unkB12C;  /* start position and move of the round (or NULL) [I] */
-    /* 0xB130 */ u8 padB130[0x2];
+    /* 0xB130 */ u16 unkB130;                 /* bit 0: joints 5 / 6 replaced (func_003626B8, func_0034FC88) */
     /* 0xB132 */ s16 unkB132;
     /* 0xB134 */ s16 unkB134;                 /* set by a tag (Fighter_StepMove) */
     /* 0xB136 */ u8 padB136[0x25A];

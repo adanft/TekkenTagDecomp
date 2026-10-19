@@ -13,6 +13,7 @@ options:
     - config/symbols/game_geometry.txt
     - config/symbols/libvu0.txt
     - config/symbols/game_scene3d.txt
+    - config/symbols/game_skeleton.txt
     - config/symbols/game_theater.txt
     - config/symbols/game_draw_list.txt
     - config/symbols/crt0.txt
@@ -23,6 +24,7 @@ options:
     - config/symbols/game_memcard.txt
     - config/symbols/game_font_tex.txt
     - config/symbols/game_fighter_setup.txt
+    - config/symbols/game_motion.txt
     - config/symbols/game_battle_flow.txt
     - config/symbols/game_sound.txt
     - config/symbols/game_fight_misc.txt
@@ -119,12 +121,16 @@ segments:
       - [0x1B30, asm]
       - [0x3E78, c, dma_gif]
       - [0x7398, asm]
+      - [0xF748, c, skeleton]
+      - [0x10F10, asm]
       - [0x18358, c, main]
       - [0x19A38, asm]
       - [0x1D2B0, c, rng_misc]
       - [0x1E048, c, dma_spr]
       - [0x1F808, c, memcard]
       - [0x218B8, asm]
+      - [0x249F0, c, motion]
+      - [0x25448, asm]
       - [0x292F8, c, battle_flow]
       - [0x355E8, c, sound]
       - [0x37C30, c, fight_misc]
@@ -151,6 +157,8 @@ segments:
       - [0x1BC9B4, rodata]
       - [0x1BCFC0, .rodata, memcard]
       - [0x1BD280, rodata]
+      - [0x1BD610, .rodata, motion]
+      - [0x1BD630, rodata]
       - [0x1C08D0, .rodata, battle_flow]
       - [0x1C1780, .rodata, sound]
       - [0x1C1D50, rodata]
@@ -165,6 +173,8 @@ segments:
       - [0x1DA340, .rodata, dma_gif]
       - [0x1DA3B8, rodata]
       - [0x2B6100, lit4]
+      - [0x2B6114, .lit4, skeleton]
+      - [0x2B6154, lit4]
       - [0x2B6168, .lit4, battle_flow]
       - [0x2B6170, .lit4, fight_misc]
       - [0x2B6174, .lit4, stage]

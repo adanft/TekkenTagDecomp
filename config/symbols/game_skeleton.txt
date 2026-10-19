@@ -1,0 +1,11 @@
+// Game module skeleton (docs/game_overview.md section 4; docs/systems/animation.md; the range is provisional).
+// Naming rules: docs/decomp_guide.md, "Naming".
+// range: 0x0034E748 0x0034FF10
+Skel_Update = 0x0034E748; // type:func
+Skel_GetPoseAngles = 0x0034E900; // type:func
+Skel_SetRootMatrix = 0x0034E938; // type:func
+Skel_RotMatrixFromAngles = 0x0034ED90; // type:func
+Skel_ComputeWorld = 0x0034EF20; // type:func
+Skel_SetVolumeStarts = 0x0034F288; // type:func
+Skel_PlaceHitShapes = 0x0034F3D8; // type:func
+Skel_ProjectJoints = 0x0034FD90; // type:func

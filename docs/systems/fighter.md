@@ -6,7 +6,8 @@ What the decompiled code shows about the fighter state, its input, the per-frame
 (`src/fighter_core.c`, module `fighter_core`, 0x37BA88-0x38BF98), and the life and tag functions of two other modules
 (`src/select_results.c`, 0x3C1470-0x3C1A78, and `src/model_anim.c`, 0x3D3288-0x3D33F0, sections 5.6 and 5.7). The
 `fighter_core` name came from the first map ([game_overview.md](../game_overview.md) section 4); that code turned out to
-be practice mode and the CPU, while the simulation is in `battle_flow`.
+be practice mode and the CPU, while the simulation is in `battle_flow`. The skeleton and motion code that places the
+position, the body spheres and the attack volumes is in [animation.md](animation.md) (T16).
 
 Tags: **[V]** read in decompiled, matching C or in the disassembly, **[I]** inferred.
 
@@ -238,7 +239,8 @@ assembly are [I] unless marked.
    by `func_00365D00()` frames.
 5. Otherwise the simulation, in this order:
    1. `gBattleParity ^= 1`; round HUD [I] (`func_0036EA80`: "ROUND %d", "READY!", "K.O.", "TIME UP" ...);
-      `func_0036DDD0`; camera shake step `func_0035C320` [I]; `func_00341AE8`; `func_0034F288` per fighter.
+      `func_0036DDD0`; camera shake step `func_0035C320` [I]; `func_00341AE8`; `Skel_SetVolumeStarts` per fighter
+      (attack volume start points = last frame's joint positions, [animation.md](animation.md) section 3.3).
    2. **`Battle_StepMoves`** (0x372A88): the move step `Fighter_StepMove` (0x36A428) of both fighters, the one
       picked by `gBattleParity` first. When one of them reaches the end of a move of kind 0x20 (a throw [I]), the
       other first starts the move given by `D_0046BE78[entry.unk4].unk1C` (kind 0x24, `Fighter_StartThrownMove`).
@@ -252,9 +254,11 @@ assembly are [I] unless marked.
       two points `D_00879610` (`D_005F5C38`).
    5. `Battle_UpdateMovement` (0x36FB40, 0x12E0 bytes, C draft in `#if 0`, read in full; integer only, no floats): the
       per-frame movement and flags of both fighters (section 5.12); `func_003772F0` unless a fighter has `unkE0` set.
-   6. Skeleton and animation side (`func_00371B18`, `func_00378150`, `func_00378600`, `func_003BAEF0`,
-      `func_003A6390`), `Fighter_UpdateMotion` (position delta of the frame into `unk3C4`-`unk3CC`),
-      `func_0034F3D8`, the camera targets (`func_003D3C68` with `unk51C`, `unk520`, `-unk524`, `unk122`).
+   6. Skeleton and animation side (`func_00371B18`: `Skel_Update` for each drawn fighter, which samples the motion,
+      writes the position `unk51C`-`unk524` and the joints, [animation.md](animation.md); `func_00378150`,
+      `func_00378600`, `func_003BAEF0`, `func_003A6390`), `Fighter_UpdateMotion` (position delta of the frame into
+      `unk3C4`-`unk3CC`), `Skel_PlaceHitShapes` (body and push spheres, attack volume ends on joints), the camera
+      targets (`func_003D3C68` with `unk51C`, `unk520`, `-unk524`, `unk122`).
    7. `Battle_ApplyVelocity` (0x371C68): while `gRoundPhase < 0xE`, adds `unk3E8`-`unk3F0` to both position
       triples `unk4`-`unkC` and `unk51C`-`unk524` of both fighters (not on frame 1 of move 0x1019).
    8. **`Battle_ResolveHits`** (0x371D68, matching C since T14 b5): clears the hit flags (`unk12F`, `unk132`, `unk133`,
@@ -468,7 +472,8 @@ in frame N+1 [V order]. For netplay the inputs of both sides enter only through 
   the cut segment closest to the centre is found in the x / z plane (64-bit products divided with `__divdi3`); it
   hits when that distance squared is at most `unk10`. Height only clips the segment: the final test is 2D [V].
 - The sphere radii come from the per-character table `D_0042F098` (`func_00377F58`; `func_00377FB8` adds 10) [V];
-  their centres are written by the skeleton code [I].
+  their centres are joint positions written each frame by `Skel_PlaceHitShapes`, and the attack volumes' end and start
+  points by `Skel_PlaceHitShapes` / `Skel_SetVolumeStarts` ([animation.md](animation.md) section 3.3) [V].
 - Character 0x1D has an extra attack volume driven by the four functions `func_00378810`, `func_00378A28`,
   `func_00378C48`, `func_00378E70` (sin / cos of the facing, offsets from `D_00506248`-`D_0050625C`), started by
   moves 0x104F, 0x1051 / 0x1053, 0x1A48, 0x1054 (`func_00378150`) or by a request in `D_008A7B70`

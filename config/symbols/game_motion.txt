@@ -1,0 +1,10 @@
+// Game module motion (docs/game_overview.md section 4; docs/systems/animation.md; the range is provisional).
+// Naming rules: docs/decomp_guide.md, "Naming".
+// range: 0x003639F0 0x00364448
+Motion_Sample = 0x003639F0; // type:func
+Motion_GetScale = 0x00363A80; // type:func
+Motion_SampleRoot = 0x00363AB8; // type:func
+Motion_SamplePose = 0x00363BD0; // type:func
+Motion_DecodeFrame = 0x00363D00; // type:func
+Motion_LoadBanks = 0x00363FB8; // type:func
+Motion_CopyFrame = 0x003641C0; // type:func

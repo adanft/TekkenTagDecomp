@@ -905,6 +905,62 @@ Tools:
 - decomp-permuter on `func_00395718` (2 lines) found only a change of meaning; on `func_0038D3D0` its best was score 20
   (from 50), not a match; on `func_00394300` nothing beat the base score in about 87,000 iterations (a few minutes).
 
+### Lessons from T16 batch 1 (2026-10-19)
+
+Objects and data:
+
+- Two new C files cut out of large assembly chunks: `src/skeleton.c` (`[0xF748, c, skeleton]` / `[0x10F10, asm]`,
+  0x34E748-0x34FF10, inside the `scene3d` range) and `src/motion.c` (`[0x249F0, c, motion]` / `[0x25448, asm]`,
+  0x3639F0-0x364448, inside `fighter_setup`), with their own symbol files (`game_skeleton.txt`, `game_motion.txt`; the
+  old modules got two `// range:` lines each). The clean rebuild stayed byte-identical with every function still in
+  `INCLUDE_ASM` before any C was written.
+- **Data order is not text order here.** The skeleton functions' `.sdata` (0x5F5E50-0x5F5E78), `.lit4` (0x5F5114-0x5F5154)
+  and `.rodata` (`D_004FC668`) sit between those of `fighter_setup`'s 0x3625B0-0x3645D8 and 0x366DB0- parts, although
+  their code is at 0x34E748: an object's data position cannot place its code. A `.lit4` subsegment still works for the
+  cut (`[0x2B6114, .lit4, skeleton]`, `LIT4_WORD` for the float function left in assembly); `Skel_RotMatrixFromAngles`
+  (C) emits its six words in place.
+- A function with a jump table in a cut needs a `.rodata` subsegment before it can be C: without one the linker cannot
+  resolve the table's `.L` labels once the function's `.s` file is gone. `motion` got `[0x1BD610, .rodata, motion]`
+  (only `jtbl_004FC610`, `force_not_migration`, `INCLUDE_RODATA` in front of the decoder).
+- Fighter offsets beyond what `Fighter` names are reached through overlay structs with the full slot size
+  (`FighterSkel`, 0xB8A0 bytes, joints at 0x630; `FighterBlend`, a `GteMatrix` array at 0xB390): with a
+  `GteMatrix`-typed view the blend copy `unkB390[i] = j->unk4` addresses `f + i * 32 + 0x8000 + 0x3390` as the original;
+  the `s16 [18][16]` field of `Fighter` hoisted the whole 0xB390 instead.
+
+Code shapes:
+
+- **The original's angle conversion is a macro on a masked value**: `((a) & 0xFFFF) <= 0x7FFF ? K * ((a) & 0xFFFF) :
+  (((a) & 0xFFFF) - 0x10000) * K` gives `lhu / li 0x7FFF / slt`; a `(u16)` cast is shortened by the front end to a sign
+  test (`lh / bltz`), an int temporary changes the registers (`Skel_RotMatrixFromAngles`). The constant is `6.2831855f /
+  65536.0f` (0x38C90FDB, folded exactly).
+- **`x ^ C` against 0 on an `s16` global**: written in place the front end narrows it to `lhu`; the original's `lh /
+  xori / bnez` came from an `s32` local initialised from the global in the declarations (`s32 mode = gMode;`,
+  `Skel_ComputeWorld`).
+- **A mask that is not folded**: `(m->unk24 & 0x7FFFF) & 0x10000` with both constants in registers is a bit field: the
+  low 19 bits read through a `{ u32 lo : 19; u32 hi : 13; }` view (`func_0034FB48`); written with two `&` the tree folds
+  them into one.
+- **One loop variable for every loop** (`i` for the 3-step vector adds and for the sphere loops) gave the original's
+  registers in `Skel_PlaceHitShapes`; a second counter took other registers in the small loops.
+- **Re-reading a pointer field instead of a local**: `f->unkC0->unk28`, `f->unkC0->unk29` ... written each time (CSE
+  merges the loads) reproduced the copies of the move pointer in `t0` / `a3` (`Skel_SetVolumeStarts`,
+  `Skel_PlaceHitShapes`); a local `m` gave one register.
+- Joints addressed as `SKEL(f)->unk630[2].unk24` (constant offsets from `f`) matched where a local pointer to the joint
+  array kept a second base register.
+- A clamp of a frame index loaded right after a call matched with the load placed before the NULL test of the call's
+  result (`func_00364298`); `j--` on a parameter before two indexed loads reproduced `addiu a1, a1, -1` and a later
+  `j - 1` as `addiu v0, a1, -1` (`func_00364390`).
+- decomp-permuter (score 0 in under 10 minutes) matched `Motion_SampleRoot` and `func_00363BD8` with the `>> 12` branch
+  computing the height into its own temporary first (`y2 = out[1] * scale / 0x1000; out[2] = ...; out[1] = y2;`); the
+  temporary shared with the other branch gave other registers.
+- `exit()` must be declared `noreturn`: the code after the call is the next block (`Motion_LoadBanks`).
+- The EE passes a fifth argument in `t0` (EABI): `func_003640B0` tail-calls `func_003641C0(out, frame, i, n, clip)`.
+- `-(x - 0x8000)` folds to `0x8000 - x`; `-(x - 0x8001 + 1)` keeps `addiu -0x8000 / negu` (marked fake in a draft).
+
+Not matched yet (closest attempts in `#if 0`): `Skel_SetRootMatrix` (about 38 lines, registers of the float path),
+`func_0034FBA0` (three multiplications of the joint index in the original), `Skel_ProjectJoints` (1 line: the loop's
+alignment nop), `Motion_DecodeFrame` (59 lines, registers only; decomp-permuter: no natural change in 10 minutes), `Motion_CopyFrame`
+(5 lines; decomp-permuter 10 minutes, only fakes). [systems/animation.md](systems/animation.md) describes what they do.
+
 ## Decompiled so far
 
 | File | Range | C / functions | Notes |
@@ -927,7 +983,9 @@ Tools:
 | `src/select_results.c` | 0x3C1470-0x3C1A78 | 2 / 4 | team life at round start and its per-frame recovery ([systems/fighter.md](systems/fighter.md) section 5.6); a cut inside the `select_results` module, not an object edge |
 | `src/model_anim.c` | 0x3D3288-0x3D33F0 | 1 / 1 | the tag swap ([systems/fighter.md](systems/fighter.md) section 5.7); a cut inside the `model_anim` module, not an object edge |
 | `src/stage.c` | 0x38BF98-0x396D00 | 58 / 105 | the fight camera and its per-stage values (module `camera_stage`): the per-frame camera step `Cam_Update` on `gRoundPhase`, camera keys and blends, camera scripts, reaction cameras drawn at random, stage camera distances ([systems/stage.md](systems/stage.md)); `.rodata` 0x507EE0-0x509D00 included in place; `.lit4` 0x5F5174-0x5F519C (`LIT4_WORD` for the float functions still in assembly) |
+| `src/skeleton.c` | 0x34E748-0x34FF10 | 13 / 16 | the fighter skeleton (module `skeleton`): per-frame update `Skel_Update`, the root matrix that writes the position `unk51C`..`unk524`, joint world matrices, body / push spheres and attack volumes on joints, joint screen positions ([systems/animation.md](systems/animation.md)); `.lit4` 0x5F5114-0x5F5154 (`LIT4_WORD` for `Skel_SetRootMatrix`) |
+| `src/motion.c` | 0x3639F0-0x364448 | 17 / 19 | motion data (module `motion`): frame sampling, the delta / run-length frame decoder, motion banks and clips ([systems/animation.md](systems/animation.md)); `.rodata` 0x4FC610-0x4FC630 (the decoder's jump table) included in place |
 
 Functions left as `INCLUDE_ASM` carry their closest attempt above them in `#if 0` with a `NON_MATCHING:` note; in
 `fighter_core.c`, `battle_flow.c` and `fight_misc.c` every remaining function has one (T14 b9); in `stage.c` every
-remaining function has one that compiles when enabled (T15 b2).
+remaining function has one that compiles when enabled (T15 b2), as in `skeleton.c` and `motion.c` (T16 b1).

@@ -137,8 +137,8 @@ void func_00376C30(void);
 s32 func_003B00F0(s32 port);
 void Battle_InitTeamLife(void);
 void func_00341AE8(Fighter *a, Fighter *b);
-void func_0034F288(Fighter *f);
-void func_0034F3D8(Fighter *f);
+void Skel_SetVolumeStarts(Fighter *f);
+void Skel_PlaceHitShapes(Fighter *f);
 void func_0035B9A8(Fighter *a, Fighter *b);
 void func_0035C238(void);
 void func_0035C240(s32 *pos);
@@ -3464,8 +3464,8 @@ s32 Battle_UpdateFrame(void) {
             func_0036DDD0(f0, f1);
             func_0035C320();
             func_00341AE8(f0, f1);
-            func_0034F288(f0);
-            func_0034F288(f1);
+            Skel_SetVolumeStarts(f0);
+            Skel_SetVolumeStarts(f1);
             Battle_StepMoves(f0, f1);
             Battle_UpdateFacing(f0, f1);
             Battle_UpdateDistance();
@@ -3484,8 +3484,8 @@ s32 Battle_UpdateFrame(void) {
             func_003A6390(f1, 1);
             Fighter_UpdateMotion(f0);
             Fighter_UpdateMotion(f1);
-            func_0034F3D8(f0);
-            func_0034F3D8(f1);
+            Skel_PlaceHitShapes(f0);
+            Skel_PlaceHitShapes(f1);
             if (f0->unk137 != 0 && f0->unk127 != 0) {
                 func_0035C240(&gFighters[0].unk51C);
                 func_0035C2C8(0);
@@ -6708,10 +6708,10 @@ s32 Fighter_GetLaunchKind(Fighter *f, Fighter *o) {
 s16 Math_Sin(s32 angle);
 s32 abs(s32 x);
 s16 Math_Cos(s32 angle);
-void func_00363AB8(s32 move, s16 *pos, s32 frame, Fighter *f);
+void Motion_SampleRoot(s32 move, s16 *pos, s32 frame, Fighter *f);
 
 /* The launch of a fighter (Fighter_StepMove kinds 0x1E and 0x26, record func_00374010(unkFC)): the height to reach
- * (record unk2, else the move's position at its last frame, func_00363AB8), the launch speed unk104 (0-100, more with
+ * (record unk2, else the move's position at its last frame, Motion_SampleRoot), the launch speed unk104 (0-100, more with
  * each hit of the juggle unk100) split by the facing into unk106 / unk10A, the vertical speed unk108 and the frames in
  * the air unk178, so that the arc lands where the move continues [V code; I meaning]. */
 void Fighter_StartLaunch(Fighter *f, Fighter *o) {
@@ -6744,7 +6744,7 @@ void Fighter_StartLaunch(Fighter *f, Fighter *o) {
         if (n < 0) {
             n = m->unk18;
         }
-        func_00363AB8(m->unk0, pos, n, f);
+        Motion_SampleRoot(m->unk0, pos, n, f);
         h = pos[1];
         f->unk102 = h;
     }
