@@ -112,6 +112,37 @@ one of these functions through jump tables [V for the values; I for "guard / rea
   `func_00389B70` plays `func_00389B50` / `func_00384D78` candidates or side-steps (`func_0038A690(-1)`);
   `func_00381BF8` answers when hit with a command `func_00381B10` picked at random from `func_00381818`'s list for
   frame `cmd->unkB + 1` of the own move (`unk124` / `unk128`), at most `unk356` times (`unkFC`).
+- Deciders matched or read in T14 b8 (what each one reacts to) [V code; I meaning of the pad words and counters]:
+  - 4 `func_00388FA8` (C attempt): the opponent's move of flags 0x404 (own `unk330`). With a command of situation 0x34
+    (`func_00386388`) it presses 0x10 every `unkA0` frames; otherwise it lists the own move's commands that apply now
+    (`func_003835A0`), builds a mask of answers from the opponent's move (window `unk2C` / `unk2D`, kinds 0x10F / 0x607,
+    flags 0x10000 / 0x200000 / 2, `unk2A8`, `unk34`, rounds `unk20` / `unk24`, frame parity, character 0xE's move 0xBA9)
+    and draws from `D_005078E0` until an answer is in the mask: 1 holds 0x1000, 2 holds 0x80 (0x4080 every 8 frames),
+    4 holds 0x8000, 8 / 0x10 / 0x20 play a `func_00383F10` / `func_003840F8` / `func_00384578` candidate.
+  - 6 / 7 / 0x16 `func_0038A408` / `func_0038A500` / `func_0038AD00` (matching C): the character hooks below.
+  - 0xE / 0xF / 0x10 `func_00387600` / `func_003879A0` / `func_00387DA8`: follow-up plans. Decider 0xA lists them
+    (`func_003856C0` into `unk134`, `func_003857F8` into `unk154`, `func_00385A60` into `unk228`); while the plan runs
+    (`unk12C` / `unk14C` positive, `unk220` not negative) the decider plays one of its commands that applies now, at
+    random, with the chance `unk378` / always / `unk380` and the limits `unk376` / `unk37A` / `unk37E`, `unk258` < `unk25C`
+    and the filter `func_00387518`; otherwise the plan ends.
+  - 0x11 `func_00388278`: reacts to the own angle `unk40` and the opponent's early window (`unk19`): side-step pad words
+    0x6000 / 0x2000 / 0x8000 / 0x4040 / 0x4020 with the chances `unk390` / `unk38E`; fighters of variant 7 step by
+    `unk40` (inline `Cpu_Variant7Step`).
+  - 0x12 `func_00387120`: the general attack choice. Waits while `unk74` / `unk64` run, acts less often from round
+    `unk20` 2 on, picks candidates (`func_003865A0` with the wait `unk94`; at low life `func_00383EF0` ones), drops
+    `func_00384B80` ones unless `unk3E4` is 1, plays one (`func_003854B0`), may start the plans `unk12C` / `unk14C` and
+    keeps an attacking move in `unk90` (which the candidate list skips once with a chance of 7 in 8).
+  - 0x13 `func_00388840`: the waits (`unk4C`, `unk50`) and the situation of `func_00388530` (0-10): play a candidate of
+    `func_00384988` / `func_003849A0` / `func_003849B8` / `func_00384A50`, a side step, the command `D_005074BA`, or wait
+    4-59 frames holding 0x2000 / 0x6000 / 0x8000 / 0xC000 (by `unk54`).
+  - Not attempted yet: 1 `func_00381D30` and 0xD `func_00389D58`.
+- Candidate lists (T14 b8, matching C): the walkers of a move's command list (shared lists of 0x8004 included) test
+  `CPU_CMD_FOR_VARIANT`, `Cpu_IsCmdAllowed`, the frame window, `Cmd_CheckCondition` and `Cmd_CheckSituation`:
+  `func_00382AD8` fills `gCpuCands` for decider 0xA (and, when the window of the last command still holds and its move
+  differs, the commands of that move starting at frame 0 or 1; filter `unkBC` through `Cpu_RejectCands`),
+  `func_003835A0` the candidates of decider 4, `func_00381818` / `func_003814C8` the answers when hit (decider 2),
+  `func_003838B0` whether a command of flag 0x400000 applies, `func_00385DF8(id)` (C attempt) whether move `id` can be
+  started now. `func_003814C8` maps the kinds 0x3D-0x3F of the command picked to the codes 1-3.
 - Move kinds (`func_00383BD8`, matching C): the low half of a move's `unk8` classifies it (0x10F, 0x217, 0x31F, 0x412,
   0x51F) and the opponent's move flags (`unk33C`: 0x4C02, bits 0x400 / 4 / 1 / 2) say which kinds answer it, in two
   tables (`which` 0 / 1) [V code; I meaning: likely high / low / mid answers].
@@ -142,7 +173,7 @@ one of these functions through jump tables [V for the values; I for "guard / rea
   answers move 0x1407 at frames 0x18-0x19 with the command `D_00507618`; `func_0038BC00` (key 3, matching C) plays one
   of the commands `D_00507A52` / `D_00507A32` / `D_00507A12` (seven words each) depending on the opponent's move flags
   2 / 1 and `unk2A4` [V code].
-- Hooks (T14 b6): `func_0038A408` (C attempt, read in full) runs the hook `gCpu->unkB4` (the opponent's
+- Hooks (T14 b6; matching C since T14 b8): `func_0038A408` runs the hook `gCpu->unkB4` (the opponent's
   character's handler from `D_00507A88`) while `unkCC < 0`, with a chance of `unk382` in 4096; its result is -1 (nothing),
   -2 (acted), -3 (play one of the picked candidates at random, `func_003853E8`), 0x2000 / 0x8000 (hold that pad bit and
   call `func_00380540(0x10)`) or any other pad word to hold in `unk6`. `func_0038A500` and `func_0038AD00` are the same
@@ -597,6 +628,17 @@ have a start record `unkB12C`), `D_005F5E90` (the state changed this frame) and 
 | 4 result wait | `D_005F5F20 = 2`; phase 0xD ends at frame 0x4B, phases 0x11 / 0x12 at frame 0x3C, phase 0x10 when the winner's move (both moves in game type 5 or with the partner flag `unk402`) reaches its last frame; the delay counts down | at the end, the delay at 0, `D_0043B817 == 0` with `D_005F5F00` from frame 2, or pad bit 0x800 (`func_003712C0`): `func_00375448`, `func_00375428`; state 5 |
 | 5, 6 | nothing (the mode moves on) | |
 
+Matched in T14 b8 [V code; I meaning]: `func_0036EC50` plays the round call by the frame `D_005F5EE8` (round 1 /
+later rounds: 0x3D / 1 sound 0x105A or 0x105C in the last round, 0x64 / 0x28 the round number's sound from the table
+`D_00500458`, 0x96 / 0x5A sound 0x105B). `func_0036F920` runs the K.O. steps by the frame `D_005F5F28` (0x10 / 0x11
+with the option `D_0043B7F8[0x39]`, which counts up to 3 repeats, 0x32 `func_003D2B88` when the match is decided, 0x6E,
+and 0x87, where it returns 1 and sets `D_005F5C74`). `func_003685B8` starts the pose move 0x12A2-0x12A5 chosen by
+`func_00368528` (with `unk2E` 0x21 the pose 0 becomes one of the other three by `gFrameCount % 3`; `unkB12C` overrides
+move and position). `func_00372E98` keeps the fight near the origin: when a fighter's x / z leaves +-0x78000 both
+fighters move so that the first one stands at 0, the shift is kept in `unk10` / `unk14` of both and `func_0038C0F0` /
+`func_00350578` follow. `func_003691D8` is `Move_FindCommand` for the situation kinds below 0x60, filtered by the input
+class of the newest history entry (`func_00369188` against the entry's `unkA`).
+
 ### 5.12 Movement and per-frame flags (`Battle_UpdateMovement`, 0x36FB40, C draft)
 
 Read in full from the assembly; the C draft in `#if 0` follows it (about 720 lines still differ) [V code; I meanings]:
@@ -625,7 +667,7 @@ Read in full from the assembly; the C draft in `#if 0` follows it (about 720 lin
 - The meanings of most move kinds (`unk17A`, table in section 5.3), of the state codes `unk11E` / `unkD5` and of the
   move flag bits; what the push-radius kinds (`unkC0->unk30`) stand for; the attack levels other than 0x10F.
 - `Battle_UpdateMovement` (section 5.12), `Fighter_StepMove`, `Fighter_Push`, `Fighter_StartLaunch`,
-  `Cmd_CheckThrowCondition` and `func_00370F28` have C attempts in `#if 0`; the meaning of the round phases
+  `Cmd_CheckThrowCondition`, `func_00370F28` and the motion blend step `func_00373E38` have C attempts in `#if 0`; the meaning of the round phases
   `gRoundPhase` 0xD-0x12 and of the event kinds 6-11 (effects) is inferred.
 - Which records carry the damage events of each throw (the event lists are game data, read only at run time) and
   what the pairing record lists at 0x04-0x18 hold exactly.

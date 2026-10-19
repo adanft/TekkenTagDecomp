@@ -300,7 +300,67 @@ void func_00368528(Fighter *f, Fighter *o, s16 pose) {
     func_003685B8(o, f, p);
 }
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_003685B8);
+/* Starts the pose move of `pose` (0-3: moves 0x12A2-0x12A5; with unk2E 0x21, 0x12A2 becomes one of the other three by
+ * gFrameCount % 3), or the move and position of unkB12C when set, at frame 1 and runs its first step (func_00368528
+ * calls it for both fighters with the pose its pad buttons choose) [V code; I meaning]. */
+void func_003685B8(Fighter *f, Fighter *o, s16 pose) {
+    struct FighterUnkB12C *p;
+    struct FighterMove *m;
+    u16 a;
+
+    switch (pose) {
+    case 0:
+        f->unk184 = 0x12A2;
+        break;
+    case 1:
+        f->unk184 = 0x12A3;
+        break;
+    case 2:
+        f->unk184 = 0x12A4;
+        break;
+    case 3:
+        f->unk184 = 0x12A5;
+        break;
+    }
+    if (f->unk2E == 0x21 && (s16)f->unk184 == 0x12A2) {
+        switch ((u16)gFrameCount % 3) {
+        case 1:
+            f->unk184 = 0x12A4;
+            break;
+        case 2:
+            f->unk184 = 0x12A5;
+            break;
+        case 0:
+        default:
+            f->unk184 = 0x12A3;
+            break;
+        }
+    }
+    p = f->unkB12C;
+    if (p != NULL) {
+        f->unk184 = p->unk4;
+        f->unk4 = f->unk51C = p->unk6;
+        f->unkC = f->unk524 = p->unk8;
+        a = p->unkA;
+        f->unk40 = a;
+        f->unk3C = a;
+        f->unk1A = a;
+    }
+    m = func_00368218(f, (s16)f->unk184);
+    f->unkC6 = 0;
+    f->unkC0 = m;
+    f->unkB8 = m;
+    f->unk188 = m;
+    f->unkC4 = 1;
+    f->unk178 = 1;
+    f->unk17A = func_0036BE08(f, 6);
+    f->unk17C = 0;
+    f->unk17E = 0;
+    f->unk182 = 0;
+    f->unk180 = 0;
+    func_0036BD98(f);
+    Fighter_StepMove(f, o);
+}
 
 void func_00368748(Fighter *f, Fighter *o) {
     struct FighterUnkB12C *p = f->unkB12C;
@@ -527,7 +587,52 @@ u8 func_00369188(u16 code) {
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00369188);
 #endif
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_003691D8);
+extern MoveCmd D_0047F780[];
+u8 func_00369188(u16 code);
+s32 Cmd_MatchInput(Fighter *f, u16 code, u16 dir, u16 held, u16 pressed);
+void func_0036BC98(Fighter *f, MoveCmd *cmd);
+
+/* Move_FindCommand for the entries of kinds below 0x60: the first entry that applies at `frame` whose input class
+ * unkA includes the class of the newest input history entry (func_00369188) and whose situation holds (unk3 0 or
+ * Cmd_CheckSituation); an entry of kind 0x2E jumps to the list end, one of kind 0x1C is skipped while unk170 is set.
+ * Starts the command found (func_0036BC98) and returns it, or the end entry; clears unk172 [V code; I meaning]. */
+MoveCmd *func_003691D8(MoveCmd *c, s16 frame, Fighter *f, Fighter *o) {
+    u16 dir = f->unk438.unk7C;
+    u16 pressed;
+    u16 held;
+    u8 mask;
+    MoveCmd *ret;
+
+    f->unk172 = 0;
+    pressed = f->unk438.unk7E;
+    held = f->unk438.unk80;
+    mask = func_00369188(f->unk438.unk4[f->unk438.unk0]);
+    for (; c->unk0 != 0x8000; c++) {
+        if (c->unk0 == 0x8004) {
+            ret = c;
+            c = &D_0047F780[ret->unk6];
+        } else if (c->unk0 == 0x8005) {
+            c = ret;
+            continue;
+        }
+        if ((c->unkA & mask) && Cmd_MatchInput(f, c->unk0, dir, held, pressed) && frame >= c->unkB &&
+            frame <= c->unkC && Cmd_CheckCondition(f, o, c->unk2) && (c->unk3 & ~0x80) < 0x60 &&
+            (c->unk3 == 0 || Cmd_CheckSituation(c, f, o))) {
+            if ((u16)c->unk8 == 0x2E) {
+                while (c->unk0 != 0x8000) {
+                    c++;
+                }
+            }
+            if ((u16)c->unk8 != 0x1C || f->unk170 == 0) {
+                break;
+            }
+        }
+    }
+    if (c->unk0 != 0x8000) {
+        func_0036BC98(f, c);
+    }
+    return c;
+}
 
 extern u32 D_005F5F34;
 extern s32 D_005F5F30;
@@ -3454,7 +3559,34 @@ void func_0036EA80(Fighter *a, Fighter *b) {
 }
 
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500458);
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036EC50);
+extern const u16 D_00500458[];
+void Snd_PlaySe(s32 id, s32 player);
+
+/* The round call of the round start, by the frame D_005F5EE8 (round 1 / later rounds): at 0x3D / 1 sound 0x105A, or
+ * 0x105C in the last round (gRoundNumber at least D_005F5C72, neither fighter's unk402 set); at 0x64 / 0x28, outside
+ * the last round, the round number's sound from D_00500458 (0x1050 for round 9 with the language option 5 or 6); at
+ * 0x96 / 0x5A sound 0x105B [V code; I meaning of the sounds]. */
+void func_0036EC50(void) {
+    if (D_005F5EE8 == (gRoundNumber == 1 ? 0x3D : 1)) {
+        if (gRoundNumber < D_005F5C72 || gFighters[0].unk402 != 0 || gFighters[1].unk402 != 0) {
+            Snd_PlaySe(0x105A, 0);
+        } else {
+            Snd_PlaySe(0x105C, 0);
+        }
+    }
+    if (D_005F5EE8 == (gRoundNumber == 1 ? 0x64 : 0x28)) {
+        if (gRoundNumber < D_005F5C72 || gFighters[0].unk402 != 0 || gFighters[1].unk402 != 0) {
+            if ((u32)(D_0043B7F8[0] - 5) < 2 && gRoundNumber == 9) {
+                Snd_PlaySe(0x1050, 0);
+            } else {
+                Snd_PlaySe(D_00500458[gRoundNumber - 1], 0);
+            }
+        }
+    }
+    if (D_005F5EE8 == (gRoundNumber == 1 ? 0x96 : 0x5A)) {
+        Snd_PlaySe(0x105B, 0);
+    }
+}
 
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500470);
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500488);
@@ -3776,7 +3908,80 @@ void func_0036F918(void) {
     func_00364698();
 }
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036F920);
+void func_003D0748(Fighter *a, Fighter *b);
+void func_003A3108(void);
+void func_003660A8(void);
+void func_003D4718(void);
+s32 func_00364F18(void);
+void func_00366098(void);
+void func_003A2FE8(void);
+void func_003D4708(void);
+
+/* The steps of the round end by the frame D_005F5F28 (returns 1 at frame 0x87, with D_005F5C74 set) [V calls; I
+ * meaning]: 0x10 set-up (D_005F5C74 cleared, option 0x39 = 1, func_003D0748, round phase 3); 0x11, while the
+ * option 0x39 is set, waits for func_00364F18 (holding the frame) and then repeats frame 0x10's steps up to 3 times
+ * (option 0x39 counts, round phase 3, D_005F5EF8 from func_00364B50) or ends it (D_005F5F24 cleared); 0x32 in the
+ * last round or when a fighter reached D_005F5C70 wins func_003D2B88; 0x6E func_003660A8 / func_003A3108 /
+ * func_003D4718. */
+s32 func_0036F920(Fighter *a, Fighter *b) {
+    s32 r = 0;
+    u8 *opt;
+
+    switch (D_005F5F28) {
+    case 1:
+        break;
+    case 0x10:
+        D_005F5C74 = 0;
+        D_0043B7F8[0x39] = 1;
+        func_0036F918();
+        func_003D0748(a, b);
+        gRoundPhase = 3;
+        func_003465E0();
+        func_003A3108();
+        break;
+    case 0x11:
+        D_005F5F24 = 1;
+        opt = D_0043B7F8;
+        if (opt[0x39] != 0) {
+            if (func_00364F18() != 0) {
+                if (opt[0x39] < 3) {
+                    func_0036F918();
+                    D_005F5EF8 = func_00364B50();
+                    func_003465E0();
+                    gRoundPhase = 3;
+                    D_005F5F28--;
+                    opt[0x39]++;
+                    func_003D0748(a, b);
+                    func_00375428();
+                } else {
+                    D_005F5F24 = 0;
+                    func_00375428();
+                    func_00366098();
+                    func_003A2FE8();
+                    func_003D4708();
+                }
+            } else {
+                D_005F5F28--;
+            }
+        }
+        break;
+    case 0x32:
+        if (gRoundNumber >= D_005F5C72 || a->unk5A >= D_005F5C70 || b->unk5A >= D_005F5C70) {
+            func_003D2B88(a, b);
+        }
+        break;
+    case 0x6E:
+        func_003660A8();
+        func_003A3108();
+        func_003D4718();
+        break;
+    case 0x87:
+        D_005F5C74 = 1;
+        r = 1;
+        break;
+    }
+    return r;
+}
 
 extern s32 D_005F6BD0[2];
 extern s32 D_005F6BD8[2];
@@ -5135,7 +5340,47 @@ void Fighter_RunMoveEvents(Fighter *f) {
     }
 }
 
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00372E98);
+s32 func_0038E2D0(Fighter *a, Fighter *b);
+void func_0038C0F0(void);
+
+/* Keeps the fight near the origin: when a fighter's x (unk4) or z (unkC) leaves -0x78000..0x78000, moves both fighters
+ * so that `a` stands at 0 (unk51C / unk524 move with them), stores the shift in both fighters' unk10 / unk14 and calls
+ * func_0038C0F0 and func_00350578 for both; otherwise the shift is 0. The shift is also cleared when func_0036E158 is
+ * not 1 or func_0038E2D0 fails [V code; I meaning]. */
+void func_00372E98(Fighter *a, Fighter *b) {
+    s32 da;
+    s32 ea;
+    s32 db;
+    s32 eb;
+
+    if (func_0036E158() != 1 || func_0038E2D0(a, b) == 0) {
+        a->unk10 = b->unk10 = 0;
+        a->unk14 = b->unk14 = 0;
+    }
+    if (a->unk4 >= -0x78000 && a->unk4 <= 0x78000 && b->unk4 <= 0x78000 && b->unk4 >= -0x78000 &&
+        a->unkC <= 0x78000 && a->unkC >= -0x78000 && b->unkC <= 0x78000 && b->unkC >= -0x78000) {
+        a->unk10 = b->unk10 = 0;
+        a->unk14 = b->unk14 = 0;
+        return;
+    }
+    da = a->unk51C - a->unk4;
+    ea = a->unk524 - a->unkC;
+    db = b->unk51C - b->unk4;
+    eb = b->unk524 - b->unkC;
+    a->unk10 = b->unk10 = -a->unk4;
+    a->unk14 = b->unk14 = -a->unkC;
+    b->unk4 -= a->unk4;
+    b->unkC -= a->unkC;
+    a->unk4 = 0;
+    a->unkC = 0;
+    a->unk51C = a->unk4 + da;
+    a->unk524 = a->unkC + ea;
+    b->unk51C = b->unk4 + db;
+    b->unk524 = b->unkC + eb;
+    func_0038C0F0();
+    func_00350578(a, a->unk1E);
+    func_00350578(b, b->unk1E);
+}
 
 void func_00373038(Fighter *a, Fighter *b) {
     func_00373080(a, b);
@@ -5477,7 +5722,79 @@ void func_00373E18(Fighter *f) {
     D_00879630[(s16)f->unk20] = 5;
 }
 
+/* NON_MATCHING: 49 lines differ: the original places the `unkB5DC = 1` block (move changed) between the case
+ * blocks of the switch, ours after the test, and the 0x8000 base of the 0xB5xx fields takes v1 instead of v0. */
+#if 0
+void func_00373930(Fighter *f);
+
+/* Per-frame motion blend step of a fighter: during a pause (D_005F5F20 or the fighter's D_00879630 counter, both
+ * counted down) it resets the blend (func_00373398); otherwise it ends a running blend (state 1 at its end unkB880 == 0,
+ * 2 / 3 when unkB880 reaches unkB878, 3 also with unk134), starts a 16-frame blend (state 1) when the move changed,
+ * or a short one (state 3, the frames left when fewer than 16) near the end of the move, then runs func_00373930 /
+ * func_00373D48; func_00373400 and the previous move id unk176 every frame (unkDA = 1) [V code; I meaning]. */
+void func_00373E38(Fighter *f) {
+    s32 n;
+    struct FighterMove *m;
+
+    f->unkDA = 1;
+    if (D_005F5EE0 == 0) {
+        if (D_005F5F20 != 0 || D_00879630[(s16)f->unk20] != 0) {
+            if (D_005F5F20 > 0) {
+                D_005F5F20--;
+            }
+            if (D_00879630[(s16)f->unk20] > 0) {
+                D_00879630[(s16)f->unk20]--;
+            }
+            func_00373398(f);
+        } else {
+            f->unkB5E0 = 0;
+            switch (f->unkB5DC) {
+            case 0:
+                break;
+            case 1:
+                if (f->unkB880 == 0) {
+                    f->unkB5DC = 0;
+                }
+                break;
+            case 2:
+                if (f->unkB880 == f->unkB878) {
+                    f->unkB5DC = 0;
+                }
+                break;
+            case 3:
+                if (f->unkB880 == f->unkB878 || f->unk134 != 0) {
+                    f->unkB5DC = 0;
+                }
+                break;
+            }
+            m = f->unkC0;
+            if (f->unkB5E8 == m || f->unk10C == f->unk176) {
+                if (f->unkB5DC != 3) {
+                    n = m->unk18 - f->unkC4;
+                    if (n < 0x10 && n + 1 >= 2) {
+                        f->unkB5E4 = n + 1;
+                        f->unkB5DC = 3;
+                        f->unkB5E0 = 1;
+                    }
+                }
+            } else {
+                f->unkB5E4 = 0x10;
+                f->unkB5DC = 1;
+                f->unkB5E0 = 1;
+            }
+        }
+        if (f->unkB5E0 != 0) {
+            func_00373930(f);
+        } else {
+            func_00373D48(f);
+        }
+    }
+    func_00373400(f);
+    f->unk176 = f->unk10C;
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00373E38);
+#endif
 
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_00500678);
 Unk500678 *func_00374010(s32 i) {

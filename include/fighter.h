@@ -164,7 +164,8 @@ typedef struct {
     /* 0x0004 */ s32 unk4;
     /* 0x0008 */ s32 unk8;
     /* 0x000C */ s32 unkC;
-    /* 0x0010 */ u8 pad10[0x8];
+    /* 0x0010 */ s32 unk10;                   /* x offset of the stage origin (func_00372E98) */
+    /* 0x0014 */ s32 unk14;                   /* z offset of the stage origin (func_00372E98) */
     /* 0x0018 */ s16 unk18;
     /* 0x001A */ s16 unk1A;
     /* 0x001C */ s16 unk1C;

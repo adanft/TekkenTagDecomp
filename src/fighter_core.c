@@ -208,7 +208,7 @@ typedef struct {
     /* 0x008 */ u16 unk8; /* buttons of the previous frame */
     /* 0x00A */ u16 unkA;
     /* 0x00C */ u16 *unkC; /* command sequence being played */
-    /* 0x010 */ s32 unk10;
+    /* 0x010 */ struct FighterMove **unk10; /* move records of the CPU fighter by id (func_003835A0) */
     /* 0x014 */ s32 unk14;
     /* 0x018 */ s32 unk18;
     /* 0x01C */ s32 unk1C;
@@ -240,7 +240,7 @@ typedef struct {
     /* 0x084 */ s32 unk84;
     /* 0x088 */ struct FighterMove *unk88;     /* own move when the candidates were listed */
     /* 0x08C */ struct FighterMove *unk8C;     /* move of the command started (func_00381278), cleared each frame */
-    /* 0x090 */ s32 unk90;
+    /* 0x090 */ struct FighterMove *unk90;     /* skipped once by func_00382AD8 */
     /* 0x094 */ s32 unk94;
     /* 0x098 */ s32 unk98;
     /* 0x09C */ s32 unk9C;
@@ -286,69 +286,13 @@ typedef struct {
     /* 0x148 */ s32 unk148;
     /* 0x14C */ s32 unk14C;
     /* 0x150 */ s32 unk150;
-    /* 0x154 */ s32 unk154;
-    /* 0x158 */ s32 unk158;
-    /* 0x15C */ s32 unk15C;
-    /* 0x160 */ s32 unk160;
-    /* 0x164 */ s32 unk164;
-    /* 0x168 */ s32 unk168;
-    /* 0x16C */ s32 unk16C;
-    /* 0x170 */ s32 unk170;
-    /* 0x174 */ s32 unk174;
-    /* 0x178 */ s32 unk178;
-    /* 0x17C */ s32 unk17C;
-    /* 0x180 */ s32 unk180;
-    /* 0x184 */ s32 unk184;
-    /* 0x188 */ s32 unk188;
-    /* 0x18C */ s32 unk18C;
-    /* 0x190 */ s32 unk190;
-    /* 0x194 */ s32 unk194;
-    /* 0x198 */ s32 unk198;
-    /* 0x19C */ s32 unk19C;
-    /* 0x1A0 */ s32 unk1A0;
-    /* 0x1A4 */ s32 unk1A4;
-    /* 0x1A8 */ s32 unk1A8;
-    /* 0x1AC */ s32 unk1AC;
-    /* 0x1B0 */ s32 unk1B0;
-    /* 0x1B4 */ s32 unk1B4;
-    /* 0x1B8 */ s32 unk1B8;
-    /* 0x1BC */ s32 unk1BC;
-    /* 0x1C0 */ s32 unk1C0;
-    /* 0x1C4 */ s32 unk1C4;
-    /* 0x1C8 */ s32 unk1C8;
-    /* 0x1CC */ s32 unk1CC;
-    /* 0x1D0 */ s32 unk1D0;
-    /* 0x1D4 */ s32 unk1D4;
-    /* 0x1D8 */ s32 unk1D8;
-    /* 0x1DC */ s32 unk1DC;
-    /* 0x1E0 */ s32 unk1E0;
-    /* 0x1E4 */ s32 unk1E4;
-    /* 0x1E8 */ s32 unk1E8;
-    /* 0x1EC */ s32 unk1EC;
-    /* 0x1F0 */ s32 unk1F0;
-    /* 0x1F4 */ s32 unk1F4;
-    /* 0x1F8 */ s32 unk1F8;
-    /* 0x1FC */ s32 unk1FC;
-    /* 0x200 */ s32 unk200;
-    /* 0x204 */ s32 unk204;
-    /* 0x208 */ s32 unk208;
-    /* 0x20C */ s32 unk20C;
-    /* 0x210 */ s32 unk210;
+    /* 0x154 */ CpuCmd *unk154[0x30];             /* commands listed by func_003857F8 (unk150 of them) */
     /* 0x214 */ s32 unk214;
     /* 0x218 */ s32 unk218;
     /* 0x21C */ s32 unk21C;
     /* 0x220 */ s32 unk220;
     /* 0x224 */ s32 unk224;
-    /* 0x228 */ s32 unk228;
-    /* 0x22C */ s32 unk22C;
-    /* 0x230 */ s32 unk230;
-    /* 0x234 */ s32 unk234;
-    /* 0x238 */ s32 unk238;
-    /* 0x23C */ s32 unk23C;
-    /* 0x240 */ s32 unk240;
-    /* 0x244 */ s32 unk244;
-    /* 0x248 */ s32 unk248;
-    /* 0x24C */ s32 unk24C;
+    /* 0x228 */ CpuCmd *unk228[10];             /* commands listed by func_00385A60 (unk224 of them) */
     /* 0x250 */ s32 unk250;
     /* 0x254 */ s32 unk254;
     /* 0x258 */ s32 unk258;
@@ -2687,9 +2631,95 @@ static inline s32 Cpu_IsCmdAllowed(CpuCmd *c) {
     ((c)->unk2 == 0 || ((c)->unk2 < 0x22 && gCpuSelf->unk28 == (c)->unk2 - 1) ||                                    \
      ((c)->unk2 < 0x43 && gCpuSelf->unk28 == (c)->unk2 - 0x22))
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_003814C8);
+extern CpuCmd D_0047F780[];
+s32 func_00384D68(u16 *cmd);
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00381818);
+/* Returns the input code of one command, picked at random (func_003800D8), of the own move's command list (looking
+ * into the shared lists of 0x8004) that is inside its frame window, for the fighter's variant, allowed
+ * (Cpu_IsCmdAllowed) and whose situation holds or whose kind (unk3) is 0x3D-0x3F; those kinds give the codes 1 / 2 / 3
+ * instead (0 with none) [V]. */
+s32 func_003814C8(void) {
+    CpuCmd *list[16];
+    CpuCmd **out = list;
+    CpuCmd *e = (CpuCmd *)gCpuSelf->unkC0->unkC;
+    s32 n = 0;
+    s32 cnt;
+    CpuCmd *c;
+    s32 j;
+    s32 ok;
+    Fighter *f;
+    CpuCmd *p;
+
+    for (; e->unk0 != 0x8000; e++) {
+        if (e->unk0 == 0x8004) {
+            cnt = e->unkD;
+            c = &D_0047F780[e->unk6];
+        } else {
+            cnt = 1;
+            c = e;
+        }
+        for (j = 0; j < cnt; j++, c++) {
+            f = gCpuSelf;
+            ok = 0;
+            if (f->unkC4 >= c->unkB && f->unkC4 <= c->unkC && CPU_CMD_FOR_VARIANT(c) && Cpu_IsCmdAllowed(c) &&
+                (Cmd_CheckSituation((MoveCmd *)c, f, gCpuOpponent) || c->unk3 == 0x3F || c->unk3 == 0x3D ||
+                 c->unk3 == 0x3E)) {
+                ok = 1;
+            }
+            if (ok) {
+                *out++ = c;
+                n++;
+            }
+        }
+    }
+    if (n > 0) {
+        p = list[func_003800D8(n)];
+        if (p->unk3 == 0x3F) {
+            return 3;
+        }
+        if (p->unk3 == 0x3D) {
+            return 1;
+        }
+        if (p->unk3 == 0x3E) {
+            return 2;
+        }
+        return p->unk0;
+    }
+    return 0;
+}
+
+/* Lists in `list` up to six commands of the own move's command list (looking into the shared lists of 0x8004) that
+ * are for the fighter's variant, allowed (Cpu_IsCmdAllowed) and whose situation holds; commands with bit 0x4000 only
+ * when unk3E4 is set; returns their number [V]. */
+s32 func_00381818(CpuCmd **list) {
+    CpuCmd *e = (CpuCmd *)gCpuSelf->unkC0->unkC;
+    s32 cnt;
+    CpuCmd *c;
+    s32 j;
+    s32 n = 0;
+
+    for (; e->unk0 != 0x8000; e++) {
+        if (e->unk0 == 0x8004) {
+            cnt = e->unkD;
+            c = &D_0047F780[e->unk6];
+        } else {
+            cnt = 1;
+            c = e;
+        }
+        for (j = 0; j < cnt; j++, c++) {
+            if (CPU_CMD_FOR_VARIANT(c) && Cpu_IsCmdAllowed(c) &&
+                Cmd_CheckSituation((MoveCmd *)c, gCpuSelf, gCpuOpponent)) {
+                if (!func_00384D68(&c->unk0) || (gCpu->unk3E4 != 0 && func_00384D68(&c->unk0))) {
+                    *list++ = c;
+                    if (++n >= 6) {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    return n;
+}
 
 s32 func_00381818(CpuCmd **list);
 
@@ -2771,11 +2801,185 @@ s32 func_00381BF8(void) {
 
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00381D30);
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00382AD8);
+/* The candidate test of func_00382AD8 (a macro: its code is there four times): a command inside its frame window whose
+ * condition, Cpu_IsCmdAllowed and situation hold becomes a candidate unless its move has flag 0x800000; the first one
+ * whose move is unk90 is skipped when `excl` is set. At 0xB4 candidates the list is full. */
+#define CPU_ADD_CAND(c)                                                                                                \
+    {                                                                                                                  \
+    s32 ok = 0;                                                                                                            \
+    if (f->unkC4 >= (c)->unkB && f->unkC4 <= (c)->unkC && Cmd_CheckCondition(f, gCpuOpponent, (c)->unk2) &&          \
+        Cpu_IsCmdAllowed(c)) {                                                                                         \
+        ok = Cmd_CheckSituation((MoveCmd *)(c), f, gCpuOpponent) != 0;                                                 \
+    }                                                                                                                  \
+    if (ok) {                                                                                                          \
+        if (n >= 0xB4) {                                                                                               \
+            full = 1;                                                                                                  \
+            break;                                                                                                     \
+        }                                                                                                              \
+        m = moves[(c)->unk6];                                                                                          \
+        out->unk4 = m;                                                                                                 \
+        if (!(m->unk4 & 0x800000)) {                                                                                   \
+            if (excl && m == gCpu->unk90) {                                                                            \
+                excl = 0;                                                                                              \
+            } else {                                                                                                   \
+                out->unk0 = 0;                                                                                         \
+                n++;                                                                                                   \
+                out->unk8 = (c);                                                                                       \
+                out++;                                                                                                 \
+            }                                                                                                          \
+        }                                                                                                              \
+    }                                                                                                                  \
+    }
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_003835A0);
+s32 Cpu_RejectCands(s32 (*filter)(CpuCand *));
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_003838B0);
+/* Lists the candidates of decider 0xA (gCpuCands, returns their number): the commands of the move unk88's command list
+ * (shared lists of 0x8004 included), then, when the window of the last command looked at holds and its move is not the
+ * current one, the commands of that move that start at frame 0 or 1. With a chance of 7 in 8 (always in the mode
+ * D_005F5CBC) the move unk90 is skipped once. The filter unkBC then rejects some (Cpu_RejectCands, unkAC keeps the count
+ * before) [V code; I meaning of unk90: the move played last]. */
+s32 func_00382AD8(void) {
+    CpuCand *out = gCpuCands;
+    s32 n = 0;
+    Fighter *f = gCpuSelf;
+    s32 excl;
+    struct FighterMove **moves;
+    s32 full;
+    CpuCmd *e;
+    CpuCmd *c;
+    s32 j;
+    s32 cnt;
+    struct FighterMove *m;
+
+    excl = 0;
+    if ((rand() & 7) || D_005F5CBC) {
+        excl = 1;
+    }
+    full = 0;
+    moves = gCpu->unk10;
+    for (c = e = (CpuCmd *)gCpu->unk88->unkC; e->unk0 != 0x8000; e++) {
+        if (e->unk0 == 0x8004) {
+            for (j = 0, cnt = e->unkD, c = &D_0047F780[e->unk6]; j < cnt; j++, c++) {
+                CPU_ADD_CAND(c)
+            }
+            if (full) {
+                break;
+            }
+        } else {
+            c = e;
+            CPU_ADD_CAND(c)
+        }
+    }
+    if (!full && c->unkB <= f->unkC4 && f->unkC4 <= c->unkC) {
+        struct FighterMove *next = D_005F6C00[(s16)f->unk20][c->unk6];
+
+        if (next != f->unkC0) {
+            for (e = (CpuCmd *)next->unkC; e->unk0 != 0x8000; e++) {
+                if (e->unk0 == 0x8004) {
+                    for (j = 0, cnt = e->unkD, c = &D_0047F780[e->unk6]; j < cnt; j++, c++) {
+                        if (c->unkB < 2) {
+                            CPU_ADD_CAND(c)
+                        }
+                    }
+                    if (full) {
+                        break;
+                    }
+                } else if (e->unkB < 2) {
+                    CPU_ADD_CAND(e)
+                }
+            }
+        }
+    }
+    if (gCpu->unkBC != NULL) {
+        gCpu->unkAC = n;
+        n -= Cpu_RejectCands(gCpu->unkBC);
+    }
+    return n;
+}
+
+/* Fills gCpuCands (up to 0xB4) with the commands of the move unk88's command list (shared lists of 0x8004 included)
+ * that are inside their frame window, whose condition holds, that are allowed (Cpu_IsCmdAllowed) and whose situation
+ * holds, except moves of flag 0x800000 (unk4) and commands with bit 0x4000 while unk3E0 is clear; the move records
+ * come from unk10. Returns the count [V]. */
+s32 func_003835A0(void) {
+    CpuCand *out = gCpuCands;
+    struct FighterMove **moves = gCpu->unk10;
+    CpuCmd *e = (CpuCmd *)gCpu->unk88->unkC;
+    Fighter *f = gCpuSelf;
+    s32 n = 0;
+    s32 cnt;
+    CpuCmd *c;
+    s32 j;
+    s32 ok;
+    struct FighterMove *m;
+
+    for (; e->unk0 != 0x8000; e++) {
+        if (e->unk0 == 0x8004) {
+            cnt = e->unkD;
+            c = &D_0047F780[e->unk6];
+        } else {
+            cnt = 1;
+            c = e;
+        }
+        for (j = 0; j < cnt; j++, c++) {
+            ok = 0;
+            if (f->unkC4 >= c->unkB && f->unkC4 <= c->unkC && Cmd_CheckCondition(f, gCpuOpponent, c->unk2) &&
+                Cpu_IsCmdAllowed(c)) {
+                ok = Cmd_CheckSituation((MoveCmd *)c, f, gCpuOpponent) != 0;
+            }
+            if (ok) {
+                if (n >= 0xB4) {
+                    break;
+                }
+                m = moves[c->unk6];
+                out->unk4 = m;
+                if (!(m->unk4 & 0x800000) && (!(c->unk0 & 0x4000) || gCpu->unk3E0 != 0)) {
+                    out->unk0 = 0;
+                    n++;
+                    out->unk8 = c;
+                    out++;
+                }
+            }
+        }
+    }
+    return n;
+}
+
+/* Whether the own move's command list (shared lists of 0x8004 included) has a command inside its frame window, whose
+ * condition holds, that is allowed (Cpu_IsCmdAllowed), whose situation holds and whose move (from unk10) has flag
+ * 0x400000 [V code; I meaning]. */
+s32 func_003838B0(void) {
+    s32 r = 0;
+    Fighter *f = gCpuSelf;
+    CpuCmd *e = (CpuCmd *)f->unkC0->unkC;
+    struct FighterMove **moves = gCpu->unk10;
+    s32 cnt;
+    CpuCmd *c;
+    s32 j;
+    s32 ok;
+
+    for (; e->unk0 != 0x8000; e++) {
+        if (e->unk0 == 0x8004) {
+            cnt = e->unkD;
+            c = &D_0047F780[e->unk6];
+        } else {
+            cnt = 1;
+            c = e;
+        }
+        for (j = 0; j < cnt; j++, c++) {
+            ok = 0;
+            if (f->unkC4 >= c->unkB && f->unkC4 <= c->unkC && Cmd_CheckCondition(f, gCpuOpponent, c->unk2) &&
+                Cpu_IsCmdAllowed(c)) {
+                ok = Cmd_CheckSituation((MoveCmd *)c, f, gCpuOpponent) != 0;
+            }
+            if (ok && (moves[c->unk6]->unk8 & 0x400000)) {
+                r = 1;
+                break;
+            }
+        }
+    }
+    return r;
+}
 
 s32 func_00383B88(struct FighterMove *m, s32 arg1, s32 arg2) {
     s32 fl = m->unk8 & 0xFFFF0000;
@@ -3643,11 +3847,6 @@ s32 func_003854B0(void) {
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_003854B0);
 #endif
 
-/* NON_MATCHING: 11 lines differ: the output pointer, the entry count and the next entry take t0 / t2 / t1 where
- * the original has t1 / t0 / t2. */
-#if 0
-extern MoveCmd D_0047F780[];
-
 /* Lists in unk134 up to four entries of the command list of the move unk88 (looking into the shared lists of 0x8004)
  * that are for the fighter's variant and whose move has flag 0x20 (unk24); returns their number, also in unk130 [V]. */
 s32 func_003856C0(void) {
@@ -3659,11 +3858,11 @@ s32 func_003856C0(void) {
     s32 j;
 
     for (; e->unk0 != 0x8000; e++) {
-        cnt = 1;
         if (e->unk0 == 0x8004) {
             cnt = e->unkD;
-            c = &D_0047F780[e->unk6];
+            c = (MoveCmd *)&D_0047F780[e->unk6];
         } else {
+            cnt = 1;
             c = e;
         }
         for (j = 0; j < cnt; j++, c++) {
@@ -3678,13 +3877,111 @@ s32 func_003856C0(void) {
     gCpu->unk130 = n;
     return n;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_003856C0);
-#endif
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_003857F8);
+/* Lists in unk154 up to 0x30 commands of the move unk88's command list (looking into the shared lists of 0x8004)
+ * that are for the fighter's variant and whose move: is not of flag 0x400000 while unk2A4 is set; has flag 0x200000
+ * (unk8) or 0x80000 (unk4), or else flag 0x400000 and passes a chance of unk35E in 4096; lacks flag 0x20000; has no
+ * early window (unk19) unless the variant is not 0 or a roll of 13 in 4096 passes; and passes func_00383B88 for
+ * round unk20. Returns their number, also in unk150 [V]. */
+s32 func_003857F8(void) {
+    CpuCmd **out = gCpu->unk154;
+    s32 n = 0;
+    s32 r = rand() & 0xFFF;
+    CpuCmd *e = (CpuCmd *)gCpu->unk88->unkC;
+    s32 cnt;
+    CpuCmd *c;
+    s32 j;
+    s32 ok;
+    struct FighterMove *m;
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00385A60);
+    for (; e->unk0 != 0x8000; e++) {
+        if (e->unk0 == 0x8004) {
+            cnt = e->unkD;
+            c = &D_0047F780[e->unk6];
+        } else {
+            cnt = 1;
+            c = e;
+        }
+        for (j = 0; j < cnt; j++, c++) {
+            if (!CPU_CMD_FOR_VARIANT(c)) {
+                continue;
+            }
+            m = D_005F6C00[(s16)gCpuSelf->unk20][c->unk6];
+            if (gCpu->unk2A4 != 0 && (m->unk8 & 0x400000)) {
+                continue;
+            }
+            if (!(m->unk8 & 0x200000) && !(m->unk4 & 0x80000)) {
+                if (!(m->unk8 & 0x400000) || (rand() & 0xFFF) >= gCpu->unk35E) {
+                    continue;
+                }
+            }
+            if (m->unk4 & 0x20000) {
+                continue;
+            }
+            ok = 0;
+            if (m->unk19 == 0 || gCpuSelf->unk28 != 0 || r < 0xD) {
+                ok = 1;
+            }
+            if (ok && func_00383B88(m, gCpu->unk20, 0)) {
+                *out++ = c;
+                if (++n >= 0x30) {
+                    break;
+                }
+            }
+        }
+    }
+    gCpu->unk150 = n;
+    return n;
+}
+
+/* Lists in unk228 up to ten commands of the move unk88's command list (shared lists of 0x8004 included) that start
+ * at frame 1 and end at their unkD (unkB == 1, unkC == unkD), are for the fighter's variant, survive a chance of
+ * unk38E in 4096 when their move has flag 0x20 (unk24) and have no bit 0x4000 unless unk3E0 is set; unk254 keeps the
+ * latest end frame below 0x3C. Returns their number, also in unk224; does nothing (and clears unk21C) when unk21C is
+ * set [V]. */
+s32 func_00385A60(void) {
+    s32 n = 0;
+    CpuCmd *e;
+    s32 cnt;
+    CpuCmd *c;
+    s32 j;
+    struct FighterMove *m;
+
+    if (gCpu->unk21C != 0) {
+        gCpu->unk21C = 0;
+        return 0;
+    }
+    gCpu->unk254 = 0;
+    for (e = (CpuCmd *)gCpu->unk88->unkC; e->unk0 != 0x8000; e++) {
+        if (e->unk0 == 0x8004) {
+            cnt = e->unkD;
+            c = &D_0047F780[e->unk6];
+        } else {
+            cnt = 1;
+            c = e;
+        }
+        for (j = 0; j < cnt; j++, c++) {
+            if (c->unkB == 1 && c->unkC == c->unkD && CPU_CMD_FOR_VARIANT(c)) {
+                m = D_005F6C00[(s16)gCpuSelf->unk20][c->unk6];
+                if ((m->unk24 & 0x20) && (rand() & 0xFFF) < gCpu->unk38E) {
+                    continue;
+                }
+                if (gCpu->unk3E0 == 0 && (c->unk0 & 0x4000)) {
+                    continue;
+                }
+                gCpu->unk228[n] = c;
+                if (c->unkC < 0x3C && gCpu->unk254 < c->unkC) {
+                    gCpu->unk254 = c->unkC;
+                }
+                if (++n >= 10) {
+                    break;
+                }
+            }
+        }
+    }
+    gCpu->unk224 = n;
+    return n;
+}
 
 s32 func_003856C0(void);
 s32 func_003857F8(void);
@@ -3758,11 +4055,77 @@ s32 func_00385C80(void) {
     return r;
 }
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00385DF8);
-
+/* NON_MATCHING: 142 lines differ, register allocation: the original spills `id` to the stack next to the result and
+ * keeps D_0047F780 (first walk) and the constant 1 (second walk) in fp; ours keeps `id` in fp. */
 #if 0
-/* NON_MATCHING: 10 lines differ: the list pointer and the entry count are allocated to swapped registers (a1 / a2) */
-extern MoveCmd D_0047F780[];
+/* Whether the own move's command list (shared lists of 0x8004 included) has a command for move `id` inside its frame
+ * window whose condition, Cpu_IsCmdAllowed and situation hold; if not, and the move of the list's end entry is another
+ * move whose window holds now, looks for such a command starting at frame 1 in that move's list [V code; I meaning]. */
+s32 func_00385DF8(s16 id) {
+    s32 r = 0;
+    Fighter *f = gCpuSelf;
+    CpuCmd *e = (CpuCmd *)f->unkC0->unkC;
+    s32 cnt;
+    CpuCmd *c;
+    s32 j;
+    s32 ok;
+    struct FighterMove *m;
+
+    for (; e->unk0 != 0x8000; e++) {
+        if (e->unk0 == 0x8004) {
+            cnt = e->unkD;
+            c = &D_0047F780[e->unk6];
+        } else {
+            cnt = 1;
+            c = e;
+        }
+        for (j = 0; j < cnt; j++, c++) {
+            if (c->unk6 == id) {
+                ok = 0;
+                if (f->unkC4 >= c->unkB && f->unkC4 <= c->unkC && Cmd_CheckCondition(f, gCpuOpponent, c->unk2) &&
+                    Cpu_IsCmdAllowed(c)) {
+                    ok = Cmd_CheckSituation((MoveCmd *)c, f, gCpuOpponent) != 0;
+                }
+                if (ok) {
+                    r = 1;
+                    break;
+                }
+            }
+        }
+    }
+    if (r == 0) {
+        m = D_005F6C00[(s16)f->unk20][e->unk6];
+        if (m != f->unkC0 && f->unkC4 >= e->unkB && f->unkC4 <= e->unkC) {
+            for (e = (CpuCmd *)m->unkC; e->unk0 != 0x8000; e++) {
+                if (e->unk0 == 0x8004) {
+                    cnt = e->unkD;
+                    c = &D_0047F780[e->unk6];
+                } else {
+                    cnt = 1;
+                    c = e;
+                }
+                for (j = 0; j < cnt; j++, c++) {
+                    if (c->unk6 == id && c->unkB == 1) {
+                        ok = 0;
+                        if (f->unkC4 >= c->unkB && f->unkC4 <= c->unkC &&
+                            Cmd_CheckCondition(f, gCpuOpponent, c->unk2) && Cpu_IsCmdAllowed(c)) {
+                            ok = Cmd_CheckSituation((MoveCmd *)c, f, gCpuOpponent) != 0;
+                        }
+                        if (ok) {
+                            r = 1;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return r;
+}
+#else
+INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00385DF8);
+#endif
+
 
 /* Whether the current move of the CPU's fighter has a command entry of condition kind `kind` (unk3 & 0x7F), looking
  * into the shared lists (0x8004, unkD entries) [V code; I meaning]. */
@@ -3773,11 +4136,11 @@ s32 func_00386388(s32 kind) {
     s32 i;
 
     for (; c->unk0 != 0x8000; c++) {
-        n = 1;
         if (c->unk0 == 0x8004) {
             n = c->unkD;
-            p = &D_0047F780[c->unk6];
+            p = (MoveCmd *)&D_0047F780[c->unk6];
         } else {
+            n = 1;
             p = c;
         }
         for (i = 0; i < n; i++, p++) {
@@ -3788,9 +4151,6 @@ s32 func_00386388(s32 kind) {
     }
     return 0;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00386388);
-#endif
 
 s32 func_00386428(void) {
     if (gCpuSelf->unk42 != 0) {
@@ -3846,7 +4206,103 @@ s32 func_003864E8(void) {
 
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_003865A0);
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00387120);
+s32 func_003865A0(s32 wait);
+s32 func_003854B0(void);
+
+/* Decider 0x12 of Cpu_Think, the general attack choice [V code; I meaning]: holds the previous buttons' high nibble while
+ * unk74 counts down or unk64 is at least 5; nothing from round unk20 4 on, with unk2CC set or once unk258 reaches unk25C;
+ * in round 3 it acts one time in 12 and from round 2 on not one time in 8. While unk50 is set it holds 0x8000 when unk9C
+ * is positive or unk2AC is set before unk24 4, and drops out one time in 16 against an opponent's move of flag 4. Then
+ * picks candidates (func_003865A0 with the wait unk94; from unk24 3 on, when nothing was picked, the own fighter is not
+ * airborne and its life is at most a tenth of its red life: func_00383EF0 candidates one time in 4 with a chance of
+ * unk368), rejects func_00384B80 ones unless unk3E4 is 1 and plays one (func_003854B0). The move played can start the
+ * follow-up plans: unk12C for a move of flag 0x20 (unk24, not in the mode D_005F5CBC), unk14C half the time when the
+ * own move has flag 0x80000 or three times in four for a move of flag 0x80000 (unk4) that func_00384B80 rejects or
+ * accepts with unk3E4 set. A started move of kind 0x2021 / 0x2829 sets unk74 to 12; a move with an attack window or
+ * flag 0x80000 is kept in unk90. A negative pick (func_003865A0) resets the timers and returns 1. */
+s32 func_00387120(void) {
+    s32 r;
+    s32 k;
+    struct FighterMove *m;
+    u16 kind;
+
+    if (gCpu->unk74 > 0) {
+        gCpu->unk74--;
+        gCpu->unk6 = gCpu->unk8 & 0xF000;
+        return 1;
+    }
+    if (gCpu->unk64 >= 5) {
+        gCpu->unk6 = gCpu->unk8 & 0xF000;
+        return 1;
+    }
+    if (gCpu->unk20 >= 4 || gCpu->unk2CC != 0) {
+        return 0;
+    }
+    if (gCpu->unk258 >= gCpu->unk25C) {
+        goto fail;
+    }
+    if (gCpu->unk20 >= 3 && Cpu_RandBelow(12) != 0) {
+        goto fail;
+    }
+    if (gCpu->unk20 >= 2 && Cpu_RandBelow(8) == 0) {
+        goto fail;
+    }
+    if (gCpu->unk50 != 0) {
+        if (gCpu->unk9C > 0 || (gCpu->unk2AC != 0 && gCpu->unk24 < 4)) {
+            gCpu->unk6 = 0x8000;
+            return 1;
+        }
+        if ((gCpu->unk33C.w & 4) && Cpu_RandBelow(0x1000) < 0x100) {
+            goto fail;
+        }
+    }
+    r = func_003865A0(gCpu->unk94);
+    if (r == 0 && gCpu->unk24 >= 3 && gCpuSelf->unk16A == 0 && gCpuSelf->unk3F8 / 10 >= gCpuSelf->unk3F4 &&
+        !(rand() & 3) && (rand() & 0xFFF) < gCpu->unk368) {
+        r = Cpu_PickCands(func_00383EF0);
+    }
+    if (r < 0) {
+        gCpu->unk6C = -1;
+        gCpu->unk5C = 0x28;
+        gCpu->unk4C = 0;
+        gCpu->unk50 = 0;
+        return 1;
+    }
+    if (gCpu->unk3E4 != 1) {
+        Cpu_RejectCands(func_00384B80);
+    }
+    k = func_003854B0();
+    if (k < 0) {
+    fail:
+        return 0;
+    }
+    gCpu->unk5C = 0x28;
+    gCpu->unk6C = -1;
+    gCpu->unk50 = 0;
+    gCpu->unk4C = 0;
+    m = gCpuCands[k].unk4;
+    if (D_005F5CBC == 0 && (m->unk24 & 0x20)) {
+        gCpu->unk12C = 1;
+    } else if ((gCpu->unk330.w & 0x80000) && (rand() & 0x3F) < 0x20) {
+        gCpu->unk14C = 1;
+    } else if (((m->unk4 & 0x80000) && !func_00384B80(&gCpuCands[k])) ||
+               ((m->unk4 & 0x80000) && func_00384B80(&gCpuCands[k]) && gCpu->unk3E4 != 0)) {
+        if ((rand() & 0x3F) < 0x30) {
+            gCpu->unk14C = 1;
+        }
+    }
+    kind = 0;
+    if (gCpu->unk8C != NULL) {
+        kind = gCpu->unk8C->unk4;
+    }
+    if (kind == 0x2021 || kind == 0x2829) {
+        gCpu->unk74 = 12;
+    }
+    if (m->unk2C != 0 || (m->unk4 & 0x80000)) {
+        gCpu->unk90 = m;
+    }
+    return 1;
+}
 
 /* NON_MATCHING: 21 lines differ: m and r take s1 / s0 the other way round, and the last test is if-converted
  * (slti / xori) where the original branches. */
@@ -3882,11 +4338,171 @@ end:
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00387518);
 #endif
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00387600);
+/* Decider 0xE of Cpu_Think, the follow-up plan of func_003856C0 (while unk12C > 0): of the unk130 commands listed in
+ * unk134, takes those inside their frame window whose condition, Cpu_IsCmdAllowed and situation hold. While the own
+ * unk40 is below 0x2000, with a chance of 4096 - unk378 it holds the previous buttons' high nibble, else plays one
+ * of them at random (seeded) when its move has no attack window or the plan has not run more than unk376 times and
+ * unk2A8 reaches the window. Otherwise the plan ends (unk12C / unk130 cleared, unk144 set) [V]. */
+s32 func_00387600(void) {
+    s32 n = 0;
+    CpuCmd *list[4];
+    s32 i;
+    CpuCmd *c;
+    Fighter *f;
+    s32 ok;
+    s32 k;
+    struct FighterMove *m;
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_003879A0);
+    if (gCpu->unk12C <= 0) {
+        return 0;
+    }
+    for (i = 0; i < gCpu->unk130; i++) {
+        f = gCpuSelf;
+        c = (CpuCmd *)gCpu->unk134[i];
+        ok = 0;
+        if (f->unkC4 >= c->unkB && f->unkC4 <= c->unkC && Cmd_CheckCondition(f, gCpuOpponent, c->unk2) &&
+            Cpu_IsCmdAllowed(c)) {
+            ok = Cmd_CheckSituation((MoveCmd *)c, f, gCpuOpponent) != 0;
+        }
+        if (ok) {
+            list[n++] = c;
+        }
+    }
+    if (n <= 0 || (s16)gCpuSelf->unk40 >= 0x2000) {
+        goto fail;
+    }
+    if ((rand() & 0xFFF) >= gCpu->unk378) {
+        gCpu->unk6 = gCpu->unk8 & 0xF000;
+        return 1;
+    }
+    k = n * ((rand() + D_005F6C08) & 0x7FFF) >> 15;
+    D_005F6C08 = D_005F6C08 * 5 + 3;
+    m = D_005F6C00[(s16)gCpuSelf->unk20][list[k]->unk6];
+    if (m->unk2C != 0 && (++gCpu->unk12C > gCpu->unk376 || gCpu->unk2A8 < m->unk2C)) {
+    fail:
+        gCpu->unk12C = 0;
+        gCpu->unk130 = 0;
+        gCpu->unk144 = 1;
+        return 0;
+    }
+    func_00381278(list[k]->unk0, D_005F6C00[(s16)gCpuSelf->unk20][list[k]->unk6]);
+    func_00385250(list[k], 1);
+    return 1;
+}
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00387DA8);
+s32 func_00387518(struct FighterMove *m);
+
+/* Decider 0xF of Cpu_Think, the follow-up plan of func_003857F8 (while unk14C > 0): of the unk150 commands listed in
+ * unk154, takes those inside their frame window whose condition, Cpu_IsCmdAllowed and situation hold (bit 0x4000 only
+ * with unk3E0). While the own unk40 is below 0x2000 it picks one at random (seeded); a move of flag 0x200000 counts in
+ * unk14C. When its attack window (unk2C) is beyond unk2A8, unk14C passes unk37A, unk258 reaches unk25C or the filter
+ * func_00387518 returns non-zero, the plan ends and the previous buttons' high nibble is held; otherwise the command is played,
+ * and unless the move has flag 0x80000 the plan ends after it with a chance of 4096 - unk37C. No command: the plan
+ * ends [V]. */
+s32 func_003879A0(void) {
+    s32 n = 0;
+    CpuCmd *list[0x30];
+    s32 i;
+    CpuCmd *c;
+    Fighter *f;
+    s32 ok;
+    s32 k;
+    struct FighterMove *m;
+
+    if (gCpu->unk14C <= 0) {
+        return 0;
+    }
+    for (i = 0; i < gCpu->unk150; i++) {
+        f = gCpuSelf;
+        c = gCpu->unk154[i];
+        ok = 0;
+        if (f->unkC4 >= c->unkB && f->unkC4 <= c->unkC && Cmd_CheckCondition(f, gCpuOpponent, c->unk2) &&
+            Cpu_IsCmdAllowed(c)) {
+            ok = Cmd_CheckSituation((MoveCmd *)c, f, gCpuOpponent) != 0;
+        }
+        if (ok && (gCpu->unk3E0 != 0 || !(c->unk0 & 0x4000))) {
+            list[n++] = gCpu->unk154[i];
+        }
+    }
+    if (n <= 0 || (s16)gCpuSelf->unk40 >= 0x2000) {
+        gCpu->unk14C = 0;
+        gCpu->unk150 = 0;
+        return 0;
+    }
+    k = n * ((rand() + D_005F6C08) & 0x7FFF) >> 15;
+    D_005F6C08 = D_005F6C08 * 5 + 3;
+    m = D_005F6C00[(s16)gCpuSelf->unk20][list[k]->unk6];
+    if (m->unk8 & 0x200000) {
+        gCpu->unk14C++;
+    }
+    if (m->unk2C != 0 && (gCpu->unk2A8 < m->unk2C || gCpu->unk37A < gCpu->unk14C || gCpu->unk258 >= gCpu->unk25C ||
+                          func_00387518(m))) {
+        gCpu->unk14C = 0;
+        gCpu->unk150 = 0;
+        gCpu->unk6 = gCpu->unk8 & 0xF000;
+        return 1;
+    }
+    if (!(m->unk4 & 0x80000) && (rand() & 0xFFF) >= gCpu->unk37C) {
+        gCpu->unk14C = 0;
+        gCpu->unk150 = 0;
+    }
+    func_00381278(list[k]->unk0, m);
+    func_00385250(list[k], 1);
+    return 1;
+}
+
+/* Decider 0x10 of Cpu_Think, the follow-up plan of func_00385A60 (while unk220 is not negative): of the unk224
+ * commands listed in unk228, takes those inside their frame window whose condition, Cpu_IsCmdAllowed and situation
+ * hold. While the own unk40 is below 0x2000, with a chance of 4096 - unk380 it holds the previous buttons' high
+ * nibble, else plays one of them at random (seeded) unless its move has an attack window and unk220 reached unk37E,
+ * unk258 reached unk25C, unk2A8 is below the window or func_00387518 returns non-zero. Otherwise the plan ends
+ * (unk220 / unk224 cleared) [V]. */
+s32 func_00387DA8(void) {
+    s32 n = 0;
+    CpuCmd *list[10];
+    s32 i;
+    CpuCmd *c;
+    Fighter *f;
+    s32 ok;
+    s32 k;
+    struct FighterMove *m;
+
+    if (gCpu->unk220 < 0) {
+        return 0;
+    }
+    for (i = 0; i < gCpu->unk224; i++) {
+        f = gCpuSelf;
+        c = gCpu->unk228[i];
+        ok = 0;
+        if (f->unkC4 >= c->unkB && f->unkC4 <= c->unkC && Cmd_CheckCondition(f, gCpuOpponent, c->unk2) &&
+            Cpu_IsCmdAllowed(c)) {
+            ok = Cmd_CheckSituation((MoveCmd *)c, f, gCpuOpponent) != 0;
+        }
+        if (ok) {
+            list[n++] = gCpu->unk228[i];
+        }
+    }
+    if (n <= 0 || (s16)gCpuSelf->unk40 >= 0x2000) {
+        goto fail;
+    }
+    if ((rand() & 0xFFF) >= gCpu->unk380) {
+        gCpu->unk6 = gCpu->unk8 & 0xF000;
+        return 1;
+    }
+    k = n * ((rand() + D_005F6C08) & 0x7FFF) >> 15;
+    D_005F6C08 = D_005F6C08 * 5 + 3;
+    m = D_005F6C00[(s16)gCpuSelf->unk20][list[k]->unk6];
+    if (m->unk2C != 0 && (gCpu->unk220 >= gCpu->unk37E || gCpu->unk258 >= gCpu->unk25C || gCpu->unk2A8 < m->unk2C ||
+                          func_00387518(m))) {
+    fail:
+        gCpu->unk220 = 0;
+        gCpu->unk224 = 0;
+        return 0;
+    }
+    func_00381278(list[k]->unk0, D_005F6C00[(s16)gCpuSelf->unk20][list[k]->unk6]);
+    func_00385250(list[k], 1);
+    return 1;
+}
 
 /* NON_MATCHING: 13 lines differ: gCpu and gCpuOpponent are allocated to a0 / v1 instead of a1 / a0 (and the copy
  * of gCpu to a1 instead of a2). */
@@ -3933,7 +4549,73 @@ s32 func_00388170(void) {
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00388170);
 #endif
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00388278);
+s32 func_00386428(void);
+
+/* Inlined twice by func_00388278: for a fighter of variant 7, holds 0x8000 when the own unk40 is at least 0x4000, else
+ * 0x2000, and returns 1 [V code]. */
+static inline s32 Cpu_Variant7Step(void) {
+    if (gCpuSelf->unk28 == 7) {
+        gCpu->unk6 = (s16)gCpuSelf->unk40 >= 0x4000 ? 0x8000 : 0x2000;
+        return 1;
+    }
+    return 0;
+}
+
+/* Decider 0x11 of Cpu_Think (only while unk7C is clear) [V code; I meaning]:
+ * - against an opponent's move with an early window (unk19) while unk24 < 2, with a chance of unk390 in 4096: holds
+ *   0x6000 when the own unk40 is below 0x4000 and unk34 below -10, or 0x2000 when the opponent's move has more than 20
+ *   frames left (unk1A - unkC4) and unk40 is above 0x4000;
+ * - with unk40 above 0x6000 while unk24 < 2: holds nothing when the opponent's unk135 is set, 0x4040 / 0x4020 by the
+ *   frame parity when unk2A4 is set, else with a chance of unk38E the step of Cpu_Variant7Step or 0x2000, or waits
+ *   (unk94 = -2, returns 0);
+ * - with unk40 above 0x1000, a chance of unk40 in 0x8000 and one of 4096 - unk38E: calls func_00380540(8) and holds
+ *   the step of Cpu_Variant7Step, the pad word of func_00386428 (with unk2AC, one time in 8), 0x8000 (half the time
+ *   while unk24 < 3) or 0x2000. */
+s32 func_00388278(void) {
+
+    if (gCpu->unk7C != 0) {
+        return 0;
+    }
+    if (gCpuOpponent->unkC0->unk19 != 0 && gCpu->unk24 < 2 && (rand() & 0xFFF) < gCpu->unk390) {
+        if ((s16)gCpuSelf->unk40 < 0x4000 && gCpu->unk34 < -0xA) {
+            gCpu->unk6 = 0x6000;
+            return 1;
+        }
+        if (gCpuOpponent->unkC0->unk1A - gCpuOpponent->unkC4 >= 0x15 && (s16)gCpuSelf->unk40 >= 0x4001) {
+            gCpu->unk6 = 0x2000;
+            return 1;
+        }
+    }
+    if ((s16)gCpuSelf->unk40 >= 0x6001 && gCpu->unk24 < 2) {
+        if (gCpuOpponent->unk135 != 0) {
+            gCpu->unk6 = 0;
+        } else if (gCpu->unk2A4 != 0) {
+            gCpu->unk6 = (gCpu->unk4 & 1) == gCpu->unk0 ? 0x4040 : 0x4020;
+        } else if ((rand() & 0xFFF) < gCpu->unk38E) {
+            if (!Cpu_Variant7Step()) {
+                gCpu->unk6 = 0x2000;
+            }
+        } else {
+            gCpu->unk94 = -2;
+            return 0;
+        }
+    } else {
+        if ((s16)gCpuSelf->unk40 < 0x1001 || rand() >= (s16)gCpuSelf->unk40 || (rand() & 0xFFF) < gCpu->unk38E) {
+            return 0;
+        }
+        func_00380540(8);
+        if (!Cpu_Variant7Step()) {
+            if (gCpu->unk2AC != 0 && !(rand() & 7)) {
+                gCpu->unk6 = func_00386428();
+            } else if (gCpu->unk24 < 3 && (rand() & 1)) {
+                gCpu->unk6 = 0x8000;
+            } else {
+                gCpu->unk6 = 0x2000;
+            }
+        }
+    }
+    return 1;
+}
 
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", D_005074C8);
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", D_005074D8);
@@ -3958,9 +4640,141 @@ INCLUDE_RODATA("asm/nonmatchings/fighter_core", jtbl_00507870);
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00388530);
 
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", jtbl_00507890);
-INCLUDE_RODATA("asm/nonmatchings/fighter_core", jtbl_005078B0);
 
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00388840);
+void func_0038A690(s32 n);
+s32 func_00388530(void);
+extern const u16 D_005074BA[];
+
+/* Decider 0x13 of Cpu_Think (only while unkCC is negative) [V code; I meaning]. While the wait unk4C runs: in round 0,
+ * after unk288[3] with D_005F5C28 below 7001, or (chance 4096 - unk38E) when func_00383D10 says so, the timers are
+ * reset and it goes on below; with unk50 == 2 it holds 0x8000 (resetting the timers: after unk288[3], or one time in
+ * 128 while unk24 < 3) or 0x2000; else, while unk94 is at most 35 in unk24 2, one time in 16 it plays a func_00384988
+ * candidate (wait 0), otherwise it holds the previous buttons' high nibble. Without a wait (unk7C clear, unk70 / unk6C /
+ * unk68 negative) and with unk5C / unk6C negative it acts on the situation func_00388530 returns: 1 / 4 / 6 / 9 / 10
+ * play a candidate of func_00384988 / func_00384988 (wait 0xFA, kind 2) / func_003849A0 (unk5C 0x3C) / func_003849B8 /
+ * func_00384A50, 8 plays one after a side step (unk24 >= 3 or unk2A8 >= 11); 2 (or 1 without a candidate) waits 4-11
+ * frames (rounds 0-2), 10-19 (round 3) or 15-29 and holds 0x2000 (0x6000 with unk54); 5 (or 4) waits 40-59 frames and
+ * holds the same; 3 (or 6) waits 20-24 frames and holds 0x8000 (0xC000 with unk54); 7 plays the command D_005074BA
+ * (unk5C 0x50) half the time. */
+s32 func_00388840(void) {
+    s32 lim = 0x23; /* fake: the limit in a variable gives the original `li 35 / slt` */
+
+    if (gCpu->unkCC >= 0) {
+        return 0;
+    }
+    if (gCpu->unk4C >= 0) {
+        if (gCpu->unk288[3] != 0 && D_005F5C28 < 0x1B59) {
+            gCpu->unk5C = 0x28;
+            gCpu->unk6C = -1;
+            gCpu->unk50 = 0;
+            gCpu->unk4C = 0;
+        } else if (gCpu->unk20 <= 0 || ((rand() & 0xFFF) >= gCpu->unk38E && func_00383D10((CpuCand *)1))) {
+            gCpu->unk5C = 0x28;
+            gCpu->unk50 = 0;
+            gCpu->unk4C = 0;
+            gCpu->unk6C = -1;
+        } else {
+            if (gCpu->unk50 == 2) {
+                if (gCpu->unk288[3] != 0 && D_005F5C28 < 0x1B59) {
+                    gCpu->unk5C = 0x28;
+                    gCpu->unk6C = -1;
+                    gCpu->unk50 = 0;
+                    gCpu->unk4C = 0;
+                    gCpu->unk6 = 0x8000;
+                } else if (gCpu->unk24 < 3 && (rand() & 0xFFF) < 0x20) {
+                    gCpu->unk5C = 0x28;
+                    gCpu->unk6C = -1;
+                    gCpu->unk50 = 0;
+                    gCpu->unk4C = 0;
+                    gCpu->unk6 = 0x8000;
+                } else {
+                    gCpu->unk6 = 0x2000;
+                }
+                return 1;
+            }
+            if (gCpu->unk94 <= lim && gCpu->unk24 == 2 && !(rand() & 0xF) && Cpu_PickCands(func_00384988) > 0 &&
+                func_003853E8() >= 0) {
+                func_00380540(0);
+                return 1;
+            }
+            gCpu->unk6 = gCpu->unk8 & 0xF000;
+            return 1;
+        }
+    } else if (gCpu->unk7C != 0 || gCpu->unk70 >= 0 || gCpu->unk6C >= 0 || gCpu->unk68 >= 0) {
+        return 0;
+    }
+    if (gCpu->unk5C >= 0 || gCpu->unk6C >= 0) {
+        return 0;
+    }
+    switch (func_00388530()) {
+    case 1:
+        if (Cpu_PickCands(func_00384988) > 0) {
+            func_00380540(0);
+            break;
+        }
+    case 2:
+        switch (gCpu->unk20) {
+        case 0:
+        case 1:
+        case 2:
+            func_00380540(Cpu_RandBelow(8) + 4);
+            break;
+        case 3:
+            func_00380540(Cpu_RandBelow(10) + 10);
+            break;
+        default:
+            func_00380540(Cpu_RandBelow(15) + 15);
+            break;
+        }
+        gCpu->unk6 = gCpu->unk54 > 0 ? 0x6000 : 0x2000;
+        return 1;
+    case 4:
+        if (Cpu_PickCands(func_00384988) > 0) {
+            func_00380528(0xFA, 2);
+            break;
+        }
+    case 5:
+        func_00380540(Cpu_RandBelow(20) + 0x28);
+        gCpu->unk6 = gCpu->unk54 > 0 ? 0x6000 : 0x2000;
+        return 1;
+    case 7:
+        if (rand() & 0x40) {
+            return 0;
+        }
+        gCpu->unkC = (u16 *)D_005074BA;
+        gCpu->unk5C = 0x50;
+        return 1;
+    case 6:
+        if (Cpu_PickCands(func_003849A0) > 0) {
+            gCpu->unk5C = 0x3C;
+            break;
+        }
+    case 3:
+        func_00380540(Cpu_RandBelow(5) + 0x14);
+        gCpu->unk6 = gCpu->unk54 > 0 ? 0xC000 : 0x8000;
+        return 1;
+    case 9:
+        if (Cpu_PickCands(func_003849B8) <= 0) {
+            return 0;
+        }
+        func_00380540(Cpu_RandBelow(5) + 0x14);
+        break;
+    case 8:
+        if (gCpu->unk24 >= 3 || gCpu->unk2A8 >= 0xB) {
+            func_0038A690(-1);
+        }
+        break;
+    case 10:
+        if (gCpu->unk5C < 0 && Cpu_PickCands(func_00384A50) <= 0) {
+            return 0;
+        }
+        break;
+    case 0:
+    default:
+        return 0;
+    }
+    return func_003853E8() >= 0;
+}
 
 s32 func_00388D70(void) {
     if (gCpu->unk70 >= 0) {
@@ -4044,10 +4858,176 @@ s32 func_00388F78(void) {
     return r;
 }
 
+RODATA_ALIGN8();
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", D_005078E0);
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", jtbl_00507910);
 
+/* NON_MATCHING: 87 lines differ, mostly branch offsets: the 0xBA9 early return is cross-jumped into the `mask == 0`
+ * one, `mask = rand() & 0x3F ? 2 : 4` and the 0x38 / 0x28 choice are if-converted (movn / movz) where the original
+ * branches, and the shared `unk48 = 0` stores are placed differently. With it the jump table jtbl_00507910 comes from
+ * the C (drop its INCLUDE_RODATA). */
+#if 0
+extern const s64 D_005078E0[];
+s32 func_00386388(s32 kind);
+s32 func_003835A0(void);
+s32 func_00384578(CpuCand *c);
+s32 func_00383F10(CpuCand *c);
+
+/* Decider 4 of Cpu_Think, the answer to an opponent's move of flags 0x404 (own unk330, own fighter's unk135 clear)
+ * [V code; I meaning]: counts the frames (unk324, from 0 while unk320 is negative); with a command of situation 0x34
+ * (func_00386388) it presses 0x10 every unkA0 frames (unkA0 refilled from the first four parameters at random).
+ * Otherwise it lists the own move's commands that apply now (func_003835A0) and, from a mask of answers chosen from
+ * the opponent's move (window unk2C / unk2D, kinds 0x10F / 0x607, flags 0x10000 / 0x200000 / 2, the ranges unk2A8 /
+ * unk34, the rounds unk20 / unk24, the frame parity, character 0xE's move 0xBA9), draws an answer from D_005078E0
+ * until one is in the mask: 1 holds 0x1000, 2 holds 0x80 (0x4080 every 8 frames), 4 holds 0x8000, 8 / 0x10 / 0x20 play a
+ * candidate of func_00383F10 / func_003840F8 / func_00384578 (unk320 = 50); without one, 0x1000 every 16 frames after
+ * 180 frames (unk328), else nothing. */
+s32 func_00388FA8(void) {
+    s32 mask;
+    s32 k;
+
+    if (gCpuSelf->unk135 != 0 || !(gCpu->unk330.w & 0x404)) {
+        gCpu->unk48 = 0;
+        gCpu->unk328 = 0;
+        return 0;
+    }
+    if (gCpu->unk320 >= 0) {
+        gCpu->unk324++;
+    } else {
+        gCpu->unk324 = 0;
+    }
+    if (func_00386388(0x34)) {
+        gCpu->unk48 = 1;
+        if (--gCpu->unkA0 < 0) {
+            gCpu->unkA0 = ((s16 *)gCpu->unk344)[rand() & 3];
+            gCpu->unk6 = 0x10;
+        } else {
+            gCpu->unk6 = 0;
+        }
+        return 1;
+    }
+    gCpu->unk88 = gCpuSelf->unkC0;
+    gCpu->unkB0 = 0;
+    gCpu->unkAC = func_003835A0();
+    if (gCpu->unkAC <= 0) {
+        gCpu->unk6 = 0;
+        return 1;
+    }
+    gCpu->unk48 = 1;
+    gCpu->unk5C = 0x28;
+    gCpu->unk6C = -1;
+    gCpu->unkCC = 0x10;
+    gCpu->unk50 = 0;
+    gCpu->unk4C = 0;
+    if (++gCpu->unk328 >= 0xB4) {
+        mask = 0x3F;
+    } else {
+        if (((gCpu->unk33C.w & 0x200000) && gCpuOpponent->unkC0->unk2C == 0) ||
+            (gCpu->unk340 == 0x607 && !(gCpu->unk338.w & 0x10000))) {
+            if (gCpuOpponent->unkC4 < gCpuOpponent->unkC0->unk2D && gCpuOpponent->unk28 == 0xE && gCpuOpponent->unk10C == 0xBA9 && D_005F5C28 < 2000) {
+                gCpu->unk6 = 0;
+                return 1;
+            }
+        }
+        if (gCpuOpponent->unkC0->unk2C != 0) {
+            if (gCpu->unk2A8 >= 0xC || gCpuOpponent->unkC0->unk2D < gCpuOpponent->unkC4) {
+                if (gCpu->unk20 < 2) {
+                    gCpu->unk48 = 0;
+                    mask = (gCpu->unk33C.w & 2) ? 0x38 : 0x28;
+                } else {
+                    mask = 0;
+                }
+            } else if (gCpu->unk340 == 0x10F || (gCpu->unk338.w & 0x10000)) {
+                mask = 0;
+                if ((gCpu->unk4 & 1) == gCpu->unk0) {
+                    gCpu->unk48 = 0;
+                    if (rand() & 2) {
+                        mask = 0x38;
+                    } else if (gCpuOpponent->unkC0->unk19 == 0 && (s16)gCpuSelf->unk40 < 0x4001 &&
+                               !(gCpu->unk33C.w & 0x200000)) {
+                        mask = 4;
+                    } else if (rand() & 0x3F) {
+                        mask = 2;
+                    } else {
+                        mask = 4;
+                    }
+                }
+            } else {
+                if (gCpu->unk24 >= 3 || (gCpu->unk24 >= 2 && gCpu->unk34 >= 0xB)) {
+                    mask = 1;
+                } else {
+                    mask = (rand() & 0xF) ? 0x3F : 0;
+                }
+                gCpu->unk48 = 0;
+            }
+        } else if (gCpu->unk20 < 3) {
+            mask = 0;
+            if ((gCpu->unk4 & 1) == gCpu->unk0) {
+                gCpu->unk48 = 0;
+                if (gCpu->unk94 >= 0) {
+                    mask = 7;
+                } else if (rand() & 0x3F) {
+                    mask = 7;
+                } else {
+                    mask = 0x38;
+                    gCpu->unk48 = 0;
+                }
+            }
+        } else {
+            mask = 0x3F;
+            if (gCpu->unk24 < 4) {
+                gCpu->unk48 = 0;
+            } else {
+                gCpu->unk48 = 0;
+                mask = 7;
+            }
+        }
+    }
+    if (mask == 0x80) {
+        gCpu->unk6 = 0;
+        return 0;
+    }
+    if (mask == 0) {
+        gCpu->unk6 = 0;
+        return 1;
+    }
+    do {
+        k = D_005078E0[func_003800D8(6)];
+    } while (!(mask & k));
+    switch (k) {
+    case 1:
+        gCpu->unk6 = 0x1000;
+        return 1;
+    case 2:
+        gCpu->unk6 = (gCpu->unk4 & 7) ? 0x80 : 0x4080;
+        return 1;
+    case 4:
+        gCpu->unk6 = 0x8000;
+        return 1;
+    case 8:
+        Cpu_PickCands(func_00383F10);
+        break;
+    case 16:
+        Cpu_PickCands(func_003840F8);
+        break;
+    case 32:
+        Cpu_PickCands(func_00384578);
+        break;
+    }
+    if (gCpu->unkB0 > 0) {
+        if (func_003853E8() >= 0) {
+            gCpu->unk320 = 0x32;
+        }
+    } else if (gCpu->unk328 < 0xB4 || ((gCpu->unk4 >> 1) & 7)) {
+        gCpu->unk6 = 0;
+    } else {
+        gCpu->unk6 = 0x1000;
+    }
+    return 1;
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00388FA8);
+#endif
 
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00389488);
 
@@ -4123,9 +5103,15 @@ INCLUDE_RODATA("asm/nonmatchings/fighter_core", jtbl_005079E0);
 /* Runs the opponent-character hook unkB4 (while unkCC < 0, with chance unk382 in 4096): -1 nothing, -2 done, -3 play a
  * random picked candidate (func_003853E8), 0x2000 / 0x8000 hold that pad bit and call func_00380540(0x10), any other
  * value is the pad bits to hold (unk6); returns whether the CPU acted [V code; I meaning]. */
-/* NON_MATCHING: 2 lines differ: `!(x < 0)` comes out as nor / srl (the original slti / xori); `r = !r` after
- * `r = x < 0` gives srl / sltiu, `(x < 0) ^ 1` and if / else fold the same way. */
-#if 0
+/* fake: the hook deciders' `func_003853E8() >= 0` matches (slti / xori) only with the 0 passed in through an inline
+ * function's parameter; written in place it folds to nor / srl. */
+static inline s32 Cpu_PlayPicked(s32 min) {
+    return func_003853E8() >= min;
+}
+
+/* Decider 6 of Cpu_Think: while unkCC is negative, with a chance of unk382 in 4096, runs the hook unkB4 of the
+ * opponent's character: -1 nothing, -2 acted, -3 play a picked candidate, 0x2000 / 0x8000 hold that pad bit and wait
+ * 16 frames, any other value is the pad word to hold [V code; I meaning]. */
 s32 func_0038A408(void) {
     s32 r = 0;
     s32 c;
@@ -4137,7 +5123,7 @@ s32 func_0038A408(void) {
             break;
         case -3:
             if (gCpu->unkB0 > 0) {
-                r = !(func_003853E8() < 0);
+                r = Cpu_PlayPicked(0);
             }
             break;
         default:
@@ -4154,12 +5140,8 @@ s32 func_0038A408(void) {
     }
     return r;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0038A408);
-#endif
 
-/* NON_MATCHING: 2 lines differ, as func_0038A408 (the same code with the own character's hook unkB8). */
-#if 0
+/* Decider 7 of Cpu_Think: func_0038A408 with the own character's hook unkB8 [V code]. */
 s32 func_0038A500(void) {
     s32 r = 0;
     s32 c;
@@ -4171,7 +5153,7 @@ s32 func_0038A500(void) {
             break;
         case -3:
             if (gCpu->unkB0 > 0) {
-                r = !(func_003853E8() < 0);
+                r = Cpu_PlayPicked(0);
             }
             break;
         default:
@@ -4188,9 +5170,6 @@ s32 func_0038A500(void) {
     }
     return r;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0038A500);
-#endif
 
 #if 0
 /* NON_MATCHING: the constants 0x28 and -1 are loaded and stored in the other order. */
@@ -4426,10 +5405,9 @@ s32 func_0038ACA8(void) {
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0038ACA8);
 #endif
 
-/* NON_MATCHING: 2 lines differ, as func_0038A408 (the same code calling func_0038BF38). */
-#if 0
 s32 func_0038BF38(void);
 
+/* Decider 0x16 of Cpu_Think: func_0038A408 with the hook func_0038BF38 [V code]. */
 s32 func_0038AD00(void) {
     s32 r = 0;
     s32 c;
@@ -4441,7 +5419,7 @@ s32 func_0038AD00(void) {
             break;
         case -3:
             if (gCpu->unkB0 > 0) {
-                r = !(func_003853E8() < 0);
+                r = Cpu_PlayPicked(0);
             }
             break;
         default:
@@ -4458,9 +5436,6 @@ s32 func_0038AD00(void) {
     }
     return r;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0038AD00);
-#endif
 
 #if 0
 /* NON_MATCHING: 41 lines differ: the original computes all addresses and loads of both members before the two clamps
@@ -4722,7 +5697,7 @@ s32 func_0038BBF8(void) {
 extern const u16 D_00507A12[][7];
 extern const u16 D_00507A32[][7];
 extern const u16 D_00507A52[][7];
-s32 func_00385DF8(s32 arg0);
+s32 func_00385DF8(s16 id);
 s32 func_003838B0(void);
 
 /* Move handler (D_00507A80 key 3) run with a chance of unk35E in 4096 while unk94 is not positive: against moves of

@@ -716,6 +716,49 @@ Tools:
 - `fdiff.py` only compares the function: a C jump table can still shift the next table; always confirm the SHA-1
   step after enabling a function that emits `.rodata`.
 
+### Lessons from T14 batch 8 (2026-10-19)
+
+Code shapes:
+
+- **The command-list walkers set the entry count in both arms**: `if (e->unk0 == 0x8004) { cnt = e->unkD; c = ...; }
+  else { cnt = 1; c = e; }`. With `cnt = 1;` hoisted above the `if` the count took a later saved register in every
+  walker (`func_003856C0` and `func_00386388`, NON_MATCHING since T14 b7, matched with this alone).
+- **The order of initialised locals picks saved registers**: `func_003835A0` matched only with `n = 0` declared after
+  the other four initialised locals (a sweep of the 120 orders found it in a minute).
+- **A constant compared through a variable or an inline parameter** keeps the comparison the expander chose for a
+  register: `func_003853E8() >= 0` written in place folds to `nor / srl`, through `static inline s32
+  Cpu_PlayPicked(s32 min)` called with 0 it stays `slti / xori` (the `!(x < 0)` trio, found by decomp-permuter as an
+  inline with a parameter); `unk94 <= 0x23` gives `slti 36`, `unk94 <= lim` with `lim = 0x23` the original
+  `li 35 / slt` (`func_00388840`). Both are marked fake.
+- `D_005F5EE8 == (gRoundNumber == 1 ? 0x3D : 1)` loads the frame before the round test, as the original
+  (`func_0036EC50`); `gRoundNumber == 1 ? t == 0x3D : t == 1` loads it in each arm.
+- A shared "fail" block placed between the success code and an early test comes from a `goto` into the failing `if`
+  (`if (m->unk2C != 0 && (...)) { fail: ...; return 0; }`, `func_00387600`, `func_00387DA8`); a shared `return 0` placed
+  after the last test likewise (`if (k < 0) { fail: return 0; }`, `func_00387120`).
+- A duplicated block of the original (the candidate test four times in `func_00382AD8`) is a macro of the source; its
+  `ok` flag matched as a block-local of the macro (`{ s32 ok = 0; ... }`), and a stale pointer used after the loop is
+  the last value of the loop variable.
+- `(c->unk3 & ~0x80) < 0x60` gives `slti`, `(c->unk3 & 0x7F) < 0x60` `sltiu` (`func_003691D8`).
+- An `extern const s64` table read into an `s32` is `ld / dsll32 / dsra32` (`D_005078E0`, `func_00388FA8`).
+
+Objects and data:
+
+- `func_00388840` emits its jump table: `jtbl_005078B0` left the source and `D_005078E0` needed `RODATA_ALIGN8()` (the C
+  table is 0x2C bytes, the `.s` file had a padding word); fdiff said OK before the SHA-1 step caught it.
+- `CpuState` gained the arrays the walkers fill (`unk154[0x30]`, `unk228[10]`) and typed `unk10` (move records by id)
+  and `unk90`; `Fighter` gained `unk10` / `unk14` (the origin shift of `func_00372E98`).
+
+Not matched yet (closest attempts in `#if 0`): `func_00385DF8` (142 lines, the original spills `id` next to the result
+and keeps two constants in fp), `func_00388FA8` (87 lines, mostly offsets: one cross-jumped early return and two
+if-conversions; decomp-permuter went from 2795 to 2290 in about 20 minutes), `func_00373E38` (49 lines, a block placed
+between the switch cases), `func_00380B10` (decomp-permuter: 2515 to 960 in about 50 minutes, no natural change found).
+
+Tools:
+
+- A by-hand sweep that writes each permutation of a few statements (initialisers, a run of stores) into the source and
+  runs `fdiff.py` (about 0.5 s per build of `fighter_core.c`) found several matches faster than decomp-permuter
+  (`func_003835A0`, `func_00387600`, `func_003879A0`, `func_00387DA8`, `func_003685B8`).
+
 ## Decompiled so far
 
 | File | Range | C / functions | Notes |
@@ -732,8 +775,8 @@ Tools:
 | `src/sound.c` | 0x3745E8-0x376C30 | 59 / 65 | SPU2 set-up, sound effect voices and banks, delayed effects, fighter voices |
 | `src/sound_if.c` | 0x399FC8-0x39A2B8 | 13 / 13 | sound byte-code queue (BGM, movie audio) |
 | `src/gte.c` | 0x39A2B8-0x39BBF0 | 19 / 19 | GTE-style fixed-point matrices and vectors |
-| `src/fighter_core.c` | 0x37BA88-0x38BF98 | 196 / 277 | practice mode recorder, command lists, hit markers and dummy actions, the CPU opponent (`Cpu_Think` and its deciders, commands, predicates and handlers, [systems/fighter.md](systems/fighter.md) section 4); `.rodata` 0x5064C0-0x507EE0 included in place (its 0x506528-0x506BF0 belongs to the practice object before) |
-| `src/battle_flow.c` | 0x3682F8-0x3745E8 | 113 / 148 | the fight simulation: per-frame update, input fetch and history, command matching and situation tests, move start and move events, hits and throws (`Battle_ResolveHits`, `Fighter_StartThrownMove`), launches, the round state machine (`Battle_UpdateRound`) and results ([systems/fighter.md](systems/fighter.md) section 5); includes the four functions of the former `src/374520.c`; `.rodata` 0x4FF8D0-0x500780 included in place; damage `Fighter_ApplyDamage` and its `.lit4` 0x5F5168 |
+| `src/fighter_core.c` | 0x37BA88-0x38BF98 | 214 / 277 | practice mode recorder, command lists, hit markers and dummy actions, the CPU opponent (`Cpu_Think` and its deciders, commands, predicates and handlers, [systems/fighter.md](systems/fighter.md) section 4); `.rodata` 0x5064C0-0x507EE0 included in place (its 0x506528-0x506BF0 belongs to the practice object before) |
+| `src/battle_flow.c` | 0x3682F8-0x3745E8 | 118 / 148 | the fight simulation: per-frame update, input fetch and history, command matching and situation tests, move start and move events, hits and throws (`Battle_ResolveHits`, `Fighter_StartThrownMove`), launches, the round state machine (`Battle_UpdateRound`) and results ([systems/fighter.md](systems/fighter.md) section 5); includes the four functions of the former `src/374520.c`; `.rodata` 0x4FF8D0-0x500780 included in place; damage `Fighter_ApplyDamage` and its `.lit4` 0x5F5168 |
 | `src/fight_misc.c` | 0x376C30-0x3790C8 | 26 / 29 | the hit test (attack volumes against body spheres), body sphere radii, push sphere radii, the special attack volume of character 0x1D ([systems/fighter.md](systems/fighter.md) section 5.5); `.rodata` 0x506150-0x506260, `.lit4` 0x5F5170 |
 | `src/select_results.c` | 0x3C1470-0x3C1A78 | 2 / 4 | team life at round start and its per-frame recovery ([systems/fighter.md](systems/fighter.md) section 5.6); a cut inside the `select_results` module, not an object edge |
 | `src/model_anim.c` | 0x3D3288-0x3D33F0 | 1 / 1 | the tag swap ([systems/fighter.md](systems/fighter.md) section 5.7); a cut inside the `model_anim` module, not an object edge |
