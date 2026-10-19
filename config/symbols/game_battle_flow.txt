@@ -1,3 +1,20 @@
 // Game module battle_flow (docs/game_overview.md section 4; the range is provisional).
 // Naming rules: docs/decomp_guide.md, "Naming".
 // range: 0x003682F8 0x003745E8
+Fighter_StartCommandMove = 0x00368A00; // type:func
+Move_FindCommand = 0x00369CB0; // type:func // guess
+Fighter_StepMove = 0x0036A428; // type:func // guess
+Fighter_UpdateInput = 0x0036C4C0; // type:func
+Fighter_ResetInputHistory = 0x0036C528; // type:func
+Fighter_RecordInput = 0x0036C860; // type:func
+Input_MirrorLeftRight = 0x0036CF88; // type:func
+Battle_UpdateFrame = 0x0036D860; // type:func
+Battle_UpdatePause = 0x0036DEA8; // type:func // guess
+Battle_UpdateRound = 0x0036E198; // type:func // guess
+Battle_IsRoundOver = 0x0036F3C8; // type:func
+Battle_UpdateFacing = 0x00371330; // type:func
+Battle_UpdateDistance = 0x00371458; // type:func // guess
+Fighter_UpdateMotion = 0x00371B98; // type:func
+Battle_ApplyVelocity = 0x00371C68; // type:func
+Battle_ResolveHits = 0x00371D68; // type:func // guess
+Battle_StepMoves = 0x00372A88; // type:func

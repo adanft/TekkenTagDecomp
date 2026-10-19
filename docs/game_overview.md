@@ -182,8 +182,8 @@ though an edge could still fall between two objects that are both inside the ran
 | `memcard` | 0x35E808 | 0x3608B8 | 43 | `Mc_Request` (0x35E808) and its callers, `sceMc*` wrappers, `Mc_Update`, "BASLUS-20001TekkenTT"; state `gMc` (`McState`, include/memcard.h); no `$gp`. `src/memcard.c` |
 | `font_tex` | 0x3608B8 | 0x3621F8 | 30 | VIF1 DIRECTHL image transfers, GIF tags; "YES NO" [I: font and texture upload] |
 | `fighter_setup` | 0x3621F8 | 0x3682F8 | 159 | fighter matrices (0x8794C0...), init functions of `Sys_Init` |
-| `battle_flow` | 0x3682F8 | 0x3745E8 | 148 | "ROUND %d", "K.O.", "READY!", "TAG BATTLE", "DRAW" [I: round flow and fight HUD] |
-| `sound` | 0x3745E8 | 0x376C30 | 65 | `sceSdRemote` callers, `Snd_PlaySe` 0x374CD8 (56 callers, many of them menu screens), fighter voices (`Snd_PlayVoice`, voice sequences). `src/sound.c` [V start: its `.rodata` (0x500780-0x500D50, jump tables 16-aligned) cannot start at 0x500758, which belongs with the four functions 0x374520-0x3745E8 (`src/374520.c`) to the object before] |
+| `battle_flow` | 0x3682F8 | 0x3745E8 | 148 | The fight simulation (T14 b2): `Battle_UpdateFrame` 0x36D860 (one call per frame from `Mode_Battle`), input history and command matching, move start and the move step, hit resolution, round state and its texts ("ROUND %d", "K.O.", "READY!", "TIME UP") [V calls and data flow; I roles of the asm parts]. `src/battle_flow.c`, one C file for the range: the end is an object edge [V: the `.rodata` of the object ends with `D_00500758`, read by 0x374548, and `sound` starts at `Snd_Init`]; the start is [I] (no `.rodata` evidence: `jtbl_004FF8B0` of `fighter_setup` ends where `D_004FF8D0` of 0x369188 starts, and `D_004FF690` is read from both sides). The file emits no data of its own, so functions with jump tables or `.lit4` floats stay in assembly. [systems/fighter.md](systems/fighter.md) section 5 |
+| `sound` | 0x3745E8 | 0x376C30 | 65 | `sceSdRemote` callers, `Snd_PlaySe` 0x374CD8 (56 callers, many of them menu screens), fighter voices (`Snd_PlayVoice`, voice sequences). `src/sound.c` [V start: its `.rodata` (0x500780-0x500D50, jump tables 16-aligned) cannot start at 0x500758, which belongs with the four functions 0x374520-0x3745E8 to the object before, the end of `battle_flow` (`src/battle_flow.c`)] |
 | `fight_misc` | 0x376C30 | 0x3790D8 | 30 | 64-bit division, atan2; modes 4, 5, 8, 11 |
 | `practice` | 0x3790D8 | 0x37BA88 | 43 | "FREESTYLE", "VS CPU", "(CPU)", "(YOU)", "TYPE %d", "RANDOM" |
 | `fighter_core` | 0x37BA88 | 0x38BF98 | 277 | practice mode support (command recorder `gPracRecorder`, command lists, dummy conditions, practice reset) 0x37BA88-0x3800D8 and the CPU opponent (`Cpu_GetInput`, candidate moves, handler table `D_00507A88`) 0x3800D8-0x38BF98 [V, T14 b1]; not the move interpreter or hit detection. `src/fighter_core.c`, one C file for the range: it emits no data sections, so the edges are not checked as object edges [I edges]. [systems/fighter.md](systems/fighter.md) |
@@ -236,6 +236,11 @@ though an edge could still fall between two objects that are both inside the ran
 | 0x8BCD40 / 0x8BCF80 | `gFileReqs` / `gFileQueue` | 24 requests of 0x18 bytes / 24 queue pointers, +0x60 busy word | V |
 | 0x5F6C64 / 0x5F6C60 | | pending request count / IOP status word (`sceSdRemote(1, 0x2030)`) | V |
 | 0x5F61F0 / 0x5F61EC | | sound command buffer write pointer / count | V |
+| 0x5F5F2C | `gBattleParity` | 0/1, flipped every simulated frame; picks which fighter steps first (systems/fighter.md section 5) | V |
+| 0x5F5EF0 | `gRoundPhase` | round state, switched on by `Battle_UpdateRound`; 0xD, 0xE-0x10, 0x11-0x12 tested by small predicates | I |
+| 0x5F5F04 | `gRoundNumber` | 1 on the first round (intro poses) | I |
+| 0x5F5C30 | `gRoundTimer` | the round ends when it reaches 0 or a life (`Fighter.unk40C`) does (`Battle_IsRoundOver`) | I |
+| 0x5F5C28 | | distance between the two fighters, written by `Battle_UpdateDistance` (name not applied: `src/fighter_core.c` reads it) | I |
 | RNG state | | see section 6 | V |
 
 ## 6. Random numbers
@@ -259,6 +264,11 @@ Two generators [V]:
 
 For a deterministic port and replays: the boot seed (Timer 0) and the spin LCG depend on real time; the
 reseed adds the VBlank count. All three must become inputs or saved state (T26-T27).
+
+Inside the fight simulation (T14 b2, [systems/fighter.md](systems/fighter.md) section 5): `rand()` picks the intro
+pose of a fighter (`func_00368398`), and `gFrameCount` sets the initial `gBattleParity` (`func_0036E138`) and the
+intro of character 0x21 (`gFrameCount % 3`, `func_003685B8`). `gFrameCount` counts main-loop iterations, so it
+must be part of the synchronised state too.
 
 ## 7. File loading
 

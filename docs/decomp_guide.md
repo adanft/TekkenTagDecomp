@@ -317,10 +317,10 @@ Objects and data:
 
 - A C file that emits a jump table makes its `.rodata` 16-aligned, so the object's `.rodata` starts on a 16-byte
   boundary. `sound`'s first table could not be `D_00500758` (0x500758): that table and the four functions that read
-  it (0x374520-0x3745E8, `src/374520.c`) belong to the object before, and `sound.c` starts at `Snd_Init` with its
-  `.rodata` at 0x500780. All of `sound`'s `.rodata` tables have `force_not_migration` and are included in place;
-  the jump tables of functions still in assembly are included too (`INCLUDE_RODATA(..., jtbl_005007B0)`), so the
-  order holds whichever functions are C.
+  it (0x374520-0x3745E8, now the end of `src/battle_flow.c`) belong to the object before, and `sound.c` starts at
+  `Snd_Init` with its `.rodata` at 0x500780. All of `sound`'s `.rodata` tables have `force_not_migration` and are
+  included in place; the jump tables of functions still in assembly are included too
+  (`INCLUDE_RODATA(..., jtbl_005007B0)`), so the order holds whichever functions are C.
 - A table of 8 bytes or less in `.data` still needs an incomplete declaration (`extern s32 D_00415FE0[];`), or the
   compiler reaches it through `$gp` (also for `D_00500CB0`-`D_00500CB8`, 4-byte words in `.rodata`).
 - A struct handed to a function at an offset of its parent (`p + 0x20`) is a member reached through a pointer
@@ -416,6 +416,32 @@ Assembler: `mfc1` got a hazard `nop` from gas that the original does not have (`
 - Not solved: a padding `nop` that 8-aligns the label after a mid-function `jr ra` in 7 functions of the executable
   (`func_0037DFC8`); the compiler emits `.p2align 2` there.
 
+### Lessons from T14 batch 2 (2026-10-18)
+
+- **splat writes `asm/nonmatchings/<file>/<func>.s` only for the names the C file lists in `INCLUDE_ASM`.** A label
+  splat calls `jlabel func_XXXXXXXX` (a jump-table target that looks like a function, 0x36BF8C and 0x36BF94 after
+  `func_0036BF58`) needs its own `INCLUDE_ASM` line, or its bytes are missing and the link fails with an undefined
+  reference from the jump table. List every `glabel` and `jlabel` of the range when creating a C file.
+- A store chain `a->x = a->y = v;` stores `y` first; the original order of two such stores shows which one is outer.
+- A call left as `jal` at the end of a function (no tail call) means the function returns that value:
+  `s32 f(...) { ... return g(); }` (`Battle_UpdateFrame`), or `if (...) { return g(); }` with no value on the other
+  path (`func_00368B08`).
+- A value copied to a field and passed on (`lhu` / `sh` / `sll`+`sra` for the call) is a local of the unsigned type:
+  `u16 id = c->unk6; f->unk184 = id; f(id)` (`Fighter_StartCommandMove`).
+- A global's address passed as an argument while the other accesses go through a pointer register
+  (`lui / addiu D_00879B5C`) is `&gFighters[0].unk51C` written out; fdiff accepts the different symbol name for the
+  same address.
+- A `.data` byte read by C (`D_0043B7F8`) must be an incomplete array (`extern u8 D_0043B7F8[];`) or the link fails
+  with `relocation truncated to fit: R_MIPS_GPREL16`.
+- A fixed mask kept in a variable (`u16 mask = 0xF;`) changes the register order of an `&` (`func_0036CD78`, found by
+  decomp-permuter in a few minutes).
+- Not solved, all store / block scheduling: the stores of a move record pointer to 0x188 / 0xC0 / 0xB8 next to
+  constant stores (`func_00368748`, `func_00368818`, `func_00368958`), two `return 1` blocks kept apart
+  (`func_0036BF00`), a loop entered at its test (`func_0036A008`), an argument shifted with `dsrl`
+  (`func_0036C918`). decomp-permuter matches two of them only with fakes (`m++; m--;`, `if (f) return 1; else
+  return 1;`), which were not taken.
+- `fdiff.py` runs must not overlap: several at once on the same build report wrong sizes and false differences.
+
 ## Decompiled so far
 
 | File | Range | C / functions | Notes |
@@ -429,10 +455,10 @@ Assembler: `mfc1` got a hazard `nop` from gas that the original does not have (`
 | `src/dma_gif.c` | 0x342E78-0x346398 | 38 / 52 | DMA kicks and waits, VU0 microcode upload, VU1 matrix packets, side tables; four handwritten VU0 routines stay in assembly |
 | `src/dma_spr.c` | 0x35D048-0x35E808 | 53 / 63 | file loads by number, scratchpad buffers and DMA, DMAC helpers |
 | `src/memcard.c` | 0x35E808-0x3608B8 | 42 / 43 | memory card requests, libmc call steps, state flags |
-| `src/374520.c` | 0x374520-0x3745E8 | 4 / 4 | the end of the object before `sound` |
 | `src/sound.c` | 0x3745E8-0x376C30 | 59 / 65 | SPU2 set-up, sound effect voices and banks, delayed effects, fighter voices |
 | `src/sound_if.c` | 0x399FC8-0x39A2B8 | 13 / 13 | sound byte-code queue (BGM, movie audio) |
 | `src/gte.c` | 0x39A2B8-0x39BBF0 | 19 / 19 | GTE-style fixed-point matrices and vectors |
 | `src/fighter_core.c` | 0x37BA88-0x38BF98 | 141 / 277 | practice mode recorder and command lists, CPU opponent predicates and handlers ([systems/fighter.md](systems/fighter.md)) |
+| `src/battle_flow.c` | 0x3682F8-0x3745E8 | 70 / 150 | the fight simulation: per-frame update, input history, move start, round state ([systems/fighter.md](systems/fighter.md) section 5); includes the four functions of the former `src/374520.c` |
 
 Functions left as `INCLUDE_ASM` carry their closest attempt above them in `#if 0` with a `NON_MATCHING:` note.

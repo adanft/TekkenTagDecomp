@@ -1,9 +1,10 @@
-# Fighters, practice mode and the CPU opponent
+# Fighters, the fight simulation, practice mode and the CPU opponent
 
-What the decompiled code of `src/fighter_core.c` (module `fighter_core`, 0x37BA88-0x38BF98) shows about the fighter
-state, its input, the practice mode tools and the CPU opponent. The module name came from the first map
-([game_overview.md](../game_overview.md) section 4); the code turned out not to be the move interpreter or the hit
-detection, which live elsewhere (callers in `battle_flow`, `fighter_setup`, `model_anim`; T14 follow-ups).
+What the decompiled code shows about the fighter state, its input, the per-frame fight simulation
+(`src/battle_flow.c`, module `battle_flow`, 0x3682F8-0x3745E8, section 5), the practice mode tools and the CPU
+opponent (`src/fighter_core.c`, module `fighter_core`, 0x37BA88-0x38BF98). The `fighter_core` name came from the
+first map ([game_overview.md](../game_overview.md) section 4); that code turned out to be practice mode and the CPU,
+while the simulation is in `battle_flow` and the hit test in `fight_misc` (0x3770E0).
 
 Tags: **[V]** read in decompiled, matching C or in the disassembly, **[I]** inferred.
 
@@ -82,8 +83,122 @@ one of these functions through jump tables [V for the values; I for "guard / rea
 - Difficulty: `func_00380420` copies a 0x80-byte parameter block from `D_00431918[level][kind]` (5 x 8 blocks) to
   `CpuState + 0x344` [V read; I "difficulty"].
 
-## 5. Open
+## 5. The fight simulation (`battle_flow`)
 
-- The per-frame fighter update, the move interpreter, hit detection, damage, throws and tag changes are outside this
-  module; the next candidates are `battle_flow` (0x3682F8-0x3745E8, which holds `func_0036C680`) and `fighter_setup`.
+### 5.1 One frame: `Battle_UpdateFrame` (0x36D860)
+
+`Mode_Battle` calls `Battle_UpdateFrame` once per frame for the two fighters on screen, `gFighters[0]` and
+`D_00884EE0` (slot 1). The function is matching C; the order below is [V], the roles of the callees still in
+assembly are [I] unless marked.
+
+1. `unk24 = unk0 * 2 + unk1E` for both fighters; `func_003C1B38()`; game type 7 (`D_0043B7F8[0]`) calls the
+   practice hook `func_003796B8`.
+2. Pause: while `D_005F5EE8` is set, `Battle_UpdatePause` (0x36DEA8) turns the Start button (0x800) of either side
+   into the pause words `D_005F5F08` / `D_005F5EE4` and fades the BGM; otherwise the words are cleared.
+3. When the game is paused (`D_005F5EE0` or `D_005F5EE4`), only the drawing side runs (animation, effects) and
+   nothing below happens.
+4. `D_005F5EF8 = func_00364B50()`, then `Battle_UpdateRound` (0x36E198, asm with a jump table; reads and writes
+   `gRoundPhase`). When
+   `D_005F5EF8` is set (a frame without simulation, e.g. a replay or an intro), only animation and effects step,
+   by `func_00365D00()` frames.
+5. Otherwise the simulation, in this order:
+   1. `gBattleParity ^= 1`; round HUD [I] (`func_0036EA80`: "ROUND %d", "READY!", "K.O.", "TIME UP" ...);
+      `func_0036DDD0`; camera shake step `func_0035C320` [I]; `func_00341AE8`; `func_0034F288` per fighter.
+   2. **`Battle_StepMoves`** (0x372A88): the move step `Fighter_StepMove` (0x36A428) of both fighters, the one
+      picked by `gBattleParity` first. When one of them reaches the end of a move of kind 0x20 (a throw [I]), the
+      other first starts the move given by `D_0046BE78[entry.unk4].unk1C` (kind 0x24, `func_003688B0`).
+   3. `Battle_UpdateFacing` (0x371330): `Math_Atan2` of the vector between the fighters (`unk51C` / `unk524`) into
+      `unk3A` (the other side gets `+0x8000`); `unk48` comes from the camera angle `D_00415808[1]`.
+   4. `Battle_UpdateDistance` (0x371458, asm) writes the fighter distance `D_005F5C28` [I]; `func_00371A48` the
+      distances to the two points `D_00879610` (`D_005F5C38`).
+   5. `func_0036FB40` (0x12E0 bytes, asm, `Math_Atan2` / `Math_Sin` / `Math_Cos`, `.lit4` floats): movement and
+      pushing [I]; `func_003772F0` unless a fighter has `unkE0` set.
+   6. Skeleton and animation side (`func_00371B18`, `func_00378150`, `func_00378600`, `func_003BAEF0`,
+      `func_003A6390`), `Fighter_UpdateMotion` (position delta of the frame into `unk3C4`-`unk3CC`),
+      `func_0034F3D8`, the camera targets (`func_003D3C68` with `unk51C`, `unk520`, `-unk524`, `unk122`).
+   7. `Battle_ApplyVelocity` (0x371C68): while `gRoundPhase < 0xE`, adds `unk3E8`-`unk3F0` to both position
+      triples `unk4`-`unkC` and `unk51C`-`unk524` of both fighters (not on frame 1 of move 0x1019).
+   8. **`Battle_ResolveHits`** (0x371D68, asm): clears the hit flags (`unk12F`, `unk132`, `unk133`, `unk13B`,
+      `unk14C`), runs the hit test `func_003770E0` (in `fight_misc`, reached through `func_003772B0`): up to 4 attack
+      volumes of 0x18 bytes at `Fighter + 0x190` (start and end point) against the 14 body spheres of 0x14 bytes at
+      `+0x1F0` of the other fighter (`func_00376CF8`), the contact going to `+0x39C`. A hit counts when the attack
+      level `unkD0` meets the defender's mask `unkCC & 7` and the attack has not hit yet (`unkF1`); the attacker
+      gets `unkF1`, `unkF4`, `unkF5`, `unk132`, the defender `unkF3`, `unk12F`, `unk14C` (the attacker move's byte
+      0x2E) and `unk11C` (hit kind). The reaction is the attacker move's first `D_005E8978` entry whose condition
+      holds (`func_0036C1A0`), field `unk6` when the distance `D_005F5C28` is below its `unk8`, else `unk4` [V read
+      of the asm; I meanings].
+   9. `func_00371C08` (attack volume motion), `func_003729B0`: **`Fighter_StartCommandMove`** for both, in parity
+      order (section 5.2), `func_00372BA8`, `func_003720C8` (floats; effects [I]), fighter voices
+      (`func_00375B60`), `Snd_UpdateDelayed`, the practice dummy (`func_0037D668`).
+   10. **`Fighter_UpdateInput`** per fighter: when `unk414` is set, `func_0036C680` fetches this frame's buttons
+       (pad, CPU or practice playback, section 2) and records them (section 5.2).
+   11. `unkC6 = unkC4`; `func_00372A10`: `func_00368B90` and `func_00368B08` for both in parity order (the launch
+       reaction, `func_00368958`: kind 0x26, record `func_00374010(func_00374048())` from `D_00500678`); end of frame
+       helpers.
+6. It returns `func_0036E158()` (`D_005F5E88`, the end-of-round step).
+
+The input is read at the end of the frame (step 10), after the move step: what a player presses in frame N acts
+in frame N+1 [V order]. For netplay the inputs of both sides enter only through `func_0036C680` (and the CPU,
+`fighter_core`), so replacing its sources is enough to drive the simulation.
+
+### 5.2 Input history and commands
+
+- `Fighter.unk438` (`FighterUnk438`, include/fighter.h): a ring of 60 entries, one per frame
+  (`Fighter_RecordInput` 0x36C860, `Fighter_ResetInputHistory` 0x36C528) [V]. An entry is the direction 0-15 of the
+  held pad bits (`func_0036CFC0`) or'ed with the pressed buttons moved to bits 4-8 (pad 0x80 -> 0x10, 0x10 -> 0x20,
+  0x40 -> 0x40, 0x20 -> 0x80, 0x04 -> 0x100) [V for the recorder; `func_0036C918` read, not matched]. Pad bit 0x04 is
+  dropped while the fighters are far apart (`D_005F5C38[side] >= 0x1D15`) or `D_005F5EF4` is set [V].
+- `Input_MirrorLeftRight` (0x36CF88) swaps the pad's left and right bits (0x8000 / 0x2000) for side 1 [V].
+- A move record points (+0x0C) to its command list of `MoveCmd` entries (0xE bytes; shared lists in
+  `D_0047F780`). `Move_FindCommand` (0x369CB0) walks it at the current frame `unkC4`: an entry applies when the
+  frame lies in `unkB..unkC`, its input matches (`func_0036CBE8`), its condition `unk2` holds (`func_00369008`:
+  character `unk28` / `unk2A`, side tables `D_00440940`, `unk418`, `unk124` ...) and `func_00369E10` agrees; markers
+  0x8004 / 0x8005 enter and leave a shared list, 0x8000 ends it [V read of the asm; I meanings]. Input codes:
+  without bit 0x8000 a direction / button test of this frame (`func_0036CD10`, `func_0036CD78`); 0x8001 / 0x8002
+  a double tap forward / back (direction 6 / 4 twice, neutral 5 between, within 0x14 history entries,
+  `func_0036CAF8`); 0x8003 a flag (`unk12B`); above 0x8005 a sequence from `D_004EFD44` (`func_0036CDD8`) [V code
+  read; I names].
+- `Fighter_StartCommandMove` (0x368A00): while `unk12F` is set, the first matching entry of the current move's list
+  starts its move `unk6` with first frame `unkD`, kind `unk8 & 0x7F`, and clears the other fighter's hit flags;
+  `unk148 = other.unkCA / 2 + 0x19` [V].
+- The matched entry of the current move is kept at `unk4C0` (`MoveCmdState`), a buffered one at `unk4D4` and a copy
+  for the next frame at `unk4E8` [V copies; I roles].
+
+### 5.3 Moves, damage, round
+
+- Starting a move (`func_00368818` and its variants) [V]: `unk184` = move id, `unk188` = `unkC0` = `unkB8` = its
+  record (`func_00368218`), `unkC4` (frame) = `unk178` = 1, `unk17A` = `func_0036BE08(f, kind)` (kind 6 for plain
+  moves, 0x24 thrown [I], 0x26 launched [I]), `unk17C`-`unk182` cleared, the buffered command dropped
+  (`func_0036BD98`), then one `Fighter_StepMove`.
+- `Fighter_StepMove` (0x36A428, 0x1828 bytes, asm with a jump table): counts `unk170` down,
+  advances `unkC4`, holds the move while `unkE4` (hit freeze) runs, ends it at `unk178` / the record's length
+  `unk18`, and starts the follow-up moves [I: partial read].
+- Damage: the attacker's `unkCA` = `entry.unk2 & 0x3FFF` of the `D_005E8978` entry that applies, `unk11B` its kind
+  (`entry.unk2 >> 14`, kind 1 means no damage) (`func_0036C228`) [V code; I "damage"]. The life is `unk40C`
+  (`Battle_IsRoundOver`: a life at 0 or `gRoundTimer <= 0` ends the round) [V code; I names]. Where the life is
+  reduced is not found yet.
+- Round start: `func_0036D5D0` (battle init, from `Mode_Battle`) calls `func_0036E138` (round state reset) and
+  `func_00373038` -> `func_00373080` per fighter: intro move `func_00368398` (move 4 or 6 from the held pad buttons,
+  `rand() & 1` when none; 5 after the first round; 9 for character 0x21), input reset [V calls; I roles].
+
+### 5.4 Order, randomness and timing (determinism)
+
+- **Alternating priority** [V]: `gBattleParity` flips every simulated frame, and `Battle_StepMoves`,
+  `func_003729B0` and `func_00372A10` process `gBattleParity ? fighter 0 : fighter 1` first. Two machines must agree
+  on the parity; its initial value is `gFrameCount & 1` at the round reset (`func_0036E138`), so the main-loop
+  frame counter must be synchronised (or the parity forced) at round start.
+- `rand()` (newlib, [game_overview.md](../game_overview.md) section 6) in the simulation path: the intro pose
+  (`func_00368398`) when no button is held [V]. `gFrameCount % 3` picks the pose of character 0x21 in
+  `func_003685B8` [V read].
+- The camera angle `D_00415808[1]` enters `Fighter.unk48` (`Battle_UpdateFacing`) [V]; whether `unk48` feeds back
+  into gameplay is open.
+- Floats: the matched part uses integers only; `func_0036FB40` and `func_003720C8` (asm) read `.lit4` floats and
+  sin / cos, so they need a check for float determinism on the PC port.
+
+## 6. Open
+
+- Where the life (`unk40C`) is reduced; the meanings of the move kinds (`unk17A`) and of `Fighter_StepMove`.
+- `func_0036FB40` (movement / pushing [I]) and `Battle_UpdateRound` (round states) are in assembly (jump tables).
+- Tag in / out: not identified in `battle_flow`; the per-slot words at `Fighter + 0xB5D0`-`0xB884`
+  (`func_00373398`) and the 4 words `D_00879630` (`func_00373E18`) are candidates.
 - The meaning of `Fighter.unk420` values other than 3 (practice playback) and of the move flag bits.

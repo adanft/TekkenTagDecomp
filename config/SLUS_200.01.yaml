@@ -125,7 +125,7 @@ segments:
       - [0x1E048, c, dma_spr]
       - [0x1F808, c, memcard]
       - [0x218B8, asm]
-      - [0x35520, c, 374520]
+      - [0x292F8, c, battle_flow]
       - [0x355E8, c, sound]
       - [0x37C30, asm]
       - [0x3CA88, c, fighter_core]
