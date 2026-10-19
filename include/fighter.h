@@ -21,7 +21,7 @@ struct FighterMove {
     /* 0x10 */ u16 unk10;                     /* move id */
     /* 0x12 */ s16 unk12;                     /* facing offset applied when the move starts */
     /* 0x14 */ u16 unk14;                     /* index of its first entry in D_005E8978 */
-    /* 0x16 */ u8 pad16[0x2];
+    /* 0x16 */ s16 unk16;                     /* push of its frame window (Battle_UpdateMovement) */
     /* 0x18 */ u8 unk18;                      /* length in frames */
     /* 0x19 */ u8 unk19;
     /* 0x1A */ u8 unk1A;
@@ -177,7 +177,7 @@ typedef struct {
     /* 0x002A */ s16 unk2A;                   /* character */
     /* 0x002C */ s16 unk2C;                   /* index of its voice set (D_00501808) */
     /* 0x002E */ s16 unk2E;
-    /* 0x0030 */ u8 pad30[0x2];
+    /* 0x0030 */ s16 unk30;
     /* 0x0032 */ s16 unk32;
     /* 0x0034 */ u8 pad34[0x6];
     /* 0x003A */ s16 unk3A;                   /* facing angle (0x4000 / -0x4000 at a practice reset) [I] */
@@ -381,7 +381,11 @@ typedef struct {
     /* 0x0524 */ s32 unk524;
     /* 0x0528 */ u8 pad528[0xFC];
     /* 0x0624 */ s16 unk624;
-    /* 0x0626 */ u8 pad626[0x92];
+    /* 0x0626 */ u8 pad626[0x2];
+    /* 0x0628 */ s16 unk628;                  /* tested against 0x100 / 0x214 / -0x14 (Cmd_CheckSituation, kind 0x5C) */
+    /* 0x062A */ s16 unk62A;
+    /* 0x062C */ s16 unk62C;
+    /* 0x062E */ u8 pad62E[0x8A];
     /* 0x06B8 */ s32 unk6B8;
     /* 0x06BC */ s32 unk6BC;
     /* 0x06C0 */ s32 unk6C0;
@@ -391,7 +395,9 @@ typedef struct {
     /* 0x0710 */ s32 unk710;
     /* 0x0714 */ u8 pad714[0x14DC];
     /* 0x1BF0 */ f32 unk1BF0[4][4];             /* a matrix (func_00378760) */
-    /* 0x1C30 */ u8 pad1C30[0x94FC];
+    /* 0x1C30 */ u8 pad1C30[0x9422];
+    /* 0xB052 */ u8 unkB052;                  /* set while juggled and unkF7 is clear (Battle_UpdateMovement) */
+    /* 0xB053 */ u8 padB053[0xD9];
     /* 0xB12C */ struct FighterUnkB12C *unkB12C;  /* start position and move of the round (or NULL) [I] */
     /* 0xB130 */ u8 padB130[0x2];
     /* 0xB132 */ s16 unkB132;

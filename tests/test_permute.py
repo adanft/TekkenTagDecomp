@@ -1,6 +1,8 @@
 """Tests for the pure helpers of scripts/permute.py (synthetic data only)."""
 
 import importlib.util
+import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -47,6 +49,87 @@ class Settings(unittest.TestCase):
         self.assertIn('func_name = "func_00340AF0"\n', out)
         self.assertIn('compiler_type = "gcc"\n', out)
         self.assertIn('objdump_command = "/w/objdump.sh"\n', out)
+
+
+class ObjdumpScript(unittest.TestCase):
+    """objdump.sh keeps the whole function: splat's jump-table labels (`jlabel .L...`) are symbols in target.o, but
+    the compiler's are not, so the scored disassembly must neither stop at them nor print them."""
+
+    DUMP = """
+target.o:     file format elf32-tradlittlemips
+
+Disassembly of section .text:
+
+00000000 <func_00100000>:
+   0:\t27bdfff0 \taddiu\tsp,sp,-16
+   4:\t00800008 \tjr\ta0
+   8:\t00000000 \tnop
+
+0000000c <.L0010000C>:
+   c:\t24020001 \tli\tv0,1
+
+00000010 <.L00100010>:
+  10:\t03e00008 \tjr\tra
+  14:\t27bd0010 \taddiu\tsp,sp,16
+
+00000018 <func_00100018>:
+  18:\t03e00008 \tjr\tra
+  1c:\t00000000 \tnop
+"""
+
+    def filter(self, func):
+        """Runs the awk program of the generated objdump.sh on DUMP."""
+        script = permute.objdump_sh(func)
+        prog = re.search(r"\| awk '(.*)'\s*$", script, re.M)
+        self.assertIsNotNone(prog, script)
+        r = subprocess.run(["awk", prog.group(1)], input=self.DUMP, capture_output=True, text=True, check=True)
+        return r.stdout
+
+    def test_whole_function_through_jump_table_labels(self):
+        out = self.filter("func_00100000")
+        self.assertTrue(out.startswith("00000000 <func_00100000>:\n"), out)
+        self.assertIn("li\tv0,1", out)
+        self.assertIn("addiu\tsp,sp,16", out)
+        self.assertNotIn("<.L", out)
+        self.assertNotIn("func_00100018", out)
+
+    def test_next_function_alone(self):
+        out = self.filter("func_00100018")
+        self.assertTrue(out.startswith("00000018 <func_00100018>:\n"), out)
+        self.assertNotIn("sp,sp", out)
+
+
+class DefaultJobs(unittest.TestCase):
+    """--run without -jN uses $COOL_JOBS (set by scripts/cool.sh), else every core."""
+
+    def test_default_is_every_core(self):
+        self.assertEqual(permute.default_jobs({}), str(os.cpu_count() or 1))
+
+    def test_cool_jobs(self):
+        self.assertEqual(permute.default_jobs({"COOL_JOBS": "2"}), "2")
+
+    def test_bad_cool_jobs_falls_back(self):
+        for bad in ("", "0", "-3", "four", "2x"):
+            with self.subTest(bad=bad):
+                self.assertEqual(permute.default_jobs({"COOL_JOBS": bad}), str(os.cpu_count() or 1))
+
+
+class ParseArgs(unittest.TestCase):
+    """Command line: <src> <Func> [--run] [-jN | -j N] [-- permuter options]."""
+
+    def test_forms(self):
+        env = {}
+        self.assertEqual(permute.parse_args(["src/a.c", "F"], env), (["src/a.c", "F"], False, str(os.cpu_count() or 1), []))
+        self.assertEqual(permute.parse_args(["src/a.c", "F", "--run", "-j8"], env), (["src/a.c", "F"], True, "8", []))
+        self.assertEqual(permute.parse_args(["src/a.c", "F", "--run", "-j", "2"], env), (["src/a.c", "F"], True, "2", []))
+        self.assertEqual(permute.parse_args(["src/a.c", "F", "--run", "--", "--stop-on-zero"], {"COOL_JOBS": "3"}),
+                         (["src/a.c", "F"], True, "3", ["--stop-on-zero"]))
+
+    def test_bad(self):
+        for args in (["src/a.c"], ["src/a.c", "F", "-j"], ["src/a.c", "F", "-j", "x"], ["src/a.c", "F", "-x"],
+                     ["src/a.c", "F", "G"]):
+            with self.subTest(args=args), self.assertRaises(ValueError):
+                permute.parse_args(args, {})
 
 
 class CheckArgs(unittest.TestCase):

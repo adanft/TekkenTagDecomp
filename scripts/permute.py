@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Sets up (and optionally runs) decomp-permuter on one function.
 
-Usage: .venv/bin/python scripts/permute.py <src/file.c> <Func> [--run] [-jN] [-- permuter options]
+Usage: .venv/bin/python scripts/permute.py <src/file.c> <Func> [--run] [-jN | -j N] [-- permuter options]
 
 <src/file.c> is a C file under src/ (relative to the repository or absolute) and <Func> a C identifier the file
 names; anything else stops with a message before a file is written. Writes permuter/<Func>/ (outside build/, so a
@@ -12,11 +12,13 @@ re-split or a clean rebuild does not take it away from a running permuter):
   target.o       the original function: asm/nonmatchings/<file>/<Func>.s assembled like the build does; for a
                  function that is already C (no .s), the compiled C, once fdiff.py has confirmed it matches;
   compile.sh     `compile.sh in.c -o out.o` with the compiler, flags and -G value of the build (configure.py);
-  objdump.sh     the disassembly of <Func> alone (base.c may define other functions);
+  objdump.sh     the disassembly of <Func> alone (base.c may define other functions), through its jump-table
+                 labels (splat's `.L` labels are symbols in target.o, the compiler's are not);
   settings.toml  func_name, compiler_type and objdump_command for the permuter.
 
---run starts tools/decomp-permuter/permuter.py on the folder (Ctrl-C stops it); -jN sets its threads (default 4)
-and arguments after `--` go to it (e.g. `-- --stop-on-zero`). Results land in output-<score>-<n>/source.c. A score
+--run starts tools/decomp-permuter/permuter.py on the folder (Ctrl-C stops it); -jN or -j N sets its threads (default
+$COOL_JOBS when scripts/cool.sh set it, else every core; run it as `scripts/cool.sh .venv/bin/python scripts/permute.py
+...`, one permuter at a time) and arguments after `--` go to it (e.g. `-- --stop-on-zero`). Results land in output-<score>-<n>/source.c. A score
 of 0 ignores some differences (stack offsets, branch targets): copy a candidate into the source and check it
 with fdiff.py and the SHA-1 build before believing it. Nothing under src/ or config/ is changed.
 """
@@ -99,6 +101,13 @@ def check_args(src, func, root=ROOT):
     return rel
 
 
+def default_jobs(env=os.environ):
+    """The permuter's thread count when no -jN is given: $COOL_JOBS (a positive integer, set by scripts/cool.sh), else
+    every core."""
+    jobs = env.get("COOL_JOBS", "")
+    return jobs if jobs.isdigit() and int(jobs) > 0 else str(os.cpu_count() or 1)
+
+
 def settings_toml(func, objdump_sh):
     return f'func_name = "{func}"\ncompiler_type = "gcc"\nobjdump_command = "{objdump_sh}"\n'
 
@@ -124,9 +133,11 @@ trap 'rm -f "$ASM"' EXIT
 
 
 def objdump_sh(func):
+    # splat's jump-table labels (`jlabel .L0036FB80`) are symbols in target.o, the compiler's .L labels are not: a
+    # `<.L...>:` line neither ends the function nor is printed, so both sides list the same lines (blank ones dropped).
     return f"""#!/bin/bash
-# objdump.sh file.o: disassembly with relocations of {func} only
-{shlex.quote(str(OBJDUMP))} -drz -m mips:5900 "$1" | awk '$2 == "<{func}>:" {{ p = 1 }} /^[0-9a-f]+ <.*>:$/ && $2 != "<{func}>:" {{ p = 0 }} p'
+# objdump.sh file.o: disassembly with relocations of {func} only, through its jump-table labels (.L*)
+{shlex.quote(str(OBJDUMP))} -drz -m mips:5900 "$1" | awk '$2 == "<{func}>:" {{ p = 1; print; next }} /^[0-9a-f]+ <.*>:$/ {{ if ($2 !~ /^<\\.L/) p = 0; next }} NF == 0 {{ next }} p'
 """
 
 
@@ -163,14 +174,37 @@ def dump(work, obj):
     return run(["bash", work / "objdump.sh", obj]).stdout.splitlines()[1:]
 
 
-def main():
-    args = sys.argv[1:]
+def parse_args(args, env=os.environ):
+    """(the two positional arguments, --run given, the thread count, the permuter options after `--`) of a command
+    line; the thread count is -jN or -j N, else default_jobs(env). Raises ValueError on anything else."""
     extra = []
     if "--" in args:
         args, extra = args[:args.index("--")], args[args.index("--") + 1:]
-    opts = [a for a in args if a.startswith("-")]
-    pos = [a for a in args if not a.startswith("-")]
-    if len(pos) != 2 or any(o != "--run" and not re.fullmatch(r"-j\d+", o) for o in opts):
+    pos, start, jobs = [], False, None
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--run":
+            start = True
+        elif a == "-j" and i + 1 < len(args) and re.fullmatch(r"[1-9]\d*", args[i + 1]):
+            jobs = args[i + 1]
+            i += 1
+        elif re.fullmatch(r"-j[1-9]\d*", a):
+            jobs = a[2:]
+        elif a.startswith("-"):
+            raise ValueError(f"unknown option {a}")
+        else:
+            pos.append(a)
+        i += 1
+    if len(pos) != 2:
+        raise ValueError("expected <src/file.c> <Func>")
+    return pos, start, jobs or default_jobs(env), extra
+
+
+def main():
+    try:
+        pos, start, jobs, extra = parse_args(sys.argv[1:])
+    except ValueError:
         sys.exit(__doc__)
     try:
         src = check_args(pos[0], pos[1])
@@ -178,7 +212,6 @@ def main():
         text = enable_attempt((ROOT / src).read_text(), func)
     except ValueError as e:
         die(str(e))
-    jobs = next((o[2:] for o in opts if o.startswith("-j")), "4")
 
     work = WORK / func
     if work.exists():
@@ -211,7 +244,7 @@ def main():
     print(f"  target: {origin} ({len(target)} lines of objdump)")
     print(f"  base.c: {'identical to the target' if not differ else f'{differ} objdump lines differ'}")
 
-    if "--run" in opts:
+    if start:
         cmd = [sys.executable, str(PERMUTER / "permuter.py"), str(work), f"-j{jobs}", *extra]
         print("  running:", " ".join(cmd), flush=True)
         os.execv(sys.executable, cmd)

@@ -35,7 +35,7 @@ typedef struct {
 
 extern Unk879610 D_00879610[2];
 
-/* 0x38-byte records of D_0046BE78; unk1C is a move id (func_003688B0) [I]. */
+/* 0x38-byte records of D_0046BE78; unk1C is a move id (Fighter_StartThrownMove) [I]. */
 typedef struct {
     /* 0x00 */ u8 pad0[0x1C];
     /* 0x1C */ u16 unk1C;
@@ -116,13 +116,13 @@ u32 Math_Isqrt(u32 x);
 void func_0034E8B0(Fighter *f);
 void func_003532A0(void);
 struct FighterMove *func_00368248(s32 id);
-void func_003688B0(Fighter *a, Fighter *b);
+void Fighter_StartThrownMove(Fighter *a, Fighter *b);
 void Fighter_StartCommandMove(Fighter *a, Fighter *b);
 s32 func_00368B08(Fighter *a, Fighter *b);
 void func_00368B90(Fighter *a, Fighter *b);
 void Fighter_StepMove(Fighter *f, Fighter *o);
 void func_00371B78(Fighter *f);
-void func_00372BD0(Fighter *f);
+void Fighter_RunMoveEvents(Fighter *f);
 void func_00377AE0(Fighter *a, Fighter *b);
 void Prac_RecEnd(s32 player);
 void Prac_RecReset(s32 player);
@@ -153,7 +153,7 @@ s32 func_0036E158(void);
 s32 func_0036E178(void);
 void Battle_UpdateRound(Fighter *a, Fighter *b);
 void func_0036EA80(Fighter *a, Fighter *b);
-void func_0036FB40(Fighter *a, Fighter *b);
+void Battle_UpdateMovement(Fighter *a, Fighter *b);
 void Battle_UpdateFacing(Fighter *a, Fighter *b);
 void Battle_UpdateDistance(void);
 void func_00371A48(void);
@@ -188,7 +188,7 @@ void func_003DB690(void);
 void func_003DB698(s32 n);
 void func_0037C8C8(s32 player);
 s32 Cmd_CheckCondition(Fighter *f, Fighter *o, s16 id);
-s32 func_00369E10(MoveCmd *c, Fighter *f, Fighter *o);
+s32 Cmd_CheckThrowCondition(MoveCmd *c, Fighter *f, Fighter *o);
 s32 func_0036CD10(u16 cmd, u16 held, u16 pressed);
 s32 func_0036CD78(u16 a, u16 b);
 s32 func_0036CAF8(Fighter *f, s32 dir, s32 n);
@@ -302,8 +302,6 @@ void func_00368528(Fighter *f, Fighter *o, s16 pose) {
 
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_003685B8);
 
-#if 0
-/* NON_MATCHING: the unk3C store and the unkB8 / unkC4 stores are scheduled earlier than in the original */
 void func_00368748(Fighter *f, Fighter *o) {
     struct FighterUnkB12C *p = f->unkB12C;
     void *m;
@@ -312,17 +310,16 @@ void func_00368748(Fighter *f, Fighter *o) {
         f->unk184 = p->unk4;
         f->unk4 = f->unk51C = p->unk6;
         f->unkC = f->unk524 = p->unk8;
-        f->unk1A = f->unk40 = f->unk3C = p->unkA;
+        f->unk1A = f->unk3C = f->unk40 = p->unkA;
     } else {
         f->unk184 = 0x12AC;
     }
-    m = func_00368218(f, f->unk184);
+    f->unkC0 = m = func_00368218(f, f->unk184);
     f->unkC6 = 0;
-    f->unk188 = m;
-    f->unk178 = 1;
-    f->unkC0 = m;
     f->unkB8 = m;
     f->unkC4 = 1;
+    f->unk188 = m;
+    f->unk178 = 1;
     f->unk17A = func_0036BE08(f, 6);
     f->unk17C = 0;
     f->unk17E = 0;
@@ -331,23 +328,17 @@ void func_00368748(Fighter *f, Fighter *o) {
     func_0036BD98(f);
     Fighter_StepMove(f, o);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00368748);
-#endif
 
-#if 0
-/* NON_MATCHING: the stores to unkB8 and unkC4 are scheduled before unk188 / unk178; the original keeps them after */
 void func_00368818(Fighter *f, Fighter *o, s16 id) {
     void *m;
 
     f->unk184 = id;
-    m = func_00368218(f, id);
+    f->unkC0 = m = func_00368218(f, id);
     f->unkC6 = 0;
-    f->unk188 = m;
-    f->unk178 = 1;
-    f->unkC0 = m;
     f->unkB8 = m;
     f->unkC4 = 1;
+    f->unk188 = m;
+    f->unk178 = 1;
     f->unk17A = func_0036BE08(f, 6);
     f->unk17C = 0;
     f->unk17E = 0;
@@ -358,20 +349,16 @@ void func_00368818(Fighter *f, Fighter *o, s16 id) {
     func_0036BD98(f);
     Fighter_StepMove(f, o);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00368818);
-#endif
 
-#if 0
-/* NON_MATCHING: v1 / a1 / a2 swapped around the table lookup, and the unkC4 store order */
-void func_003688B0(Fighter *f, Fighter *o) {
+void Fighter_StartThrownMove(Fighter *f, Fighter *o) {
     Unk5E8978 *e = func_0036C1A0(o, f, o->unk188);
-    u16 id = D_0046BE78[e->unk4].unk1C;
+    Unk46BE78 *r = &D_0046BE78[e->unk4];
+    u16 id = r->unk1C;
 
     f->unk184 = id;
     f->unk188 = func_00368218(f, id);
-    f->unk178 = 1;
     f->unkC4 = 1;
+    f->unk178 = 1;
     f->unk17A = func_0036BE08(f, 0x24);
     f->unk17C = o->unk17C;
     o->unk17C = 0;
@@ -380,22 +367,15 @@ void func_003688B0(Fighter *f, Fighter *o) {
     f->unk180 = 0;
     func_0036BD98(f);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_003688B0);
-#endif
 
-#if 0
-/* NON_MATCHING: the unkC0 store is one slot earlier than in the original (decomp-permuter matches it only with a fake
- * `m++; m--;` after the unk188 store) */
 s32 func_00368958(Fighter *f, Fighter *o) {
     void *m;
 
     f->unkFC = Fighter_GetLaunchKind(f, o);
     f->unk184 = func_00374010(f->unkFC)->unk0;
-    m = func_00368218(f, f->unk184);
-    f->unk188 = m;
+    f->unkC0 = m = func_00368218(f, f->unk184);
     f->unkB8 = m;
-    f->unkC0 = m;
+    f->unk188 = m;
     f->unk17A = func_0036BE08(f, 0x26);
     f->unk17C = 0;
     f->unk17E = 0;
@@ -407,9 +387,6 @@ s32 func_00368958(Fighter *f, Fighter *o) {
     func_0036BD98(f);
     Fighter_StepMove(f, o);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00368958);
-#endif
 
 void Fighter_StartCommandMove(Fighter *f, Fighter *o) {
     MoveCmd *c;
@@ -552,8 +529,282 @@ INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00369188);
 
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_003691D8);
 
-INCLUDE_RODATA("asm/nonmatchings/battle_flow", jtbl_004FF8E0);
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_003693E0);
+extern u32 D_005F5F34;
+extern s32 D_005F5F30;
+s32 func_0035B9E8(s32 side);
+s32 func_0035BA00(s32 side);
+void func_0036BFA0(Fighter *f, Fighter *o);
+s32 func_0036F3F8();
+extern u16 D_005F5C70;
+extern u16 D_005F5C72;
+
+s32 Cmd_CheckSituation(MoveCmd *c, Fighter *f, Fighter *o) {
+    s32 r;
+    u8 flags = c->unk3;
+
+    if (flags & 0x80) {
+        if ((u16)c->unk4 != 0) {
+            if (o->unk129 != 0 && func_0035B9E8(f->unk1E) + 1 != o->unk129) {
+                return 0;
+            }
+        } else {
+            if (o->unk129 != 0 && func_0035B9E8(f->unk1E) + 1 == o->unk129) {
+                return 0;
+            }
+        }
+    }
+    switch (c->unk3 & 0x7F) {
+    case 0:
+        r = 1;
+        break;
+    case 1:
+        r = f->unk132 != 0;
+        break;
+    case 2:
+    case 3:
+    case 4:
+    case 5:
+    case 6:
+    case 7:
+    case 8:
+    case 9:
+    case 0xA:
+    case 0xB:
+    case 0xC:
+    case 0xD:
+    case 0xE:
+    case 0xF:
+    case 0x10:
+    case 0x11:
+    case 0x12:
+    case 0x13:
+        if (f->unk172 == 0) {
+            func_0036BFA0(f, o);
+        }
+        r = (c->unk3 & 0x7F) == f->unk172 && (u16)c->unk4 >= D_005F5F34;
+        break;
+    case 0x14:
+        if (f->unk172 == 0) {
+            func_0036BFA0(f, o);
+        }
+        r = (u16)c->unk4 >= D_005F5F34 && (f->unk172 == 2 || f->unk172 == 6);
+        break;
+    case 0x15:
+        if (f->unk172 == 0) {
+            func_0036BFA0(f, o);
+        }
+        r = (u16)c->unk4 >= D_005F5F34 && (f->unk172 == 3 || f->unk172 == 7);
+        break;
+    case 0x16:
+        if (f->unk172 == 0) {
+            func_0036BFA0(f, o);
+        }
+        r = (u16)c->unk4 >= D_005F5F34 && (f->unk172 == 4 || f->unk172 == 8);
+        break;
+    case 0x17:
+        if (f->unk172 == 0) {
+            func_0036BFA0(f, o);
+        }
+        r = (u16)c->unk4 >= D_005F5F34 && (f->unk172 == 5 || f->unk172 == 9);
+        break;
+    case 0x18:
+        r = D_005F5C28 <= (u16)c->unk4;
+        break;
+    case 0x19:
+        r = D_005F5C28 >= (u16)c->unk4;
+        break;
+    case 0x1A:
+        r = f->unk132 != 0 && (f->unkD0 & o->unkD2) == 0;
+        break;
+    case 0x1B:
+        r = o->unk130;
+        break;
+    case 0x1C:
+        r = f->unk133;
+        break;
+    case 0x1D:
+        r = o->unk17A != 0x20;
+        break;
+    case 0x1E:
+        r = o->unkCA != 0;
+        break;
+    case 0x1F:
+        r = o->unkCA != 0 && ((u16)o->unkCC & 7) == 2;
+        break;
+    case 0x20:
+        r = o->unkCA != 0 && ((u16)o->unkCC & 7) == 1;
+        break;
+    case 0x21:
+        r = o->unkCA == 0;
+        break;
+    case 0x22:
+        r = (o->unkCC & 0x407) == 2;
+        break;
+    case 0x23:
+        r = (o->unkCC & 0x407) == 1;
+        break;
+    case 0x24:
+        r = (s16)f->unk40 > 0x4000;
+        break;
+    case 0x25:
+        r = (s16)f->unk40 <= 0x4000;
+        break;
+    case 0x26:
+        r = (s16)f->unk3E < 0;
+        break;
+    case 0x27:
+        r = (s16)f->unk3E >= 0;
+        break;
+    case 0x28:
+        r = (s16)f->unk3E > 0x4E37;
+        break;
+    case 0x29:
+        r = 0;
+        if ((s16)f->unk3E < 0) {
+            r = f->unk3E <= 0xB1C6;
+        }
+        break;
+    case 0x2A:
+        r = f->unk42 == 0;
+        break;
+    case 0x2B:
+        r = f->unk42 == 1;
+        break;
+    case 0x2C:
+        r = f->unk42 == 3;
+        break;
+    case 0x2D:
+        r = f->unk42 == 2;
+        break;
+    case 0x2E:
+        r = o->unk42 == 0;
+        break;
+    case 0x2F:
+        r = o->unk42 == 1;
+        break;
+    case 0x30:
+        r = o->unk42 == 3;
+        break;
+    case 0x31:
+        r = o->unk42 == 2;
+        break;
+    case 0x33:
+        r = o->unkD0 == 0x412 && o->unkC0->unk2D >= o->unkC4 && D_005F5C28 < 0x700;
+        break;
+    case 0x34:
+        r = f->unk160 == 0 && f->unk162 == 0;
+        break;
+    case 0x35:
+        r = f->unk160 != 0 || f->unk162 != 0;
+        break;
+    case 0x36:
+        r = f->unk3E8 != 0 || f->unk3EC != 0 || f->unk3F0 != 0;
+        break;
+    case 0x37:
+        r = (f->unk3E8 != 0 || f->unk3EC != 0 || f->unk3F0 != 0) && o->unk135 == 0 && !(o->unkCC & 4);
+        break;
+    case 0x38:
+        r = o->unkCC & 4;
+        break;
+    case 0x39:
+        r = (o->unkCC & 4) == 0;
+        break;
+    case 0x3A:
+        r = (o->unkCC & 4) && o->unkC0->unk19 == 0 && (u16)c->unk4 >= D_005F5C28;
+        break;
+    case 0x3B:
+        r = (o->unkCC & 4) && (s16)f->unk40 >= 0x4000;
+        break;
+    case 0x3C:
+        r = o->unk13A != 0 && o->unk135 == 0;
+        break;
+    case 0x3D:
+        f->unk438.unk82 = 1;
+        r = f->unk438.unk83 != 0 && f->unk40C != 0;
+        break;
+    case 0x3E:
+        f->unk438.unk82 = 1;
+        r = f->unk438.unk84 != 0 && f->unk40C != 0;
+        break;
+    case 0x3F:
+        f->unk438.unk82 = 1;
+        r = f->unk438.unk85 != 0 && f->unk40C != 0;
+        break;
+    case 0x40:
+        r = f->unk3F4 == 0 && D_005F5F30 == 0;
+        break;
+    case 0x41:
+        return func_0035B9E8(f->unk1E) == 0;
+    case 0x42:
+        return func_0035B9E8(f->unk1E) != 0;
+    case 0x43:
+        return func_0035B9E8(f->unk1E) == 0 && (s16)f->unk40 > 0x4000;
+    case 0x44:
+        return func_0035B9E8(f->unk1E) != 0 && (s16)f->unk40 > 0x4000;
+    case 0x45:
+        return f->unkFA == 0 && f->unk40C != 0;
+    case 0x46:
+        return f->unk16A != 0;
+    case 0x47:
+        return f->unk16A == 0;
+    case 0x48:
+        return f->unk4C >= 0x200 && f->unk4C < 0x400;
+    case 0x49:
+        return f->unk4C >= 0x400 && f->unk4C < 0x600;
+    case 0x4A:
+        return f->unk4C >= 0xA00 && f->unk4C < 0xC00;
+    case 0x4B:
+        return f->unk4C >= 0xC00 && f->unk4C < 0xE00;
+    case 0x4C:
+        return f->unk4C >= 0x200 && f->unk4C < 0x400 && (s16)f->unk40 > 0x4000;
+    case 0x4D:
+        return f->unk4C >= 0x400 && f->unk4C < 0x600 && (s16)f->unk40 > 0x4000;
+    case 0x4E:
+        return f->unk4C >= 0xA00 && f->unk4C < 0xC00 && (s16)f->unk40 > 0x4000;
+    case 0x4F:
+        return f->unk4C >= 0xC00 && f->unk4C < 0xE00 && (s16)f->unk40 > 0x4000;
+    case 0x50:
+        return f->unk54 == 1;
+    case 0x51:
+        return f->unk54 == 2;
+    case 0x52:
+        return f->unk54 == 0;
+    case 0x53:
+        return f->unk54 == 3;
+    case 0x54:
+        return f->unk54 == 1 && func_0035B9E8(f->unk1E) == 0;
+    case 0x55:
+        return f->unk54 == 2 && func_0035B9E8(f->unk1E) == 0;
+    case 0x56:
+        return f->unk54 == 0 && func_0035B9E8(f->unk1E) == 0;
+    case 0x57:
+        return f->unk54 == 3 && func_0035B9E8(f->unk1E) == 0;
+    case 0x58:
+        return f->unk54 == 1 && func_0035B9E8(f->unk1E) != 0;
+    case 0x59:
+        return f->unk54 == 2 && func_0035B9E8(f->unk1E) != 0;
+    case 0x5A:
+        return f->unk54 == 0 && func_0035B9E8(f->unk1E) != 0;
+    case 0x5B:
+        return f->unk54 == 3 && func_0035B9E8(f->unk1E) != 0;
+    case 0x5C:
+        if (f->unk628 > 0x100) {
+            return f->unk628 > 0x214 && f->unk62A > 0x214 && f->unk62C > 0x214;
+        }
+        return f->unk628 < -0x14 && f->unk62A < -0x14 && f->unk62C < -0x14;
+    case 0x5D:
+        return D_005F5C28 <= 0x1D00;
+    case 0x5E:
+        return func_0035B9E8(f->unk1E) != func_0035BA00(f->unk1E);
+    case 0x5F:
+        return f->unkB4 < 0 && func_0036F3F8() != 0 && D_005F5F30 == 0
+            && (gRoundNumber >= D_005F5C72 || f->unk5A >= D_005F5C70 || o->unk5A >= D_005F5C70);
+    default:
+        r = 0;
+        break;
+    }
+    return r;
+}
 
 extern MoveCmd D_0047F780[];
 s32 Cmd_MatchInput(Fighter *f, u16 code, u16 dir, u16 held, u16 pressed);
@@ -576,7 +827,7 @@ MoveCmd *Move_FindCommand(MoveCmd *c, s16 frame, Fighter *f, Fighter *o) {
             continue;
         }
         if (frame >= c->unkB && frame <= c->unkC && Cmd_MatchInput(f, c->unk0, dir, held, pressed)
-            && Cmd_CheckCondition(f, o, c->unk2) && (c->unk3 & ~0x80) >= 0x61 && func_00369E10(c, f, o)) {
+            && Cmd_CheckCondition(f, o, c->unk2) && (c->unk3 & ~0x80) >= 0x61 && Cmd_CheckThrowCondition(c, f, o)) {
             return c;
         }
     }
@@ -592,7 +843,7 @@ s32 func_003682A8(s32 a, s16 b);
 #if 0
 /* NON_MATCHING: `c` and the result are in swapped registers (t0 / a3) and the failing tests of cases 0x61-0x64 branch
  * to a shared `r = 0` the original keeps in each delay slot */
-s32 func_00369E10(MoveCmd *c, Fighter *o, Fighter *f) {
+s32 Cmd_CheckThrowCondition(MoveCmd *c, Fighter *o, Fighter *f) {
     s32 r = 0;
 
     switch (c->unk3 & 0x7F) {
@@ -633,7 +884,7 @@ s32 func_00369E10(MoveCmd *c, Fighter *o, Fighter *f) {
 }
 #else
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", jtbl_004FFA60);
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00369E10);
+INCLUDE_ASM("asm/nonmatchings/battle_flow", Cmd_CheckThrowCondition);
 #endif
 
 #if 0
@@ -1787,12 +2038,29 @@ s32 func_0036BF00(Fighter *f) {
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036BF00);
 #endif
 
-INCLUDE_RODATA("asm/nonmatchings/battle_flow", jtbl_004FFBA0);
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036BF58);
-
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036BF8C);
-
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036BF94);
+/* The frame before the one the pending move starts on, by the kind of the move step unk17A: unk178 for the kinds that
+ * keep the frame running (2, 0x12-0x16, 0x19, 0x1A, 0x1D, 0x2E), else 0 (func_003737B0) [V code]. */
+s32 Fighter_GetContinueFrame(Fighter *f) {
+    switch (f->unk17A) {
+    case 0:
+    default:
+        return 0;
+    case 2:
+    case 0x12:
+    case 0x13:
+    case 0x14:
+    case 0x15:
+    case 0x16:
+    case 0x19:
+    case 0x1A:
+    case 0x1D:
+    case 0x2E:
+        return f->unk178;
+    case 7:
+    case 8:
+        return 0;
+    }
+}
 
 /* The hit reaction direction unk172 of the attacker f against o, while f's hit lands (unk132) and o is neither juggled
  * nor protected: by o's facing quadrant unk42 (0, 1, 3, 2) and o's guard mask, 0xE-0x11 (mask 0x80 and 0x200), 0xA-0xD
@@ -2716,7 +2984,7 @@ s32 Battle_UpdateFrame(void) {
             Battle_UpdateFacing(f0, f1);
             Battle_UpdateDistance();
             func_00371A48();
-            func_0036FB40(f0, f1);
+            Battle_UpdateMovement(f0, f1);
             if (f0->unkE0 == 0 && f1->unkE0 == 0) {
                 func_003772F0(f0, f1);
             }
@@ -2865,8 +3133,254 @@ s32 func_0036E178(void) {
     return r;
 }
 
-INCLUDE_RODATA("asm/nonmatchings/battle_flow", jtbl_00500420);
-INCLUDE_ASM("asm/nonmatchings/battle_flow", Battle_UpdateRound);
+extern s32 D_005F5E94;
+extern s32 D_005F5E98;
+extern s16 D_005F5CB4;
+extern u8 D_005F5CCC;
+extern u8 D_0043B817[];
+void func_0036F8D8(Fighter *f);
+s32 Battle_IsRoundOver(Fighter *a, Fighter *b);
+void Battle_UpdateGauges(Fighter *a, Fighter *b);
+void Battle_SetRoundResult(Fighter *a, Fighter *b);
+void func_0036F6B8(Fighter *a, Fighter *b);
+void func_003AE440(u8 *p);
+void func_003D0660(Fighter *a, Fighter *b);
+void func_003D35B8(void);
+void func_003D0C08(s32 n);
+void func_0036F918(void);
+void func_003D2B88(Fighter *a, Fighter *b);
+s32 func_0036F920(Fighter *a, Fighter *b);
+void func_00375448(void);
+void func_00375428(void);
+void func_003A87E8(void);
+s32 func_003B5DB0(Fighter *a, Fighter *b, s32 n);
+void func_00366DC8(void);
+void func_003D7E10(Fighter *a, Fighter *b, s32 n);
+void func_00373320(void);
+void func_003957A0(Fighter *a, Fighter *b, s32 n);
+void func_003B60F0(Fighter *a, Fighter *b, s32 n);
+void func_003C1620(void);
+u32 func_003712C0(void);
+
+void Battle_UpdateRound(Fighter *a, Fighter *b) {
+    u8 *opt;
+    Fighter *p;
+    s32 i;
+
+    D_005F5F24 = 0;
+    if (D_005F5E88 >= 2) {
+        D_005F5F28++;
+    }
+    switch (D_005F5E88) {
+    case 0:
+        D_005F5EE8++;
+        if (gRoundNumber == 1 ? D_005F5EE8 >= 0x97 : D_005F5EE8 >= 0x5B) {
+            func_0036C490(a);
+            func_0036C490(b);
+            D_005F5E88 = 1;
+        }
+        break;
+    case 1:
+        D_005F5EE8++;
+        if ((D_005F5EF4 = Battle_IsRoundOver(a, b)) == 0) {
+            if (D_0043B7F8[0xB] != 5) {
+                gRoundTimer--;
+            }
+            if (++*(u32 *)&D_0043B7F8[0x2C] > 0x57E3F) {
+                *(u32 *)&D_0043B7F8[0x2C] = 0x57E3F;
+            }
+        } else {
+            func_0036F8D8(a);
+            func_0036F8D8(b);
+            Battle_UpdateGauges(a, b);
+            Battle_SetRoundResult(a, b);
+            func_0036F6B8(a, b);
+            opt = D_0043B7F8;
+            func_003AE440(opt);
+            func_003D0660(a, b);
+            if (opt[0x1F] != 0) {
+                if ((D_0043B7F8[0] < 2 || D_0043B7F8[0] == 4 || D_0043B7F8[0] == 7 || D_0043B7F8[0] == 5
+                     || D_0043B7F8[0] == 6 || D_0043B7F8[0] == 8)
+                    && ((opt[0x1B] >> opt[0x21]) & 1)) {
+                    D_005F5CB4 = 1;
+                } else if (D_005F5CCC == 7 && (opt[0] == 0 || opt[0] == 5) && ((opt[0x1B] >> opt[0x20]) & 1)) {
+                    D_005F5CB4 = 1;
+                }
+            }
+            if (D_005F5CAC & 1) {
+                D_005F5E94 = 0x5A;
+            } else {
+                D_005F5E94 = 0xF0;
+            }
+            D_005F5E88 = 2;
+            func_003D35B8();
+            D_005F5E98 = 0;
+        }
+        break;
+    case 2:
+        for (i = 0, p = a; i < 2; i++) {
+            if (p->unk40C == 0) {
+                func_0036C480(p);
+            } else if ((D_005F5CAC & 1) || p->unk418 != 0) {
+                if ((p->unkCC & 4) && p->unkB4 > 0) {
+                    p->unk420 = 4;
+                    p->unk430 = 0x1000;
+                    p->unk160 = 0;
+                } else {
+                    func_0036C480(p);
+                }
+            }
+            p = b;
+        }
+        if (D_005F5CAC & 1) {
+            if (D_005F5F28 == 0xA0) {
+                func_003D0C08(1);
+                func_0036F918();
+                D_005F5E98 = 1;
+            } else if (D_005F5F28 == 0x32) {
+                if (gRoundNumber >= D_005F5C72 || a->unk5A >= D_005F5C70 || b->unk5A >= D_005F5C70) {
+                    func_003D2B88(a, b);
+                }
+            }
+        } else if (D_005F5CAC & 0x1E) {
+            if (D_005F5CBC != 0 && func_003ABCC0() == 0) {
+                if (D_005F5F28 >= 0x78) {
+                    D_005F5E98 = 1;
+                }
+            } else {
+                D_005F5E98 = func_0036F920(a, b);
+            }
+        } else if (D_005F5F28 >= 0x258) {
+            D_005F5E98 = 1;
+        }
+        if (D_005F5E98 == 0) {
+            break;
+        }
+        func_0036C480(a);
+        func_0036C480(b);
+        Snd_StopVoiceSeq(a);
+        Snd_StopVoiceSeq(b);
+        func_00375468();
+        func_00375428();
+        func_003751A0(D_005F5CB6);
+        D_005F5E88 = 3;
+        if (D_0043B7F8[0] == 9) {
+            func_00375448();
+            D_005F5E88 = 5;
+            break;
+        }
+    case 3:
+        D_005F5F20 = 2;
+        Snd_StopVoiceSeq(a);
+        Snd_StopVoiceSeq(b);
+        func_003465E0();
+        func_003A87E8();
+        if (D_0043B7F8[0] != 9
+            && !((D_0043B7F8[0] == 1 || D_0043B7F8[0] == 6 || D_0043B7F8[0] == 2) && (D_005F5CAC & 0x20))
+            && !(gRoundNumber < D_005F5C72 && a->unk5A < D_005F5C70 && b->unk5A < D_005F5C70
+                 && (D_005F5CAC & 0x20))) {
+            if (D_0043B7F8[0x1F] != 0
+                && (gRoundNumber >= D_005F5C72 || a->unk5A >= D_005F5C70 || b->unk5A >= D_005F5C70)
+                && D_0043B7F8[7] == 0
+                && ((D_005F5CBA == 1 && D_0043B7F8[0x20] == 1) || (D_005F5CBA == 2 && D_0043B7F8[0x20] == 0))
+                && D_0043B7F8[0] != 2) {
+                b->unk127 = 1;
+                a->unk127 = 1;
+                func_003B5DB0(a, b, 1);
+                func_00368748(a, b);
+                func_00368748(b, a);
+                func_00366DC8();
+                func_003D7E10(a, b, 0);
+                if (a->unkB4 > 0) {
+                    func_00373320();
+                    func_003B4DC0(a, b);
+                    func_003957A0(b, a, 1);
+                    gRoundPhase = 0x12;
+                } else if (b->unkB4 > 0) {
+                    func_00373320();
+                    func_003B4DC0(a, b);
+                    func_003957A0(a, b, 1);
+                    gRoundPhase = 0x11;
+                }
+            } else {
+                b->unk127 = 1;
+                a->unk127 = 1;
+                func_003B5DB0(a, b, 0);
+                if (a->unkB4 > 0) {
+                    func_00368528(a, b, gFrameCount & 1);
+                } else {
+                    func_00368528(b, a, gFrameCount & 1);
+                }
+                func_003B60F0(a, b, 0);
+                func_00366DC8();
+                func_003D7E10(a, b, 1);
+                if (a->unkB4 > 0) {
+                    func_00373320();
+                    func_003B4DC0(a, b);
+                    gRoundPhase = 0xE;
+                } else if (b->unkB4 > 0) {
+                    func_00373320();
+                    func_003B4DC0(a, b);
+                    gRoundPhase = 0xF;
+                }
+            }
+        }
+        D_005F5F28 = 0;
+        D_005F5E94 = 0x12C;
+        D_005F5E98 = 0;
+        b->unk16A = 0;
+        a->unk16A = 0;
+        func_003C1620();
+        func_003465E0();
+        func_00344318();
+        func_003A82C8(a);
+        func_003A82C8(b);
+        D_005F5E88 = 4;
+    case 4:
+        D_005F5F20 = 2;
+        if (gRoundPhase == 0xD) {
+            if (D_005F5F28 == 0x4B) {
+                D_005F5E98 = 1;
+            }
+        } else if (gRoundPhase == 0x11 || gRoundPhase == 0x12) {
+            if (D_005F5F28 == 0x3C) {
+                D_005F5E98 = 1;
+            }
+        } else if (gRoundPhase == 0x10) {
+            if (D_0043B7F8[0] == 5 || gFighters[D_0043B7F8[0x20]].unk402 != 0) {
+                if (a->unkB4 > 0 && a->unkC4 >= a->unkC0->unk18 - 1) {
+                    D_005F5E98 = 1;
+                }
+                if (b->unkB4 > 0 && b->unkC4 >= b->unkC0->unk18 - 1) {
+                    D_005F5E98 = 1;
+                }
+            } else {
+                if (a->unkC4 >= a->unkC0->unk18 - 1) {
+                    D_005F5E98 = 1;
+                }
+                if (b->unkC4 >= b->unkC0->unk18 - 1) {
+                    D_005F5E98 = 1;
+                }
+            }
+        }
+        if (--D_005F5E94 < 0) {
+            D_005F5E94 = 0;
+        }
+        if (D_005F5E98 != 0 || D_005F5E94 <= 0 || (D_0043B817[0] == 0 && D_005F5F00 != 0 && D_005F5F28 >= 2)
+            || (func_003712C0() & 0x800)) {
+            func_00375448();
+            func_00375428();
+            D_005F5E88 = 5;
+        }
+        break;
+    case 5:
+    case 6:
+        break;
+    }
+    D_005F5F30 = a->unkB12C != NULL && b->unkB12C != NULL;
+    D_005F5E90 = D_005F5E88 != D_005F5E8C;
+    D_005F5E8C = D_005F5E88;
+}
 
 extern u16 D_005F5C74;
 void func_003C2EF8(void);
@@ -3262,9 +3776,586 @@ void func_0036F918(void) {
 
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036F920);
 
+extern s32 D_005F6BD0[2];
+extern s32 D_005F6BD8[2];
+s16 Math_Sin(s32 angle);
+s16 Math_Cos(s32 angle);
+void func_00370E20(Fighter *f, s32 reset);
+s16 func_00370E98(s16 v, s32 lim);
+s32 func_00370ED0(s16 a, s16 b, s32 lim);
+void func_00371258(Fighter *f);
+s32 func_0036E160(void);
+void func_003630D0(Fighter *f, s32 n);
+void func_00363110(Fighter *f, s32 n);
+void func_00362E90(Fighter *f, s32 a, s32 b, u8 c);
+
+/* The per-frame movement of both fighters after the move step (Battle_UpdateFrame step 5.5): the vertical drift of a
+ * held fighter (unk8 rises by unk108 += 6 a frame), the throw slide (unkF0 1 / 2: from unkB8's frame unk19 to unk1A the
+ * fighter slides (min(D_005F5C28, 0xC00) - 500) / frames a frame along its facing, then snaps to unk51C / unk524), the
+ * launch arc and its landing (unk106 / unk10A per frame, landing when unk8 reaches -unk102: unk136 or, for launch record
+ * 4, unk137), the frame-window push unkC0->unk16 (sub-unit remainders in D_005F6BD0 / D_005F6BD8), turns spread over
+ * frames (unk15C / unk15E), the paired paths (unk150-unk158), the turn rules of the state code unk11E (0-13), then per
+ * fighter the timers unk164 / unk14E / unk160 / unk162 / unk16A / unk16E, the attack window flag unk13C, the juggle flag
+ * unk135 (unk100, or the frame inside unkC0's unk19..unk1A), the end-of-move flags unk136 / unk137, the guard flags
+ * unkCC / unkD2 from the move flags and the held direction (0x40: crouch / stand guard from direction 4 / 1, 0x100:
+ * a table by direction 1-5), the hit sounds (func_003630D0 / func_00363110) and unk124 (characters 0x12 / 0x1D / 0x13
+ * pairings) [V code read; I meanings]. */
+#if 0
+/* NON_MATCHING: draft, about 720 lines differ (1189 of 1208 instructions): register allocation, the clamps written as
+ * movz / movn the other way round, and the order of several divisions; the logic follows the assembly */
+void Battle_UpdateMovement(Fighter *a, Fighter *b) {
+    Fighter *p;
+    Fighter *q;
+    struct FighterMove *m;
+    s32 i;
+    s16 v;
+    s16 n;
+    s16 r;
+    s32 k;
+    s32 lim;
+
+    for (i = 0, p = a; i < 2; i++) {
+        p->unk139 = 0;
+        p->unk136 = 0;
+        p->unk137 = 0;
+        p = b;
+    }
+    func_00370F28(b, a);
+
+    for (i = 0, p = a, q = b; i < 2; i++) {
+        if (p->unkE4 >= 0) {
+            if (p->unk8 < 0) {
+                p->unk108 += 6;
+                p->unk8 += p->unk108;
+            } else {
+                p->unk108 = 0;
+                p->unk8 = 0;
+            }
+        }
+        if (p->unkF0 == 1) {
+            m = p->unkB8;
+            if (p->unkC4 >= m->unk19) {
+                u32 d;
+                s32 len;
+
+                p->unkF0 = 2;
+                len = m->unk1A - p->unkC4;
+                if (len == 0) {
+                    len = 1;
+                }
+                d = D_005F5C28;
+                if (d > 0xC00) {
+                    d = 0xC00;
+                }
+                v = (s32)(d - 500) / len;
+                p->unkE8 = v * Math_Sin(p->unk3A) / 32767;
+                p->unkEC = v * Math_Cos(p->unk3A) / 32767;
+                p->unk11D = 2;
+            }
+        } else if (p->unkF0 == 2) {
+            p->unk4 += p->unkE8;
+            p->unkC += p->unkEC;
+            if (p->unkC4 >= p->unkB8->unk1A) {
+                p->unk4 = p->unk51C;
+                p->unkC = p->unk524;
+                p->unkF0 = 0;
+                p->unkE8 = 0;
+                p->unkEC = 0;
+            }
+        }
+        if (p->unkFE != 0 && p->unkE4 >= 0) {
+            p->unk4 += p->unk106;
+            p->unkC += p->unk10A;
+            if (p->unk108 >= 0 && p->unk8 >= -p->unk102) {
+                p->unk4 = p->unk51C;
+                p->unkC = p->unk524;
+                p->unk8 = 0;
+                if (p->unkFC == 4) {
+                    p->unk136 = 1;
+                } else {
+                    p->unk137 = 1;
+                }
+                p->unkFE = 0;
+                p->unk11D = 2;
+                p->unk106 = 0;
+                p->unk108 = 0;
+                p->unk10A = 0;
+                p->unk12A = 0;
+            }
+        } else {
+            m = p->unkC0;
+            if (m->unk19 != 0 && p->unkC4 >= m->unk19 - 1 && p->unkC4 <= m->unk1A) {
+                s16 push = m->unk16;
+
+                if (push != 0) {
+                    s32 *dx = &D_005F6BD0[i];
+                    s32 *dz;
+                    s32 x = p->unk4;
+                    s32 z = p->unkC;
+
+                    *dx += push * Math_Sin(p->unk1A) / 32767;
+                    dz = &D_005F6BD8[i];
+                    *dz += push * Math_Cos(p->unk1A) / 32767;
+                    p->unk4 -= *dx >> 8;
+                    p->unkC -= *dz >> 8;
+                    *dx += (p->unk4 - x) << 8;
+                    *dz += (p->unkC - z) << 8;
+                }
+            }
+        }
+        if (p->unk135 == 0) {
+            p->unkFA = 0;
+        }
+        if (p->unk15C != 0) {
+            p->unk15C--;
+            p->unk3C += p->unk15E;
+            if (p->unkE0 == 1) {
+                p->unk1A = p->unk3C;
+            }
+        }
+        k = 0;
+        if (p->unk150 > 0) {
+            k = p->unk152;
+            p->unk150--;
+        }
+        if (p->unk154 > 0) {
+            s16 c = p->unk16C;
+
+            p->unk154--;
+            k += *p->unk158++;
+            if (c > 0) {
+                k += c * 50 - (c - 1) * 10;
+            }
+        }
+        if (k != 0) {
+            p->unk4 += k * Math_Sin(p->unk156) / 32767;
+            p->unkC += k * Math_Cos(p->unk156) / 32767;
+        }
+        switch (p->unk11E) {
+        case 0:
+            p->unk3C = p->unk1A;
+            break;
+        case 1:
+            n = p->unkC0->unk2C + 1 - p->unkC4;
+            n = n > 0 ? n : 1;
+            v = func_00370E98((s16)(p->unk44 - p->unk3C) / n, 0x1555);
+            k = func_00370ED0(v, p->unk46, 0x7FFF);
+            if (k != 0) {
+                v = k;
+                p->unk11E = 6;
+            }
+            r = p->unk3C + v;
+            p->unk46 += v;
+            p->unk1A = r;
+            p->unk3C = r;
+            if (p->unkC4 >= p->unkC0->unk2C) {
+                p->unk11E = 6;
+            }
+            break;
+        case 2:
+        case 3:
+            if (q->unk164 != 0 && p->unk118 != 0 && p->unkC8 < 9) {
+                p->unk15C = p->unkC0->unk2C - p->unkC4;
+                if (p->unk15C <= 0) {
+                    p->unk15C = 1;
+                }
+                p->unk15E = (s16)(p->unk3A - p->unk3C) / p->unk15C;
+                p->unk15E = func_00370E98(p->unk15E, 0x9F4);
+                p->unk11E = 0xE;
+                break;
+            }
+            n = p->unkC0->unk2C + 1 - p->unkC4;
+            if (n <= 0) {
+                n = 1;
+            }
+            if (p->unk135 != 0) {
+                k = 1;
+            } else {
+                k = p->unkC8 >= 8 ? 0xE : 3;
+            }
+            lim = k * 0xFFFF / 360;
+            if (p->unk11E == 3) {
+                lim = (s16)lim >> 1;
+            }
+            v = func_00370E98((s16)(p->unk3A - p->unk3C) / n, (s16)lim);
+            k = func_00370ED0(v, p->unk46, 0x5555);
+            if (k != 0) {
+                v = k;
+                p->unk11E = 6;
+            }
+            r = p->unk3C + v;
+            p->unk46 += v;
+            p->unk3C = r;
+            if (p->unkC4 >= p->unkC0->unk2C) {
+                p->unk11E = 6;
+            }
+            break;
+        case 4:
+            if (p->unk15C == 0 && (q->unk164 == 0 || p->unk118 == 0)) {
+                n = p->unkC0->unk2C + 1 - p->unkC4;
+                if (p->unk135 != 0) {
+                    k = 1;
+                } else {
+                    k = p->unkC8 >= 8 ? 3 : 2;
+                }
+                if (n <= 0) {
+                    n = 1;
+                }
+                v = func_00370E98((s16)(p->unk3A - p->unk3C) / n, (s16)(k * 0xFFFF / 360));
+                k = func_00370ED0(v, p->unk46, 0xE38);
+                if (k != 0) {
+                    v = k;
+                    p->unk11E = 6;
+                }
+                r = p->unk3C + v;
+                p->unk46 += v;
+                p->unk3C = r;
+                if (p->unkC4 >= p->unkC0->unk2C) {
+                    p->unk11E = 6;
+                }
+            }
+            break;
+        case 5:
+            if (q->unk164 != 0 && p->unk118 != 0 && p->unkC8 < 9) {
+                p->unk15C = p->unkC0->unk2C - p->unkC4;
+                if (p->unk15C <= 0) {
+                    p->unk15C = 1;
+                }
+                p->unk15E = (s16)(p->unk3A - p->unk3C) / p->unk15C;
+                p->unk15E = func_00370E98(p->unk15E, 0x9F4);
+                p->unk11E = 0xE;
+                break;
+            }
+            n = p->unkC0->unk2C + 1 - p->unkC4;
+            if (n <= 0) {
+                n = 1;
+            }
+            if (p->unk135 != 0) {
+                k = 4;
+            } else {
+                k = p->unkC8 >= 8 ? 0x64 : 3;
+            }
+            v = func_00370E98((s16)(p->unk3A - p->unk3C) / n, (s16)(k * 0xFFFF / 360));
+            k = func_00370ED0(v, p->unk46, 0x9554);
+            if (k != 0) {
+                v = k;
+                p->unk11E = 6;
+            }
+            r = p->unk3C + v;
+            p->unk46 += v;
+            p->unk3C = r;
+            if (p->unkC4 >= p->unkC0->unk2C) {
+                p->unk11E = 6;
+            }
+            break;
+        case 6:
+            if (p->unkCA != 0 && p->unkC0->unk19 != 0 && p->unk135 == 0 && p->unkC4 >= p->unkC0->unk2D) {
+                p->unk15E = 0;
+                p->unk15C = 0;
+            } else {
+                m = p->unkC0;
+                if (m->unk2C < p->unkC4 && (p->unkC4 - m->unk2C) % 5 == 0 && (s16)p->unk40 < 0x5556) {
+                    if (m->unk18 - p->unkC4 < 6) {
+                        p->unk15C = 5;
+                    } else {
+                        p->unk15C = m->unk18 - p->unkC4;
+                    }
+                    if (p->unk15C >= 0) {
+                        p->unk15E = (s16)(p->unk44 - p->unk3C) / p->unk15C;
+                        p->unk15E = func_00370E98(p->unk15E, 0x222);
+                    } else {
+                        p->unk15C = 0;
+                    }
+                }
+            }
+            break;
+        case 7:
+            m = p->unkC0;
+            k = m->unk1A;
+            if (k == 0) {
+                k = m->unk18;
+            }
+            if (p->unkC4 <= k) {
+                if (k == 0) {
+                    k = 1;
+                }
+                p->unk3C += func_00370E98((s16)(p->unk44 - p->unk3C) * p->unkC4 / k, 0x38E);
+            }
+            break;
+        case 8:
+            n = p->unkC8;
+            if (n > 8) {
+                n = 8;
+            }
+            if (n <= 8) {
+                p->unk3C += func_00370E98((s16)(p->unk44 - p->unk3C) * n / 8, 0x71C);
+            }
+            break;
+        case 9:
+            if (D_005F5C28 >= 0x4B0) {
+                v = Math_Atan2(p->unk114 - p->unk524, p->unk110 - p->unk51C);
+                k = (u16)p->unk1A - v;
+                if ((s16)k < 0) {
+                    k = 0xFFFF - (s16)k;
+                }
+                if ((u16)k >= 0x4000) {
+                    v -= 0x8000;
+                }
+                n = p->unkC4;
+                v = func_00370E98((s16)(v - p->unk1A) * n / p->unkC0->unk18, 0x5B0);
+                p->unk126 = 1;
+                p->unk3C = p->unk1A = p->unk1A + v;
+            }
+            break;
+        case 10:
+            m = p->unkC0;
+            n = p->unkC4;
+            if (n <= m->unk18) {
+                s32 right;
+                s32 left;
+
+                if (p->unk28 == 7 && p->unk42 == 2) {
+                    right = -0x71C;
+                    left = 0x71C;
+                } else {
+                    right = 0x11C7;
+                    left = -0x11C7;
+                }
+                p->unk126 = 1;
+                p->unk3C = p->unk1A = (s16)((p->unk30 < 0 ? left : right) * n / m->unk18) + p->unk44;
+            }
+            break;
+        case 12:
+            n = p->unkC8;
+            if (n > 8) {
+                n = 8;
+            }
+            if (n <= 8) {
+                r = p->unk3C + func_00370E98((s16)(p->unk50 - p->unk3C) * n / 8, 0x71C);
+                p->unk1A = r;
+                p->unk3C = r;
+            }
+            break;
+        case 13:
+            n = p->unkC8;
+            if (n > 8) {
+                n = 8;
+            }
+            if (n <= 8) {
+                r = p->unk3C + func_00370E98((s16)(p->unk52 - p->unk3C) * n / 8, 0x71C);
+                p->unk1A = r;
+                p->unk3C = r;
+            }
+            break;
+        }
+        p = b;
+        q = a;
+    }
+
+    for (i = 0, p = a, q = b; i < 2; i++) {
+        s16 frame;
+        s32 e;
+        s32 cc;
+
+        if (p->unk164 > 0) {
+            p->unk164--;
+        }
+        if (p->unk14E > 0) {
+            p->unk14E--;
+        }
+        m = p->unkC0;
+        frame = p->unkC4;
+        if (frame >= m->unk2C && frame <= m->unk2D) {
+            if (m->unk2A != 0) {
+                p->unk13C = 2;
+            } else {
+                p->unk13C = 1;
+            }
+        } else {
+            p->unk13C = 0;
+        }
+        if (p->unk100 != 0 || (frame >= m->unk19 && frame <= m->unk1A)) {
+            p->unk135 = 1;
+        } else {
+            p->unk135 = 0;
+        }
+        if (frame == m->unk1A && p->unkD6 == -1 && frame != 1 && p->unk11D != 2) {
+            if (p->unkF3 != 0 && p->unkFC != 4 && (p->unkD5 == 9 || (p->unkCC & 4))) {
+                p->unk137 = 1;
+                p->unk12A = 0;
+            } else {
+                p->unk136 = 1;
+            }
+        }
+        v = p->unk162;
+        if (v != 0) {
+            p->unk162 = v - 1;
+            if (p->unk162 < 0) {
+                p->unk162 = 0;
+            }
+            v = 0;
+            if (p->unk131 != 0) {
+                p->unk162 = 0;
+            } else {
+                v = p->unk162;
+            }
+        }
+        if (v < 0x1F && p->unk160 != 0) {
+            p->unk160--;
+            e = p->unk438.unk4[p->unk438.unk0];
+            k = 3;
+            if (!(e & 0x20)) {
+                k = (e & 0xF0) != 0;
+            }
+            p->unk160 -= k;
+            if (p->unk160 < 0) {
+                p->unk160 = 0;
+            }
+        }
+        if (p->unkCA != 0) {
+            k = m->unk2C - 3;
+            if (k < 0) {
+                k = 1;
+            }
+            if (frame >= k && frame <= m->unk2C) {
+                p->unk139 = 1;
+            }
+        }
+        if (m->unk24 & 4) {
+            p->unk139 = 1;
+        }
+        if (m->unk24 & 0x40) {
+            e = p->unk438.unk4[p->unk438.unk0] & 0xF;
+            if (p->unk12C != 0) {
+                if (e == 4 || e == 5) {
+                    cc = 0x1052;
+                    goto set;
+                }
+                cc = 0x2829;
+                if (e == 1 || e == 2) {
+                    goto set;
+                }
+            } else if (e == 4) {
+                cc = 0x1052;
+                goto set;
+            } else if (e == 1) {
+                cc = 0x2829;
+                goto set;
+            }
+        } else if (!(m->unk24 & 0x100)) {
+            if (p->unk11A != 0) {
+                e = p->unk438.unk4[p->unk438.unk0] & 0xF;
+                if (e == 4) {
+                    cc = 0x1052;
+                    goto set;
+                }
+                if (e == 1) {
+                    cc = 0x2829;
+                    goto set;
+                }
+                k = m->unk4;
+                p->unkCC = k;
+                p->unkD2 = p->unkCC & 0x18;
+                if ((k & 0x100) && p->unk12C == 0) {
+                    p->unkD2 = 0;
+                    p->unkCC = k & ~0x18;
+                }
+            }
+        } else {
+            switch (p->unk438.unk4[p->unk438.unk0] & 0xF) {
+            case 5:
+                cc = 0x1952;
+                break;
+            case 2:
+                cc = 0x3129;
+                break;
+            case 1:
+                cc = 0x2829;
+                break;
+            case 4:
+                cc = 0x1052;
+                break;
+            case 3:
+                cc = 0x2021;
+                break;
+            default:
+                cc = 0x842;
+                break;
+            }
+        set:
+            p->unkCC = cc;
+            p->unkD2 = p->unkCC & 0x18;
+        }
+        if (p->unk135 != 0) {
+            p->unkD2 = 0;
+        } else if ((s16)p->unk40 < 0x4000) {
+            p->unkD2 = p->unkCC & 0x18;
+        } else {
+            p->unkD2 = 0;
+        }
+        func_00371258(p);
+        if (p->unk131 != 0) {
+            func_00363110(p, 0xA);
+        } else if (p->unk11F == 0) {
+            if (p->unk134 != 0 && p->unkCA == 0) {
+                if (p->unkF7 == 0 && func_0036E160() != 0) {
+                    func_003630D0(p, 0xA);
+                }
+            }
+            if (p->unkCA != 0) {
+                m = p->unkC0;
+                if (m->unk2C - p->unkC4 < 8 && m->unk28 < 0xC) {
+                    func_003630D0(p, 0xA);
+                }
+            }
+            if (p->unkE0 < 0 && p->unkC8 == 0xA) {
+                func_00362E90(p, 3, 0, 0x14);
+            }
+        }
+        if (p->unkF7 == 0 && p->unk135 != 0) {
+            p->unkB052 = 1;
+        } else {
+            p->unkB052 = 0;
+        }
+        if (p->unk131 != 0 || q->unk131 != 0) {
+            p->unk16A = 0;
+        } else if (p->unk16A != 0) {
+            p->unk16A--;
+            p->unkD2 &= ~0x18;
+            if (p->unk16A < 0) {
+                p->unk16A = 0;
+            }
+        }
+        if (p->unk135 != 0) {
+            p->unk16E = 0;
+        }
+        if (p->unk16E > 0) {
+            p->unk16E--;
+        } else {
+            p->unk16E = 0;
+        }
+        if (p->unk16E == 0) {
+            p->unk16C = 0;
+        }
+        func_00370E20(p, 0);
+        k = 0;
+        if (p->unk28 == 0x12 && D_00440940[p->unk1E][p->unk2].unk0 == 0x1D
+            && D_00440940[p->unk1E][p->unk2].unk4 != 4) {
+            k = 1;
+        } else if (p->unk2A == 0x1D && D_00440940[p->unk1E][p->unk0].unk4 != 4
+                   && D_00440940[p->unk1E][p->unk2].unk0 == 0x13) {
+            k = 1;
+        }
+        p->unk124 = k;
+        p = b;
+        q = a;
+    }
+}
+#else
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", jtbl_00500570);
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", jtbl_005005B0);
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036FB40);
+INCLUDE_ASM("asm/nonmatchings/battle_flow", Battle_UpdateMovement);
+#endif
 
 void func_003A8890(Fighter *f);
 void func_003A88A0(Fighter *f);
@@ -3478,8 +4569,6 @@ void Battle_UpdateFacing(Fighter *a, Fighter *b) {
     b->unk48 = a->unk48 - 0x8000;
 }
 
-#if 0
-/* NON_MATCHING: register allocation of the loop (the original keeps the table bases in t1 / t3 / t4) */
 void func_003713F0(void) {
     s32 i;
 
@@ -3491,9 +4580,6 @@ void func_003713F0(void) {
     D_005F6BE0 = 0x64;
     D_005F6BE8 = 0;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_003713F0);
-#endif
 
 INCLUDE_ASM("asm/nonmatchings/battle_flow", Battle_UpdateDistance);
 
@@ -3928,11 +5014,11 @@ void Battle_StepMoves(Fighter *a, Fighter *b) {
         doneSecond = second->unkC4 >= second->unk178;
     }
     if (doneFirst && first->unk17A == 0x20) {
-        func_003688B0(second, first);
+        Fighter_StartThrownMove(second, first);
         Fighter_StepMove(second, first);
         Fighter_StepMove(first, second);
     } else if (doneSecond && second->unk17A == 0x20) {
-        func_003688B0(first, second);
+        Fighter_StartThrownMove(first, second);
         Fighter_StepMove(first, second);
         Fighter_StepMove(second, first);
     } else {
@@ -3942,13 +5028,126 @@ void Battle_StepMoves(Fighter *a, Fighter *b) {
 }
 
 void func_00372BA8(Fighter *a, Fighter *b) {
-    func_00372BD0(a);
-    func_00372BD0(b);
+    Fighter_RunMoveEvents(a);
+    Fighter_RunMoveEvents(b);
 }
 
-INCLUDE_RODATA("asm/nonmatchings/battle_flow", jtbl_00500620);
-INCLUDE_RODATA("asm/nonmatchings/battle_flow", jtbl_00500640);
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00372BD0);
+void func_0035BF70(s32 side, HitContact *c, s32 n);
+void func_003BB228(u8 side, s32 n);
+s32 func_00366540(Fighter *f, s32 a, s32 b);
+void func_00362E90(Fighter *f, s32 a, s32 b, u8 c);
+
+/* A joint of the skeleton (Fighter + 0x668, 0x50 bytes; joint 1 is unk6B8, joint 2 unk708) [I]. */
+typedef struct {
+    s32 unk0[3];
+} Vec3i;
+
+typedef struct {
+    /* 0x00 */ Vec3i unk0;
+    /* 0x0C */ u8 padC[0x44];
+} FighterJoint;
+
+/* The joints seen from the fighter slot [I]. */
+typedef struct {
+    u8 pad0[0x668];
+    FighterJoint unk668[1];
+} FighterJoints;
+
+void Fighter_RunMoveEvents(Fighter *f) {
+    struct MoveMod *ev = f->unkC0->unk20;
+    s16 side = f->unk1E;
+
+    f->unk13D = 0;
+    if (f->unk127 != 0 && ev != NULL) {
+    while (ev->unk0 != 0) {
+        if (f->unkC4 == ev->unk0 && (f->unk134 != 0 || f->unkC4 != f->unkC6)) {
+            u16 code = ev->unk2;
+            u16 kind = code >> 8;
+            u8 arg = code & 0xFF;
+
+            if (kind >= 6 && kind <= 11) {
+                HitContact c;
+                s32 k;
+
+                c.unk10 = 0;
+                c.unk12 = 0;
+                c.unk14 = 0;
+                c.unk0 = ((FighterJoints *)f)->unk668[arg].unk0.unk0[0];
+                c.unk4 = ((FighterJoints *)f)->unk668[arg].unk0.unk0[1];
+                c.unk8 = ((FighterJoints *)f)->unk668[arg].unk0.unk0[2];
+                switch (kind) {
+                case 6:
+                    func_0035BF70(side, &c, 0);
+                    func_003BB228(side, 1);
+                    break;
+                case 7:
+                    func_0035BF70(1 - side, &c, 0);
+                    break;
+                case 8:
+                    k = 0;
+                    goto effect;
+                case 9:
+                    k = 1;
+                    goto effect;
+                case 10:
+                    k = 3;
+                    goto effect;
+                case 11:
+                    k = 2;
+                effect:
+                    func_0035BFF8(k, &c);
+                    break;
+                }
+            } else if (kind >= 0xF && kind < 0x6F) {
+                s32 n = kind - 0xF;
+                s32 q = n / 32;
+                s32 r;
+
+                f->unk11F = 1;
+                if (q == 0) {
+                    q = 3;
+                }
+                r = n % 32;
+                if (kind == 0x18) {
+                    func_00362E90(f, q, func_00366540(f, 3, r), arg);
+                } else {
+                    func_00362E90(f, q, r, ev->unk2);
+                }
+            } else {
+                switch (kind) {
+                case 1:
+                    func_0035C2C8(0);
+                    break;
+                case 2:
+                    func_0035C2C8(1);
+                    break;
+                case 3:
+                    func_0035C2C8(2);
+                    break;
+                case 4:
+                    func_0035C240(&f->unk51C);
+                    func_003BB228(side, 2);
+                    func_003D3C68(f->unk51C, f->unk520, -f->unk524, f->unk122);
+                    break;
+                case 12:
+                    f->unk14A = arg;
+                    f->unk13D = 1;
+                    break;
+                case 13:
+                    f->unk14A = arg;
+                    f->unk13D = 2;
+                    break;
+                case 14:
+                    f->unk14A = arg;
+                    f->unk13D = 3;
+                    break;
+                }
+            }
+        }
+        ev++;
+    }
+    }
+}
 
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00372E98);
 
@@ -4191,11 +5390,11 @@ s32 func_003736B8(Fighter *f) {
 INCLUDE_ASM("asm/nonmatchings/battle_flow", func_003736B8);
 #endif
 
-s32 func_0036BF58(Fighter *f);
+s32 Fighter_GetContinueFrame(Fighter *f);
 
 /* Starts a blend into the pending move (state 2, unkB5E4 frames: those left before it starts) unless the current move is
  * still inside its window unkC0->unk2D or the pending move's window holds the frame it will start on
- * (func_0036BF58); returns whether a blend runs [I]. */
+ * (Fighter_GetContinueFrame); returns whether a blend runs [I]. */
 s32 func_003737B0(Fighter *f) {
     struct FighterMove *m;
     s32 n;
@@ -4208,7 +5407,7 @@ s32 func_003737B0(Fighter *f) {
         if (f->unkC0->unk2D >= frame) {
             f->unkB5E4 = 0;
         } else if (m->unk2C != 0) {
-            n = func_0036BF58(f) + 1;
+            n = Fighter_GetContinueFrame(f) + 1;
             if (n >= m->unk2C && n <= m->unk2D) {
                 f->unkB5E4 = 0;
             }

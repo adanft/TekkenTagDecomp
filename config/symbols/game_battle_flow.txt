@@ -1,27 +1,33 @@
 // Game module battle_flow (docs/game_overview.md section 4; the range is provisional).
 // Naming rules: docs/decomp_guide.md, "Naming".
 // range: 0x003682F8 0x003745E8
+Fighter_StartThrownMove = 0x003688B0; // type:func // guess
 Fighter_StartCommandMove = 0x00368A00; // type:func
+Cmd_CheckCondition = 0x00369008; // type:func
+Cmd_CheckSituation = 0x003693E0; // type:func // guess
 Move_FindCommand = 0x00369CB0; // type:func // guess
+Cmd_CheckThrowCondition = 0x00369E10; // type:func // guess
 Fighter_StepMove = 0x0036A428; // type:func // guess
+Fighter_GetContinueFrame = 0x0036BF58; // type:func // guess
 Fighter_UpdateInput = 0x0036C4C0; // type:func
 Fighter_ResetInputHistory = 0x0036C528; // type:func
 Fighter_RecordInput = 0x0036C860; // type:func
+Cmd_MatchInput = 0x0036CBE8; // type:func
 Input_MirrorLeftRight = 0x0036CF88; // type:func
 Battle_UpdateFrame = 0x0036D860; // type:func
 Battle_UpdatePause = 0x0036DEA8; // type:func // guess
-Battle_UpdateRound = 0x0036E198; // type:func // guess
+Battle_UpdateRound = 0x0036E198; // type:func
 Battle_IsRoundOver = 0x0036F3C8; // type:func
+Battle_UpdateGauges = 0x0036F408; // type:func
+Battle_SetRoundResult = 0x0036F570; // type:func
+Battle_UpdateMovement = 0x0036FB40; // type:func // guess
 Battle_UpdateFacing = 0x00371330; // type:func
 Battle_UpdateDistance = 0x00371458; // type:func // guess
 Fighter_UpdateMotion = 0x00371B98; // type:func
 Battle_ApplyVelocity = 0x00371C68; // type:func
 Battle_ResolveHits = 0x00371D68; // type:func // guess
-Battle_StepMoves = 0x00372A88; // type:func
 Fighter_ApplyDamage = 0x003720C8; // type:func
-Cmd_CheckCondition = 0x00369008; // type:func
-Cmd_MatchInput = 0x0036CBE8; // type:func
+Battle_StepMoves = 0x00372A88; // type:func
+Fighter_RunMoveEvents = 0x00372BD0; // type:func
 Fighter_GetLaunchKind = 0x00374048; // type:func
 Fighter_StartLaunch = 0x00374148; // type:func
-Battle_SetRoundResult = 0x0036F570; // type:func
-Battle_UpdateGauges = 0x0036F408; // type:func
