@@ -128,6 +128,8 @@ segments:
       - [0x35520, c, 374520]
       - [0x355E8, c, sound]
       - [0x37C30, asm]
+      - [0x3CA88, c, fighter_core]
+      - [0x4CF98, asm]
       - [0x57D00, c, pad]
       - [0x58948, c, file]
       - [0x59510, c, gfx]

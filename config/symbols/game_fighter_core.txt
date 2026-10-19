@@ -1,3 +1,19 @@
 // Game module fighter_core (docs/game_overview.md section 4; the range is provisional).
 // Naming rules: docs/decomp_guide.md, "Naming".
 // range: 0x0037BA88 0x0038BF98
+Prac_RecReset = 0x0037C478; // type:func
+Prac_RecInput = 0x0037C560; // type:func
+Prac_RecGetTrack = 0x0037C620; // type:func
+Prac_RecBegin = 0x0037C650; // type:func
+Prac_RecEnd = 0x0037C6B8; // type:func
+Prac_RecSaveTrack = 0x0037C758; // type:func
+Prac_PlayBegin = 0x0037C8D8; // type:func
+Prac_PlayStep = 0x0037C990; // type:func
+Prac_IsPlaying = 0x0037CA58; // type:func
+Prac_LoadCmdIntoTrack = 0x0037D558; // type:func
+Prac_ResetPositions = 0x0037D8C8; // type:func
+Cpu_GetInput = 0x00380A58; // type:func // guess
+Cpu_Think = 0x00380F38; // type:func // guess
+Cpu_SetCommand = 0x003811E8; // type:func // guess
+Cpu_PickCands = 0x00383D70; // type:func
+Cpu_RejectCands = 0x00383E20; // type:func

@@ -3,7 +3,7 @@
 #
 # Not needed for this compiler: the hazard nop gas keeps after an FPU compare is in the original too
 # (`c.le.s / nop / bc1t`), and the compiler itself emits the nops the R5900 needs in front of div.s and sqrt.s
-# and inside short loops. The hazard nops gas adds after mtc1 and mfc0 are not in the original (macros below).
+# and inside short loops. The hazard nops gas adds after mtc1, mfc0 and mfc1 are not in the original (macros below).
 
 # Register moves were 64-bit: `move` is daddu, not gas's `or`.
 .macro move dst, src
@@ -88,4 +88,15 @@
         .error "gcc_prelude.inc: mtc1 \rt, \fs: unknown register"
     .endif
     .word 0x44800000 | (.L__rt << 16) | (.L__fs << 11)
+.endm
+
+# `mfc1 rt, fs`: as for mfc0, the game's assembler put no hazard nop after it when the next instruction reads rt
+# (the modern gas does): `mfc1 $2,$f1 / subu $2,$0,$2` in func_00346230. Emitted as data.
+.macro mfc1 rt, fs
+    __gpr_num .L__rt, \rt
+    __fpr_num .L__fs, \fs
+    .if (.L__rt > 31) || (.L__fs > 31)
+        .error "gcc_prelude.inc: mfc1 \rt, \fs: unknown register"
+    .endif
+    .word 0x44000000 | (.L__rt << 16) | (.L__fs << 11)
 .endm

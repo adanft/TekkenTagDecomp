@@ -1457,7 +1457,6 @@ void func_00346210(void) {
     D_008C2F90[1].unkC04 = 0;
 }
 
-#if 0
 typedef struct {
     /* 0x00 */ f32 unk0;
     /* 0x04 */ f32 unk4;
@@ -1475,8 +1474,6 @@ typedef struct {
     /* 0x20 */ Unk346230Sub sub;
 } Unk346230;
 
-/* NON_MATCHING: the C is right, but gas puts a hazard nop after each `mfc1` that the original does not have
- * (include/gcc_prelude.inc has no mfc1 macro yet, as it has for mtc1 and mfc0). */
 /* Appends an entry (six words) to the list of the object's side (bit 5 of unk14), up to 0x7F. */
 void func_00346230(Unk346230 *o) {
     Unk346230Sub *s = &o->sub;
@@ -1495,9 +1492,6 @@ void func_00346230(Unk346230 *o) {
         e[5] = -(s32)s->unk8;
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/dma_gif", func_00346230);
-#endif
 
 void *func_003462F0(s32 side) {
     return D_008C2F90[side & 1].unk4;

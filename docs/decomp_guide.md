@@ -156,12 +156,13 @@ bytes:
 |---|---|---|---|
 | `mtc1 $4,$f0` / `cvt.s.w $f0,$f0` | no nop between | hazard nop | macro to `.word` (T13) |
 | `mfc0 $2,$12` / `and $2,$2,$3` | no nop between | hazard nop | macro to `.word` (T13) |
+| `mfc1 $2,$f1` / `subu $2,$0,$2` | no nop between | hazard nop | macro to `.word` (T14) |
 | `move $4,$5` | `daddu` | `or` | macro to `daddu` |
 | `break 7` | code in bits 6-15 (`0x000001CD`) | code in bits 16-25 | `.word` |
 | `cvt.w.s $f2,$f1` | function 0x24 (`0x460008A4`) | refused for the R5900 | `.word` |
 | `sqrt.s $f12,$f12` | operand in the ft field (`0x460C0304`) | operand in fs | `.word` |
 
-The prelude is also read in front of `INCLUDE_ASM` code. `break`, `cvt.w.s`, `sqrt.s`, `mtc1` and `mfc0` become
+The prelude is also read in front of `INCLUDE_ASM` code. `break`, `cvt.w.s`, `sqrt.s`, `mtc1`, `mfc0` and `mfc1` become
 data, so gas never moves them into a delay slot (for `mtc1` that is what the original shows); the compiler only emits them inside `.set noreorder` blocks or where nothing
 moves, so this has not mattered yet.
 
@@ -389,8 +390,31 @@ Accepted fakes from decomp-permuter, marked `fake` in the source: an empty `do {
 `File_Update`), a chained assignment (`Gfx_SetDisplayOffset`), the declaration order of two locals
 (`func_0035C698`), a local loaded before a store (`func_0035C8D0`, `Str_ComparePrefix`).
 
-Assembler: `mfc1` gets a hazard `nop` from gas that the original does not have (`func_00346230`); the prelude needs
-an `mfc1` macro like the one for `mfc0`.
+Assembler: `mfc1` got a hazard `nop` from gas that the original does not have (`func_00346230`); the prelude has an
+`mfc1` macro since T14 (the clean rebuild stayed byte-identical and `func_00346230` matches).
+
+### Lessons from T14 batch 1 (2026-10-18)
+
+- **Check that the build really ran.** A C file that fails to compile (conflicting prototypes) or to link (a `.data`
+  byte reached through `$gp`) leaves the old `build/SLUS_200.01` in place, and `fdiff.py --no-build` then reports OK
+  against stale bytes. After a batch, confirm ninja ended with the SHA1 step before trusting any OK.
+- A function whose size changes moves every later function, `.data`, `.sdata` and `.bss` symbol: in a batch, wrap the
+  size-changing misses first, rebuild, then judge the rest (their diffs were only relocations).
+- `(fl & 0x400000) == 0` as a value compiles to `sra / xori / andi`; the original's `lui / and / sltiu` comes from
+  `r = 0; if (!(fl & 0x400000)) r = 1;`. Flag words compared that way are `s32`.
+- An extra `move a0, s0` in front of a call whose first argument is already in `a0` comes from an inline function:
+  the getter `static inline struct FighterMove *Fighter_GetMove(Fighter *f)` reproduces it (`func_0037DDE0`,
+  `func_0037DE40`). gcc 2.9 at `-O2` inlines only functions marked `inline`.
+- Duplicated `return 0` blocks in the original come from nested `if`s that each end in `return 0;`
+  (`func_0037E090`); identical tails that end the same way are cross-jumped into one (`Prac_PlayStep`).
+- A narrow parameter (`u16`, `s16`) is masked or sign-extended by the callee; a caller that extends an argument with
+  `sll / sra` while the callee does not passes `(s16)i` to an `s32` parameter (`func_0037D798`).
+- Clamps: `n > 0x1FF ? 0 : n` gives `slt / movn`, `n <= 0x1FF ? n : 0` gives `movz`; each function uses one form.
+- A struct of two `u16` copied as a whole is `lwl / lwr / swl / swr` (`Prac_RecSaveTrack`).
+- `fighter_core` emits no `.rodata`, `.lit4` or `.sdata` of its own (no floats, switches kept as ifs), so one C file
+  covers the whole range without data subsegments; functions with jump tables stay in assembly for now.
+- Not solved: a padding `nop` that 8-aligns the label after a mid-function `jr ra` in 7 functions of the executable
+  (`func_0037DFC8`); the compiler emits `.p2align 2` there.
 
 ## Decompiled so far
 
@@ -402,12 +426,13 @@ an `mfc1` macro like the one for `mfc0`.
 | `src/pad.c` | 0x396D00-0x397948 | 10 / 11 | libpad/libmtap set-up sequence, per-player input |
 | `src/file.c` | 0x397948-0x398510 | 29 / 29 | file requests, descrambling, IOP status |
 | `src/gfx.c` | 0x398510-0x3994C0 | 47 / 51 | GS set-up, VBlank handler, display packet, helpers |
-| `src/dma_gif.c` | 0x342E78-0x346398 | 37 / 52 | DMA kicks and waits, VU0 microcode upload, VU1 matrix packets, side tables; four handwritten VU0 routines stay in assembly |
+| `src/dma_gif.c` | 0x342E78-0x346398 | 38 / 52 | DMA kicks and waits, VU0 microcode upload, VU1 matrix packets, side tables; four handwritten VU0 routines stay in assembly |
 | `src/dma_spr.c` | 0x35D048-0x35E808 | 53 / 63 | file loads by number, scratchpad buffers and DMA, DMAC helpers |
 | `src/memcard.c` | 0x35E808-0x3608B8 | 42 / 43 | memory card requests, libmc call steps, state flags |
 | `src/374520.c` | 0x374520-0x3745E8 | 4 / 4 | the end of the object before `sound` |
 | `src/sound.c` | 0x3745E8-0x376C30 | 59 / 65 | SPU2 set-up, sound effect voices and banks, delayed effects, fighter voices |
 | `src/sound_if.c` | 0x399FC8-0x39A2B8 | 13 / 13 | sound byte-code queue (BGM, movie audio) |
 | `src/gte.c` | 0x39A2B8-0x39BBF0 | 19 / 19 | GTE-style fixed-point matrices and vectors |
+| `src/fighter_core.c` | 0x37BA88-0x38BF98 | 141 / 277 | practice mode recorder and command lists, CPU opponent predicates and handlers ([systems/fighter.md](systems/fighter.md)) |
 
 Functions left as `INCLUDE_ASM` carry their closest attempt above them in `#if 0` with a `NON_MATCHING:` note.
