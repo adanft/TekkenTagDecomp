@@ -156,6 +156,8 @@ segments:
       - [0x1C1D50, rodata]
       - [0x1C7150, .rodata, fight_misc]
       - [0x1C7260, rodata]
+      - [0x1C74C0, .rodata, fighter_core]
+      - [0x1C8EE0, rodata]
       - [0x1CAD00, .rodata, pad]
       - [0x1CAE38, rodata]
       - [0x1CAE40, .rodata, file]

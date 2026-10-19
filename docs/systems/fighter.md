@@ -66,6 +66,14 @@ one of these functions through jump tables [V for the values; I for "guard / rea
   `func_00373390`, `func_0037DA08`) [V calls].
 - A record at 0x8B8010 (`.bss`, five words and a list of 16 move ids): `func_0037EA08` (matching C) clears it and
   `func_0037EE18` (C attempt) tells whether the move `unk10C` is in the list (0 entries are empty) [V code; I use].
+  In state 2 `func_0037EA58` (matching C, T14 b7) counts the frames of the combo (word 0xC, at most 0x34BC0) and prints
+  the timer (`func_0037EE68`, minutes'seconds"hundredths, menu item 8) and the counter "COMBO n:m" (`func_0037EEF8`)
+  [V].
+- The dummy's actions (T14 b7, matching C): `func_0037DA08` starts its stance move for a state 0-13 (moves 0x3A,
+  0x50, 0xD6, 0xE4, facing `unk3A` turned by a quarter or a half); `func_0037DC98` dispatches the action `kind` of the
+  settings (6-10 to `func_0037E0E8` when `unkF7` is set, which holds pad bits 0x60 / 0x90 / 4 / 0x2000 / 0x8000 for
+  move kinds 9-10; 13 to `func_0037DDD0`; 1-4, 14 to their handlers, 5 / 11 set `unk12C`); `func_0037C370` tells
+  whether the current move is one of the two listed in `D_005073E0` and at one of its listed frames [V code].
 
 ## 4. The CPU opponent (0x3800D8-0x38BF98)
 
@@ -75,6 +83,42 @@ one of these functions through jump tables [V for the values; I for "guard / rea
 - `Cpu_GetInput(f, &held, &pressed)` (matching C since T14 b5): selects the side's state (`gCpu`, `gCpuSelf`,
   `gCpuOpponent` from `f->unk20`); unless `func_00393810` says the CPU may not act, it runs `Cpu_Think` (0x380F38),
   then returns the buttons `gCpu->unk6` and their rising edge against the previous frame (`unk8`) [V].
+- `Cpu_Think` (matching C since T14 b7), once per frame and CPU side, in this order [V code; I meaning of the
+  deciders]:
+  1. notes the own move frame (`unk44`, `unk4` counts the frames it changed), the flags of both fighters' moves
+     (own `unk8` / `unk4` in `unk32C` / `unk330`, the opponent's in `unk338` / `unk33C`, low halves in `unk334` /
+     `unk340`) and adds the damage the own fighter took this frame (`unk144 << 12`) to `unk27C[member]`;
+  2. if a command is still playing (`func_00381418`, see Commands below) it keeps it (`D_005F6120 = 0`); otherwise
+     the first decider of a fixed list that returns non-zero sets the input, and `D_005F6120` keeps its number:
+     1 `func_00381D30`, 2 `func_00381BF8` (answer while the own fighter is hit, `unkE0`), 3 `func_00388DE0` (own move
+     with flags `0x4C02`), 5 `func_00381408`, 4 `func_00388FA8`, 6 / 0x16 / 7 the character hooks (`func_0038A408`
+     opponent's hook, `func_0038AD00`, `func_0038A500` own hook), 0x17 `func_0038AC40`, 8 `func_00388170`,
+     9 `func_00388DA8` (mode `D_005F5CBC`: repeat the previous buttons' high nibble on the CPU's frame parity),
+     0xA `func_00385C80` (continue a running plan, then list the candidates), 0x16 `func_0038ABE8`,
+     0xB `func_003864E8`, 0xC `func_00389B70`, 0xD `func_00389D58`, 0x14 `func_0038A780`, 0xE `func_00387600`,
+     0xF `func_003879A0`, 0x10 `func_00387DA8`, 0x15 `func_0038A928` (play the planned command `unk264`),
+     0x11 `func_00388278`, 0x12 `func_00387120`, 0x13 `func_00388840`, 0x63 `func_00388D70`;
+  3. drops button 4 for character 0x21 without `unk401`, and in the mode `D_005F5CBC` unless `D_005F6144`;
+  4. runs `func_00380B10` (C attempt): counts the CPU timers down (`unk4C`, `unk5C`, `unk60`-`unk6C`, `unk84`,
+     `unkCC`, `unkD0`, `unk320`), resets the plans when the own fighter is hit (`unk12F`), keeps the opponent's moves
+     that took life in `unk288[0..3]` (newest first; `unk298`: the last three were the same move) with a chance of
+     `4096 - unk38E`, and makes the CPU adapt: each time it is hit (outside the mode `D_005F5CBC`) the chances
+     `unk364` and `unk368` grow by 10 (up to `unk366` / `unk36A`) and, while `unk2C0` is positive, `unk372` by 40 and
+     `unk36E` by 20 (up to `unk374` / `unk370`). Life (`unk3F4`) is compared with the previous frame's (`unk40`).
+- Deciders follow one pattern: a few state tests, then chances `(rand() & 0xFFF) < gCpu->unkXXX` against the
+  parameter block (`CpuState + 0x344`, s16 chances in 4096), then `Cpu_PickCands(filter)` and `func_003853E8` to play
+  one of the accepted candidates, or a pad word written to `unk6`. Examples matched in T14 b7: `func_00388DE0` tries the
+  filters `func_00384B68` (chance `unk3AC`), `func_00384B80` (`unk3B4`), `func_00384B50` (`unk3AA`);
+  `func_00389B70` plays `func_00389B50` / `func_00384D78` candidates or side-steps (`func_0038A690(-1)`);
+  `func_00381BF8` answers when hit with a command `func_00381B10` picked at random from `func_00381818`'s list for
+  frame `cmd->unkB + 1` of the own move (`unk124` / `unk128`), at most `unk356` times (`unkFC`).
+- Move kinds (`func_00383BD8`, matching C): the low half of a move's `unk8` classifies it (0x10F, 0x217, 0x31F, 0x412,
+  0x51F) and the opponent's move flags (`unk33C`: 0x4C02, bits 0x400 / 4 / 1 / 2) say which kinds answer it, in two
+  tables (`which` 0 / 1) [V code; I meaning: likely high / low / mid answers].
+- Command availability (`Cpu_IsCmdAllowed`, a static inline of the source used by ten CPU functions, T14 b7): a few
+  moves depend on the fighter's variant `unk28` and on chance (0xEE3 not with variant 4 in the mode `D_005F5CBC`,
+  0x181 / 0x197 only with `unk3DC`, 0x4CA never, 0x3BC and 0x1245 / 0x1253 one time in 8 for some variants,
+  0x1246 / 0x1255 not with variants 0 / 0xD, 0x1262 seven times in 8 with variant 4) [V code].
 - Randomness: `func_003800D8(n)` returns `n * ((rand() + seed) & 0x7FFF) >> 15` and steps its own seed
   `D_005F6C08 = D_005F6C08 * 5 + 3` [V]. The sound code uses it as well (voice choice), so it is a shared
   "random below n" helper.
@@ -85,12 +129,19 @@ one of these functions through jump tables [V for the values; I for "guard / rea
   `unk4` / `unk8`, the frame window) and its command [V code; I meaning of each bit].
 - Commands: a command is a list of 16-bit words, direction in bits 0-3 (mapped through the table `D_005073F0`) and
   buttons in bits 8-11 (pad bits 0x80, 0x10, 0x40, 0x20); `Cpu_SetCommand` (0x3811E8) starts one and
-  `func_00381418` advances it each frame (a queued word `unkA` first), both matching C since T14 b5 [V]. The side-step
+  `func_00381418` advances it each frame (a queued word `unkA` first), both matching C since T14 b5 [V].
+  `func_00381278(code, move)` (C attempt, 13 lines) starts a move's input code: 0x8003 arms the fighter's `unk12B`,
+  0x8001 / 0x8002 and codes above 0x8005 play the command list `func_0036CF30` returns, any other code becomes pad bits
+  at once: the highest direction bit of `(code >> 5) & 0x1FF` through `D_00507410` / `D_00507428`, buttons from bits
+  0-3 (`D_00507440`) and bit 14 (`D_00507448`); the move is kept in `unk8C` [V]. The side-step
   commands of `D_00507452` (`func_0038A690`, matching C) are chosen from the opponent's body angle and the fighters'
   `unk624`, randomly near 0 / 0x8000 [V code; I meaning].
-- Per-character behaviour: the table `D_00507A88` (12-byte `{key, handlerA, handlerB}`, 33 searched by
-  `func_0038BEE0`) gives each character's move handlers; 28 of the handlers it points to are `return -1;` stubs (no special
-  handling) [V].
+- Per-character behaviour: the table `D_00507A80` (12-byte `{key, handlerA, handlerB}`, 33 searched by
+  `func_0038BEE0`; the code builds the address 0x507A88 of the first `handlerB`) gives each character's move handlers;
+  28 of the handlers it points to are `return -1;` stubs (no special handling) [V]. `func_0038B718` (matching C)
+  answers move 0x1407 at frames 0x18-0x19 with the command `D_00507618`; `func_0038BC00` (key 3, matching C) plays one
+  of the commands `D_00507A52` / `D_00507A32` / `D_00507A12` (seven words each) depending on the opponent's move flags
+  2 / 1 and `unk2A4` [V code].
 - Hooks (T14 b6): `func_0038A408` (C attempt, read in full) runs the hook `gCpu->unkB4` (the opponent's
   character's handler from `D_00507A88`) while `unkCC < 0`, with a chance of `unk382` in 4096; its result is -1 (nothing),
   -2 (acted), -3 (play one of the picked candidates at random, `func_003853E8`), 0x2000 / 0x8000 (hold that pad bit and
@@ -102,8 +153,10 @@ one of these functions through jump tables [V for the values; I for "guard / rea
   `unk34C[0]` plus one of `unk34C[1..4]` at random and resets `unk64` / `unk68` / `unk6C` / `unk5C` / `unk50` / `unk4C`
   [V]. `func_00384408` and `func_00384C98` (matching C) are candidate filters on the move flags (0x412, 0x400000,
   0x20000, 0x80000 / 0x200000 for moves with an early window, 0x10000) and `func_00383B88` [V code; I meaning].
-- Difficulty: `func_00380420` copies a 0x80-byte parameter block from `D_00431918[level][kind]` (5 x 8 blocks) to
-  `CpuState + 0x344` [V read; I "difficulty"].
+- Difficulty: `func_00380420` (matching C since T14 b7) selects `gCpu` for a side and copies the 0x80-byte parameter
+  block `D_00431918[level][kind]` (5 x 8 blocks, indices clamped to 4 / 7) to `CpuState + 0x344`; the block holds the
+  s16 chances the deciders test (`unk34C`-`unk3C2`). `func_0037BF48` maps the practice setting 0-4 to the pairs
+  (0, 1), (1, 2), (2, 3), (3, 1), (4, 3) [V read; I "difficulty"].
 
 ## 5. The fight simulation (`battle_flow`)
 

@@ -146,9 +146,9 @@ There is no task list or object scheduler at the top: a mode number selects one 
 
 Other dispatch tables [V for the table, I for the role]:
 
-- `D_00507A88`: 12-byte entries `{key, handlerA, handlerB}` searched by `func_0038BEE0` (callers 0x380568,
-  0x3809C0) in `fighter_core`: 35 handlers 0x38AFC0-0x38BE78, per-character CPU move handlers, 28 of them `return -1`
-  stubs [V, T14 b1].
+- `D_00507A80` (named `D_00507A88` before T14 b7, the address the code builds): 12-byte entries `{key, handlerA,
+  handlerB}`, 33 of them searched by `func_0038BEE0` (callers 0x380568, 0x3809C0) in `fighter_core`: 35 handlers
+  0x38AFC0-0x38BE78, per-character CPU move handlers, 28 of them `return -1` stubs [V, T14 b1].
 - `D_005193B8`: 8-byte entries, 36 handlers 0x346BB8-0x347568, returned by `func_00347730` (`geometry`).
 - `D_00520FC0` (records with 18 handlers 0x3D2160-0x3D6FD8, used by 0x3D0CC8/0x3D0E18/0x3D1040) and the arrays
   `D_0044B230` (9), `D_0044B800` (21), `D_0044BEA0` (4), `D_0044C1A0` (23) of handlers 0x3D4ED8-0x3D7C38, all in
@@ -186,7 +186,7 @@ though an edge could still fall between two objects that are both inside the ran
 | `sound` | 0x3745E8 | 0x376C30 | 65 | `sceSdRemote` callers, `Snd_PlaySe` 0x374CD8 (56 callers, many of them menu screens), fighter voices (`Snd_PlayVoice`, voice sequences). `src/sound.c` [V start: its `.rodata` (0x500780-0x500D50, jump tables 16-aligned) cannot start at 0x500758, which belongs with the four functions 0x374520-0x3745E8 to the object before, the end of `battle_flow` (`src/battle_flow.c`)] |
 | `fight_misc` | 0x376C30 | 0x3790C8 | 29 | The hit test of the fight (T14 b3): attack volumes against body spheres (`func_003770E0`, 64-bit division), body sphere radii, fighter push (`Fighter_Push`) and push sphere radii (`Fighter_SetPushRadii`), the special attack volume of character 0x1D (atan2f) [V]. `src/fight_misc.c`; `.rodata` 0x506150-0x506260 (tables read through `D_0042EFD8` in `.data`, three jump tables) and `.lit4` 0x5F5170 are its own [V]; the end is [I]: `func_003790C8` reads `.data` placed after the practice object's, so it starts `practice`. [systems/fighter.md](systems/fighter.md) section 5.5 |
 | `practice` | 0x3790C8 | 0x37BA88 | 44 | "FREESTYLE", "VS CPU", "(CPU)", "(YOU)", "TYPE %d", "RANDOM" |
-| `fighter_core` | 0x37BA88 | 0x38BF98 | 277 | practice mode support (command recorder `gPracRecorder`, command lists, dummy conditions, practice reset) 0x37BA88-0x3800D8 and the CPU opponent (`Cpu_GetInput`, candidate moves, handler table `D_00507A88`) 0x3800D8-0x38BF98 [V, T14 b1]; not the move interpreter or hit detection. `src/fighter_core.c`, one C file for the range: it emits no data sections, so the edges are not checked as object edges [I edges]. [systems/fighter.md](systems/fighter.md) |
+| `fighter_core` | 0x37BA88 | 0x38BF98 | 277 | practice mode support (command recorder `gPracRecorder`, command lists, dummy conditions, practice reset) 0x37BA88-0x3800D8 and the CPU opponent (`Cpu_GetInput`, `Cpu_Think`, candidate moves, handler table `D_00507A80`) 0x3800D8-0x38BF98 [V, T14 b1]; not the move interpreter or hit detection. `src/fighter_core.c`, one C file for the range, with the `.rodata` subsegment 0x5064C0-0x507EE0 (T14 b7). The `.rodata` order shows that the object before (`asm/3A0C8.s`, from 0x3790C8) runs past 0x37BF48 and ends before 0x37C370: its menu strings and tables (0x506528-0x506BF0) follow the constants of `func_0037BB70`-`func_0037BF48`, so 0x37BA88 is not an object edge [V order; I edges]. [systems/fighter.md](systems/fighter.md) |
 | `camera_stage` | 0x38BF98 | 0x396D00 | 105 | `sceVu0ViewScreenMatrix` (0x38DA28), camera/stage tables 0x433330 [I] |
 | `pad` | 0x396D00 | 0x397948 | 11 | `scePad*`, `sceMtap*` [V block]; `.rodata` 0x509D00-0x509E38. `src/pad.c` |
 | `file` | 0x397948 | 0x398510 | 29 | `File_*`, `Iop_*` [V block] (section 7); starts with the SIF command 0 handler; `.rodata` 0x509E40-0x50CE58 (file table, BGM tracks, two jump tables). `src/file.c` |

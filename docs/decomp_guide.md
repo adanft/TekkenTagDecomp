@@ -657,6 +657,65 @@ Tools:
 - `func_003713F0` matched as written once the header gained fields used by other functions (its permuter base score was
   0): re-check old NON_MATCHING drafts with fdiff after struct changes.
 
+### Lessons from T14 batch 7 (2026-10-19)
+
+Objects and data:
+
+- `fighter_core` got its `.rodata` subsegment (`[0x1C74C0, .rodata, fighter_core]`, 0x5064C0-0x507EE0, 216 symbols with
+  `force_not_migration`). The compiler emits file-scope tables at their declaration (checked with a test file: statics
+  are not deferred), so `.rodata` follows the source order of functions and tables. The practice object of
+  `asm/3A0C8.s` therefore runs past 0x37BF48 (its menu strings and tables at 0x506528-0x506BF0 come after the
+  constants of `func_0037BB70`-`func_0037BF48`) and ends before 0x37C370. A C file's `.rodata` must be one contiguous
+  range, so the object's tail stays in `fighter_core.c`, its tables included in place like the others.
+- The `INCLUDE_RODATA` lines were placed by a script: each symbol in front of its first reader, clamped so that the
+  address order holds against the jump tables a function will emit once it is C (a table after a jump table goes
+  after that function). splat writes no file for symbols at odd addresses (`D_00507452` ...): they stay inside the file
+  of the symbol before, so they get no `INCLUDE_RODATA` line.
+- A C jump table drops the padding words of its `.s` file: the next included jump table needs `RODATA_ALIGN16()`
+  (`jtbl_00506D20` after `func_0037DA08`). fdiff does not see this; check the SHA-1 after each new C jump table.
+- A table whose code builds the address of its second field (`%lo(D_00507A88)` with loads at -8 and -4) starts 8
+  bytes earlier: the handler table is `D_00507A80`.
+- A data change re-runs `configure.py` and the split from the current sources; an attempt left enabled at that moment
+  loses its `.s` file, and reverting the C then fails to assemble. Run `configure.py --split` after reverting.
+
+Code shapes:
+
+- **Inline functions of the source**: the same switch on move ids in ten CPU functions is one `static inline`
+  (`Cpu_IsCmdAllowed`), the same `||` test in two (`Cpu_IsOpponentBusy`, materialised into a register as a return
+  value), and the seeded random (`func_003800D8`) is inlined where its factor sits in a saved register over the
+  `rand()` call (`Cpu_RandBelow`). Inside the inline, cases that `return` a value go straight to v0, cases that set
+  the result variable go through the copy at the end.
+- A predicate shared by several functions that the original tests with branches only (no 0/1 value in a register) is
+  a macro, not an inline function: `CPU_CMD_FOR_VARIANT` (`func_003856C0`, 11 lines left); written as a `static inline`
+  returning `a || b || c` it was materialised into t0 first.
+- Store order again: two stores before a branch come out in the reverse order of the source (`unk130 = 0; unk12C = 0`
+  for 12C then 130), three as the rotation `sn, s1, s2` (`func_00381B10`, `func_00388DE0`, `func_00385C80`).
+- Narrow loads: `(u16)p->w == C` on a `u32` field compiles to `lhu` (combine narrows the masked load); a union
+  `{u32 w; u16 h;}` was used for `CpuState.unk330` / `unk338` / `unk33C`, where both widths appear.
+- A loop that walks a table with a pointer next to its index (`addiu a1, 8` and `addiu a0, 1`) needs both in the
+  source (`for (i = 0, e = tbl, n = -1; ...; i++, e++)`, `func_0037C370`); the place of `n = -1` in the for-init put
+  its `li` into the delay slot.
+- Range tests that the original keeps as two branches are nested `if`s (`if (d < 0x1E) { if (d >= 2 ...`,
+  `func_00389B70`); `if (n < 0x1E && n >= 2)` folds to `addiu / sltiu`.
+- A dispatcher of value ranges is a `switch` with `case 6: ... case 10:` (gcc builds `slti` range tests and places
+  the case blocks in source order, `func_0037DC98`); written as `if`s the blocks came out in another order.
+- A boolean computed before an unrelated early exit (`hit = (rand() & 0xFFF) < gCpu->unk35E; if (gCpu->unk94 > 0 ||
+  !hit)`) keeps the original's `slt` ahead of the test (`func_0038BC00`).
+- `memset` with the standard prototype is expanded inline (`sd zero`); the original calls it. A prototype with an `s32`
+  length (`void *memset(void *, s32, s32)`) is not the builtin and gives the call (`func_0037BC98`).
+
+Not matched yet (closest attempts in `#if 0`): `func_0038A408` / `func_0038A500` / `func_0038AD00` (2 lines: `!(x < 0)`
+becomes `nor / srl`, the original `slti / xori`), `func_0038A780` (3), `func_0037BC98` (2, `lh` for the screen
+position), `func_00381278` (13), `func_00388170` (13), `func_00380B10` (about 150, register names only),
+`func_0038A928` (72, mostly offsets), and others listed in their notes. `Fighter_StepMove`: 394 to 368 lines with one
+marked fake from decomp-permuter (the constant 8 in a variable, `fl = 8; /* fake */`); `Battle_UpdateMovement` stays at
+about 724 (decomp-permuter: 28480 to 27185 in its score, only by a change of the meaning, not taken).
+
+Tools:
+
+- `fdiff.py` only compares the function: a C jump table can still shift the next table; always confirm the SHA-1
+  step after enabling a function that emits `.rodata`.
+
 ## Decompiled so far
 
 | File | Range | C / functions | Notes |
@@ -673,7 +732,7 @@ Tools:
 | `src/sound.c` | 0x3745E8-0x376C30 | 59 / 65 | SPU2 set-up, sound effect voices and banks, delayed effects, fighter voices |
 | `src/sound_if.c` | 0x399FC8-0x39A2B8 | 13 / 13 | sound byte-code queue (BGM, movie audio) |
 | `src/gte.c` | 0x39A2B8-0x39BBF0 | 19 / 19 | GTE-style fixed-point matrices and vectors |
-| `src/fighter_core.c` | 0x37BA88-0x38BF98 | 175 / 277 | practice mode recorder and command lists, CPU opponent input, commands, predicates and handlers ([systems/fighter.md](systems/fighter.md)) |
+| `src/fighter_core.c` | 0x37BA88-0x38BF98 | 196 / 277 | practice mode recorder, command lists, hit markers and dummy actions, the CPU opponent (`Cpu_Think` and its deciders, commands, predicates and handlers, [systems/fighter.md](systems/fighter.md) section 4); `.rodata` 0x5064C0-0x507EE0 included in place (its 0x506528-0x506BF0 belongs to the practice object before) |
 | `src/battle_flow.c` | 0x3682F8-0x3745E8 | 113 / 148 | the fight simulation: per-frame update, input fetch and history, command matching and situation tests, move start and move events, hits and throws (`Battle_ResolveHits`, `Fighter_StartThrownMove`), launches, the round state machine (`Battle_UpdateRound`) and results ([systems/fighter.md](systems/fighter.md) section 5); includes the four functions of the former `src/374520.c`; `.rodata` 0x4FF8D0-0x500780 included in place; damage `Fighter_ApplyDamage` and its `.lit4` 0x5F5168 |
 | `src/fight_misc.c` | 0x376C30-0x3790C8 | 26 / 29 | the hit test (attack volumes against body spheres), body sphere radii, push sphere radii, the special attack volume of character 0x1D ([systems/fighter.md](systems/fighter.md) section 5.5); `.rodata` 0x506150-0x506260, `.lit4` 0x5F5170 |
 | `src/select_results.c` | 0x3C1470-0x3C1A78 | 2 / 4 | team life at round start and its per-frame recovery ([systems/fighter.md](systems/fighter.md) section 5.6); a cut inside the `select_results` module, not an object edge |

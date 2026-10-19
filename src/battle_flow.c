@@ -959,9 +959,10 @@ void func_0036A330(Fighter *f, Fighter *o) {
 
 #if 0
 /* NON_MATCHING: rewritten from the assembly in T14 b5 in the original's case order with its shared tails (the frame
- * step, the move start, the 0x2E kinds, the common tail); 394 of 1546 instruction lines still differ in fdiff: the
- * order of the stores inside the cases (orders searched per run of stores), the register numbering of the move record
- * / kind kept for the tail (t3 / t5 against t2 / t3) and a few blocks the original cross-jumps */
+ * step, the move start, the 0x2E kinds, the common tail); 368 of 1546 instruction lines still differ in fdiff (394
+ * before the fake constant 8 of T14 b7): the order of the stores inside the cases (orders searched per run of stores),
+ * the register numbering of the move record / kind kept for the tail (t3 / t5 against t2 / t3) and a few blocks the
+ * original cross-jumps */
 void func_0036A330(Fighter *f, Fighter *o);
 void func_00370F28(Fighter *f, Fighter *o);
 void func_003D2A38(Fighter *f, Fighter *o);
@@ -1191,11 +1192,12 @@ void Fighter_StepMove(Fighter *f, Fighter *o) {
         f->unk134 = 1;
     }
     snap = f->unkC0->unk24 >> 19;
+    fl = 8; /* fake: keeps the constant 8 in a saved register (decomp-permuter) */
     snap &= 1;
     if (f->unkC0->unk24 & 0x200) {
         f->unk16A = 0x78;
     }
-    if (m->unk24 & 8) {
+    if (m->unk24 & fl) {
         f->unk164 = 9;
     }
     if (f->unk17C != 0) {
@@ -1547,7 +1549,7 @@ void Fighter_StepMove(Fighter *f, Fighter *o) {
         f->unkB8 = f->unk188;
         f->unk1A = f->unk44;
         f->unkBC = 1;
-        f->unk11E = 8;
+        f->unk11E = fl;
         if (snap) {
             f->unk4 = f->unk51C;
             f->unkC = f->unk524;
@@ -1710,7 +1712,7 @@ void Fighter_StepMove(Fighter *f, Fighter *o) {
         f->unk158 = p->unk18;
         f->unk150 = *f->unk158++;
         f->unk152 = *f->unk158++;
-        f->unk154 = 8;
+        f->unk154 = fl;
         f->unkBC = 1;
         f->unkC4 = 1;
         f->unk156 = f->unk3A + (s16)(p->unk0 + 0x8000);
@@ -1755,7 +1757,7 @@ void Fighter_StepMove(Fighter *f, Fighter *o) {
         f->unk158 = p->unk14;
         f->unk150 = *f->unk158++;
         f->unk152 = *f->unk158++;
-        f->unk154 = 8;
+        f->unk154 = fl;
         f->unkBC = 1;
         f->unk156 = f->unk3A + (s16)(p->unk10 + 0x8000);
         f->unk160 = 0;
@@ -1777,7 +1779,7 @@ void Fighter_StepMove(Fighter *f, Fighter *o) {
         f->unk158 = p->unkC;
         f->unk150 = *f->unk158++;
         f->unk152 = *f->unk158++;
-        f->unk154 = 8;
+        f->unk154 = fl;
         f->unkBC = 1;
         f->unkC4 = 1;
         f->unk156 = f->unk3A + (s16)(p->unk0 + 0x8000);
@@ -1802,7 +1804,7 @@ void Fighter_StepMove(Fighter *f, Fighter *o) {
         f->unk158 = p->unk4;
         f->unk150 = *f->unk158++;
         f->unk152 = *f->unk158++;
-        f->unk154 = 8;
+        f->unk154 = fl;
         if (f->unk17A == 0x2C) {
             f->unk156 = f->unk44 + (s16)(p->unk0 + 0x8000);
         } else {
@@ -5036,22 +5038,6 @@ void func_0035BF70(s32 side, HitContact *c, s32 n);
 void func_003BB228(u8 side, s32 n);
 s32 func_00366540(Fighter *f, s32 a, s32 b);
 void func_00362E90(Fighter *f, s32 a, s32 b, u8 c);
-
-/* A joint of the skeleton (Fighter + 0x668, 0x50 bytes; joint 1 is unk6B8, joint 2 unk708) [I]. */
-typedef struct {
-    s32 unk0[3];
-} Vec3i;
-
-typedef struct {
-    /* 0x00 */ Vec3i unk0;
-    /* 0x0C */ u8 padC[0x44];
-} FighterJoint;
-
-/* The joints seen from the fighter slot [I]. */
-typedef struct {
-    u8 pad0[0x668];
-    FighterJoint unk668[1];
-} FighterJoints;
 
 void Fighter_RunMoveEvents(Fighter *f) {
     struct MoveMod *ev = f->unkC0->unk20;

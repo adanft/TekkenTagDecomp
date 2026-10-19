@@ -352,7 +352,7 @@ typedef struct {
     /* 0x03F8 */ s32 unk3F8;                  /* red (recoverable) life, 20.12 */
     /* 0x03FC */ s32 unk3FC;                  /* maximum life, 20.12 */
     /* 0x0400 */ u8 unk400;
-    /* 0x0401 */ u8 pad401[0x1];
+    /* 0x0401 */ s8 unk401;
     /* 0x0402 */ s8 unk402;
     /* 0x0403 */ u8 pad403[0x5];
     /* 0x0408 */ u16 unk408;                  /* life shown on the gauge (Battle_SetRoundResult) [I] */
@@ -420,6 +420,22 @@ typedef struct {
     /* 0xB884 */ s16 unkB884;
     /* 0xB886 */ u8 padB886[0x1A];
 } Fighter;
+
+/* A joint of the skeleton (Fighter + 0x668, 0x50 bytes; joint 1 is unk6B8, joint 2 unk708) [I]. */
+typedef struct {
+    s32 unk0[3];
+} Vec3i;
+
+typedef struct {
+    /* 0x00 */ Vec3i unk0;
+    /* 0x0C */ u8 padC[0x44];
+} FighterJoint;
+
+/* The joints seen from the fighter slot [I]. */
+typedef struct {
+    u8 pad0[0x668];
+    FighterJoint unk668[1];
+} FighterJoints;
 
 /* A team member's record, per side and member (D_00440940, 2 x 2 x 0x30): the character and costume, and the life
  * of the member while it is out (Battle_InitTeamLife sets it at round start, Battle_RecoverLife keeps it and lets the
