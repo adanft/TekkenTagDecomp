@@ -1,3 +1,15 @@
 // Game module effects_draw (docs/game_overview.md section 4; the range is provisional).
 // Naming rules: docs/decomp_guide.md, "Naming".
 // range: 0x003A6460 0x003A9678
+Fx_RandFloat = 0x003A94B0; // type:func
+Fx_GetBankEntry = 0x003A9488; // type:func
+Fade_Draw = 0x003A6460; // type:func
+Fade_Update = 0x003A6908; // type:func
+Fx_DrawStageLayers = 0x003A6C80; // type:func
+Fx_LoadStageLayers = 0x003A6EB0; // type:func
+Fx_StartStageLayers = 0x003A7198; // type:func
+Fx_DrawFighterTex = 0x003A8090; // type:func
+Fx_LoadFighterTex = 0x003A82C8; // type:func
+Fx_ClearQuads = 0x003A8B08; // type:func
+Fx_DrawQuads = 0x003A8B10; // type:func
+Fx_AddQuad = 0x003A8BC0; // type:func

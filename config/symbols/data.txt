@@ -108,6 +108,32 @@ jtbl_004FC610 = 0x004FC610; // size:0x20 force_not_migration:True
 D_0051EAF0 = 0x0051EAF0; // size:0x10 force_not_migration:True
 // dma_gif .rodata (0x519340-0x5193B8): a GIF tag, then the jump table of func_00344318.
 D_00519340 = 0x00519340; // size:0x10 force_not_migration:True
+// .rodata of effects (0x5194E0-0x519940, src/effects.c) and effects_draw (0x519940-0x519B30, src/effects_draw.c): every
+// table is included in place; D_00519918 (read by effects_draw) closes effects' part.
+D_005194E0 = 0x005194E0; // size:0xC0 force_not_migration:True
+D_005195A0 = 0x005195A0; // size:0xC0 force_not_migration:True
+D_00519660 = 0x00519660; // size:0x60 force_not_migration:True
+D_005196C0 = 0x005196C0; // size:0x4 force_not_migration:True
+D_005196C4 = 0x005196C4; // size:0x6C force_not_migration:True
+jtbl_00519730 = 0x00519730; // size:0x40 force_not_migration:True
+jtbl_00519770 = 0x00519770; // size:0x50 force_not_migration:True
+D_005197C0 = 0x005197C0; // size:0x10 force_not_migration:True
+D_005197D0 = 0x005197D0; // size:0xD0 force_not_migration:True
+D_005198A0 = 0x005198A0; // size:0x28 force_not_migration:True
+D_005198C8 = 0x005198C8; // size:0x18 force_not_migration:True
+jtbl_005198E0 = 0x005198E0; // size:0x38 force_not_migration:True
+D_00519918 = 0x00519918; // size:0x28 force_not_migration:True
+jtbl_00519940 = 0x00519940; // size:0x50 force_not_migration:True
+D_00519990 = 0x00519990; // size:0x18 force_not_migration:True
+D_005199A8 = 0x005199A8; // size:0x18 force_not_migration:True
+D_005199C0 = 0x005199C0; // size:0x18 force_not_migration:True
+D_005199D8 = 0x005199D8; // size:0x18 force_not_migration:True
+D_005199F0 = 0x005199F0; // size:0x18 force_not_migration:True
+D_00519A08 = 0x00519A08; // size:0x18 force_not_migration:True
+D_00519A20 = 0x00519A20; // size:0x48 force_not_migration:True
+D_00519A68 = 0x00519A68; // size:0x48 force_not_migration:True
+D_00519AB0 = 0x00519AB0; // size:0x50 force_not_migration:True
+jtbl_00519B00 = 0x00519B00; // size:0x30 force_not_migration:True
 gSinTable = 0x004FCE88; // type:u16 size:0x2800
 // .rodata of the sound object (0x500780-0x500D50): every table is included in place from src/sound.c.
 D_00500780 = 0x00500780; // size:0x30 force_not_migration:True

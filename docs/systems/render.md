@@ -1,8 +1,9 @@
-# Rendering (`scene3d`, `model_draw`, `hud`)
+# Rendering (`scene3d`, `model_draw`, `hud`, `effects`)
 
-How a frame gets from the game state to the GS, and the three modules decompiled for it in T17 batch 1 (2026-10-20):
+How a frame gets from the game state to the GS, and the modules decompiled for it: in T17 batch 1 (2026-10-20)
 `src/scene3d.c`, `src/scene3d_b.c`, `src/scene3d_c.c`, `src/scene3d_d.c` (the `scene3d` range 0x34C508-0x3543F0 without
-the skeleton cut), `src/model_draw.c` (0x3DB758-0x3DC9C8) and `src/hud.c` (0x3C1A78-0x3C3150).
+the skeleton cut), `src/model_draw.c` (0x3DB758-0x3DC9C8) and `src/hud.c` (0x3C1A78-0x3C3150); in T17 batch 2 the effects,
+`src/effects.c` (0x3A04B8-0x3A6460) and `src/effects_draw.c` (0x3A6460-0x3A9678), section 7.
 
 Tags: **[V]** read in matching C or in the disassembly, **[I]** inferred.
 
@@ -30,9 +31,9 @@ Tags: **[V]** read in matching C or in the disassembly, **[I]** inferred.
 | 1 | `Frame_Begin` | `Vu0_LoadMicrocode`, `Gfx_SetPhase(0)`, scratchpad stream reset `func_0035D790(D_005F5C00)`, `Gfx_SetFrameReady`, `Gfx_WaitVSync` |
 | 2 | `func_00357BD0` | `Gfx_SetPhase(1)`, show the buffer of the field parity |
 | 3 | `func_00357A50` | stream state 2 (`func_0035DB90`), stage pass `func_00357C88` (stage objects `func_003DB758` / `func_003DB7B0` around the stage geometry), flush |
-| 4 | `func_00357A78` | fighter pass 0: for each drawn fighter `func_00357640` (its DMA packet through the scratchpad), `func_003A8090`, `func_00343340(f, 0)` (VU0 matrices, then the skinned parts) |
+| 4 | `func_00357A78` | fighter pass 0: for each drawn fighter `func_00357640` (its DMA packet through the scratchpad), `Fx_DrawFighterTex` (texture animation uploads, section 7), `func_00343340(f, 0)` (VU0 matrices, then the skinned parts) |
 | 5 | `func_00357B28` | stream state 4, stage overlays (`func_003E7270` on stages 2, 0x13, 0x16), model pass |
-| 6 | `func_00357B50` | stream state 5, `func_00399918`; effect pass `func_00346830`; fighter pass 1 `func_00343340(f, 1)`; then for each fighter the sword effect `func_00350C40` (section 3); effects `func_003469D8`, `func_003A8B10`; 2D lists `func_00399AF8`, `func_003A6C08` |
+| 6 | `func_00357B50` | stream state 5, `func_00399918`; effect pass `func_00346830`; fighter pass 1 `func_00343340(f, 1)`; then for each fighter the sword effect `func_00350C40` (section 3); effects `func_003469D8`, the textured quads `Fx_DrawQuads`; 2D lists `func_00399AF8`, the fade and title logo `func_003A6C08` |
 | 7 | `Frame_PreUpdate`, `Mode_Dispatch` | input, RNG, one update of the mode (the fight: `Battle_UpdateFrame`, whose `func_0036EA80` queues the HUD, section 5) |
 | 8 | `func_00346608`, `FlushCache(0)`, `Frame_End` | effect update; services, `sceGsSyncPath`, frame-time sample, `Gfx_SetPhase(2)`, movie |
 
@@ -142,7 +143,74 @@ Written straight into the GIF buffers of section 2, GS context 2 [V]: a scissor 
 `func_003DB7B0` call `D_005F6FD4` on the lists `D_01FBF680` / `D_01FC0D00`), text helpers (`Str_Next`, `Str_SkipN`,
 column counts: codes 1-5 and 0xFE one column, others two) and two per-slot bank helpers for the demo module.
 
-## 7. What the PC port replaces
+## 7. Effects (`src/effects.c`, `src/effects_draw.c`)
+
+T17 batch 2 (2026-10-20). Both files read and write **effect objects** (include/effect.h): the object pool of `dma_gif`
+(`func_003464F8`, `func_00345780(update)`, `func_00346030(side, update)` for the two per-side rings) [V].
+
+- **An effect** is a 0x20-byte head (list links, the **update callback** at +8, flags at +0x14: 0x10000 = free at the
+  end of the frame (`func_003465C8`), 4 = drawn; a state halfword at +0x18 and a counter at +0x1C) and a drawing state
+  from +0x20 that `func_003456B0` sets to defaults: position, the current frame record, frame count and frame, the bank
+  sprite and its frame, scale (+0x30), colour (+0x50), size (+0x54), alpha (+0x58), angles (+0x70) and velocity (+0x80),
+  then data of the kind (trail positions, timers) [V].
+- **Every frame** `func_00346608` (step 8 of section 2, after the update of the mode) first runs `func_003A4370` (the
+  body-part bits below), frees flagged objects, then calls each live object's callback once (while `D_005F5F10` is
+  set); the effect pass `func_00346830` (step 6) draws the flagged ones from their bank sprites [V calls; I draw details].
+  Almost every callback advances only outside the pause (`D_005F5EE0 || D_005F5EE4 || func_003A9698()`), but several
+  draw random numbers before that test (below).
+- **Animation banks**: `Fx_GetBankEntry(bank, i)` returns entry `min(i, n - 1)` of an offset table (`bank[0]` = n); an
+  effect animation is a 0x38-byte header (frame count, sprite and bank frame ids at 0x34 / 0x36) followed by 0x14-byte
+  frame records (offset scaled by the effect's scale, size, alpha). `func_003A04B8` (and its turning / drifting variants
+  `func_003A05F8`, `func_003A06F0`, `func_003A08D8`, the flash `func_003A23E0`) plays one and frees itself at the end
+  [V].
+
+**Kinds** [V code; I where noted]:
+
+| Kind | Functions | What |
+|---|---|---|
+| Stage ambient | `Fx_UpdateStageAmbient` (spawned by `func_00344BE0`), `func_003A0A90`, `func_003A0CE8`, `func_003A1068`, `func_003A1378` / `func_003A1298`, `func_003A1510`, `func_003A1B48` / `func_003A16C0` / `func_003A18F8` | on its first unpaused frame, per stage: sprite emitters at fixed places (stages 4/15, 5, 8/17/20, 11), pulsing stage lights (9/18, 11), fireflies circling the stage (14) |
+| Lens flare | `func_003A1C78`, `func_003A1BC8` | stages 1, 7, 10-13, 16: the projected sun and nine elements along the line through the screen centre, faded by the distance to the centre and by fighter joints in front of the sun [I look] |
+| Hit sparks | `func_003A2758` (kind 2 of the dispatcher `func_0035BF10`), `func_003A2738` | sprites of banks 0-3 at the hit; its own kind 3 (the dispatcher's second argument) draws stage-coloured sparks (count and colour per stage, `D_00437AC0`) |
+| Hit flash | `func_003A2BC0` (kinds 0-1), `func_003A2E20` | one effect per animation of the side's bank in the side ring and a fighter light flash (`Light_StartFlash`), kind and colour from `func_00347730(func_0035C970(fighter))` |
+| Hit bursts | `func_003A6110` (dispatcher kinds with bit 0x80), `func_003A35C8`, `func_003A3928`, `func_003A54D8` / `func_003A50B8` / `func_003A4C28` | 10 or 18 particles on orbits or drifting from the hit along its direction; kind 10 for character 0x14: sparks on ten joints of the opponent and a ground glow |
+| Hit log | `HitLog_Add`, `HitLog_NextFrame`, `HitLog_ReplayFrame`, `HitLog_Save` / `HitLog_Load` / `HitLog_Rewind`, `HitLog_Reset` / `HitLog_Enable` / `HitLog_Disable` | the hit events sent through `func_0035BF70` are dispatched (`func_0035BF10`) and recorded (up to 60 per frame, 120 frames, 8 save slots); `Battle_UpdateFrame` replays a recorded frame through the same dispatcher [V]; the replay after a K.O. [I] |
+| Body-part glows | `func_003A42B8` (battle init), `func_003A4370` (every frame), `func_003A3C08`, `func_003A4128`, `func_003A3FC0` | eight glows per fight on joints of both fighters, shown while the current move lists that body part (`FighterMove` bytes 0x28-0x2B through `D_005197D0`); pulsing, with sparks and light flashes |
+| Move effects | `func_003A6390` (per fighter from `Battle_UpdateFrame`), `func_003A4EE8` / `func_003A44F8` / `func_003A4970`, `func_003A5810` / `func_003A55E0` | character 0x14's move kind 0x18 (sparks with embers and ground glows) and any character's move kind 0x19, inside the move's frame window |
+| Character 0x21 aura | `func_003A5FA0` (battle setup), `func_003A5910`, `func_003A5B78`, `func_003A5D98` | four sprites per side on attach points, hidden while that side's fighter is not character 0x21 |
+| Character 0x1D volume | `func_003A8C50` (start, from the fight's hit-test code), `func_003A8D08` (draw) | the special attack volume as up to 36 textured segments between its two points, through the quad queue (`Fx_AddQuad`, drawn by `Fx_DrawQuads` in step 6) |
+| Screen fade, title logo | `Fade_Draw`, `Fade_Update`, `func_003A6770`-`func_003A68D0`, `func_003A6978`-`func_003A6C08` | a full-screen colour (alpha blend, additive or subtractive) faded over n frames; the title logo's frame list (`D_00519918`) |
+| Stage texture layers | `Fx_LoadStageLayers` (battle load), `Fx_StartStageLayers` (battle init), `Fx_DrawStageLayers`, `func_003A73F8`-`func_003A7558`, `func_003A7590`, `func_003A76C0`, `func_003A7EB0`, `func_003A7FA8` | up to 8 animated VRAM uploads per stage (GS image packets per frame, played once, looped or held); stage 12 starts its layers at random, stage 4 has background actors that play random frame lists, sounds and light toggles near the screen centre |
+| Fighter textures | `Fx_LoadFighterTex` (character load, tag swap), `Fx_DrawFighterTex` (per frame), `func_003A8620`-`func_003A88A0` | two texture animation channels per fighter slot (GS image uploads per frame; play once, loop or hold) |
+
+Helpers: `Fx_RandFloat` (`(rand() & 0xFFFFFF) / 2^24`), `func_003A3438` (direction to yaw and pitch), `func_003A34C8` /
+`func_003A3518` (velocity from the angles), `func_003A3588` (is the side's move of a kind and inside its window),
+`func_003A9528` / `func_003A9550` / `func_003A95D8` (angles), `func_003A9510` / `func_003A9520` (the switch
+`D_005F6254` that turns on the skeleton's float path, [systems/animation.md](animation.md)).
+
+### 7.1 Random numbers in a fight (determinism)
+
+Effects use only newlib `rand()`, the generator the CPU opponent and the camera use; none uses the CPU's
+`func_003800D8` or `gRngSpin` [V: every function of both files]. During a fight `rand()` is drawn by [V]:
+
+- **Inside the simulation step** (`Battle_UpdateFrame`): `func_003A8C50`, 18 calls each time character 0x1D's special
+  attack volume starts (`func_00378150` / `func_00378398`, src/fight_misc.c); `func_003A2758`, one call per spark for
+  stage-coloured sparks (dispatcher kind 2 with argument 3, also when the hit log replays a frame).
+- **In the effect update** (step 8, every frame, outside `Battle_UpdateFrame`):
+  - stage ambient effects: emitters of stages 4/15, 5, 8/17/20 and 11 (one call per sprite), lights of stages 9/18/11
+    (at the start), drifting sprites (`Fx_RandFloat` every frame), the 50 fireflies of stage 14 (every frame);
+  - stage 12's three layer effects: `rand() % 1000` every frame, not paused-gated; stage 4's actors: several calls per
+    frame, partly before the pause test;
+  - the hit bursts (first frame of each particle), character 0x14's sparks, embers and ground glows (first frame and
+    every unpaused frame), move kind 0x19's effect (first frame), character 0x21's aura (4 calls at battle start);
+  - the body-part glows: `rand() & 0xF` every frame while a part is lit, **before the pause test** (so also while
+    paused), plus calls when not paused.
+
+So the `rand()` stream seen by the CPU opponent and the camera depends on the stage, the characters, the moves, the hits
+and the pause. A port that wants the original's behaviour must run `func_00346608` and every callback each frame exactly
+as the original, drawing or not; giving the effects their own generator would make the fight deterministic without them
+but change the CPU's choices relative to the original (decision for T26) [I consequence].
+
+## 8. What the PC port replaces
 
 - **The GS packet consumer, not the producers.** Packet building stays C; the port needs a GS core that takes the same
   GIF data (PACKED / REGLIST / IMAGE, A+D) from the direct buffers and from the MFIFO rings, and VRAM uploads with
@@ -154,8 +222,12 @@ column counts: codes 1-5 and 0xFE one column, others two) and two per-slot bank 
 - **Display**: the VBlank handler's buffer flip and display chain map to presenting the 640 x 448 frame.
 - Float rendering code (springs, look-at, lights, the sword effect) affects only the picture; `func_0034E018` /
   `func_0034C508` run inside `Skel_Update` but write only drawing state [I: no simulation reader found].
+- **Effects are not picture-only**: their callbacks draw from the `rand()` stream the CPU opponent and the camera use
+  (section 7.1), so the effect update must keep running, in the same order, even where nothing is drawn.
+- The stage and fighter texture layers (section 7) are GS image uploads per frame: the port's GS core must take them
+  like any other VRAM upload.
 
-## 8. Status (T17 batch 1)
+## 9. Status
 
 | File | Range | C / functions | Drafts (`#if 0`, compile when enabled) |
 |---|---|---:|---|
@@ -165,13 +237,19 @@ column counts: codes 1-5 and 0xFE one column, others two) and two per-slot bank 
 | `src/scene3d_b.c` | 0x34FF10-0x3504C0 | 6 / 6 | - |
 | `src/scene3d_c.c` | 0x3504C0-0x351E98 | 9 / 15 | `func_00350728`, `func_00350C40`, `func_003517F0`, `func_00351860`, `func_003518B8`, `func_00351AA0` |
 | `src/scene3d_d.c` | 0x351E98-0x3543F0 | 33 / 37 | `func_00351E98`, `func_00352F50`, `func_00353448`, `func_00354120` |
+| `src/effects.c` | 0x3A04B8-0x3A6460 | 49 / 58 | `func_003A0CE8` (50 lines, table loads hoisted), `func_003A1378` (hazard nop), `func_003A1C78` (75, registers), `func_003A3438` (hazard nop), `func_003A35C8` (needs no `-ffast-math`), `func_003A4128` (hazard nop), `func_003A44F8` (13, registers), `func_003A4C28` (hazard nop), `func_003A6110` (hazard nop) |
+| `src/effects_draw.c` | 0x3A6460-0x3A9678 | 44 / 50 | `Fade_Draw` (4, two constants swapped), `func_003A76C0` (19, spill slots and order), `func_003A88B0` (24, a folded count), `Fx_AddQuad` (1, `addu` operands), `func_003A8D08` (needs no `-ffast-math`), `func_003A95D8` (hazard nops) |
 
 The reasons are in each draft's `NON_MATCHING` note and in [decomp_guide.md](../decomp_guide.md), "Lessons from T17
-batch 1".
+batch 1" and "Lessons from T17 batch 2". "Hazard nop": a `nop` that gas adds and the original lacks (before an unfilled
+`bc1f` / `bc1t` after an FPU compare, or between `li.s` and a prelude `mtc1`), a change of `include/gcc_prelude.inc`.
 
-## 9. Open
+## 10. Open
 
-- The sprite2d module (0x3CD298-0x3D0660), `effects` / `effects_draw`, `zsort`, `draw_list`, `vu1_packet` and the
-  fighter draw in `dma_gif` / `render_fighter_a` are not decompiled yet (T17 later batches).
+- The sprite2d module (0x3CD298-0x3D0660), `zsort`, `draw_list`, `vu1_packet` and the fighter draw in `dma_gif` /
+  `render_fighter_a` are not decompiled yet (T17 later batches); nor the effect pool itself (`func_003464F8` ..
+  `func_00346830` in the `geometry` range) and the dispatcher `func_0035BF10`.
 - How the original wrote the 64-bit to 128-bit move of the sword effect's TEX0 (`por`), which this compiler refuses.
-- Whether `scene3d.c`'s float functions were built without `-ffast-math` (section in the guide).
+- Whether `scene3d.c`'s float functions were built without `-ffast-math` (section in the guide). The effects are: a
+  per-file flag for `effects.c` / `effects_draw.c` is the next test (needs `configure.py`), and `func_003A8D08` then also
+  needs the original's libcall names (`sqrt`, `__fixunssfsi` where this compiler calls `sqrtf`, `fptoui`).

@@ -177,7 +177,7 @@ void func_003796B8(void);
 void func_0037A258(void);
 void func_0037D668(Fighter *f);
 void Cam_Update(Fighter *a, Fighter *b, s32 *state);
-void func_003A3148(s16 n);
+void HitLog_ReplayFrame(s16 n);
 void func_003A6390(Fighter *f, s32 n);
 void func_003BAEF0(void);
 void func_003C1B38();
@@ -3097,7 +3097,7 @@ void func_0037BA98(void);
 void CamScript_Load(s32 n);
 s32 Stage_GetCamScriptBank(u16 n);
 void func_003A6BD0(void);
-void func_003A6EB0(s32 n);
+void Fx_LoadStageLayers(s32 n);
 s32 func_003ADB58(s32 side, s32 member);
 void func_003ADB70(s32 side, s32 member, s32 n);
 void func_003ADB90(s32 n);
@@ -3119,10 +3119,10 @@ void Battle_InitTeamLife(void);
 void func_00366DB0(u16 n);
 void func_00346600(void);
 void func_00344BE0(void);
-void func_003A8B08(void);
+void Fx_ClearQuads(void);
 void func_003A42B8(void);
 void func_003A5FA0(void);
-void func_003A7198(void);
+void Fx_StartStageLayers(void);
 void func_003768C0(Fighter *a, Fighter *b, s32 n);
 s32 func_003ABCC0(void);
 
@@ -3223,7 +3223,7 @@ void func_0036D010(s16 cpu1, s16 cpu2) {
         func_00367938(D_005F5CB6);
     } else {
         func_00345070();
-        func_003A6EB0(func_00367850());
+        Fx_LoadStageLayers(func_00367850());
     }
     func_003ADB90(1);
     func_003BBC08();
@@ -3247,10 +3247,10 @@ void func_0036D010(s16 cpu1, s16 cpu2) {
     func_00366DB0(D_005F5CB6);
     func_00346600();
     func_00344BE0();
-    func_003A8B08();
+    Fx_ClearQuads();
     func_003A42B8();
     func_003A5FA0();
-    func_003A7198();
+    Fx_StartStageLayers();
     func_003A6BD0();
     func_003420C8(4);
     if (D_0043B7F8[0] == 8) {
@@ -3305,16 +3305,16 @@ void func_003533E8(s32 n);
 void func_00378018(void);
 void func_00366DB0(u16 n);
 void func_003465E0(void);
-void func_003A8B08(void);
+void Fx_ClearQuads(void);
 void func_00344318(void);
-void func_003A82C8(Fighter *f);
+void Fx_LoadFighterTex(Fighter *f);
 void func_003A96B0(s32 n);
 void func_003790D8(void);
 void func_00346600(void);
 void func_00344BE0(void);
 void func_003A42B8(void);
 void func_003A5FA0(void);
-void func_003A7198(void);
+void Fx_StartStageLayers(void);
 void func_0037D630(void);
 void func_003753A8(void);
 void func_003751A0(u16 n);
@@ -3397,10 +3397,10 @@ void func_0036D5D0(void) {
     D_005F5F10 = 1;
     D_0043B7F8[0x39] = 0;
     func_003465E0();
-    func_003A8B08();
+    Fx_ClearQuads();
     func_00344318();
-    func_003A82C8(a);
-    func_003A82C8(b);
+    Fx_LoadFighterTex(a);
+    Fx_LoadFighterTex(b);
     func_003A96B0(0);
     if (D_0043B7F8[0] == 7) {
         func_003790D8();
@@ -3408,7 +3408,7 @@ void func_0036D5D0(void) {
         func_00344BE0();
         func_003A42B8();
         func_003A5FA0();
-        func_003A7198();
+        Fx_StartStageLayers();
     }
     func_0037D630();
     func_003753A8();
@@ -3455,7 +3455,7 @@ s32 Battle_UpdateFrame(void) {
             func_00378600(f1);
             func_003A6390(f0, D_005F5F10);
             func_003A6390(f1, D_005F5F10);
-            func_003A3148((s16)D_005F5F10);
+            HitLog_ReplayFrame((s16)D_005F5F10);
             func_003DB698(D_005F5F10);
             Snd_UpdateDelayed();
         } else {
@@ -3543,7 +3543,7 @@ s32 Battle_UpdateFrame(void) {
             func_00378600(f1);
             func_003A6390(f0, 0);
             func_003A6390(f1, 0);
-            func_003A3148(0);
+            HitLog_ReplayFrame(0);
             func_003DB690();
         } else {
             func_0036EA80(f0, f1);
@@ -3923,8 +3923,8 @@ void Battle_UpdateRound(Fighter *a, Fighter *b) {
         func_003C1620();
         func_003465E0();
         func_00344318();
-        func_003A82C8(a);
-        func_003A82C8(b);
+        Fx_LoadFighterTex(a);
+        Fx_LoadFighterTex(b);
         D_005F5E88 = 4;
     case 4:
         D_005F5F20 = 2;
@@ -4468,19 +4468,19 @@ void func_0036F918(void) {
 }
 
 void func_003D0748(Fighter *a, Fighter *b);
-void func_003A3108(void);
+void HitLog_Disable(void);
 void func_003660A8(void);
 void func_003D4718(void);
 s32 func_00364F18(void);
 void func_00366098(void);
-void func_003A2FE8(void);
+void HitLog_Enable(void);
 void func_003D4708(void);
 
 /* The steps of the round end by the frame D_005F5F28 (returns 1 at frame 0x87, with D_005F5C74 set) [V calls; I
  * meaning]: 0x10 set-up (D_005F5C74 cleared, option 0x39 = 1, func_003D0748, round phase 3); 0x11, while the
  * option 0x39 is set, waits for func_00364F18 (holding the frame) and then repeats frame 0x10's steps up to 3 times
  * (option 0x39 counts, round phase 3, D_005F5EF8 from func_00364B50) or ends it (D_005F5F24 cleared); 0x32 in the
- * last round or when a fighter reached D_005F5C70 wins func_003D2B88; 0x6E func_003660A8 / func_003A3108 /
+ * last round or when a fighter reached D_005F5C70 wins func_003D2B88; 0x6E func_003660A8 / HitLog_Disable /
  * func_003D4718. */
 s32 func_0036F920(Fighter *a, Fighter *b) {
     s32 r = 0;
@@ -4496,7 +4496,7 @@ s32 func_0036F920(Fighter *a, Fighter *b) {
         func_003D0748(a, b);
         gRoundPhase = 3;
         func_003465E0();
-        func_003A3108();
+        HitLog_Disable();
         break;
     case 0x11:
         D_005F5F24 = 1;
@@ -4516,7 +4516,7 @@ s32 func_0036F920(Fighter *a, Fighter *b) {
                     D_005F5F24 = 0;
                     func_00375428();
                     func_00366098();
-                    func_003A2FE8();
+                    HitLog_Enable();
                     func_003D4708();
                 }
             } else {
@@ -4531,7 +4531,7 @@ s32 func_0036F920(Fighter *a, Fighter *b) {
         break;
     case 0x6E:
         func_003660A8();
-        func_003A3108();
+        HitLog_Disable();
         func_003D4718();
         break;
     case 0x87:

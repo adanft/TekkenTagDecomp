@@ -16,7 +16,7 @@ void func_00368168(Fighter *f);
 void func_00377F58(Fighter *f);
 void func_003465F0(void);
 void func_00344318(void);
-void func_003A82C8(Fighter *f);
+void Fx_LoadFighterTex(Fighter *f);
 void func_00370E20(Fighter *f, s32 n);
 void func_0038ADF8(s32 side);
 void func_0037A970(Fighter *f);
@@ -43,7 +43,7 @@ void Fighter_TagSwap(s32 side) {
     func_00377F58(f);
     func_003465F0();
     func_00344318();
-    func_003A82C8(f);
+    Fx_LoadFighterTex(f);
     func_00370E20(f, 1);
     func_0038ADF8(side);
     if (D_0043B7F8[0] == 7) {

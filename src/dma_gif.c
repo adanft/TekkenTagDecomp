@@ -31,7 +31,7 @@ typedef struct {
     /* 0xC04 */ u16 unkC04;
 } Unk8C2F90; /* size 0xC08 */
 
-/* Per side, six pointers from func_003A9488 and 12 words (D_008BF2C0, D_008BF308). */
+/* Per side, six pointers from Fx_GetBankEntry and 12 words (D_008BF2C0, D_008BF308). */
 typedef struct {
     /* 0x00 */ u16 *ptr[6];
     /* 0x18 */ s32 unk18[11];
@@ -103,7 +103,7 @@ s32 func_003B8820(void);
 void func_0035D028(s32 addr, s32 size);
 Unk3456B0 *func_003464F8(); /* no prototype: func_00344BE0 passes it a callback */
 void func_003456B0(Unk3456B0 *p);
-u16 *func_003A9488(s32 id, s32 side);
+u16 *Fx_GetBankEntry(s32 id, s32 side);
 void func_00343F50(void);
 void func_0035E1C8(void);
 s32 func_003BB4D8(void);
@@ -739,7 +739,7 @@ typedef union {
     } s;
 } Unk8BF430;
 
-/* A texture block header (func_003A9488): image and CLUT sizes. */
+/* A texture block header (Fx_GetBankEntry): image and CLUT sizes. */
 typedef struct {
     /* 0x00 */ u8 pad0[0x16];
     /* 0x16 */ u16 unk16;
@@ -790,7 +790,7 @@ void func_00344150(void) {
         Dma_Wait((volatile u32 *)0x1000D000);
         return;
     }
-    blk = (TexBlock *)func_003A9488((s32)func_003A9488(D_008BF330[0], 0), 1);
+    blk = (TexBlock *)Fx_GetBankEntry((s32)Fx_GetBankEntry(D_008BF330[0], 0), 1);
     mask = 0x7FF0000;
     data = (u8 *)blk + 0x60;
     sceVif1PkInit(&pk, Spr_Setup(1, 0));
@@ -835,32 +835,32 @@ void func_00344A28(Unk344A28 *o) {
 
     if (id != 0) {
         if (o->unk2A == 0x14 || o->unk2A == 0x1D || o->unk2A == 0x21) {
-            a = (s32)func_003A9488(id, 0);
-            b = (s32)func_003A9488(id, 1);
+            a = (s32)Fx_GetBankEntry(id, 0);
+            b = (s32)Fx_GetBankEntry(id, 1);
         } else {
             a = id;
             b = 0;
         }
         if (o->unk1E == 0) {
-            D_008BF308.unk18[0] = (s32)func_003A9488(a, 0);
-            D_008BF2C0.unk18[0] = (s32)func_003A9488(a, 1);
-            D_008BF308.unk18[1] = (s32)func_003A9488(a, 0);
-            D_008BF2C0.unk18[1] = (s32)func_003A9488(a, 1);
+            D_008BF308.unk18[0] = (s32)Fx_GetBankEntry(a, 0);
+            D_008BF2C0.unk18[0] = (s32)Fx_GetBankEntry(a, 1);
+            D_008BF308.unk18[1] = (s32)Fx_GetBankEntry(a, 0);
+            D_008BF2C0.unk18[1] = (s32)Fx_GetBankEntry(a, 1);
             if (b != 0) {
-                D_008BF308.unk18[8] = (s32)func_003A9488(b, 0);
-                D_008BF308.unk18[9] = (s32)func_003A9488(b, 0);
+                D_008BF308.unk18[8] = (s32)Fx_GetBankEntry(b, 0);
+                D_008BF308.unk18[9] = (s32)Fx_GetBankEntry(b, 0);
             } else {
                 D_008BF308.unk18[8] = 0;
                 D_008BF308.unk18[9] = 0;
             }
         } else {
-            D_008BF308.unk18[2] = (s32)func_003A9488(a, 0);
-            D_008BF2C0.unk18[2] = (s32)func_003A9488(a, 1);
-            D_008BF308.unk18[3] = (s32)func_003A9488(a, 0);
-            D_008BF2C0.unk18[3] = (s32)func_003A9488(a, 1);
+            D_008BF308.unk18[2] = (s32)Fx_GetBankEntry(a, 0);
+            D_008BF2C0.unk18[2] = (s32)Fx_GetBankEntry(a, 1);
+            D_008BF308.unk18[3] = (s32)Fx_GetBankEntry(a, 0);
+            D_008BF2C0.unk18[3] = (s32)Fx_GetBankEntry(a, 1);
             if (b != 0) {
-                D_008BF308.unk18[10] = (s32)func_003A9488(b, 0);
-                D_008BF308.unk44 = (s32)func_003A9488(b, 0);
+                D_008BF308.unk18[10] = (s32)Fx_GetBankEntry(b, 0);
+                D_008BF308.unk44 = (s32)Fx_GetBankEntry(b, 0);
             } else {
                 D_008BF308.unk18[10] = 0;
                 D_008BF308.unk44 = 0;
@@ -886,11 +886,11 @@ extern u8 D_0043B7F8[];
 extern u16 *D_008BF33C[];
 s32 func_003ABCC0(void);
 u32 func_00364550(u16 *blk);
-void func_003A25C0(void);
+void Fx_UpdateStageAmbient(void);
 
 /* NON_MATCHING: the loop counter and the 0x60 stride constant are in swapped registers (a1/a2). */
 /* Picks the extra texture set (slot 7) from the two fighters' entries (types 0x13, 0xF and 0x21 paired with 0x1D),
- * marks records 12-13, then rebuilds the packets (func_00344318) and adds the object func_003A25C0. */
+ * marks records 12-13, then rebuilds the packets (func_00344318) and adds the object Fx_UpdateStageAmbient. */
 void func_00344BE0(void) {
     u32 mask;
     s32 i;
@@ -944,7 +944,7 @@ void func_00344BE0(void) {
         }
     }
     func_00344318();
-    func_003464F8(func_003A25C0);
+    func_003464F8(Fx_UpdateStageAmbient);
 }
 #else
 INCLUDE_ASM("asm/nonmatchings/dma_gif", func_00344BE0);
@@ -959,8 +959,8 @@ void func_00344EA8(Unk344A28 *o) {
 
     if (id != 0) {
         if (o->unk2A == 0x14 || o->unk2A == 0x1D || o->unk2A == 0x21) {
-            a = (s32)func_003A9488(id, 0);
-            b = (s32)func_003A9488(id, 1);
+            a = (s32)Fx_GetBankEntry(id, 0);
+            b = (s32)Fx_GetBankEntry(id, 1);
         } else {
             a = id;
             b = 0;
@@ -968,36 +968,36 @@ void func_00344EA8(Unk344A28 *o) {
         sel = o->unk22;
         if (!(sel & 1)) {
             if (!(sel & 2)) {
-                D_008BF308.unk18[0] = (s32)func_003A9488(a, 0);
-                D_008BF2C0.unk18[0] = (s32)func_003A9488(a, 1);
+                D_008BF308.unk18[0] = (s32)Fx_GetBankEntry(a, 0);
+                D_008BF2C0.unk18[0] = (s32)Fx_GetBankEntry(a, 1);
                 if (b != 0) {
-                    D_008BF308.unk18[8] = (s32)func_003A9488(b, 0);
+                    D_008BF308.unk18[8] = (s32)Fx_GetBankEntry(b, 0);
                 } else {
                     D_008BF308.unk18[8] = 0;
                 }
             } else {
-                D_008BF308.unk18[1] = (s32)func_003A9488(a, 0);
-                D_008BF2C0.unk18[1] = (s32)func_003A9488(a, 1);
+                D_008BF308.unk18[1] = (s32)Fx_GetBankEntry(a, 0);
+                D_008BF2C0.unk18[1] = (s32)Fx_GetBankEntry(a, 1);
                 if (b != 0) {
-                    D_008BF308.unk18[9] = (s32)func_003A9488(b, 0);
+                    D_008BF308.unk18[9] = (s32)Fx_GetBankEntry(b, 0);
                 } else {
                     D_008BF308.unk18[9] = 0;
                 }
             }
         } else {
             if (!(sel & 2)) {
-                D_008BF308.unk18[2] = (s32)func_003A9488(a, 0);
-                D_008BF2C0.unk18[2] = (s32)func_003A9488(a, 1);
+                D_008BF308.unk18[2] = (s32)Fx_GetBankEntry(a, 0);
+                D_008BF2C0.unk18[2] = (s32)Fx_GetBankEntry(a, 1);
                 if (b != 0) {
-                    D_008BF308.unk18[10] = (s32)func_003A9488(b, 0);
+                    D_008BF308.unk18[10] = (s32)Fx_GetBankEntry(b, 0);
                 } else {
                     D_008BF308.unk18[10] = 0;
                 }
             } else {
-                D_008BF308.unk18[3] = (s32)func_003A9488(a, 0);
-                D_008BF2C0.unk18[3] = (s32)func_003A9488(a, 1);
+                D_008BF308.unk18[3] = (s32)Fx_GetBankEntry(a, 0);
+                D_008BF2C0.unk18[3] = (s32)Fx_GetBankEntry(a, 1);
                 if (b != 0) {
-                    D_008BF308.unk44 = (s32)func_003A9488(b, 0);
+                    D_008BF308.unk44 = (s32)Fx_GetBankEntry(b, 0);
                 } else {
                     D_008BF308.unk44 = 0;
                 }
@@ -1031,11 +1031,11 @@ void func_00345070(void) {
         n = func_00364550(data);
         if ((u32)n < 4) {
             for (i = 0; i < n; i++) {
-                blk = func_003A9488((s32)data, i);
+                blk = Fx_GetBankEntry((s32)data, i);
                 cnt = func_00364550(blk);
                 switch (i) {
                 case 0:
-                    p = func_003A9488((s32)blk, 0);
+                    p = Fx_GetBankEntry((s32)blk, 0);
                     D_008BF308.unk18[4] = (s32)p;
                     sub = func_00364550(p);
                     if (sub >= 3) {
@@ -1045,14 +1045,14 @@ void func_00345070(void) {
                         D_008BF3A0[k + 6].unk0 |= 1;
                     }
                     if (cnt >= 2) {
-                        p = func_003A9488((s32)blk, 1);
+                        p = Fx_GetBankEntry((s32)blk, 1);
                         D_008BF2C0.unk18[4] = (s32)p;
                         D_008BF350[i + 6].unk0 = p;
                         D_008BF350[i + 6].unk4 = *p;
                     }
                     break;
                 case 1:
-                    p = func_003A9488((s32)blk, 0);
+                    p = Fx_GetBankEntry((s32)blk, 0);
                     D_008BF308.unk18[5] = (s32)p;
                     sub = func_00364550(p);
                     if (sub >= 3) {
@@ -1062,14 +1062,14 @@ void func_00345070(void) {
                         D_008BF3A0[k + 8].unk0 |= 1;
                     }
                     if (cnt >= 2) {
-                        p = func_003A9488((s32)blk, 1);
+                        p = Fx_GetBankEntry((s32)blk, 1);
                         D_008BF2C0.unk18[5] = (s32)p;
                         D_008BF350[i + 6].unk0 = p;
                         D_008BF350[i + 6].unk4 = *p;
                     }
                     break;
                 case 2:
-                    p = func_003A9488((s32)blk, 0);
+                    p = Fx_GetBankEntry((s32)blk, 0);
                     D_008BF308.unk18[6] = (s32)p;
                     sub = func_00364550(p);
                     if (sub >= 3) {
@@ -1079,7 +1079,7 @@ void func_00345070(void) {
                         D_008BF3A0[k + 10].unk0 |= 1;
                     }
                     if (cnt >= 2) {
-                        p = func_003A9488((s32)blk, 1);
+                        p = Fx_GetBankEntry((s32)blk, 1);
                         D_008BF2C0.unk18[6] = (s32)p;
                         D_008BF350[i + 6].unk0 = p;
                         D_008BF350[i + 6].unk4 = *p;
@@ -1090,9 +1090,9 @@ void func_00345070(void) {
             if (func_003BB4D8() != 0) {
                 p = (u16 *)func_003B8820();
                 if (p != NULL) {
-                    D_008BF308.unk18[5] = (s32)func_003A9488((s32)func_003A9488((s32)p, 0), 0);
+                    D_008BF308.unk18[5] = (s32)Fx_GetBankEntry((s32)Fx_GetBankEntry((s32)p, 0), 0);
                     D_008BF3A0[8].unk0 |= 1;
-                    D_008BF308.unk18[6] = (s32)func_003A9488((s32)func_003A9488((s32)p, 1), 0);
+                    D_008BF308.unk18[6] = (s32)Fx_GetBankEntry((s32)Fx_GetBankEntry((s32)p, 1), 0);
                     D_008BF3A0[10].unk0 |= 1;
                 }
             }
@@ -1111,18 +1111,18 @@ s32 func_00345400(void) {
     return 0x68A28;
 }
 
-/* Looks up the six data blocks of both sides (func_003A9488) and marks the first six records of D_008BF3A0. */
+/* Looks up the six data blocks of both sides (Fx_GetBankEntry) and marks the first six records of D_008BF3A0. */
 void func_00345410(s32 a, s32 b, s32 c, s32 d, s32 e, s32 f) {
-    D_008BF308.ptr[0] = func_003A9488(a, 0);
-    D_008BF308.ptr[1] = func_003A9488(b, 0);
-    D_008BF308.ptr[2] = func_003A9488(c, 0);
-    D_008BF308.ptr[3] = func_003A9488(d, 0);
-    D_008BF308.ptr[4] = func_003A9488(e, 0);
-    D_008BF308.ptr[5] = func_003A9488(f, 0);
-    D_008BF2C0.ptr[0] = func_003A9488(a, 1);
-    D_008BF2C0.ptr[1] = func_003A9488(b, 1);
-    D_008BF2C0.ptr[2] = func_003A9488(c, 1);
-    D_008BF2C0.ptr[3] = func_003A9488(d, 1);
+    D_008BF308.ptr[0] = Fx_GetBankEntry(a, 0);
+    D_008BF308.ptr[1] = Fx_GetBankEntry(b, 0);
+    D_008BF308.ptr[2] = Fx_GetBankEntry(c, 0);
+    D_008BF308.ptr[3] = Fx_GetBankEntry(d, 0);
+    D_008BF308.ptr[4] = Fx_GetBankEntry(e, 0);
+    D_008BF308.ptr[5] = Fx_GetBankEntry(f, 0);
+    D_008BF2C0.ptr[0] = Fx_GetBankEntry(a, 1);
+    D_008BF2C0.ptr[1] = Fx_GetBankEntry(b, 1);
+    D_008BF2C0.ptr[2] = Fx_GetBankEntry(c, 1);
+    D_008BF2C0.ptr[3] = Fx_GetBankEntry(d, 1);
     D_008BF2C0.ptr[4] = 0;
     D_008BF2C0.ptr[5] = 0;
     D_008BF350[0].unk0 = D_008BF2C0.ptr[0];

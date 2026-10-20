@@ -172,7 +172,7 @@ void func_00357DD8(void);
 void func_003567A8(void);
 s32 func_003D3228(s32 i, s32 a);
 void func_00357640(s32 i);
-void func_003A8090(s32 i);
+void Fx_DrawFighterTex(s32 i);
 void func_00343340(Fighter *f, s32 a);
 void Vu0_LoadMicrocode(void);
 void Gfx_SetPhase(u8 phase);
@@ -193,7 +193,7 @@ void func_003D11D8(s32 a);
 void func_00340E28(s32 a);
 void func_003DB758(void);
 void func_003621F8(s32 a);
-void func_003A6C80(void);
+void Fx_DrawStageLayers(void);
 void func_00341F68(void *a, void *b);
 void func_003DB7B0(void);
 void func_0035DC58(void);
@@ -204,7 +204,7 @@ void func_00399918(void);
 void func_00346830(void);
 void func_00350C40(Fighter *f);
 void func_003469D8(void);
-void func_003A8B10(void);
+void Fx_DrawQuads(void);
 void func_00399AF8(void);
 void func_003A6C08(void);
 s16 func_003660B8(s16 x);
@@ -500,7 +500,7 @@ void func_00357A78(void) {
         for (i = 0; i < gDrawFighterCount; i++) {
             if (gFighters[i].unk127 != 0 && func_003D3228(i, 0) == 0) {
                 func_00357640(i);
-                func_003A8090(i);
+                Fx_DrawFighterTex(i);
                 func_00343340(&gFighters[i], 0);
             }
         }
@@ -573,7 +573,7 @@ void func_00357C88(void) {
         func_00340E28(1);
         func_003DB758();
         func_003621F8(0);
-        func_003A6C80();
+        Fx_DrawStageLayers();
         func_00341F68(D_00433440, D_00433400);
         func_003DB7B0();
         if (D_005F5C04 == 0) {
@@ -634,7 +634,7 @@ void func_00357DD8(void) {
         for (i = 0; i < gDrawFighterCount; i++) {
             if (gFighters[i].unk127 != 0 && func_003D3228(i, 0) == 0) {
                 func_00357640(i);
-                func_003A8090(i);
+                Fx_DrawFighterTex(i);
                 func_00343340(&gFighters[i], 1);
             }
         }
@@ -647,7 +647,7 @@ void func_00357DD8(void) {
     }
     if (gDrawEffectPass) {
         func_003469D8();
-        func_003A8B10();
+        Fx_DrawQuads();
     }
     func_00399AF8();
     func_003A6C08();

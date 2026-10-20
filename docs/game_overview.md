@@ -198,8 +198,8 @@ though an edge could still fall between two objects that are both inside the ran
 | `gte` | 0x39A2B8 | 0x39BBF0 | 19 | fixed-point matrix and vector math in the style of the PlayStation GTE library (`Gte_*`, current matrix `gGteRt`, sine table `gSinTable`) [V]; the same code continues into `screenshot` (geometry offset and screen, perspective transforms from 0x39BBF0) [I: end]. `src/gte.c` |
 | `screenshot` | 0x39BBF0 | 0x39C7B8 | 20 | `sceGsExecStoreImage` (`Scrn_Capture`) |
 | `movie` | 0x39C7B8 | 0x3A04B8 | 111 | `sceMpeg*`, IPU, a thread and an INTC handler (0x39CDC0), semaphore ring buffer 0x39F138-0x39FE00 [V for the calls] |
-| `effects` | 0x3A04B8 | 0x3A6460 | 58 | rand, sin/cos, projections; fight modes |
-| `effects_draw` | 0x3A6460 | 0x3A9678 | 50 | GIF packets, RotTransPers |
+| `effects` | 0x3A04B8 | 0x3A6460 | 58 | The effect callbacks (T17 b2): animated bank sprites, stage ambient effects and lens flare, hit sparks, flashes and bursts, the hit log (`HitLog_*`, replayed by `Battle_UpdateFrame`), body-part glows, move effects of characters 0x14 / 0x21 and move kind 0x19 [V]. `src/effects.c`; its `.rodata` (0x5194E0-0x519940, ending with `D_00519918` read by `effects_draw`) and `.lit4` (0x5F51A4-0x5F5300) are subsegments. Edges [I]: the start is the module edge; the data before (`D_005193B8`, `D_005F51A0`) belongs to `geometry`'s 0x347xxx functions, so data order does not follow text order here either. [systems/render.md](systems/render.md) section 7 |
+| `effects_draw` | 0x3A6460 | 0x3A9678 | 50 | Screen fade (`Fade_*`), title logo, stage texture layers (`Fx_*StageLayers`) and the background effects of stages 4 / 12, fighter texture channels (`Fx_*FighterTex`), the textured quad queue (`Fx_*Quad*`), character 0x1D's special attack volume, helpers (`Fx_RandFloat`, `Fx_GetBankEntry`) [V]. `src/effects_draw.c`, a cut, not an object edge at 0x3A6460 [V: its `.rodata` (0x519940-0x519B30) and `.lit4` (0x5F5300-0x5F531C) follow `effects`' without a gap, and `D_00519918` (8-aligned, read by 0x3A6A90) sits where an object with jump tables could not start its `.rodata`; an edge between 0x3A6A90 and 0x3A7198 is not ruled out]. Both files look built without `-ffast-math` (decomp_guide.md, "Lessons from T17 batch 2") |
 | `loading_title` | 0x3A9678 | 0x3ADFA8 | 83 | mode 8, "LOADING...", "REPLAY", "TEKKEN TAG TOURNAMENT", "STAGE %d" |
 | `menu_common` | 0x3ADFA8 | 0x3B1478 | 82 | 3D menu helpers (rotations), shared by modes 2-11 |
 | `options` | 0x3B1478 | 0x3B4D50 | 38 | `Mode_Options`, `scePadInfoAct` (vibration test) |
@@ -267,6 +267,12 @@ Two generators [V]:
 
 For a deterministic port and replays: the boot seed (Timer 0) and the spin LCG depend on real time; the
 reseed adds the VBlank count. All three must become inputs or saved state (T26-T27).
+
+The effects (`src/effects.c`, `src/effects_draw.c`, T17 b2) draw from `rand()` only (not `func_003800D8` or the spin
+LCG): character 0x1D's special attack volume and stage-coloured hit sparks inside the simulation step, and many effect
+callbacks every frame from the effect update (stage ambient effects, stage 4 / 12 backgrounds, hit particles, body-part
+glows, partly even while paused), so the CPU's and the camera's random numbers depend on them
+([systems/render.md](systems/render.md) section 7.1).
 
 The fight camera (`src/stage.c`, T15 b1) draws from `rand()` and from the CPU's generator `func_003800D8` when moves,
 hits and throws start reaction cameras, and the special ending advances a third LCG, `D_005F5CF4 = (D_005F5CF4 + 1) *

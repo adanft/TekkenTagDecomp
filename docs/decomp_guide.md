@@ -1030,6 +1030,80 @@ Tools:
   `li.s` literals from C show as `R_MIPS_LITERAL .lit4` relocations, which such a comparison must treat like the
   original's `R_MIPS_GPREL16 D_005F5xxx`.
 
+### Lessons from T17 batch 2 (2026-10-20)
+
+Objects and data:
+
+- `effects` and `effects_draw` are one data run: `.rodata` 0x5194E0-0x519B30 and `.lit4` 0x5F51A4-0x5F531C with no gap at
+  the module edge. `D_00519918` (read by `func_003A6A90`, 8-aligned) cannot start the `.rodata` of an object with jump
+  tables, so 0x3A6460 is a cut: `src/effects.c` includes `D_00519918` at the end of its `.rodata` and `src/effects_draw.c`
+  starts at `jtbl_00519940` (`[0x1DA4E0, .rodata, effects]`, `[0x1DA940, .rodata, effects_draw]`, `.lit4` at 0x2B61A4 /
+  0x2B6300). The data before (`D_005193B8`, `D_005F51A0`) belongs to `geometry`'s 0x347xxx functions.
+- Two C jump tables needed alignment: `RODATA_ALIGN16()` before `D_005197C0` (after the C table of
+  `Fx_UpdateStageAmbient`), and `RODATA_ALIGN16()` at the end of `effects_draw.c` because the next object's `.rodata`
+  (still in the generic chunk, whose jump tables are 16-aligned) starts at 0x519B30. fdiff said OK for every function
+  before the SHA-1 step caught both; `cmp -l` plus the build addresses of the `D_` symbols show the first shifted table.
+- Shared types for the effect objects are in `include/effect.h` (the pool object of `dma_gif`, its drawing state at
+  +0x20); kind-specific state is an overlay per kind (`FxSparkSub`, `FxSubX` ...).
+
+Compiler flags:
+
+- **Both files look built without `-ffast-math`.** `func_003A35C8` keeps `x + 0.0f` (0.0 in a saved FPU register) and a
+  `div.s` by 3.0f, and `func_003A8D08` has the errno expansion of `sqrtf` (`sqrt.s`, `c.eq.s`, `bc1t`, a call); both
+  match without the flag except for hazard nops, and every other function of the two files compiles the same either
+  way (checked on the 48 functions of two of the five groups). Without the flag the original's libcalls are `sqrt` (0x407818) and
+  `__fixunssfsi` (0x40EBA0) where this compiler emits `sqrtf` and `fptoui`. A per-file flag in `configure.py` (like
+  `G_FLAGS`) is the follow-up; `scene3d.c`'s float functions (T17 b1) may be the same case.
+- Without the flag, `x < 0 ? -x : x` is not `abs.s`; `fabsf()` is (`func_003A95D8`). With it, `R() * 63.0f * 1.25f`
+  folds into one multiplication: separate statements keep the two (`func_003A4970`).
+
+Code shapes:
+
+- **Frame counters wrap in two statements**: `s->unk1E++; s->unk1E %= 30;` (the first store is dead and deleted) and
+  `s->unk1E = s->unk16 >> 1; s->unk1E %= 24;` matched six functions; a single expression ties the registers differently.
+- **A frame pointer past a header** is `a++; s->unk10 = a;` written after the last header read (the in-place increment
+  keeps the `addiu` after the loads); `a + 1` or `&a->frames[0]` compute it right after the call. In the spawn loops of
+  the hit sparks the same shape is `s->unk10 = ++an;`.
+- Update callbacks that end in `if (...) func_003465C8(e);` keep the tail call only with `else` around the per-frame
+  part; a `return;` at the end of the init block turns it into `jal` + epilogue.
+- K&R `int` functions again: `func_003A4EE8` / `func_003A5810` / `func_003A6978` return nothing but are `s32`, because
+  their callers `return f(...)` (`jal` plus a shared epilogue instead of a tail call).
+- Switch trees with an extra test come from extra labels: `case 0: case 2:` sharing a block with a separate `default`
+  (`== 2; < 3; == 3`, `func_003A2758`), `case 2: break;` (`== 3; slti 4; == 4`, `Fx_DrawFighterTex`), `case 2: default:`
+  (`Fade_Draw`).
+- `&gFighters[side == 0]` is folded into a branch; `k = side == 0; &gFighters[k]` keeps `sltiu / mult` (`func_003A54D8`).
+- `t < m ? t : m` is the EE `min.s`; the original's branch with `mov.s` in the delay slot is `if (t < m) r = t; else r =
+  m;`. A divisor the original keeps as `div.s` under `-ffast-math` sits in a local assigned right before the division
+  (as T15's `turn`, `func_003A1C78`).
+- Scratchpad work areas: every access through one struct pointer to 0x70000100 reproduces the original mix of
+  register-based and absolute (`lui $at`) addresses, because reload spills the base under pressure (`Fade_Draw` went
+  from 175 to 4 lines); two stores to the same scratchpad word in a loop keep the absolute form only when one goes
+  through the work-area struct (`Fx_DrawQuads`).
+- A stack GIF packet header declared as a 16-byte struct (not `u128`) lands at sp+0; a TImode scalar moves to the stack
+  only at first use (`Fx_LoadStageLayers`).
+- A store run of constants found by a sweep of two store positions (`func_003A55E0`: `unk1A = 2` first, `unk90` after
+  `unk54`), after decomp-permuter (score 60 to 20 in 20 minutes) had shown that the order mattered.
+- The `.lit4` word 0x3D4CCCCE is `(0.6f - 0.2f) / 8.0f` folded in float precision, not `0.05f` (0x3D4CCCCD).
+
+Accepted fake: an empty `__asm__ volatile("")` after the last store of `func_003A6BD0` keeps it out of the `jr ra` delay
+slot as in the original (marked in the source).
+
+Not matched yet (closest attempts in `#if 0`): hazard nops only (`func_003A1378`, `func_003A3438`, `func_003A4128`,
+`func_003A4C28`, `func_003A6110`, `func_003A95D8`: a `nop` gas inserts before an unfilled `bc1f` / `bc1t` or between
+`li.s` and a prelude `mtc1`), the `-ffast-math` pair above, `Fx_AddQuad` (1 line, `addu` operand order), `Fade_Draw` (4,
+two constants), `func_003A44F8` (13), `func_003A76C0` (19), `func_003A88B0` (24), `func_003A0CE8` (50, table loads
+hoisted above stores), `func_003A1C78` (75).
+
+Tools:
+
+- Five helper agents each owned a group of functions in a scratch file that included a shared header, compared with a
+  scratch comparator (the build's compiler and prelude, objdump of both sides, `.lit4` loads compared by value); the
+  parent merged the five files into the two C files by script, then confirmed every function with fdiff and the SHA-1.
+  Name clashes between the groups' types and prototypes were fixed at the merge; callee prototypes that differed
+  (`Fx_GetBankEntry`'s index as `u16` or `u32`) had to be unified and re-checked.
+- Such a comparator must not end a function at splat's `jlabel` case labels, and must compare `%hi` / `%lo` of data
+  symbols by value (splat leaves some as literal immediates).
+
 ## Decompiled so far
 
 | File | Range | C / functions | Notes |
@@ -1060,7 +1134,9 @@ Tools:
 | `src/scene3d_b.c` | 0x34FF10-0x3504C0 | 6 / 6 | the sword effect's packet senders (scratchpad headers); the end is an object edge (128-bit save mode, Lessons from T17 batch 1) |
 | `src/scene3d_c.c` | 0x3504C0-0x351E98 | 9 / 15 | the sword trail and glow (`func_00350C40`), its history and spline, character 20's swing ([systems/render.md](systems/render.md) section 3); `.lit4` 0x5F5614-0x5F5668 out of text order |
 | `src/scene3d_d.c` | 0x351E98-0x3543F0 | 33 / 37 | look-at, fighter lights (`Light_*`), GS image upload ([systems/render.md](systems/render.md) section 4); `.lit4` 0x5F5668-0x5F5700 |
+| `src/effects.c` | 0x3A04B8-0x3A6460 | 49 / 58 | effect callbacks: bank sprites, stage ambient effects and lens flare, hit sparks, flashes and bursts, the hit log, body-part glows, move effects ([systems/render.md](systems/render.md) section 7); `.rodata` 0x5194E0-0x519940, `.lit4` 0x5F51A4-0x5F5300 |
+| `src/effects_draw.c` | 0x3A6460-0x3A9678 | 44 / 50 | screen fade, title logo, stage texture layers, fighter texture channels, quad queue, character 0x1D's volume, effect helpers; a cut of the same object; `.rodata` 0x519940-0x519B30, `.lit4` 0x5F5300-0x5F531C |
 
 Functions left as `INCLUDE_ASM` carry their closest attempt above them in `#if 0` with a `NON_MATCHING:` note; in
 `fighter_core.c`, `battle_flow.c` and `fight_misc.c` every remaining function has one (T14 b9); in `stage.c` every
-remaining function has one that compiles when enabled (T15 b2), as in `skeleton.c` and `motion.c` (T16 b1) and the T17 files (`hud.c`, `scene3d*.c`).
+remaining function has one that compiles when enabled (T15 b2), as in `skeleton.c` and `motion.c` (T16 b1) and the T17 files (`hud.c`, `scene3d*.c`, `effects.c`, `effects_draw.c`).

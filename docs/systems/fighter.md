@@ -563,7 +563,7 @@ in turn as the defender `d` of the other `o` [V; names I]:
   `func_003C1A78(side)` (the outgoing member's `unk28` back to 100, a check of the incoming one's against 120 [I]);
   `func_003D31F8(side, 2)` sets the per-side tag state `D_01FB6ED0[side] = 2`; the character and costume of the new
   active member are loaded (`func_0035C8D0(f, character, costume)`, `func_0035C850(f, 1)`), then its body
-  (`func_00368168`, `func_00377F58` body spheres, `func_003465F0`, `func_00344318`, `func_003A82C8`,
+  (`func_00368168`, `func_00377F58` body spheres, `func_003465F0`, `func_00344318`, `Fx_LoadFighterTex`,
   `func_00370E20(f, 1)`, `func_0038ADF8(side)`); in practice mode (game type 7) `func_0037A970(f)` and
   `func_0037EA08()` follow. `Fighter_StepMove` itself sets `Fighter + 0xB134 = 1`, re-aims (`Battle_UpdateFacing`) and
   looks the pending move up again for the new character [V]. Slots 2 and 3 of `gFighters` are not used for it [V].

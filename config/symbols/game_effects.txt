@@ -1,3 +1,13 @@
 // Game module effects (docs/game_overview.md section 4; the range is provisional).
 // Naming rules: docs/decomp_guide.md, "Naming".
 // range: 0x003A04B8 0x003A6460
+Fx_UpdateStageAmbient = 0x003A25C0; // type:func
+HitLog_Reset = 0x003A2FB8; // type:func
+HitLog_Enable = 0x003A2FE8; // type:func
+HitLog_Add = 0x003A2FF8; // type:func
+HitLog_NextFrame = 0x003A30B8; // type:func
+HitLog_Disable = 0x003A3108; // type:func
+HitLog_Rewind = 0x003A3110; // type:func
+HitLog_ReplayFrame = 0x003A3148; // type:func
+HitLog_Save = 0x003A3240; // type:func
+HitLog_Load = 0x003A3330; // type:func
