@@ -493,10 +493,13 @@ typedef struct {
     /* 0x0C */ s32 unkC;                      /* life, 20.12 */
     /* 0x10 */ s32 unk10;                     /* red life */
     /* 0x14 */ s32 unk14;                     /* maximum life */
-    /* 0x18 */ s32 unk18;
-    /* 0x1C */ s32 unk1C;
-    /* 0x20 */ u8 pad20[0x8];
-    /* 0x28 */ s32 unk28;                     /* damage statistic: sum of func_003CF278 per hit taken [I] */
+    /* 0x18 */ s32 unk18;                     /* life drawn by the HUD while it refills (0: none) */
+    /* 0x1C */ s32 unk1C;                     /* red life drawn by the HUD while it refills (0: none) */
+    /* 0x20 */ s32 unk20;                     /* life drawn in game type 7 (set at round init, src/hud.c) */
+    /* 0x24 */ s32 unk24;                     /* red life drawn in game type 7 */
+    /* 0x28 */ s32 unk28;                     /* partner counter: 100 at rest, func_003CF278 pair rules on a tag; at
+                                               * 120 or more it sets the active fighter's unk400 (func_003C1B38) [V
+                                               * code; I "rage"] */
     /* 0x2C */ s32 unk2C;                     /* red life at the start of the round (func_0036D5D0) */
 } TeamMember;
 

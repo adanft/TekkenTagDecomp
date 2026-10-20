@@ -77,7 +77,7 @@ void func_00350728(Fighter *f);
 s32 func_003D3228(s32 a, s32 b);
 void Skel_ComputeWorld(Fighter *f);
 void func_003478F0(Fighter *f, s32 n);
-void func_00353878(s32 side, void *p);
+void Light_UpdateFighter(s32 side, void *p);
 void func_0034FB48(Fighter *f);
 void Skel_Update(Fighter *f);
 void func_00365108(Fighter *f, GteSVector *r);
@@ -164,7 +164,7 @@ void Skel_Update(Fighter *f) {
     if (func_003D3228((s16)f->unk20, 1) == 0) {
         Skel_ComputeWorld(f);
         func_003478F0(f, 0);
-        func_00353878(f->unk1E, (u8 *)f + 0x590);
+        Light_UpdateFighter(f->unk1E, (u8 *)f + 0x590);
         func_0034FB48(f);
     }
 }

@@ -1,0 +1,11 @@
+// Game module hud (docs/game_overview.md section 4; docs/systems/render.md; the range is provisional): the fight HUD,
+// a cut inside the select_results range (its .rodata follows the select_results object's, so it is not an object edge).
+// Naming rules: docs/decomp_guide.md, "Naming".
+// range: 0x003C1A78 0x003C3150
+Hud_InitRound = 0x003C1C98; // type:func
+Hud_DrawNamePlate = 0x003C1DA0; // type:func
+Hud_DrawMarkers = 0x003C1F08; // type:func
+Hud_DrawLifeBar = 0x003C23F0; // type:func
+Hud_DrawKoPercent = 0x003C2D48; // type:func
+Hud_Draw = 0x003C2F40; // type:func
+Hud_Init = 0x003C3120; // type:func

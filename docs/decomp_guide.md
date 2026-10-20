@@ -961,6 +961,75 @@ Not matched yet (closest attempts in `#if 0`): `Skel_SetRootMatrix` (about 38 li
 alignment nop), `Motion_DecodeFrame` (59 lines, registers only; decomp-permuter: no natural change in 10 minutes), `Motion_CopyFrame`
 (5 lines; decomp-permuter 10 minutes, only fakes). [systems/animation.md](systems/animation.md) describes what they do.
 
+### Lessons from T17 batch 1 (2026-10-20)
+
+Objects and data:
+
+- **A callee-saved register keeps a 128-bit save mode for the rest of the file.** Once a function of a C file holds a
+  `u128` in `s1`, this compiler saves `s1` with `sq` / `lq` in every later function of the same file, even where it holds
+  an int (checked with test files). The original saves `s1` with `sd` again from `func_00350578`, so the six packet
+  senders 0x34FF10-0x3504C0 end an object: `src/scene3d_b.c` holds them, `src/scene3d_c.c` starts at 0x3504C0, and
+  `func_00350578` / `func_00351978` match only that way. `func_003517F0` / `func_00351860` keep the original's `sq` save
+  of `s2` from `func_00350C40` (a draft), so they stay NON_MATCHING until it is C.
+- **A `.lit4` pool out of text order**: `func_00351AA0`'s words (0x5F5614) come before those of `func_00350C40`
+  (0x5F5650) although its code is later, and `func_003518B8`'s word (0x5F570C) sits after `render_fighter_a`'s. The
+  subsegments follow the pool: `scene3d_c` (0x5F5614-0x5F5668) emits both functions' `LIT4_WORD` lines in front of
+  `func_00350C40`; `func_003518B8`'s word stays in the generic chunk (it cannot be C in this file until that is solved).
+  `scene3d_d` (0x5F5668-0x5F5700) and `scene3d` (0x5F5350-0x5F535C) are in text order.
+- `src/scene3d.c` got a `.rodata` subsegment for one jump table and one 16-byte vector (0x51EA60-0x51EB00): the C jump table
+  of `func_0034CA70`, then `RODATA_ALIGN16()` and `INCLUDE_RODATA(D_0051EAF0)` (`force_not_migration`). Data order again
+  ignores text order: `scene3d`'s `.rodata` sits among `modes`', `scene3d_c`'s among `draw_list`'s.
+- The HUD (0x3C1A78-0x3C3150) is a cut inside `select_results` (its `.rodata` strings follow `func_003C1350`'s jump table
+  in text order), with its own symbol file `game_hud.txt`; `model_draw` is one object range with no data of its own.
+- A struct that splat cut into several labels must stay one object: the light block `D_01FC4210` (0x340 bytes) matched
+  only as one struct (`D_01FC4210.slot[i].cur.dir[2]`), with fdiff accepting `D_01FC4210 + 0x80` for splat's
+  `D_01FC4290`; the same for `D_00440940 + 0x28` / `D_00440968` (`func_003C1B38`).
+
+Code shapes:
+
+- **12-byte vector copies** (`ld/sd` + `lw/sw`) are `memcpy(d, s, 12)` through 16-aligned pointer types
+  (`typedef f32 FVec4[4] __attribute__((aligned(16)))`), often in a small inline (`CopyV3`); a struct copy gives
+  `ldl / ldr`. Declare the aligned typedef once per file: a second aligned `f32[4]` typedef changed the alignment of
+  earlier arrays.
+- A full 16-byte copy whose address is recomputed per copy is an inline `*(u128 *)d = *(u128 *)s` (`func_00353E60`,
+  `func_003531F0`).
+- Columns written through a byte offset (`*(f32 *)((u8 *)x + o)` with `o = j * 4`) give the original `addu base, index`
+  order (`Light_GetFighterMatrices`).
+- GIF packet code matches as plain `*p++ = (u64)...` expressions; the zero extensions (`dsll32 / dsrl32`) show which
+  parameters are `u32` (`func_003DC188` was 117 lines off with `s32` texture coordinates).
+- `if ((v & 0xFF) == 0) return v >> 8; v += 0x100; return v >> 8;` keeps the original `bnezl` (rounding up to 256-byte
+  blocks, `func_00354368`); an `if` around the add becomes `movn`.
+- `Hud_DrawKoPercent` matched only with the constant 10 written twice (`up = 10; if (pa == 100) down = 10;`) and the
+  comparisons on the fields; a dead `+= 100` before a call is kept by the original (`func_003C1A78`).
+- decomp-permuter took `Hud_DrawMarkers` from 52 differing lines to 1 in 20 minutes: the first loop reuses the counter
+  `ix` of a later loop, and one test goes through an inline (`return h->unk20 != 0;`, marked fake). The last line is
+  `if (k == n) h->unk10 = n;` storing k's register where the original stores n's; no source order or type tried changes it.
+- A switch with a jump table needs enough cases for gcc to choose a table: the `func_00350C40` draft has two filler
+  cases (marked [I]) so that it emits the original's 0x68-entry `jtbl_00521E40`.
+
+Compiler and assembler limits found (not solved):
+
+- **`-ffast-math` folds what `func_0034CC38` / `func_0034E148` keep**: `x + 0.0f`, `x / 12.0f * s` as `div.s` then `mul.s`,
+  `x * 3.141593f / 180.0f`. Without the flag they come within 9 and 23 lines, but the same file's `func_0034E018` /
+  `func_0034D258` have a bare `sqrt.s`, which this compiler emits only with `-ffast-math` (`-fno-math-errno` does not
+  exist in it). Either another sqrt (inline asm, macro) without `-ffast-math`, or the functions come from different
+  objects; a per-file flag experiment is open.
+- **No hazard `nop` before an unfilled `bc1f`**: after `c.lt.s`, the original has no `nop` before a `bc1f` whose delay
+  slot gcc left empty (`func_00352F50`, about ten places in `func_00351E98`, `func_00340528`); a compare before a filled
+  or likely branch keeps it. The 1999 gas did not insert it in reorder mode; a prelude change is needed.
+- The `li.s` / prelude `mtc1` hazard `nop` of T15 b2 again (`func_003518B8`), and a `.p2align 3` that the compiler puts
+  before the label after a `b` where the original has none (`func_00353448`).
+- The sword effect moves its 64-bit TEX0 value into a 128-bit register with `por`; this gcc refuses every u64 -> u128
+  conversion ("unsupported wide integer operation"), so the draft goes through memory.
+
+Tools:
+
+- Helper agents compiled single functions in a scratch directory with the build's compiler and compared them with the
+  split `.s` (objdump with relocations, branch targets relative to the function, `.lit4` and jump-table references
+  normalised), so five of them could work at once without touching the build; the parent then rebuilt and ran fdiff.
+  `li.s` literals from C show as `R_MIPS_LITERAL .lit4` relocations, which such a comparison must treat like the
+  original's `R_MIPS_GPREL16 D_005F5xxx`.
+
 ## Decompiled so far
 
 | File | Range | C / functions | Notes |
@@ -985,7 +1054,13 @@ alignment nop), `Motion_DecodeFrame` (59 lines, registers only; decomp-permuter:
 | `src/stage.c` | 0x38BF98-0x396D00 | 58 / 105 | the fight camera and its per-stage values (module `camera_stage`): the per-frame camera step `Cam_Update` on `gRoundPhase`, camera keys and blends, camera scripts, reaction cameras drawn at random, stage camera distances ([systems/stage.md](systems/stage.md)); `.rodata` 0x507EE0-0x509D00 included in place; `.lit4` 0x5F5174-0x5F519C (`LIT4_WORD` for the float functions still in assembly) |
 | `src/skeleton.c` | 0x34E748-0x34FF10 | 13 / 16 | the fighter skeleton (module `skeleton`): per-frame update `Skel_Update`, the root matrix that writes the position `unk51C`..`unk524`, joint world matrices, body / push spheres and attack volumes on joints, joint screen positions ([systems/animation.md](systems/animation.md)); `.lit4` 0x5F5114-0x5F5154 (`LIT4_WORD` for `Skel_SetRootMatrix`) |
 | `src/motion.c` | 0x3639F0-0x364448 | 17 / 19 | motion data (module `motion`): frame sampling, the delta / run-length frame decoder, motion banks and clips ([systems/animation.md](systems/animation.md)); `.rodata` 0x4FC610-0x4FC630 (the decoder's jump table) included in place |
+| `src/hud.c` | 0x3C1A78-0x3C3150 | 10 / 12 | the fight HUD (`Hud_Draw`: life bars with red life, damage trail, partner bar and tag slide, round markers, timer; K.O. percentages), [systems/render.md](systems/render.md) section 5; a cut inside the `select_results` range |
+| `src/model_draw.c` | 0x3DB758-0x3DC9C8 | 18 / 18 | 2D GS primitives (scissor, rectangles, gradient quad, menu window), stage-object draw hooks, text helpers ([systems/render.md](systems/render.md) section 6); no models |
+| `src/scene3d.c` | 0x34C508-0x34E748 | 8 / 15 | fighters' secondary motion: per-side wind, extra-joint pendulums, accessory parts ([systems/render.md](systems/render.md) section 4); `.rodata` 0x51EA60-0x51EB00, `.lit4` 0x5F5350-0x5F535C |
+| `src/scene3d_b.c` | 0x34FF10-0x3504C0 | 6 / 6 | the sword effect's packet senders (scratchpad headers); the end is an object edge (128-bit save mode, Lessons from T17 batch 1) |
+| `src/scene3d_c.c` | 0x3504C0-0x351E98 | 9 / 15 | the sword trail and glow (`func_00350C40`), its history and spline, character 20's swing ([systems/render.md](systems/render.md) section 3); `.lit4` 0x5F5614-0x5F5668 out of text order |
+| `src/scene3d_d.c` | 0x351E98-0x3543F0 | 33 / 37 | look-at, fighter lights (`Light_*`), GS image upload ([systems/render.md](systems/render.md) section 4); `.lit4` 0x5F5668-0x5F5700 |
 
 Functions left as `INCLUDE_ASM` carry their closest attempt above them in `#if 0` with a `NON_MATCHING:` note; in
 `fighter_core.c`, `battle_flow.c` and `fight_misc.c` every remaining function has one (T14 b9); in `stage.c` every
-remaining function has one that compiles when enabled (T15 b2), as in `skeleton.c` and `motion.c` (T16 b1).
+remaining function has one that compiles when enabled (T15 b2), as in `skeleton.c` and `motion.c` (T16 b1) and the T17 files (`hud.c`, `scene3d*.c`).

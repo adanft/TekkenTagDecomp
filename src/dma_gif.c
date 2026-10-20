@@ -343,7 +343,7 @@ extern s32 D_00415808[];
 extern s32 D_005F67C0;
 
 Unk3B87B0 *func_003B87B0(s32 id);
-void func_00353A70(s32 id, u128 *m);
+void Light_GetFighterMatrices(s32 id, u128 *m);
 void func_0034A868(f32 *out, f32 *in);
 void func_003439B0(s32 a, u8 *b);
 
@@ -363,7 +363,7 @@ void func_00343340(Unk343340 *o, s32 side) {
     u128 *vu = VU0_MEM;
 
     p = func_003B87B0(o->unk22);
-    func_00353A70(o->unk1E, m);
+    Light_GetFighterMatrices(o->unk1E, m);
     vu[4] = D_004334C0[0];
     vu[5] = D_004334C0[1];
     vu[6] = D_004334C0[2];

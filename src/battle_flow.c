@@ -3300,7 +3300,7 @@ void func_003B4DC0(Fighter *a, Fighter *b);
 void func_00390E08(Fighter *a, Fighter *b);
 void func_00395400(s32 n, Fighter *a, Fighter *b);
 void func_00380560(void);
-void func_003C1C98(void);
+void Hud_InitRound(void);
 void func_003533E8(s32 n);
 void func_00378018(void);
 void func_00366DB0(u16 n);
@@ -3383,7 +3383,7 @@ void func_0036D5D0(void) {
     func_00390E08(a, b);
     func_00395400(0, a, b);
     func_00380560();
-    func_003C1C98();
+    Hud_InitRound();
     D_005F6670[0] = 0;
     D_005F6670[1] = 0;
     D_00440940[0][0].unk2C = D_00440940[0][0].unk10;
@@ -3975,7 +3975,7 @@ void Battle_UpdateRound(Fighter *a, Fighter *b) {
 extern u16 D_005F5C74;
 void func_003C2EF8(void);
 void func_003BB9C0(void);
-void func_003C2D48(Fighter *a, Fighter *b);
+void Hud_DrawKoPercent(Fighter *a, Fighter *b);
 void func_0036EDE0(void);
 void func_0036EC50(void);
 void func_0036EF58(void);
@@ -3985,7 +3985,7 @@ void func_0036F010(void);
 s32 func_0039C778(void);
 s32 func_0035A5D0(void);
 void func_003BBE78(void);
-void func_003C2F40(void);
+void Hud_Draw(void);
 void func_003BC540(void);
 
 /* The round texts and their sounds, by the end-of-round step D_005F5E88: 0 "ROUND %d" / "READY!" (func_0036EDE0,
@@ -4009,7 +4009,7 @@ void func_0036EA80(Fighter *a, Fighter *b) {
         case 2:
             func_0036EF58();
             if (D_005F5CAC & 1) {
-                func_003C2D48(a, b);
+                Hud_DrawKoPercent(a, b);
             }
             if (D_005F5F08 == 0) {
                 func_0036EEE0();
@@ -4017,13 +4017,13 @@ void func_0036EA80(Fighter *a, Fighter *b) {
             break;
         case 3:
             if (D_005F5CAC & 1) {
-                func_003C2D48(a, b);
+                Hud_DrawKoPercent(a, b);
             }
             break;
         case 4:
             func_0036F0D8();
             if (D_005F5CAC & 1) {
-                func_003C2D48(a, b);
+                Hud_DrawKoPercent(a, b);
             }
         case 5:
             if (D_0043B7F8[0x1F] != 0 || D_005F5F00 == 0 || D_005F5F08 != 0) {
@@ -4036,7 +4036,7 @@ void func_0036EA80(Fighter *a, Fighter *b) {
         if (D_0043B7F8[4] != 0) {
             func_003BBE78();
         }
-        func_003C2F40();
+        Hud_Draw();
         func_003BC540();
     }
 }

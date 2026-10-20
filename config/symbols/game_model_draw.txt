@@ -1,3 +1,6 @@
 // Game module model_draw (docs/game_overview.md section 4; the range is provisional).
 // Naming rules: docs/decomp_guide.md, "Naming".
 // range: 0x003DB758 0x003DC9C8
+Str_Next = 0x003DB8E8; // type:func
+Str_SkipN = 0x003DB910; // type:func
+Ui_DrawWindow = 0x003DC768; // type:func

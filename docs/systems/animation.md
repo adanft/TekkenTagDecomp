@@ -44,7 +44,7 @@ Tags: **[V]** read in matching C or in the disassembly, **[I]** inferred.
 
 The root is a joint at `Fighter + 0x504` (local translation at 0x51C = `unk51C`-`unk524`); joints 0-17 start at
 `Fighter + 0x630` (joint *j*'s position at `0x668 + 0x50 * j`, the `FighterJoints` view of include/fighter.h); joints
-18 to `unkB050 - 1` are per-character extras (`func_0034C508` builds their local matrix), and 22 / 23 serve as virtual
+18 to `unkB050 - 1` are per-character extras (`func_0034C508` builds their local matrix: a fixed-point pendulum pushed by the side's wind, [render.md](render.md) section 4), and 22 / 23 serve as virtual
 points for some states (section 3.3). Indices up to 23 are accepted by the hit shapes.
 
 **A pose** (`D_00416A18`, `.data`): 57 s16: channels 0-2 the root (angle, height, distance), then three angles per joint
@@ -80,7 +80,7 @@ frames x groups x 3 s16}` stored raw. Bank 0 replaces the per-move motion while 
 `func_00371B18` (battle_flow) calls `Skel_Update` (through the tail-call stub 0x34E8B0) for each drawn fighter
 (`unk127`); it runs on simulated and on non-simulated frames alike ([fighter.md](fighter.md) section 5.1). In order [V]:
 
-1. `func_0034E018`, `func_003ADFB0`, `func_00365300(f)`; `func_00353280(side)` when `func_00346378(side)`.
+1. `func_0034E018` (the side's wind vector, render.md section 4), `func_003ADFB0`, `func_00365300(f)`; `func_00353280(side)` when `func_00346378(side)`.
 2. `Motion_SampleRoot(unkB8->unk0, D_005F5E70, unkBC - 1, f)`: the root channels of the base motion;
    `Motion_SamplePose(unkC0->unk0, D_00416A18, unkC4 - 1)`: the whole pose of the current move at its frame `unkC4`.
 3. `unk30` / `unk32` / `unk34` = root channels (`unk34 & 0x7FFF`); `func_0034FA60`: when `unk126` is set (cleared
@@ -88,9 +88,9 @@ frames x groups x 3 s16}` stored raw. Bank 0 replaces the per-move motion while 
    `unkBC - unkDA - 1` [V code; I purpose].
 4. The motion blend (`func_00373E38` in game mode 5, else `func_00373428` when `D_005F5F10` frames are stepped;
    battle_flow, NON_MATCHING drafts), `func_00365248`.
-5. `Skel_SetRootMatrix` (section 3.2), `func_003632E0`, `func_00362C28`, `func_00350728`.
+5. `Skel_SetRootMatrix` (section 3.2), `func_003632E0`, `func_00362C28`, `func_00350728` (blade trail on / off by move, render.md section 3).
 6. Unless `func_003D3228(slot, 1)` (a per-slot countdown in `model_anim`): `Skel_ComputeWorld` (section 3.2),
-   `func_003478F0(f, 0)`, `func_00353878(side, f + 0x590)`, `func_0034FB48` (`func_003D3210(slot, 1)` for a move with
+   `func_003478F0(f, 0)`, `Light_UpdateFighter(side, f + 0x590)` (the fighter's lights, [render.md](render.md) section 4), `func_0034FB48` (`func_003D3210(slot, 1)` for a move with
    flag 0x10000, then `Skel_ProjectJoints`).
 
 ### 3.2 Matrices
@@ -182,6 +182,7 @@ behaviour above can be read from them. See [decomp_guide.md](../decomp_guide.md)
 ## 7. Open
 
 - The meaning of the root channel 0 (an angle added to the facing `unk1A`) against `unk3C`, and of `unk11D`.
-- What `func_00365300`, `func_00365248`, `func_003632E0`, `func_00362C28`, `func_00350728`, `func_003478F0` and
-  `func_00353878` add (fighter_setup / scene3d, still assembly); `func_00365108` adjusts the root angles.
+- What `func_00365300`, `func_00365248`, `func_003632E0`, `func_00362C28` and `func_003478F0` add (fighter_setup /
+  geometry, still assembly); `func_00365108` adjusts the root angles. `func_00350728`, `func_0034E018` and
+  `Light_UpdateFighter` are rendering state ([render.md](render.md)).
 - The bone offsets (local translations) are set outside this module (character load, `func_00368168` [I]).

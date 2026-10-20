@@ -49,7 +49,7 @@ typedef struct {
     /* 0x0C */ u8 padC[0xC];
     /* 0x18 */ u8 unk18;
 } Unk360670;
-void func_003DC768(s32 x, s32 y, s32 w, s32 h, s32 z, u32 c0, u32 c1);
+void Ui_DrawWindow(s32 x, s32 y, s32 w, s32 h, s32 z, u32 c0, u32 c1);
 
 /* The blocks of the save data (system, options, play counters, records). */
 extern u8 D_00439C60[];
@@ -646,7 +646,7 @@ void func_00360530(s32 *v) {
     }
     v[4] = color;
     if (v[2] != 0 && v[3] != 0) {
-        func_003DC768(v[0], v[1], v[2], v[3], 0xFFFF, color, color);
+        Ui_DrawWindow(v[0], v[1], v[2], v[3], 0xFFFF, color, color);
     }
 }
 

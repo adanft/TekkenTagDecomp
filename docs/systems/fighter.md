@@ -732,8 +732,10 @@ behaviour can be read from them; only byte identity is missing.
   `gRoundPhase` 0xD-0x12 and of the event kinds 6-11 (effects) is inferred.
 - Which records carry the damage events of each throw (the event lists are game data, read only at run time) and
   what the pairing record lists at 0x04-0x18 hold exactly.
-- What `D_00440940[side][member].unk28` counts (100 at round start, raised by `func_003CF278` per hit taken, compared
-  with 120 by `func_003C1A78`); the meaning of `unk400` (13/10 damage) and of `D_005F6670[side]` (set by chip damage,
+- `D_00440940[side][member].unk28` (100 at round start, changed by the pair rules of `func_003CF278` per hit taken and
+  on a tag) sets the active fighter's `unk400` (13/10 damage) while the partner's counter is at least 120: it counts
+  down in `func_003C1B38` (src/hud.c, per frame) and the life bar flashes ([render.md](render.md) section 5) [V code];
+  that this is Tag Tournament's partner "rage" is [I]. Open: the meaning of `D_005F6670[side]` (set by chip damage,
   cancels the "perfect" bit).
 - The meaning of `Fighter.unk420` values other than 3 (practice playback); what `func_003F0008` (scripted tag swap)
   serves.

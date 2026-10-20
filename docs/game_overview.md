@@ -172,7 +172,7 @@ though an edge could still fall between two objects that are both inside the ran
 | `vu1_packet` | 0x3420C8 | 0x342E78 | 12 | VIF1 packets with VU1 DIRECT code, `.vudata` 0x4FAF80-0x4FB800 |
 | `dma_gif` | 0x342E78 | 0x346398 | 52 | `Dma_SendChain`, `Dma_SendNormal`, `Dma_Wait`, `Vu0_LoadMicrocode` [V]; GIF packets; reached by every mode. `src/dma_gif.c` (one file for the range; from about 0x3453F0 the functions set up objects and side tables and may be another object [I]) |
 | `geometry` | 0x346398 | 0x34C508 | 53 | Inner/outer products, normalize, handler table `D_005193B8`; libvu0 (0x34A7A8-0x34B4E8) sits inside |
-| `scene3d` | 0x34C508 | 0x3543F0 | 73 | projections (RotTransPersN), matrices; modes 4, 5, 8, 11. Without 0x34E748-0x34FF10 (`skeleton`, next row) |
+| `scene3d` | 0x34C508 | 0x3543F0 | 73 | Drawing state of the fighters (T17 b1): per-side wind, extra-joint pendulums and accessory parts (`src/scene3d.c`, 0x34C508-0x34E748, `.rodata` 0x51EA60-0x51EB00 and `.lit4` 0x5F5350-0x5F535C subsegments); the sword effect's packet senders (`src/scene3d_b.c`, 0x34FF10-0x3504C0), the sword trail and glow and character 20's swing (`src/scene3d_c.c`, 0x3504C0-0x351E98, `.lit4` 0x5F5614-0x5F5668), look-at, fighter lights `Light_*` and the GS image upload (`src/scene3d_d.c`, 0x351E98-0x3543F0, `.lit4` 0x5F5668-0x5F5700) [V]. Edges: 0x3504C0 is an object edge [V: the 128-bit save mode of `s1` ends there, decomp_guide.md "Lessons from T17 batch 1"]; 0x351E98 is a cut [I]; data order does not follow text order (its `.rodata` lies among `modes`' and `draw_list`'s, `func_00351AA0`'s `.lit4` before `func_00350C40`'s). Without 0x34E748-0x34FF10 (`skeleton`, next row). [systems/render.md](systems/render.md) |
 | `skeleton` | 0x34E748 | 0x34FF10 | 16 | The fighter skeleton (T16 b1): `Skel_Update` (per frame, from `func_00371B18` in `Battle_UpdateFrame`), the root matrix that writes the position `unk51C`-`unk524`, joint world matrices (`Gte_CompMatrix`), body / push spheres and attack volumes on joints (`Skel_PlaceHitShapes`, `Skel_SetVolumeStarts`), screen positions of four joints read by the simulation (`Skel_ProjectJoints`) [V]. `src/skeleton.c`, a cut inside the `scene3d` range [I edges]; its `.lit4` (0x5F5114-0x5F5154) is a subsegment. Its `.sdata` (0x5F5E50-0x5F5E78), `.lit4` and `.rodata` (`D_004FC668`) lie between those of `fighter_setup`'s 0x3625B0-0x3645D8 and 0x366DB0- parts, so data order does not follow text order here [V addresses; I cause]. [systems/animation.md](systems/animation.md) |
 | `theater` | 0x3543F0 | 0x356A70 | 24 | modes 12-15, "THEATER", "MUSIC PLAYER" |
 | `draw_list` | 0x356A70 | 0x357358 | 15 | GIF packet end/terminate, FlushCache; used by the draw passes; crt0 follows |
@@ -205,16 +205,17 @@ though an edge could still fall between two objects that are both inside the ran
 | `options` | 0x3B1478 | 0x3B4D50 | 38 | `Mode_Options`, `scePadInfoAct` (vibration test) |
 | `pause_results` | 0x3B4D50 | 0x3B9178 | 75 | `Mode_Results`, "PAUSE P%d", "RESET?", "CAPTURE?", "FIGHT" |
 | `modes` | 0x3B9178 | 0x3BDF60 | 85 | `Mode_Change`, `Mode_Transition`, `Mode_Boot`, `Mode_Title`, mode 3, mode 11, "CONTINUE? %d" |
-| `select_results` | 0x3BDF60 | 0x3CD298 | 201 | `Mode_CharSelect`, modes 6-7, "WINS %d", ranking ("ST/ND/RD/TH"), `Text_Printf` 0x3C6C60. Also the team members' life at round start (`Battle_InitTeamLife`) and its per-frame recovery (`Battle_RecoverLife`): `src/select_results.c` covers only 0x3C1470-0x3C1A78 (T14 b4), a cut between two functions, not an object edge (the part emits no data) [systems/fighter.md](systems/fighter.md) section 5.6 |
+| `select_results` | 0x3BDF60 | 0x3CD298 | 189 | `Mode_CharSelect`, modes 6-7, "WINS %d", ranking ("ST/ND/RD/TH"), `Text_Printf` 0x3C6C60. Also the team members' life at round start (`Battle_InitTeamLife`) and its per-frame recovery (`Battle_RecoverLife`): `src/select_results.c` covers only 0x3C1470-0x3C1A78 (T14 b4), a cut between two functions, not an object edge (the part emits no data) [systems/fighter.md](systems/fighter.md) section 5.6 | Without 0x3C1A78-0x3C3150 (`hud`, next row).
+| `hud` | 0x3C1A78 | 0x3C3150 | 12 | The fight HUD (T17 b1): `Hud_Draw` once per update from battle_flow's `func_0036EA80`: life bars with red life and damage trail, the partner's bar and the tag slide, round markers, the timer (70 frames per displayed second), name plates; the K.O. percentages `Hud_DrawKoPercent`, the round set-up `Hud_InitRound`, the partner counter `TeamMember.unk28` (`func_003C1A78` on a tag, `func_003C1B38` per frame) [V]. `src/hud.c`, a cut inside `select_results`, not an object edge [V: its `.rodata` strings follow `func_003C1350`'s jump table in text order]; draws through `sprite2d`. [systems/render.md](systems/render.md) section 5 |
 | `sprite2d` | 0x3CD298 | 0x3D0660 | 59 | GIF sprite packets, reached by all modes |
 | `model_anim` | 0x3D0660 | 0x3DB758 | 173 | heaviest libvu0 user (matrices, rotations); handler tables 0x44B230-0x44C1A0, 0x520FC0 [I: models, animation]; the fighter skeleton itself is the `skeleton` module, and the functions the simulation calls here are tag counters and move bookkeeping (`func_003D3228`, `func_003D2A38`, `func_003D29E8`, [systems/animation.md](systems/animation.md) section 4). Also the tag swap `Fighter_TagSwap` (0x3D3288): `src/model_anim.c` covers only 0x3D3288-0x3D33F0 (T14 b4), a cut between two functions, not an object edge [systems/fighter.md](systems/fighter.md) section 5.7 |
-| `model_draw` | 0x3DB758 | 0x3DC9C8 | 18 | VU1 DIRECT code packets (`.vudata` 0x4FAF80-0x4FB800, shared with `vu1_packet`) |
+| `model_draw` | 0x3DB758 | 0x3DC9C8 | 18 | No models and no VU1 code (T17 b1): 2D GS primitives written into the GIF buffers of `gfx` (scissor, rectangles, gradient quad, the menu window `Ui_DrawWindow`, 18 callers in every mode), the stage-object draw hooks of the stage pass, text helpers (`Str_Next`, `Str_SkipN`), two per-slot bank helpers handed to `demo` [V]. `src/model_draw.c`, one C file, no data of its own; the end may lie a little earlier (the last two functions serve `demo`) [I]. [systems/render.md](systems/render.md) section 6 |
 | `demo` | 0x3DC9C8 | 0x3E1C68 | 51 | "DEMO", VIF1 DIRECT code |
 | `menu_bg` | 0x3E1C68 | 0x3E55C8 | 21 | flavour texts ("TARGET", "POWER", "ANGLE", "BOSKONOVITCH LABO LTD"); used by menus, music player, gallery, bowl; calls `srand` |
 | `gallery_jpeg` | 0x3E55C8 | 0x3E8AD8 | 32 | `Mode_Gallery`, "JFIF" [I: screenshot JPEG codec] |
 | `tekken_bowl` | 0x3E8AD8 | 0x3F3320 | 136 | "THE KING OF IRONBOWL", "SPEED", "NICE COVER", "BONUS AT 200 PTS", "JUKEBOX" |
 
-45 modules cover the 2815 game functions. Sizes are uneven on purpose: `fighter_core`, `select_results`,
+46 modules cover the 2815 game functions. Sizes are uneven on purpose: `fighter_core`, `select_results`,
 `model_anim` and `fighter_setup` are several files each; split them when they are decompiled (T13-T18).
 
 ## 5. Important globals
@@ -315,7 +316,7 @@ side through RSPU2DRV commands sent with `sceSdRemote` [V]; the protocol is in [
 
 `.vudata` is at 0x4F5F00-0x4FB880 [V]. VU1 microcode 0x4F7A00 is uploaded once by `Gfx_Init`. VU0 microcode is
 uploaded by `Gfx_Init` (0x4F5F00) and again every frame by `Vu0_LoadMicrocode` from 0x4F5F00, 0x4F6C80 or
-0x4FA7E0 depending on the mode. 0x4FAF80-0x4FB800 holds VIF code blocks used by `vu1_packet` and `model_draw`.
+0x4FA7E0 depending on the mode. 0x4FAF80-0x4FB800 holds VIF code blocks used by `vu1_packet` (`model_draw` does not read them, T17 b1).
 Listings and boundaries: T10.
 
 ## Open questions

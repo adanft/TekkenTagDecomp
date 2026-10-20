@@ -105,6 +105,7 @@ D_004FC230 = 0x004FC230; // size:0x10 force_not_migration:True
 D_004FC240 = 0x004FC240; // size:0x10 force_not_migration:True
 // .rodata of the motion object (0x4FC610-0x4FC630): the jump table of func_00363D00, included in place from src/motion.c.
 jtbl_004FC610 = 0x004FC610; // size:0x20 force_not_migration:True
+D_0051EAF0 = 0x0051EAF0; // size:0x10 force_not_migration:True
 // dma_gif .rodata (0x519340-0x5193B8): a GIF tag, then the jump table of func_00344318.
 D_00519340 = 0x00519340; // size:0x10 force_not_migration:True
 gSinTable = 0x004FCE88; // type:u16 size:0x2800

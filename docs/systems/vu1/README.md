@@ -35,7 +35,7 @@ otherwise 0x4F6C80 when `func_003BB4D8()` or `func_003ABCD0()` is non-zero and t
 0x4F5F00. The last two are the same bytes, so only mode 5 changes the microcode.
 
 The rest of `.vudata` (0x4FAF70-0x4FB810) is not microcode: a VIF1 block template (UNPACK 0x85 quadwords to
-VU1 memory 0, MSCAL 0x55A) that `vu1_packet` and `model_draw` copy to the scratchpad and patch. It stays split
+VU1 memory 0, MSCAL 0x55A) that `vu1_packet` copies to the scratchpad and patches (`model_draw` does not use it, T17 b1). It stays split
 data.
 
 ### Cross-check with the ELF's overlay sections [V]

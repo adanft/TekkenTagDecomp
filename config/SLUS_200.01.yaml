@@ -47,6 +47,7 @@ options:
     - config/symbols/game_pause_results.txt
     - config/symbols/game_modes.txt
     - config/symbols/game_select_results.txt
+    - config/symbols/game_hud.txt
     - config/symbols/game_sprite2d.txt
     - config/symbols/game_model_anim.txt
     - config/symbols/game_model_draw.txt
@@ -121,8 +122,12 @@ segments:
       - [0x1B30, asm]
       - [0x3E78, c, dma_gif]
       - [0x7398, asm]
+      - [0xD508, c, scene3d]
       - [0xF748, c, skeleton]
-      - [0x10F10, asm]
+      - [0x10F10, c, scene3d_b]
+      - [0x114C0, c, scene3d_c]
+      - [0x12E98, c, scene3d_d]
+      - [0x153F0, asm]
       - [0x18358, c, main]
       - [0x19A38, asm]
       - [0x1D2B0, c, rng_misc]
@@ -145,9 +150,12 @@ segments:
       - [0x5B2B8, c, gte]
       - [0x5CBF0, asm]
       - [0x82470, c, select_results]
-      - [0x82A78, asm]
+      - [0x82A78, c, hud]
+      - [0x84150, asm]
       - [0x94288, c, model_anim]
       - [0x943F0, asm]
+      - [0x9C758, c, model_draw]
+      - [0x9D9C8, asm]
       - [0xD6700, data] # .data
       # .vudata 0x4F5F00: four VU microcode packets (DMA chains for VIF0/VIF1). configure.py builds this object
       # from the listings in src/vu0 and src/vu1 (scripts/vuasm.py) instead of the split file.
@@ -172,6 +180,8 @@ segments:
       - [0x1CDE58, rodata]
       - [0x1DA340, .rodata, dma_gif]
       - [0x1DA3B8, rodata]
+      - [0x1DFA60, .rodata, scene3d]
+      - [0x1DFB00, rodata]
       - [0x2B6100, lit4]
       - [0x2B6114, .lit4, skeleton]
       - [0x2B6154, lit4]
@@ -180,6 +190,11 @@ segments:
       - [0x2B6174, .lit4, stage]
       - [0x2B619C, .lit4, gfx]
       - [0x2B61A0, lit4]
+      - [0x2B6350, .lit4, scene3d]
+      - [0x2B635C, lit4]
+      - [0x2B6614, .lit4, scene3d_c]
+      - [0x2B6668, .lit4, scene3d_d]
+      - [0x2B6700, lit4]
       - [0x2B6C00, sdata]
       - { type: sbss, vram: 0x005F6B00 }
       - { type: bss, vram: 0x005F7180 }

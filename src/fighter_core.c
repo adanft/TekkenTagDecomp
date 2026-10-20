@@ -2533,7 +2533,7 @@ const char **func_0035C710(s16 id);
 s32 func_003B1468(void);
 void func_003BB890(s32 a, s32 x, s32 y, s32 b);
 void func_003DBCF0(s32 a, s32 y, s32 w, s32 h, s32 b, s32 color);
-void func_003DC768(s32 x, s32 y, s32 w, s32 h, s32 a, s32 b, s32 c);
+void Ui_DrawWindow(s32 x, s32 y, s32 w, s32 h, s32 a, s32 b, s32 c);
 void func_003DEB80(s32 a);
 void func_003E08D0(s32 n);
 void func_003E5268(s32 x, s32 y, s32 id, s32 color);
@@ -2607,7 +2607,7 @@ void func_0037EFB0(void) {
         s->unk5 %= cnt;
     }
     y = (u16)s->unk2 + 0x3D;
-    func_003DC768(x, (u16)s->unk2, 0x194, n * 0x15 + 0x44, 0xFFFEC, 0x2020278, 0x41825E);
+    Ui_DrawWindow(x, (u16)s->unk2, 0x194, n * 0x15 + 0x44, 0xFFFEC, 0x2020278, 0x41825E);
     Text_Printf(D_005071A0, 0xA, 5, 7, x + 0x1C, (u16)s->unk2 + 0x1A, D_00431860[s->unk4]);
     if (func_003B1468() != 0) {
         PRAC_HELP(0x178, D_00507120[s->unk4]);

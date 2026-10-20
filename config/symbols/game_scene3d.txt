@@ -2,3 +2,8 @@
 // Naming rules: docs/decomp_guide.md, "Naming".
 // range: 0x0034C508 0x0034E748
 // range: 0x0034FF10 0x003543F0
+Fighter_GetOpponent = 0x00351E78; // type:func
+Light_StartFlash = 0x003531F0; // type:func
+Light_UpdateFighter = 0x00353878; // type:func
+Light_GetFighterMatrices = 0x00353A70; // type:func
+Light_SetupStage = 0x00353E60; // type:func
