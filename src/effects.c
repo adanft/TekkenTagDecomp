@@ -6,8 +6,9 @@
  * src/effects_draw.c). Every table is included in place with INCLUDE_RODATA (force_not_migration in data.txt);
  * D_00519918, read by effects_draw, is included here at the end so that effects_draw's .rodata starts on the 16-byte
  * boundary its jump tables need. While a float function is assembly, LIT4_WORD in front of its INCLUDE_ASM emits its
- * .lit4 words in place. Every NON_MATCHING draft (#if 0) compiles when enabled; func_003A35C8 needs the file built
- * without -ffast-math (docs/decomp_guide.md, "Lessons from T17 batch 2"). */
+ * .lit4 words in place. Every NON_MATCHING draft (#if 0) compiles when enabled. Built without -ffast-math
+ * (configure.py NO_FAST_MATH): func_003A35C8 keeps x + 0.0f and a division by 3.0f (docs/decomp_guide.md, "Lessons from
+ * T17 batch 4"). */
 #include "common.h"
 #include "fighter.h"
 #include "effect.h"
@@ -848,10 +849,7 @@ void func_003A1298(Effect *e) {
     }
 }
 
-/* NON_MATCHING: 5 lines: assembler limit only: one hazard nop between c.le.s and the unfilled bc1t of the loop test
- * (the original has none); every instruction otherwise equal. */
 /* Spawns the stage lights of stages 9 / 11 / 18 (func_003A1298), one per record up to a negative period. */
-#if 0
 void func_003A1378(void) {
     FxLight *l;
     s32 i;
@@ -902,13 +900,6 @@ void func_003A1378(void) {
         l++;
     }
 }
-#else
-LIT4_WORD(D_005F51BC, 0x40C90FDB);
-LIT4_WORD(D_005F51C0, 0x40490FDB);
-LIT4_WORD(D_005F51C4, 0x40490FDB);
-LIT4_WORD(D_005F51C8, 0x40490FDB);
-INCLUDE_ASM("asm/nonmatchings/effects", func_003A1378);
-#endif
 
 /* Emitter of stage 11: every 32 frames one func_003A04B8 sprite of bank 7 at a fixed place. */
 void func_003A1510(Effect *e) {
@@ -1837,10 +1828,7 @@ void HitLog_Load(s16 slot, s16 back) {
     }
 }
 
-/* NON_MATCHING: 2 lines: assembler limit: gas puts a nop between c.eq.s and the unfilled bc1f (T17 b1 "no hazard nop
- * before bc1f"). */
 /* Yaw (out[1]) and pitch (out[0]) of a direction vector. */
-#if 0
 void func_003A3438(f32 *v, f32 *out) {
     f32 x;
     f32 yaw = atan2f(v[0], v[2]);
@@ -1856,10 +1844,6 @@ void func_003A3438(f32 *v, f32 *out) {
     out[1] = yaw;
     out[0] = s;
 }
-#else
-LIT4_WORD(D_005F526C, 0x358637BD);
-INCLUDE_ASM("asm/nonmatchings/effects", func_003A3438);
-#endif
 
 /* Horizontal velocity of length r along the yaw unk70[1]. */
 void func_003A34C8(EffectSub *s, f32 r) {
@@ -1888,12 +1872,8 @@ s32 func_003A3588(s32 side, s32 id) {
     return f->unkC4 < m->unk2C;
 }
 
-/* NON_MATCHING: 25 lines: -ffast-math folds x + 0.0f and turns / 3.0f into a multiply; without -ffast-math 9 lines =
- * 1 li.s/mtc1 hazard nop + 8 shifted branch offsets. */
 /* Update callback: a particle of the hit burst (func_003A6110) on an eased orbit.
- * The original keeps x + 0.0f and the division by 3.0f: this matches only without -ffast-math (then 1 line, the
- * li.s / mtc1 hazard nop of the assembler). */
-#if 0
+ * The original keeps x + 0.0f and the division by 3.0f, so the file is built without -ffast-math. */
 void func_003A35C8(Effect *e) {
     FxSub3A35C8 *s = (FxSub3A35C8 *)&e->sub;
     f32 r;
@@ -1945,12 +1925,6 @@ void func_003A35C8(Effect *e) {
     }
     }
 }
-#else
-LIT4_WORD(D_005F5270, 0x3FC90FDB);
-LIT4_WORD(D_005F5274, 0x40490FDB);
-LIT4_WORD(D_005F5278, 0x3D7FE08B);
-INCLUDE_ASM("asm/nonmatchings/effects", func_003A35C8);
-#endif
 
 /* Update callback: a drifting particle of the hit burst (func_003A6110). */
 void func_003A3928(Effect *e) {
@@ -2133,9 +2107,6 @@ void func_003A3FC0(Effect *e) {
     }
 }
 
-/* NON_MATCHING: 6 lines: assembler limit: li.s/mtc1 hazard nop before mtc1 v0,$f4 (T15 b2); the other 5 lines are
- * the shifted branch offsets. */
-#if 0
 void func_003A4128(Effect *e) {
     EffectSub *s = &e->sub;
 
@@ -2166,10 +2137,6 @@ void func_003A4128(Effect *e) {
         func_003465C8(e);
     }
 }
-#else
-LIT4_WORD(D_005F529C, 0x3DA3D70A);
-INCLUDE_ASM("asm/nonmatchings/effects", func_003A4128);
-#endif
 
 /* Spawns the eight body-part glows (four per side, D_00437BE0 gives the parts) and clears their bits. */
 void func_003A42B8(void) {
@@ -2398,9 +2365,6 @@ void func_003A4970(Effect *e) {
     }
 }
 
-/* NON_MATCHING: 1 line: only the assembler hazard nop after li.s 1.0f (lui/mtc1 $at) before the prelude mtc1 (T15
- * b2 limit); 21 lines in scmp from shifted branch offsets. */
-#if 0
 void func_003A4C28(Effect *e) {
     EffectSub *s = &e->sub;
     Effect *n;
@@ -2471,12 +2435,6 @@ void func_003A4C28(Effect *e) {
         break;
     }
 }
-#else
-LIT4_WORD(D_005F52C4, 0x3E99999A);
-LIT4_WORD(D_005F52C8, 0x3E4CCCCD);
-LIT4_WORD(D_005F52CC, 0x3FC90FDB);
-INCLUDE_ASM("asm/nonmatchings/effects", func_003A4C28);
-#endif
 
 s32 func_003A4EE8(Fighter *f) {
     FVec4 v[2];
@@ -2949,11 +2907,6 @@ s32 func_003A5FA0(void) {
     return kind;
 }
 
-INCLUDE_RODATA("asm/nonmatchings/effects", jtbl_005198E0);
-INCLUDE_RODATA("asm/nonmatchings/effects", D_00519918);
-/* NON_MATCHING: 1 line: only the hazard nop between c.eq.s and the unfilled bc1f (T17 b1 limit) of the inlined
- * vector-to-angles code; 7 lines in scmp from shifted offsets and the alignment nop. */
-#if 0
 void func_003A6110(s16 side, s16 kind, FxHitPos *p) {
     f32 pos[3];
     f32 dir[3];
@@ -3042,14 +2995,10 @@ void func_003A6110(s16 side, s16 kind, FxHitPos *p) {
         }
     }
 }
-#else
-LIT4_WORD(D_005F52EC, 0x358637BD);
-LIT4_WORD(D_005F52F0, 0x3ECCCCCD);
-LIT4_WORD(D_005F52F4, 0x3ECCCCCD);
-LIT4_WORD(D_005F52F8, 0x3ECCCCCD);
-LIT4_WORD(D_005F52FC, 0x3ECCCCCD);
-INCLUDE_ASM("asm/nonmatchings/effects", func_003A6110);
-#endif
+
+/* The jump table of func_003A6110 ends at 0x519914; the table read by func_003A6A90 is 8-aligned. */
+RODATA_ALIGN8();
+INCLUDE_RODATA("asm/nonmatchings/effects", D_00519918);
 
 s32 func_003A6390(Fighter *f, s32 n) {
     struct FighterMove *m;

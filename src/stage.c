@@ -1383,8 +1383,6 @@ s32 Cam_Update(Fighter *a, Fighter *b, s32 *phase) {
     return 0;
 }
 
-/* NON_MATCHING: every instruction matches, but gas puts a hazard nop between the lui/mtc1 of li.s 2048.0 and the prelude's mtc1 .word for 0.0 (the original has none; a prelude fix) */
-#if 0
 void sceVu0ViewScreenMatrix(Vu0Matrix m, f32 scrz, f32 ax, f32 ay, f32 cx, f32 cy, f32 zmin, f32 zmax, f32 nearz,
                             f32 farz);
 extern Vu0Matrix D_00433440;
@@ -1404,11 +1402,6 @@ s32 Cam_SetDistance(s32 dist) {
     D_00433480[1][1] *= 1.25f;
     return 0;
 }
-#else
-LIT4_WORD(D_005F5174, 0x487FFF00);
-LIT4_WORD(D_005F5178, 0x483FFF00);
-INCLUDE_ASM("asm/nonmatchings/stage", Cam_SetDistance);
-#endif
 
 INCLUDE_RODATA("asm/nonmatchings/stage", D_00507FE0);
 
@@ -3494,7 +3487,9 @@ void CamScript_Load(s32 id) {
 INCLUDE_ASM("asm/nonmatchings/stage", CamScript_Load);
 #endif
 
-/* NON_MATCHING: same size (14 lines): the prelude's sqrt.s .word cannot go into the jal atan2f delay slot as in the original, and the two angle products keep their temporaries */
+/* NON_MATCHING: same size (14 lines): the original has gcc's unfilled `jal atan2f` with the sqrt.s in its delay slot
+ * (configure.py fix_compiler_asm moves it there since T17 b4), but here gcc fills the slot with the `ty - ey`
+ * subtraction itself; the two angle products keep their temporaries */
 #if 0
 /* Plays frame `frame` of loaded camera script n (CamScript_Load): eye, target and projection distance from the
  * script's 7-float frame plus the origin D_008BC5F8 (added twice), pulled back by 1.2 and lowered by 8 when
@@ -3575,6 +3570,8 @@ s32 func_00392F80(s32 n, s32 frame) {
     D_00415808[0] = pitch;
     return end;
 }
+#undef pitch
+#undef yaw
 #else
 LIT4_WORD(D_005F517C, 0x3F99999A);
 LIT4_WORD(D_005F5180, 0x3F4CCCCD);
@@ -3615,7 +3612,9 @@ s32 func_00393290(s32 n) {
     return 0;
 }
 
-/* NON_MATCHING: one instruction short (39 lines): the prelude's sqrt.s .word cannot go into the jal atan2f delay slot, so the scheduling and FPU registers around the two atan2f calls differ */
+/* NON_MATCHING: one instruction short (39 lines): gcc fills the first `jal atan2f` delay slot itself (a neg.s), where
+ * the original left it to the assembler, which put the sqrt.s there (T17 b4); the scheduling and FPU registers around
+ * the two atan2f calls differ */
 #if 0
 /* Steps the camera script playing in D_008BC5F8 (script unk0, length unk4, frame unk8) for an outside caller: the
  * frame's eye (y and z negated) as floats, its pitch and yaw in 16 bits per turn (negated), roll 0 and the distance;
@@ -3686,7 +3685,8 @@ s32 func_003934D0(s32 n, s32 a1, Vu0Matrix m) {
     return 0;
 }
 
-/* NON_MATCHING: same size (26 lines): the prelude's sqrt.s .word cannot go into the jal atan2f delay slot, so the loads and FPU registers around it differ */
+/* NON_MATCHING: same size (26 lines): gcc fills the first `jal atan2f` delay slot itself with the load of `dist`, which
+ * the original loads before the sqrt (whose sqrt.s then fills the slot, T17 b4); the FPU registers differ from there */
 #if 0
 /* Steps the demo's scripted camera D_008BC620 (script unk0, length unk4, frame unk8): eye and target from the
  * script frame, projection distance, camera angles and position D_00415808, as func_00392F80 without the origin;

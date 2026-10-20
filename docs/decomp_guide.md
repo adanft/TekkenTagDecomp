@@ -94,7 +94,7 @@ references (`"sceGsSyncPath: DMA ..."`); check each one, a string can also name 
 | | |
 |---|---|
 | Compiler | Sony ee-gcc `2.9-ee-991111-01` (decomp.me archive `ee-gcc2.9-991111-01`; `cc1` SHA-1 `4af299f2cebfa6043e876b34af7f8173d99c43c7`) |
-| Flags | `-O2 -fno-strength-reduce -ffast-math -fno-strict-aliasing` |
+| Flags | `-O2 -fno-strength-reduce -ffast-math -fno-strict-aliasing` (five objects without `-ffast-math`, `NO_FAST_MATH` in `configure.py`) |
 | `-G` | `-G8`, the compiler's default (see "Small data" below for the open part) |
 | Language | C (the driver's `-lang-c`; the preprocessor is built into `cc1`) |
 | Driver use | `ee-gcc ... -S` only; the project's gas assembles the output behind `include/gcc_prelude.inc` |
@@ -152,9 +152,9 @@ without the flag, so it is set for the whole build in `configure.py`.
 ## Assembler prelude (include/gcc_prelude.inc)
 
 The compiler leaves part of the encoding to the assembler. The game's assembler (1999-2000) behaved like the
-modern gas in nearly everything, including filling delay slots in reorder mode and the hazard nop after an FPU
-compare (`c.le.s / nop / bc1t` is in the original). Four instructions differ, each checked against original
-bytes:
+modern gas in nearly everything, including filling delay slots in reorder mode and the hazard nop it emits after an
+FPU compare when gcc's next line is `.set noreorder` (`c.le.s / nop / bc1t` is in the original). These differ, each
+checked against original bytes:
 
 | Compiler writes | Original | Modern gas | Prelude |
 |---|---|---|---|
@@ -165,8 +165,12 @@ bytes:
 | `break 7` | code in bits 6-15 (`0x000001CD`) | code in bits 16-25 | `.word` |
 | `cvt.w.s $f2,$f1` | function 0x24 (`0x460008A4`) | refused for the R5900 | `.word` |
 | `sqrt.s $f12,$f12` | operand in the ft field (`0x460C0304`) | operand in fs | `.word` |
+| `li.s $f20,2048.0` / prelude `mtc1 $0,$f24` | no nop between | hazard nop before the data word | `lui $1` + prelude `mtc1` (`fix_compiler_asm`, T17 b4) |
+| `c.lt.s $f0,$f1` / `bc1f` left to the assembler | no nop between | hazard nop | compare as `.word` (`fix_compiler_asm`, T17 b4) |
+| `nop / nop / sqrt.s` (noreorder) / `jal atan2f` | `sqrt.s` in the jal's delay slot | data word, `nop` in the slot | `jal` moved before it (`fix_compiler_asm`, T17 b4) |
 
-The prelude is also read in front of `INCLUDE_ASM` code. `break`, `cvt.w.s`, `sqrt.s`, `mtc1`, `mfc0` and `mfc1` become
+The last three rows need the neighbouring lines, which a gas macro cannot see: `configure.py --fix-asm` rewrites the
+compiler's output before it is assembled (build.md, "C files"). The prelude is also read in front of `INCLUDE_ASM` code. `break`, `cvt.w.s`, `sqrt.s`, `mtc1`, `mfc0` and `mfc1` become
 data, so gas never moves them into a delay slot (for `mtc1` that is what the original shows); the compiler only emits them inside `.set noreorder` blocks or where nothing
 moves, so this has not mattered yet.
 
@@ -886,7 +890,7 @@ Code shapes:
 - Float functions need file-scope prototypes of `atan2f` and `sqrtf`: an implicit declaration is `double` and the link
   fails on `fptodp`.
 
-Assembler limits (both need a change of `include/gcc_prelude.inc`, a follow-up):
+Assembler limits (both solved in T17 batch 4 by `configure.py`'s rewrite of the compiler's output):
 
 - gas puts a hazard `nop` between the `lui / mtc1 $at` it makes of `li.s` and a following prelude `mtc1` `.word`
   (`mtc1 $0, $f24`): `Cam_SetDistance` matches in every instruction but has this extra `nop`.
@@ -1007,7 +1011,7 @@ Code shapes:
 - A switch with a jump table needs enough cases for gcc to choose a table: the `func_00350C40` draft has two filler
   cases (marked [I]) so that it emits the original's 0x68-entry `jtbl_00521E40`.
 
-Compiler and assembler limits found (not solved):
+Compiler and assembler limits found (the `-ffast-math` and hazard-nop ones solved in T17 batch 4):
 
 - **`-ffast-math` folds what `func_0034CC38` / `func_0034E148` keep**: `x + 0.0f`, `x / 12.0f * s` as `div.s` then `mul.s`,
   `x * 3.141593f / 180.0f`. Without the flag they come within 9 and 23 lines, but the same file's `func_0034E018` /
@@ -1116,9 +1120,9 @@ Objects and data:
 - **splat writes the VU0 accumulator as a bare `ACC`** in the function files of a C segment (`vmulax.xy ACC, ...` in
   `func_003DA138` / `func_003DAA80`; the generic chunk had `$ACC`), which gas refuses. `src/model_anim_b.c` defines gas
   macros for the three mnemonics that rewrite the operand and then use the real instruction (each macro purges itself
-  around the use and is defined again); inline asm in C must spell it `$ACC`.
+  around the use and is defined again); inline asm in C must spell it `$ACC`. (Fixed centrally in T17 batch 4.)
 - The clean rebuild once failed with missing `asm/nonmatchings/file/*.s` right after `configure.py` (a second split ran
-  while `file.c` compiled); running `ninja` again built it. Rerun before suspecting a source change.
+  while `file.c` compiled); running `ninja` again built it. (Cause found and fixed in T17 batch 4.)
 - Three C jump tables (`func_003D85D8`, `func_003D8E30` here; `func_003D2B88` stays a draft) needed no `RODATA_ALIGN`.
 
 Compiler:
@@ -1172,6 +1176,70 @@ Tools:
   clashing types and prototypes by hand, and confirmed every function with fdiff and the SHA-1. The comparator must skip
   objdump's `.L` symbols (splat's `jlabel` case labels), or it cuts functions with jump tables short.
 
+### Lessons from T17 batch 4 (2026-10-20)
+
+Build:
+
+- **Objects built without `-ffast-math`** are listed in `NO_FAST_MATH` (`configure.py`): `effects.c`, `effects_draw.c`,
+  `scene3d.c`, `model_anim.c`, `model_anim_b.c`. Each of the five compiles every function that already matched to the same
+  section bytes and relocations without the flag (each object built both ways and compared), so the flag could go per
+  file; seven drafts then matched. `scene3d.c` is in the list on weaker evidence: its two float drafts went from 61 and 77
+  lines to 10 and 21, and none of its drafts got worse.
+- **The flaky clean rebuild**: `included_asm` read only `INCLUDE_ASM`, and `file.c` (all C) pulls in only
+  `INCLUDE_RODATA` tables, so its compile did not wait for the split step. ninja reruns the split whenever one of its
+  outputs has no `.ninja_log` entry (a split file that is new since the last build), and that split empties `asm/`
+  while `file.c` compiles. `INCLUDE_RODATA` files are now dependencies too. The first clean build afterwards did run
+  the second split (the new outputs) and passed.
+- **Bare `ACC`** is fixed after each split (`fix_split_asm`, only after a VU0 mnemonic); `src/model_anim_b.c` lost its gas
+  macros.
+- Every C object depends on `configure.py`, whose code rewrites the compiler's output and sets the ABI tag.
+- `scripts/permute.py`'s `compile.sh` still uses `CC_FLAGS` (with `-ffast-math`) and skips `--fix-asm`: a follow-up before
+  permuting a function of the five files or one with these hazards.
+
+Assembler (`configure.py --fix-asm`, docs/build.md "C files"; each rule checked by assembling the snippet against the
+original bytes, then by the SHA-1 with every C file rewritten):
+
+- **FPU compare before a branch**: gcc writes `#nop` after `c.cond.s`. When its next line is `.set noreorder` (a branch
+  with a filled slot), gas inserts the nop on the directive and the original has it; when the next line is a `bc1t` /
+  `bc1f` that gcc left to the assembler, the original has none. The compare then becomes a data word. A data word makes
+  gas insert the nops still owed to the instruction before it, but only after a compare, an `mtc1` (also the one of
+  `li.s`) or `ctc1` / `cfc1` (tried: `lwc1`, `lw`, `mflo`, `mfhi`, `mult`, `div`, FPU arithmetic, `lq`, `mfsa`, `jal` and
+  `lui` give none).
+- **`li.s` before a data word**: gas never moves the `lui / mtc1` of `li.s` into a delay slot and adds no nop between it
+  and an instruction that reads the register, only before data. Written out as `lui $1` + the prelude's `mtc1`, the one
+  difference goes away; `li.s` from the `.lit4` pool (one `lwc1`, which gas does move into delay slots) stays as it is.
+- **`sqrt.s` in a `jal` delay slot**: in the original all 9 `sqrt.s` next to a `jal` sit in its delay slot, none before
+  it, while all 31 `div.s` next to a `jal` come before it. gcc writes `nop / nop / sqrt.s` as its own noreorder block, so
+  the game's assembler moved the last instruction of that block into the slot of a following `jal` (the modern gas never
+  moves noreorder instructions), for `sqrt.s` only. No function matches through this rule yet [I]: the three stage
+  drafts that need it let gcc fill the slot itself.
+
+Compiler:
+
+- **The libcall names of `func_003A8D08`**: without `-ffast-math` this compiler calls `sqrtf` for the errno fallback and
+  `fptoui` for float to `u32`; the original calls `sqrt` and `__fixunssfsi`. No ee-gcc of decomp.me names them that way
+  (990721 to 2.96, also with `-msingle-float` / `-msoft-float`); `-fshort-double` gives `sqrt` for the `sqrt()` builtin
+  but still `fptoui`; an asm label on the prototype (`sqrtf(f32) __asm__("sqrt")`) drops the builtin and its inline
+  `sqrt.s`. It matched with the assembler equates `.set sqrtf, sqrt` / `.set fptoui, __fixunssfsi` (marked fake), which
+  relocate the calls to the original symbols.
+- **One object, two square roots**: `effects_draw` has the errno form (`func_003A8D08`) and a bare `sqrt.s`
+  (`func_003A76C0`), as do `scene3d` and `model_anim_b`; the bare ones use the inline-asm `SqrtS` of T17 b3 (fake).
+  `func_003D7A40` matched with `SqrtS` in place of the `do {} while (0)` fake, which had added a `.p2align 3` nop.
+- With the file's flag, `func_003A6110`'s C jump table ends at 0x519914 and `D_00519918` needs `RODATA_ALIGN8()` after it
+  (fdiff said OK, the SHA-1 step caught it); its `jtbl_` include goes away and `D_00519918` moves after the function.
+- `func_003518B8` (`scene3d_c`) now matches in every instruction, but its `.lit4` word lies after `render_fighter_a`'s pool:
+  as C the word lands in `scene3d_c`'s pool, which moves `.sdata` by 16 (seen as a `$gp` offset in other functions).
+- Prototypes fixed without a byte change: `func_003A6390` / `func_003A5FA0` return `s32` in `battle_flow.c`,
+  `Wind_Init(s32)`, and `model_draw.c`'s `StageObjList` has `obj[36]` followed by 0x234 bytes, like `model_anim_b.c`'s.
+
+Matched (20): `Cam_SetDistance`, `func_00352F50`, `func_003A1378`, `func_003A3438`, `func_003A35C8`, `func_003A4128`,
+`func_003A4C28`, `func_003A6110`, `func_003A8D08`, `func_003A95D8`, `func_003D1468`, `func_003D3C68`, `func_003D4B18`,
+`func_003D4F58`, `func_003D5798`, `func_003D5998`, `func_003D7A40`, `func_003D8038`, `func_003D8088`, `func_003D80E8`.
+Not matched: `func_00392F80` (14 lines), `func_003932F0` (39), `func_00393550` (26), `func_0034CC38` (10), `func_0034E148`
+(21), `func_003518B8` (the `.lit4` word). The counts in the `NON_MATCHING` notes of the five files without `-ffast-math`
+were measured again with fdiff, one draft at a time (enabling all drafts of a file at once moves the `$gp` offsets);
+earlier counts came from the helpers' scratch comparator.
+
 ## Decompiled so far
 
 | File | Range | C / functions | Notes |
@@ -1192,9 +1260,9 @@ Tools:
 | `src/battle_flow.c` | 0x3682F8-0x3745E8 | 120 / 148 | the fight simulation: per-frame update, input fetch and history, command matching and situation tests, move start and move events, hits and throws (`Battle_ResolveHits`, `Fighter_StartThrownMove`), launches, the round state machine (`Battle_UpdateRound`) and results ([systems/fighter.md](systems/fighter.md) section 5); includes the four functions of the former `src/374520.c`; `.rodata` 0x4FF8D0-0x500780 included in place; damage `Fighter_ApplyDamage` and its `.lit4` 0x5F5168 |
 | `src/fight_misc.c` | 0x376C30-0x3790C8 | 26 / 29 | the hit test (attack volumes against body spheres), body sphere radii, push sphere radii, the special attack volume of character 0x1D ([systems/fighter.md](systems/fighter.md) section 5.5); `.rodata` 0x506150-0x506260, `.lit4` 0x5F5170 |
 | `src/select_results.c` | 0x3C1470-0x3C1A78 | 2 / 4 | team life at round start and its per-frame recovery ([systems/fighter.md](systems/fighter.md) section 5.6); a cut inside the `select_results` module, not an object edge |
-| `src/model_anim.c` | 0x3D0660-0x3D3630 | 68 / 72 | round camera shots, the model hierarchy of the stage scenes (nodes, VU0 matrix stack `Model_*`, depth-sorted draw lists), the move log (`Fighter_LogMove`) and round-end bonus, the tag counters (`Tag_*`) and the tag swap ([systems/render.md](systems/render.md) section 11, [systems/fighter.md](systems/fighter.md) section 5.7); `.rodata` 0x520C40-0x521700, `.lit4` 0x5F5370-0x5F5378; the end is an object edge [V: data order], the start the module edge [I] |
-| `src/model_anim_b.c` | 0x3D3630-0x3DB758 | 73 / 101 | the stage wind (`Wind_*`, Lorenz generators and gusts), the animated stage scenes, GS images of model files, the stage objects (update / VU1 draw hooks, planar shadows) ([systems/render.md](systems/render.md) section 11); `.rodata` 0x521B80-0x521CE0, `.lit4` 0x5F539C-0x5F5614; gas macros for splat's bare `ACC` operand |
-| `src/stage.c` | 0x38BF98-0x396D00 | 58 / 105 | the fight camera and its per-stage values (module `camera_stage`): the per-frame camera step `Cam_Update` on `gRoundPhase`, camera keys and blends, camera scripts, reaction cameras drawn at random, stage camera distances ([systems/stage.md](systems/stage.md)); `.rodata` 0x507EE0-0x509D00 included in place; `.lit4` 0x5F5174-0x5F519C (`LIT4_WORD` for the float functions still in assembly) |
+| `src/model_anim.c` | 0x3D0660-0x3D3630 | 69 / 72 | round camera shots, the model hierarchy of the stage scenes (nodes, VU0 matrix stack `Model_*`, depth-sorted draw lists), the move log (`Fighter_LogMove`) and round-end bonus, the tag counters (`Tag_*`) and the tag swap ([systems/render.md](systems/render.md) section 11, [systems/fighter.md](systems/fighter.md) section 5.7); `.rodata` 0x520C40-0x521700, `.lit4` 0x5F5370-0x5F5378; the end is an object edge [V: data order], the start the module edge [I] |
+| `src/model_anim_b.c` | 0x3D3630-0x3DB758 | 82 / 101 | the stage wind (`Wind_*`, Lorenz generators and gusts), the animated stage scenes, GS images of model files, the stage objects (update / VU1 draw hooks, planar shadows) ([systems/render.md](systems/render.md) section 11); `.rodata` 0x521B80-0x521CE0, `.lit4` 0x5F539C-0x5F5614 |
+| `src/stage.c` | 0x38BF98-0x396D00 | 59 / 105 | the fight camera and its per-stage values (module `camera_stage`): the per-frame camera step `Cam_Update` on `gRoundPhase`, camera keys and blends, camera scripts, reaction cameras drawn at random, stage camera distances ([systems/stage.md](systems/stage.md)); `.rodata` 0x507EE0-0x509D00 included in place; `.lit4` 0x5F5174-0x5F519C (`LIT4_WORD` for the float functions still in assembly) |
 | `src/skeleton.c` | 0x34E748-0x34FF10 | 13 / 16 | the fighter skeleton (module `skeleton`): per-frame update `Skel_Update`, the root matrix that writes the position `unk51C`..`unk524`, joint world matrices, body / push spheres and attack volumes on joints, joint screen positions ([systems/animation.md](systems/animation.md)); `.lit4` 0x5F5114-0x5F5154 (`LIT4_WORD` for `Skel_SetRootMatrix`) |
 | `src/motion.c` | 0x3639F0-0x364448 | 17 / 19 | motion data (module `motion`): frame sampling, the delta / run-length frame decoder, motion banks and clips ([systems/animation.md](systems/animation.md)); `.rodata` 0x4FC610-0x4FC630 (the decoder's jump table) included in place |
 | `src/hud.c` | 0x3C1A78-0x3C3150 | 10 / 12 | the fight HUD (`Hud_Draw`: life bars with red life, damage trail, partner bar and tag slide, round markers, timer; K.O. percentages), [systems/render.md](systems/render.md) section 5; a cut inside the `select_results` range |
@@ -1202,9 +1270,9 @@ Tools:
 | `src/scene3d.c` | 0x34C508-0x34E748 | 8 / 15 | fighters' secondary motion: per-side wind, extra-joint pendulums, accessory parts ([systems/render.md](systems/render.md) section 4); `.rodata` 0x51EA60-0x51EB00, `.lit4` 0x5F5350-0x5F535C |
 | `src/scene3d_b.c` | 0x34FF10-0x3504C0 | 6 / 6 | the sword effect's packet senders (scratchpad headers); the end is an object edge (128-bit save mode, Lessons from T17 batch 1) |
 | `src/scene3d_c.c` | 0x3504C0-0x351E98 | 9 / 15 | the sword trail and glow (`func_00350C40`), its history and spline, character 20's swing ([systems/render.md](systems/render.md) section 3); `.lit4` 0x5F5614-0x5F5668 out of text order |
-| `src/scene3d_d.c` | 0x351E98-0x3543F0 | 33 / 37 | look-at, fighter lights (`Light_*`), GS image upload ([systems/render.md](systems/render.md) section 4); `.lit4` 0x5F5668-0x5F5700 |
-| `src/effects.c` | 0x3A04B8-0x3A6460 | 49 / 58 | effect callbacks: bank sprites, stage ambient effects and lens flare, hit sparks, flashes and bursts, the hit log, body-part glows, move effects ([systems/render.md](systems/render.md) section 7); `.rodata` 0x5194E0-0x519940, `.lit4` 0x5F51A4-0x5F5300 |
-| `src/effects_draw.c` | 0x3A6460-0x3A9678 | 44 / 50 | screen fade, title logo, stage texture layers, fighter texture channels, quad queue, character 0x1D's volume, effect helpers; a cut of the same object; `.rodata` 0x519940-0x519B30, `.lit4` 0x5F5300-0x5F531C |
+| `src/scene3d_d.c` | 0x351E98-0x3543F0 | 34 / 37 | look-at, fighter lights (`Light_*`), GS image upload ([systems/render.md](systems/render.md) section 4); `.lit4` 0x5F5668-0x5F5700 |
+| `src/effects.c` | 0x3A04B8-0x3A6460 | 55 / 58 | effect callbacks: bank sprites, stage ambient effects and lens flare, hit sparks, flashes and bursts, the hit log, body-part glows, move effects ([systems/render.md](systems/render.md) section 7); `.rodata` 0x5194E0-0x519940, `.lit4` 0x5F51A4-0x5F5300 |
+| `src/effects_draw.c` | 0x3A6460-0x3A9678 | 46 / 50 | screen fade, title logo, stage texture layers, fighter texture channels, quad queue, character 0x1D's volume, effect helpers; a cut of the same object; `.rodata` 0x519940-0x519B30, `.lit4` 0x5F5300-0x5F531C |
 
 Functions left as `INCLUDE_ASM` carry their closest attempt above them in `#if 0` with a `NON_MATCHING:` note; in
 `fighter_core.c`, `battle_flow.c` and `fight_misc.c` every remaining function has one (T14 b9); in `stage.c` every

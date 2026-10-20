@@ -4,8 +4,8 @@
  * sound panning), the GS image packets of model files and the stage objects (two lists of up to 36 animated, skinned
  * objects drawn through VU1 with planar shadows). Its .rodata (0x521B80-0x521CE0) and .lit4 (0x5F539C-0x5F5614) are
  * subsegments, included in place (force_not_migration in data.txt); LIT4_WORD emits the pool words of functions still
- * in assembly. The object looks built without -ffast-math (four functions match only without it); its bare sqrt.s
- * comes from an inline-asm square root. StageObjSetup / StageObjSetupList (set-up code) and StageObj / StageObjList
+ * in assembly. Built without -ffast-math (configure.py NO_FAST_MATH; four functions match only that way); its bare
+ * sqrt.s comes from an inline-asm square root. StageObjSetup / StageObjSetupList (set-up code) and StageObj / StageObjList
  * (update and draw code) are two views of the same 0x90-byte objects and 0x1680-byte lists. Every NON_MATCHING draft
  * (#if 0) compiles when enabled. */
 #include "common.h"
@@ -927,7 +927,7 @@ s32 func_003D3988(f32 *dir, s32 rate, f32 len, f32 amp) {
 }
 
 #if 0
-/* NON_MATCHING: 19 the original reloads D_005F6F34 / D_005F6F3C after the 16-byte ring store (alias), the build reuses them */
+/* NON_MATCHING: 25 the original reloads D_005F6F34 / D_005F6F3C after the 16-byte ring store (alias), the build reuses them */
 /* Starts a gust at pos (also written to the record ring while recording); 0 and gusts blocked when all 4 are
  * busy [I]. */
 s32 func_003D3B80(f32 *pos, f32 amp) {
@@ -961,8 +961,6 @@ s32 func_003D3B80(f32 *pos, f32 amp) {
 INCLUDE_ASM("asm/nonmatchings/model_anim_b", func_003D3B80);
 #endif
 
-#if 0
-/* NON_MATCHING: 3 hazard nop: gas adds a nop before the unfilled bc1f after c.lt.s (assembler limit) */
 /* A gust from a fighter's landing / hit (battle_flow): strength (w / 300 clamped to 0-1) squared x 30 [I]. */
 void func_003D3C68(f32 x, f32 y, f32 z, f32 w) {
     FVec4 v;
@@ -984,9 +982,6 @@ void func_003D3C68(f32 x, f32 y, f32 z, f32 w) {
         func_003D3B80(v, w * 30.0f);
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/model_anim_b", func_003D3C68);
-#endif
 
 /* The wind of the generators at a point (fighters' cloth, effects). */
 void Wind_Sample(f32 x, f32 y, f32 z, f32 *out) {
@@ -1169,7 +1164,7 @@ void func_003D4388(WindGust *g, s32 *p) {
 }
 
 #if 0
-/* NON_MATCHING: 19 f23/f24 swapped for the row/column spacings, one store order (register allocation) */
+/* NON_MATCHING: 8 f23/f24 swapped for the row/column spacings, one store order (register allocation) */
 /* Fills the wind grid of D_005F6780 (rows of 17 vectors) around pos: wind x scale, y = -|xz| - off [I]. */
 void func_003D43A8(f32 *pos, f32 scale, f32 off) {
     s16 nx = D_005F6780->unk6;
@@ -1257,7 +1252,7 @@ void func_003D4718(void) {
 }
 
 #if 0
-/* NON_MATCHING: 8 the build hoists the D_005F6F38 load above the copy loop; the original loads it after (alias of the u128 stores) */
+/* NON_MATCHING: 10 the build hoists the D_005F6F38 load above the copy loop; the original loads it after (alias of the u128 stores) */
 /* Saves the live gust ring and its frame count into a slot (replays). */
 void func_003D4728(s32 slot) {
     s32 i, j;
@@ -1345,8 +1340,6 @@ void func_003D4830(StgObj *o) {
     o[11].unkC = 0;
 }
 
-#if 0
-/* NON_MATCHING: 30 needs no -ffast-math (OK without the flag) */
 /* Moves the flock: each bird flies along Z at its speed and restarts from a new random place past its range, turns
  * its four parts at random and draws them (faded in and out near the ends of the range); then the leader (part 11)
  * circles the origin and is drawn [I]. */
@@ -1435,17 +1428,6 @@ void func_003D4B18(StgObj *o) {
         func_00375930(0, 0);
     }
 }
-#else
-LIT4_WORD(D_005F53E0, 0x40490FDB);
-LIT4_WORD(D_005F53E4, 0x461C4000);
-LIT4_WORD(D_005F53E8, 0x3FC90FDB);
-LIT4_WORD(D_005F53EC, 0x3AE4C389);
-LIT4_WORD(D_005F53F0, 0x47C35000);
-LIT4_WORD(D_005F53F4, 0x479C4000);
-LIT4_WORD(D_005F53F8, 0xC7435000);
-LIT4_WORD(D_005F53FC, 0x477DE800);
-INCLUDE_ASM("asm/nonmatchings/model_anim_b", func_003D4B18);
-#endif
 
 /* Turns the object about Y by a constant step [I]. */
 void func_003D4ED8(StgObj *o) {
@@ -1460,8 +1442,6 @@ void func_003D4F18(StgObj *o) {
 }
 
 INCLUDE_RODATA("asm/nonmatchings/model_anim_b", D_00521B80);
-#if 0
-/* NON_MATCHING: 34 needs no -ffast-math (2 without: hazard nops after c.lt.s before two unfilled bc1f); sqrt via inline asm SqrtS (fake) */
 /* Sets the stereo volume of the object's sound from its distance to the origin and its direction in view space [I]. */
 void func_003D4F58(StgObj *o) {
     Vu0Matrix root;
@@ -1484,7 +1464,7 @@ void func_003D4F58(StgObj *o) {
     sceVu0ApplyMatrix(v, D_00433400, m[3]);
     func_0034A868(v, v);
     ip = sceVu0InnerProduct(ear.v, v);
-    d = SqrtS(m[3][0] * m[3][0] + m[3][2] * m[3][2]);
+    d = SqrtS(m[3][0] * m[3][0] + m[3][2] * m[3][2]); /* fake: SqrtS */
     t = 1.0f - d / 150000.0f;
     if (t < 0.2f) {
         t = 0.2f;
@@ -1515,17 +1495,6 @@ void func_003D4F58(StgObj *o) {
     }
     func_00375930((s32)(vol * l), (s32)(vol * r));
 }
-#else
-LIT4_WORD(D_005F5408, 0x48127C00);
-LIT4_WORD(D_005F540C, 0x3E4CCCCD);
-LIT4_WORD(D_005F5410, 0x461C4000);
-LIT4_WORD(D_005F5414, 0x48127C00);
-LIT4_WORD(D_005F5418, 0x3F99999A);
-LIT4_WORD(D_005F541C, 0x3F4CCCCD);
-LIT4_WORD(D_005F5420, 0x3F19999A);
-LIT4_WORD(D_005F5424, 0x3F19999A);
-INCLUDE_ASM("asm/nonmatchings/model_anim_b", func_003D4F58);
-#endif
 
 /* Turns the object about Y to face the work area's target object (D_00444D10), relative to that object's own turn [I]. */
 void func_003D5190(StgObj *o) {
@@ -1562,7 +1531,7 @@ void func_003D5238(StgObj *o) {
 }
 
 #if 0
-/* NON_MATCHING: 16 1.0f kept in two FPU registers (f20 for the calls, a copy in f21 for the loop clamp); same 16 without -ffast-math */
+/* NON_MATCHING: 18 1.0f kept in two FPU registers (f20 for the calls, a copy in f21 for the loop clamp) */
 /* Resets parts 0, 13 and 14 to the unit matrix, then hands every scene entry nearer than 10000 that names one of
  * the parts 15-18 (slots 5, 6, 9, 10) to Model_QueueDraw with a strength that falls off with the distance [I]. */
 void func_003D52B0(StgObj *o) {
@@ -1688,8 +1657,6 @@ void func_003D56F0(StgObj *o) {
 }
 
 INCLUDE_RODATA("asm/nonmatchings/model_anim_b", D_00521BA0);
-#if 0
-/* NON_MATCHING: 4 needs no -ffast-math (OK without the flag: -atan2f() + pi/2 keeps neg.s/add.s) */
 /* Moves the object round the origin (a step along its heading, turned by D_00521BA0), faces it along its orbit, draws
  * it, and every 1800-2399 frames puts it back at a random direction (as func_003D56F0) [I]. */
 void func_003D5798(StgObj *o) {
@@ -1735,18 +1702,8 @@ void func_003D5798(StgObj *o) {
         }
     }
 }
-#else
-LIT4_WORD(D_005F5444, 0x3FC90FDB);
-LIT4_WORD(D_005F5448, 0x40490FDB);
-LIT4_WORD(D_005F544C, 0x4808B800);
-LIT4_WORD(D_005F5450, 0x47CF0800);
-LIT4_WORD(D_005F5454, 0x3DB2B8C3);
-INCLUDE_ASM("asm/nonmatchings/model_anim_b", func_003D5798);
-#endif
 
 INCLUDE_RODATA("asm/nonmatchings/model_anim_b", D_00521BB0);
-#if 0
-/* NON_MATCHING: 35 needs no -ffast-math (OK without the flag; sqrt via inline asm SqrtS, fake) */
 /* Sets the stereo volume of the object's second sound from its direction and its distance in view space [I]. */
 void func_003D5998(StgObj *o) {
     Vu0Matrix root;
@@ -1774,7 +1731,7 @@ void func_003D5998(StgObj *o) {
         c = 2.0f;
     }
     vol = c * 0.5f * vol;
-    d = SqrtS(m[3][0] * m[3][0] + m[3][2] * m[3][2]);
+    d = SqrtS(m[3][0] * m[3][0] + m[3][2] * m[3][2]); /* fake: SqrtS */
     vol *= 1.0f - (d - 20000.0f) / 100000.0f;
     if (vol < 0.0f) {
         vol = 0.0f;
@@ -1790,19 +1747,11 @@ void func_003D5998(StgObj *o) {
     }
     func_003758F0((s32)(vol * l), (s32)(vol * r));
 }
-#else
-LIT4_WORD(D_005F5458, 0x3F4CCCCD);
-LIT4_WORD(D_005F545C, 0x469C4000);
-LIT4_WORD(D_005F5460, 0x47C35000);
-LIT4_WORD(D_005F5464, 0x3F19999A);
-LIT4_WORD(D_005F5468, 0x3F19999A);
-INCLUDE_ASM("asm/nonmatchings/model_anim_b", func_003D5998);
-#endif
 
 INCLUDE_RODATA("asm/nonmatchings/model_anim_b", D_00521BC0);
 INCLUDE_RODATA("asm/nonmatchings/model_anim_b", jtbl_00521BD0);
 #if 0
-/* NON_MATCHING: 59 loop 3 addresses: compiler hoists &row[0].item (wk + 12) as an invariant, original recomputes row + 12; same 59 without -ffast-math */
+/* NON_MATCHING: 69 loop 3 addresses: compiler hoists &row[0].item (wk + 12) as an invariant, original recomputes row + 12 */
 /* Sets up the lanes stage: 40 parts copied from templates 0, 8 and 9, ten lanes with a position and a random speed
  * (either way), and each part put at a random free place of a random lane (4000 apart) [I]. */
 void func_003D5B58(StgObj *o) {
@@ -1888,7 +1837,7 @@ INCLUDE_ASM("asm/nonmatchings/model_anim_b", func_003D5B58);
 #endif
 
 #if 0
-/* NON_MATCHING: 94 same hoisting of wk + 4 / wk + 12 out of the lane loops (73 without -ffast-math) */
+/* NON_MATCHING: 81 same hoisting of wk + 4 / wk + 12 out of the lane loops */
 /* Moves the lanes stage: each lane and part wraps round the camera within 20000 along X / Z, the parts move along Z at
  * their lane's speed and are drawn; then the scene entries nearer than 11000 that name parts 4-7 are handed to
  * Model_QueueDraw [I]. */
@@ -1989,7 +1938,7 @@ void func_003D6208(StgObj *o) {
 
 INCLUDE_RODATA("asm/nonmatchings/model_anim_b", D_00521BF0);
 #if 0
-/* NON_MATCHING: 211 draft: case layout (0,2,3,1) and visibility flag shape found; register allocation, the kept div.s of /450 /330 /60 /120 /20000 (maybe built without -ffast-math) and the dead off-screen test remain */
+/* NON_MATCHING: 159 draft: case layout (0,2,3,1) and visibility flag shape found; register allocation, the divisions by /450 /330 /60 /120 /20000 and the dead off-screen test remain (fdiff lines with the file built without -ffast-math) */
 /* Floating object: bobs while on screen, rises and turns away (phase 2), sinks back (phase 3); its sound follows the
  * light-relative facing and height (func_00375930 volume pair) [I]. */
 void func_003D62A0(StgObj *o) {
@@ -2420,7 +2369,7 @@ void func_003D7368(StgObj *o) {
 INCLUDE_RODATA("asm/nonmatchings/model_anim_b", D_00521C10);
 INCLUDE_RODATA("asm/nonmatchings/model_anim_b", D_00521C20);
 #if 0
-/* NON_MATCHING: 107 draft: structure and stack layout right; the kept div.s by 30 / 4000 / 800 (literal li in the loop) and case-0 branch shapes differ (maybe no -ffast-math, but it has a bare sqrt.s) */
+/* NON_MATCHING: 105 draft: structure and stack layout right; the kept div.s by 30 / 4000 / 800 (literal li in the loop) and case-0 branch shapes differ (the file is built without -ffast-math; both square roots are SqrtS) */
 /* Debris node: blown off by the stage's blast points, tumbles and falls back, respawns near the centre when too far [I]. */
 void func_003D7378(StgObj *o) {
     f32 *pos = o->pos;
@@ -2456,7 +2405,7 @@ void func_003D7378(StgObj *o) {
                 fps = 30.0f;
                 t = e->unk10 / fps;
                 range = 4000.0f;
-                a = (range - sqrtf(dx * dx + dz * dz)) / range * ((top - pos[1]) / top);
+                a = (range - SqrtS(dx * dx + dz * dz)) / range * ((top - pos[1]) / top);
                 a = a * a;
                 if (a >= 0.8f) {
                     a = 0.8f;
@@ -2562,9 +2511,7 @@ void func_003D7378(StgObj *o) {
     }
     dx = cx - pos[0];
     dz = cz - pos[2];
-    a = sqrtf(dx * dx + dz * dz);
-    do {
-    } while (0); /* fake: keeps the 8000.0f load after the sqrt.s */
+    a = SqrtS(dx * dx + dz * dz); /* fake: SqrtS */
     if (a > 8000.0f) {
         FVec4 c;
 
@@ -2603,8 +2550,6 @@ LIT4_WORD(D_005F5584, 0x40490FDB);
 INCLUDE_ASM("asm/nonmatchings/model_anim_b", func_003D7378);
 #endif
 
-#if 0
-/* NON_MATCHING: 2 hazard nop (gas nop between c.le.s and bc1f); otherwise matches with the T13 do-while fake after sqrtf */
 /* Returns entry i's value when (x, z) is within 4000 units of it, else 0 [I]. */
 s32 func_003D7A40(s32 i, f32 x, f32 y, f32 z) {
     WindGust *e = &D_0044B100[i];
@@ -2617,17 +2562,12 @@ s32 func_003D7A40(s32 i, f32 x, f32 y, f32 z) {
     }
     dx = x - e->unk20[0];
     dz = z - e->unk20[2];
-    d = sqrtf(dx * dx + dz * dz);
-    do {
-    } while (0); /* fake: keeps the 4000.0f load after the sqrt.s */
+    d = SqrtS(dx * dx + dz * dz); /* fake: SqrtS */
     if (d >= 4000.0f) {
         return 0;
     }
     return e->unk4;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/model_anim_b", func_003D7A40);
-#endif
 
 /* Camera node: sets the lens of entry unk34, copies the base camera and moves it by the node's offset [I]. */
 void func_003D7AB0(StgObj *o) {
@@ -2712,7 +2652,7 @@ s32 func_003D7DA8(s32 *pos) {
 }
 
 #if 0
-/* NON_MATCHING: 10 second loop: original reloads f[i] into v1 and copies it to a0 (move) for unk3C = unk1A; no source shape tried reproduces it */
+/* NON_MATCHING: 9 second loop: original reloads f[i] into v1 and copies it to a0 (move) for unk3C = unk1A; no source shape tried reproduces it */
 /* Turns both fighters' positions and facings about the origin so that they line up with the light [I]. */
 void func_003D7E10(Fighter *a, Fighter *b, s32 n) {
     Vu0Matrix m;
@@ -2769,8 +2709,6 @@ LIT4_WORD(D_005F55A0, 0x40C90FDB);
 INCLUDE_ASM("asm/nonmatchings/model_anim_b", func_003D7E10);
 #endif
 
-#if 0
-/* NON_MATCHING: 3 hazard nop (gas nop after c.lt.s before unfilled bc1t/bc1f) */
 /* Reduces an angle into [-pi, pi] by whole multiples of pi [I]. */
 f32 func_003D8038(f32 a) {
     f32 p = 3.1415927f;
@@ -2780,14 +2718,7 @@ f32 func_003D8038(f32 a) {
     }
     return a;
 }
-#else
-LIT4_WORD(D_005F55A4, 0x40490FDB);
-LIT4_WORD(D_005F55A8, 0xC0490FDB);
-INCLUDE_ASM("asm/nonmatchings/model_anim_b", func_003D8038);
-#endif
 
-#if 0
-/* NON_MATCHING: 3 hazard nop (gas nop after c.lt.s before unfilled bc1f) */
 /* Wraps an angle once into [-pi, pi], then into [0, 2pi). */
 f32 func_003D8088(f32 a) {
     f32 r = a;
@@ -2803,17 +2734,7 @@ f32 func_003D8088(f32 a) {
     }
     return a;
 }
-#else
-LIT4_WORD(D_005F55AC, 0x40490FDB);
-LIT4_WORD(D_005F55B0, 0x40C90FDB);
-LIT4_WORD(D_005F55B4, 0xC0490FDB);
-LIT4_WORD(D_005F55B8, 0x40C90FDB);
-LIT4_WORD(D_005F55BC, 0x40C90FDB);
-INCLUDE_ASM("asm/nonmatchings/model_anim_b", func_003D8088);
-#endif
 
-#if 0
-/* NON_MATCHING: 3 hazard nop (gas nop after c.lt.s before unfilled bc1f) */
 /* Wraps an angle once into [-pi, pi]. */
 f32 func_003D80E8(f32 a) {
     if (a > 3.1415927f) {
@@ -2823,13 +2744,6 @@ f32 func_003D80E8(f32 a) {
     }
     return a;
 }
-#else
-LIT4_WORD(D_005F55C0, 0x40490FDB);
-LIT4_WORD(D_005F55C4, 0x40C90FDB);
-LIT4_WORD(D_005F55C8, 0xC0490FDB);
-LIT4_WORD(D_005F55CC, 0x40C90FDB);
-INCLUDE_ASM("asm/nonmatchings/model_anim_b", func_003D80E8);
-#endif
 
 /* Random float in [0, 1): rand() / 2^31. */
 f32 func_003D8128(void) {
@@ -2837,7 +2751,7 @@ f32 func_003D8128(void) {
 }
 
 #if 0
-/* NON_MATCHING: 53 same structure and instruction count +2; register allocation of mode/n/base differs and gcc hoists base+0x20 into the first loop preheader */
+/* NON_MATCHING: 59 same structure and instruction count +2; register allocation of mode/n/base differs and gcc hoists base+0x20 into the first loop preheader */
 /* Relocates the GS image records of a model file by `off` (TBP / CBP fields) and patches them for a draw mode: 1-3
  * set the register word appended after each last record (0x320 / 0x2BC / 0x258, mode 3 then acts as 2), mode 2 also
  * sets fixed alpha values, mode 0 the 0x100000 flag (except stage type 3) [I]. */
@@ -3506,7 +3420,7 @@ s32 func_003D9410(void) {
 }
 
 #if 0
-/* NON_MATCHING: 16 first half matches; the second fighter clamp and the min keep b in f0 then copy it to f1 in the original, and the gFighters+0x8000 base stays in s0 across the call (36 clamp/min source forms tried) */
+/* NON_MATCHING: 18 first half matches; the second fighter clamp and the min keep b in f0 then copy it to f1 in the original, and the gFighters+0x8000 base stays in s0 across the call (36 clamp/min source forms tried) */
 /* Camera far distance [I]: 3000 in mode 7, 2000 in mode 8, otherwise the smaller of the two fighters' distances
  * (unk + 0x620, kept in D_005F6FC8 / D_005F6FCC while a fighter is hidden), at least 3000. */
 f32 func_003D9468(void) {
@@ -3561,7 +3475,7 @@ INCLUDE_ASM("asm/nonmatchings/model_anim_b", func_003D9468);
 #endif
 
 #if 0
-/* NON_MATCHING: 69 register allocation (list/objs in s7/s8 and i/dst in s3/s2 swapped vs original) and the wait-timer if/else laid out as "b test; advance; test: blez; decrement" in the original (no C form found) */
+/* NON_MATCHING: 91 register allocation (list/objs in s7/s8 and i/dst in s3/s2 swapped vs original) and the wait-timer if/else laid out as "b test; advance; test: blez; decrement" in the original (no C form found) */
 /* Update hook of the stage object lists (first variant): steps the objects' animations in a scratchpad copy of the
  * list, sorts the animated ones by (animation, frame), then builds their matrices and clip flags (object and
  * projected shadow) [I]. */
@@ -3706,7 +3620,7 @@ INCLUDE_ASM("asm/nonmatchings/model_anim_b", func_003D9588);
 #endif
 
 #if 0
-/* NON_MATCHING: 95 same two issues as func_003D9588 (shares its code shape) */
+/* NON_MATCHING: 110 same two issues as func_003D9588 (shares its code shape) */
 /* Update hook of the stage object lists (second variant, func_003D8700() != 0): steps the objects' animations in a scratchpad copy of the
  * list, sorts the animated ones by (animation, frame), then builds their matrices and clip flags (object and
  * projected shadow) [I]. */
@@ -3836,29 +3750,8 @@ LIT4_WORD(D_005F55FC, 0x38C90FDC);
 INCLUDE_ASM("asm/nonmatchings/model_anim_b", func_003D9BE8);
 #endif
 
-/* splat writes the accumulator operand of three VU0 macro instructions of the two functions below as a bare `ACC`
- * (in the generic assembly chunk it was `$ACC`), which gas refuses. These assembler macros rewrite the operand and
- * then use the real instruction (each one purges itself around that use and is defined again). */
-#ifndef PERMUTER
-__asm__(
-    ".macro _acc_def name\n"
-    " .macro \\name acc, fs, ft\n"
-    "  .purgem \\name\n"
-    "  .ifc \\acc,ACC\n"
-    "   \\name $ACC, \\fs, \\ft\n"
-    "  .else\n"
-    "   \\name \\acc, \\fs, \\ft\n"
-    "  .endif\n"
-    "  _acc_def \\name\n"
-    " .endm\n"
-    ".endm\n"
-    "_acc_def vmulax.xy\n"
-    "_acc_def vmulay.yz\n"
-    "_acc_def vmulaz.xz\n");
-#endif
-
 #if 0
-/* NON_MATCHING: 333 draft; VU0 rotation as one inline __asm__ block (lqc2 / jal func_003E8FA0 / vmula / sqc2), stack layout and spills differ */
+/* NON_MATCHING: 337 draft; VU0 rotation as one inline __asm__ block (lqc2 / jal func_003E8FA0 / vmula / sqc2), stack layout and spills differ */
 /* Rotates the matrix m by the angles r[0] (x), r[1] (y), r[2] (z) on VU0 (the inlined body of the library rotations,
  * func_003E8FA0 being its sin / cos helper that leaves both in vf8). */
 static inline void RotMtxXYZ(Vu0Matrix m, f32 *r) {

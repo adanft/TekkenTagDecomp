@@ -25,8 +25,8 @@ typedef struct {
 /* D_01FBF680 / D_01FC0D00: the two stage object lists (0x1680 bytes each), filled by func_003DB578 from the stage's
  * entry of D_00453FC8 and run through the hooks D_005F6FD0 (update) / D_005F6FD4 (draw) [V]. */
 typedef struct {
-    /* 0x0000 */ StageObj obj[39];
-    /* 0x15F0 */ u8 unk15F0[0x84];
+    /* 0x0000 */ StageObj obj[36];
+    /* 0x1440 */ u8 unk1440[0x234]; /* bounding boxes, clip volume, bone parents (src/model_anim_b.c) */
     /* 0x1674 */ s32 unk1674;
     /* 0x1678 */ s16 unk1678; /* object count */
     /* 0x167A */ u8 unk167A[6];

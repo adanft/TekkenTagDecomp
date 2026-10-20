@@ -621,9 +621,7 @@ void func_00352ED8(f32 *out, f32 *a, f32 *b, f32 t) {
     out[3] = 0;
 }
 
-/* NON_MATCHING: 1 line: the original assembler put no hazard nop between `c.lt.s` and an unfilled `bc1f` (gas does) */
 /* Distance fade: 1 below `near`, 0 beyond `far`, linear between. [V] */
-#if 0
 f32 func_00352F50(f32 x, f32 near, f32 far) {
     if (x < near) {
         return 1.0f;
@@ -633,9 +631,6 @@ f32 func_00352F50(f32 x, f32 near, f32 far) {
     }
     return 0.0f;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/scene3d_d", func_00352F50);
-#endif
 
 /* Builds the VU0 light matrices from a light set: the three directions into `out` (transposed, the normal light
  * matrix), the colours scaled by `s`, the ambient scaled by `amb` (the colour light matrix). [V] */

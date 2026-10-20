@@ -1,9 +1,12 @@
 # Put in front of ee-gcc's assembly output (and of the asm a C file pulls in with INCLUDE_ASM) so the modern gas
 # encodes it the way the game's 1999-2000 assembler did. Each rule was checked against the original bytes.
 #
-# Not needed for this compiler: the hazard nop gas keeps after an FPU compare is in the original too
-# (`c.le.s / nop / bc1t`), and the compiler itself emits the nops the R5900 needs in front of div.s and sqrt.s
-# and inside short loops. The hazard nops gas adds after mtc1, mfc0 and mfc1 are not in the original (macros below).
+# The compiler itself emits the nops the R5900 needs in front of div.s and sqrt.s and inside short loops. The hazard
+# nops gas adds after mtc1, mfc0 and mfc1 are not in the original (macros below). Three differences need to see the
+# neighbouring lines, so configure.py rewrites the compiler's output before it gets here (fix_compiler_asm): `li.s`
+# built with `lui $at` goes through the mtc1 macro below, an FPU compare right before a bc1t / bc1f that gcc left to
+# the assembler becomes data (the hazard nop gas keeps at a following `.set noreorder`, `c.le.s / nop / bc1t`, is in
+# the original), and a sqrt.s ending a noreorder block moves into the delay slot of a following `jal`.
 
 # Register moves were 64-bit: `move` is daddu, not gas's `or`.
 .macro move dst, src
@@ -80,7 +83,8 @@
 
 # `mtc1 rt, fs`: the game's assembler put no hazard nop after it when the next instruction reads fs
 # (`mtc1 $4,$f0 / cvt.s.w $f0,$f0`), and never moved it into the delay slot of a branch behind it. Emitted as data,
-# so gas does neither. (The `lui $at / mtc1 $at` that gas makes of `li.s` does not go through this macro.)
+# so gas does neither. (configure.py writes `li.s` out as `lui $1` and this macro when its value allows it, so gas puts
+# no hazard nop between it and a following data word such as `mtc1 $0, $f24`.)
 .macro mtc1 rt, fs
     __gpr_num .L__rt, \rt
     __fpr_num .L__fs, \fs

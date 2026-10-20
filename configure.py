@@ -17,6 +17,7 @@ import os
 import re
 import shlex
 import shutil
+import struct
 import subprocess
 import sys
 from pathlib import Path
@@ -45,6 +46,9 @@ CC = "tools/compilers/ee-gcc2.9-991111-01/bin/ee-gcc"
 # -fno-strict-aliasing: the compiler turns strict aliasing on at -O2, but the game reloads a 16-bit vector after
 # every store to a 32-bit one (the GTE-style math at 0x39A2B8); the earlier C files compile the same either way.
 CC_FLAGS = "-O2 -fno-strength-reduce -ffast-math -fno-strict-aliasing -Iinclude"
+# C files (paths) whose object was built without -ffast-math: their float code keeps `x + 0.0f`, `-x + c` and
+# divisions by constants, and sqrtf has its errno check (docs/decomp_guide.md, "Lessons from T17 batch 4").
+NO_FAST_MATH = ("src/effects.c", "src/effects_draw.c", "src/scene3d.c", "src/model_anim.c", "src/model_anim_b.c")
 # o64, not eabi: with eabi the modern gas expands address macros (la, addu with an immediate) to daddiu/daddu,
 # while the game's assembler wrote addiu/addu. The code is the same either way, so the object's ABI tag is set
 # to eabi64 afterwards (configure.py --eabi64), or the linker would refuse to mix it with the split files.
@@ -98,14 +102,106 @@ def source_of(obj):
 
 
 def included_asm(c_text):
-    """The asm files a C file pulls in with INCLUDE_ASM("folder", name), in order: folder/name.s."""
+    """The split files a C file pulls in with INCLUDE_ASM or INCLUDE_RODATA("folder", name), in order:
+    folder/name.s."""
     return [f"{folder}/{name}.s" for folder, name in
-            re.findall(r'^\s*INCLUDE_ASM\(\s*"([^"]+)"\s*,\s*(\w+)\s*\)', c_text, re.M)]
+            re.findall(r'^\s*INCLUDE_(?:ASM|RODATA)\(\s*"([^"]+)"\s*,\s*(\w+)\s*\)', c_text, re.M)]
 
 
 def g_flag(src):
     """The -G flag a C file is compiled and assembled with."""
     return next((g for prefix, g in G_FLAGS.items() if src.startswith(prefix)), G_DEFAULT)
+
+
+def cc_flags(src):
+    """The compiler flags of a C file (without -G): CC_FLAGS, less -ffast-math for the files in NO_FAST_MATH."""
+    flags = CC_FLAGS.split()
+    if src in NO_FAST_MATH:
+        flags.remove("-ffast-math")
+    return " ".join(flags)
+
+
+# splat writes the VU0 accumulator operand of the function files as a bare `ACC` (the generic chunks have `$ACC`),
+# which gas refuses: `vmulay.yz  ACC, $vf8, $vf4y`.
+BARE_ACC = re.compile(r"^(.*\*/\s+v[a-z]+(?:\.[xyzw]+)?\s+)ACC\b", re.M)
+
+
+def fix_split_asm(text):
+    """Split assembly with every bare `ACC` operand of a VU0 macro instruction written `$ACC`."""
+    return BARE_ACC.sub(r"\1$ACC", text)
+
+
+# R5900 FPU compares: the condition field of the four the CPU has (c.f.s, c.eq.s, c.lt.s, c.le.s).
+FPU_COMPARES = {"f": 0x30, "eq": 0x32, "lt": 0x34, "le": 0x36}
+ASM_INSN = re.compile(r"^\t(\.?[a-z][\w.]*)(?:\t(.*))?$")
+
+
+def _fpr(reg):
+    m = re.fullmatch(r"\$f(\d+)", reg.strip())
+    if not m or int(m.group(1)) > 31:
+        raise ValueError(f"not an FPU register: {reg}")
+    return int(m.group(1))
+
+
+def fix_compiler_asm(text):
+    """ee-gcc's assembly with three rewrites where the game's assembler and the modern gas differ (each one checked
+    against the original bytes, docs/build.md "C files"):
+
+    - `li.s $fN, x` whose value gas builds with `lui $at / mtc1` (low 16 bits zero) is written out with the prelude's
+      `mtc1` (data), so gas puts no hazard nop between it and a following prelude data word (`mtc1 $0, $f24`);
+      `li.s` of 0.0 is the prelude's `mtc1 $0, $fN`;
+    - an FPU compare right before a bc1t / bc1f that gcc left to gas (reorder mode) becomes data, so gas adds no
+      hazard nop between them (the original has none; the nop at a following `.set noreorder` stays);
+    - a `sqrt.s` ending a noreorder block (`nop / nop / sqrt.s`) followed by `jal sym` goes into that jal's delay
+      slot, where the game's assembler put it (the prelude's data word could not move there)."""
+    lines = text.split("\n")
+    out = []
+    reorder = True
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        m = ASM_INSN.match(line)
+        op, args = (m.group(1), m.group(2) or "") if m else (None, "")
+        if op == ".set" and args.strip() in ("noreorder", "reorder"):
+            reorder = args.strip() == "reorder"
+        if reorder and op == "li.s":
+            reg, value = (a.strip() for a in args.split(",", 1))
+            bits = struct.unpack("<I", struct.pack("<f", float(value)))[0]
+            if bits == 0:
+                out.append(f"\tmtc1\t$0,{reg}")
+                i += 1
+                continue
+            if bits & 0xFFFF == 0:
+                out += ["\t.set\tnoat", f"\tlui\t$1,0x{bits >> 16:X}", f"\tmtc1\t$1,{reg}", "\t.set\tat"]
+                i += 1
+                continue
+        cond = re.fullmatch(r"c\.(\w+)\.s", op or "")
+        if reorder and cond:
+            j = i + 1
+            while j < len(lines) and (not lines[j].strip() or lines[j].lstrip().startswith("#")):
+                j += 1
+            nxt = ASM_INSN.match(lines[j]) if j < len(lines) else None
+            if nxt and nxt.group(1) in ("bc1t", "bc1f"):
+                if cond.group(1) not in FPU_COMPARES:
+                    raise ValueError(f"no R5900 encoding for {line.strip()}")
+                fs, ft = (_fpr(a) for a in args.split(","))
+                word = 0x46000000 | FPU_COMPARES[cond.group(1)] | (ft << 16) | (fs << 11)
+                out.append(f"\t.word\t0x{word:08X}\t# {op} {args.strip()}")
+                i += 1
+                continue
+        if not reorder and op == "sqrt.s" and i + 2 < len(lines) and lines[i + 1] == "\t.set\treorder":
+            j = i + 2
+            while j < len(lines) and (not lines[j].strip() or lines[j].lstrip().startswith("#")):
+                j += 1
+            nxt = ASM_INSN.match(lines[j]) if j < len(lines) else None
+            if nxt and nxt.group(1) == "jal" and not (nxt.group(2) or "").strip().startswith("$"):
+                out += [lines[j], line, lines[i + 1]] + lines[i + 2:j]
+                reorder = True
+                i = j + 1
+                continue
+        out.append(line)
+        i += 1
+    return "\n".join(out)
 
 
 def set_eabi64(elf):
@@ -171,6 +267,10 @@ def split(force):
     shutil.rmtree(ROOT / ASM_DIR, ignore_errors=True)
     try:
         run([sys.executable, "-m", "splat", "split", YAML])
+        for path in (ROOT / ASM_DIR).rglob("*.s"):
+            text = path.read_text()
+            if "ACC" in text and fix_split_asm(text) != text:
+                path.write_text(fix_split_asm(text))
         ld = ROOT / LD_SCRIPT
         tmp = ld.with_name(ld.name + ".tmp")
         tmp.write_text(align_bss(ld.read_text()))
@@ -202,7 +302,8 @@ def write_ninja():
         # -Wp,-MD: the preprocessor lists every header the file includes in $out.d (ee-gcc 2.9 has no -MF), which
         # ninja keeps in .ninja_deps, so a header change rebuilds exactly the objects that include it.
         "rule cc",
-        f"  command = {CC} {CC_FLAGS} $gflag -Wp,-MD,$out.d -S $in -o $out.s && "
+        f"  command = {CC} $cflags $gflag -Wp,-MD,$out.d -S $in -o $out.s && "
+        f"{sys.executable} configure.py --fix-asm $out.s && "
         f"$as {CC_AS_FLAGS} $gflag include/gcc_prelude.inc $out.s -o $out && "
         f"{sys.executable} configure.py --eabi64 $out",
         "  description = CC $in",
@@ -250,8 +351,10 @@ def write_ninja():
         out.append(f"build {obj}: as {src} | include/macro.inc{extra}")
     for obj in c_objs:
         src = source_of(obj)
-        out.append(f"build {obj}: cc {src} | include/gcc_prelude.inc include/macro.inc "
+        # configure.py: the rewrite of the compiler's output (--fix-asm) and the ABI tag (--eabi64) run from it
+        out.append(f"build {obj}: cc {src} | include/gcc_prelude.inc include/macro.inc configure.py "
                    f"{' '.join(includes[obj])}")
+        out.append(f"  cflags = {cc_flags(src)}")
         out.append(f"  gflag = {g_flag(src)}")
     out += [
         "",
@@ -269,7 +372,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--split", action="store_true", help="run splat even if its output is up to date")
     parser.add_argument("--eabi64", metavar="OBJ", help="set the ABI tag of a compiled object to EABI64 and exit")
+    parser.add_argument("--fix-asm", metavar="S", help="rewrite the compiler's assembly in place (fix_compiler_asm) "
+                        "and exit")
     args = parser.parse_args()
+    if args.fix_asm:
+        path = Path(args.fix_asm)
+        path.write_text(fix_compiler_asm(path.read_text()))
+        return
     if args.eabi64:
         path = Path(args.eabi64)
         path.write_bytes(set_eabi64(path.read_bytes()))

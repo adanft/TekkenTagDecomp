@@ -127,18 +127,19 @@ zoom of `D_008BC690`, 0x78 frames in round 1, 0x5A later, stepped by `func_00395
 
 ### 4.5 Status (T15 batch 2)
 
-58 of 105 functions match; the other 47 are `NON_MATCHING` drafts in `#if 0` that all compile (T15 b1 left 16 raw m2c
-drafts that did not). The file's `.lit4` words (0x5F5174-0x5F519C) are a subsegment of `src/stage.c`; the four float
-functions keep them in place with `LIT4_WORD` while they are assembly.
+59 of 105 functions match (`Cam_SetDistance` since T17 batch 4); the other 46 are `NON_MATCHING` drafts in `#if 0`
+that all compile (T15 b1 left 16 raw m2c drafts that did not). The file's `.lit4` words (0x5F5174-0x5F519C) are a
+subsegment of `src/stage.c`; the three float functions still in assembly keep theirs in place with `LIT4_WORD`.
 
 **T15 status** (what stays `NON_MATCHING`, carried to T19; the closest first, each draft's note has the details):
 
 - 2-4 lines: `func_0038C1E8`, `func_0038D290`, `func_0038D3D0` (the store of r / 5 to `unk3C` lands before the mode
   store in all three: probably one unknown in the struct or the source), `func_00395718` (the prologue's `sd ra`),
   `func_00394300` (one `andi`), `func_0038F768` and `func_003963C0` (register choice / an argument copy).
-- Assembler limits: `Cam_SetDistance` (every instruction matches; gas adds a hazard nop after the `li.s` before the
-  prelude's `mtc1` word), `func_00392F80`, `func_003932F0`, `func_00393550` (the prelude's `sqrt.s` word cannot go into
-  the `jal atan2f` delay slot as in the original). Both need a change of `include/gcc_prelude.inc`.
+- `jal atan2f` delay slot: `func_00392F80`, `func_003932F0`, `func_00393550`. The original has the `sqrt.s` in that
+  slot; since T17 batch 4 the build puts it there too when gcc leaves the slot to the assembler (`configure.py`
+  `fix_compiler_asm`), but these drafts let gcc fill it with another instruction (an argument, `neg.s`, the load of
+  `dist`), so their scheduling still differs. (`Cam_SetDistance` matched once gas stopped adding the `li.s` hazard nop.)
 - Store order and scheduling, 7-60 lines: `Cam_Reset`, `func_00392888`, `func_00393F60`, `func_00393BF0`,
   `func_00395BF0`, `func_00390FA8`, `func_0038E308`, `func_00390E08` (a second local below the key), `CamScript_Load`,
   `Cam_PickReaction`, `func_00393E08`, `func_00395400`, `func_003959C8`, `func_0038EC08`,

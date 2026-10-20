@@ -8,13 +8,17 @@
 splat on `config/SLUS_200.01.yaml` when the split is missing, unfinished or older than the config (`--split` forces
 it) and writes `build.ninja`. A split first empties `asm/`, so no file of an earlier layout stays behind (tools such
 as `scripts/callgraph.py` read every file there), and writes `build/split.done` only when it ran to the end: a split
-that fails or is killed runs again next time. It touches nothing else under `build/`. ninja then:
+that fails or is killed runs again next time. After splat, it writes the VU0 accumulator operand that splat leaves
+bare in the function files (`vmulay.yz ACC, ...`, which gas refuses) as `$ACC`, as the generic chunks have it. It
+touches nothing else under `build/`. ninja then:
 
 1. assembles every split file under `asm/` with the project's binutils (`include/macro.inc` defines splat's
    labels);
 2. compiles every C file the config links (a `c` subsegment) with ee-gcc and assembles the output (below); the
    compiler lists the headers each file includes (`-Wp,-MD`, kept in `.ninja_deps`), so a header change rebuilds
-   exactly the objects that include it;
+   exactly the objects that include it. The split files a C file includes (`INCLUDE_ASM` and `INCLUDE_RODATA`) are
+   outputs of the split step, so no C file compiles while a split is rewriting `asm/` (ninja reruns the split when
+   the list of split files grows, for example after `configure.py` has split already);
 3. links everything with the generated `build/SLUS_200.01.ld` into `build/SLUS_200.01.elf`;
 4. flattens that with `objcopy -O binary` into `build/SLUS_200.01`;
 5. checks its SHA-1 against the original (`build/SLUS_200.01.ok` is written only on a match).
@@ -38,13 +42,21 @@ boundary is a multiple of 8, not 16. Functions not decompiled yet stay in the fi
 assembles it in place. Data tables of the game stay in the split too: a table the C file owns is included with
 `INCLUDE_RODATA("asm/nonmatchings/name", D_XXXXXXXX);` at its place in the file, never written out in C.
 
-Each C file is built in three steps, because the 1999 compiler driver cannot run its own assembler here:
+Each C file is built in four steps, because the 1999 compiler driver cannot run its own assembler here:
 
 1. `ee-gcc -O2 -fno-strength-reduce -ffast-math -fno-strict-aliasing -G8 -S` (the flags are in `configure.py`; `G_FLAGS` sets
-   another `-G` for a path prefix);
-2. the project's `as` with `-mabi=o64`, reading `include/gcc_prelude.inc` first (instructions the game's
+   another `-G` for a path prefix, and the files in `NO_FAST_MATH` are built without `-ffast-math`, as their objects
+   were: `effects.c`, `effects_draw.c`, `scene3d.c`, `model_anim.c`, `model_anim_b.c`);
+2. `configure.py --fix-asm` rewrites three things in the compiler's assembly where the game's assembler and the modern
+   gas differ and the difference depends on the neighbouring lines (`fix_compiler_asm`): a `li.s` that gas would build
+   with `lui $at / mtc1` is written out with the prelude's `mtc1`, an FPU compare right before a `bc1t` / `bc1f` that
+   gcc left to the assembler becomes a data word (no hazard nops either way, as in the original), and a `sqrt.s`
+   ending a noreorder block moves into the delay slot of a `jal` that follows it;
+3. the project's `as` with `-mabi=o64`, reading `include/gcc_prelude.inc` first (instructions the game's
    assembler encoded differently);
-3. `configure.py --eabi64` sets the object's ABI tag to EABI64 like the split files, so the linker accepts both.
+4. `configure.py --eabi64` sets the object's ABI tag to EABI64 like the split files, so the linker accepts both.
+
+Steps 2 and 4 run code of `configure.py`, so every C object depends on it.
 
 Why these choices: [decomp_guide.md](decomp_guide.md).
 

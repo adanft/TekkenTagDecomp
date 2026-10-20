@@ -5,7 +5,7 @@
  * (0x5F5370-0x5F5378) are subsegments; the data after them (0x521700, 0x5F5378, the .sbss 0x5F6F1C-0x5F6F28) belongs
  * to the object at 0x340000, so the module is two objects with the edge at 0x3D3630 (src/model_anim_b.c). Every table
  * is included in place (force_not_migration in data.txt); LIT4_WORD emits the pool words of functions still in
- * assembly. The object looks built without -ffast-math (func_003D1468 matches only without it). Every NON_MATCHING
+ * assembly. Built without -ffast-math (configure.py NO_FAST_MATH; func_003D1468 matches only that way). Every NON_MATCHING
  * draft (#if 0) compiles when enabled. */
 #include "common.h"
 #include "fighter.h"
@@ -740,8 +740,6 @@ void Model_FlushDrawLists(s32 a) {
     }
 }
 
-#if 0
-/* NON_MATCHING: 33 matches only without -ffast-math (keeps -x + c as neg.s / add.s; the build has no per-file flag yet) */
 /* Walks a node and its subtree: runs the update callback (only kind-3 parts while paused), pushes the matrix stack,
  * applies the node's rotation / translation and, when drawn, queues it on its draw list with its depth. */
 void func_003D1468(ModelNode *n) {
@@ -809,9 +807,6 @@ void func_003D1468(ModelNode *n) {
     }
     Model_PopMatrix();
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/model_anim", func_003D1468);
-#endif
 
 /* Queues a draw: copies ctx into the next DrawObj and adds it with its depth to draw list `list`. */
 void Model_QueueDraw(DrawCtx *ctx, ModelRes *res, s32 kind, f32 scale, s32 list, f32 depth) {
@@ -1333,7 +1328,7 @@ void Fighter_ClearMoveLog(Fighter *f) {
 INCLUDE_RODATA("asm/nonmatchings/model_anim", D_00521190);
 INCLUDE_RODATA("asm/nonmatchings/model_anim", jtbl_005216E0);
 #if 0
-/* NON_MATCHING: 182 structure and jump table right (flag |= 1 tests, time = 0 before the switch); register allocation differs (original keeps hi(D_0043B7F8), side*2, the partner's character and &D_005F5CC8 in s0-s3, the leader in t5) */
+/* NON_MATCHING: 203 structure and jump table right (flag |= 1 tests, time = 0 before the switch); register allocation differs (original keeps hi(D_0043B7F8), side*2, the partner's character and &D_005F5CC8 in s0-s3, the leader in t5) */
 /* At round end (battle_flow): when the round leader's team beat the per-character thresholds of D_00521190 (scaled
  * by the round factor, and by the time left once already earned) it earns the bonus flag D_005F5CC8[side] with sound
  * 0x1046 [I]. */

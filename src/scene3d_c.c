@@ -658,8 +658,9 @@ void func_00351860(Vu0Vector *out, Vu0Matrix m, Vu0Vector *v) {
 INCLUDE_ASM("asm/nonmatchings/scene3d_c", func_00351860);
 #endif
 
-/* NON_MATCHING: assembler only (every compiler instruction matches): gas puts a hazard nop between the lui / mtc1 $at
- * of li.s 1.0 and the prelude's mtc1 .word (decomp_guide T15 b2), which also moves the loop alignment nop. */
+/* NON_MATCHING: every instruction matches since T17 b4 (no more hazard nop after li.s); 1 line: its .lit4 word
+ * (D_005F570C) lies after render_fighter_a's pool, outside this object's (0x5F5614-0x5F5668), and the C emits it in
+ * scene3d_c's pool, which also moves .sdata by 16 (SHA-1). */
 /* Cubic Lagrange weights through four points at t = 1 .. 1 + n / (n - 1) (n + 1 entries): w[i] holds -t(t-1)(t-2)/6,
  * (t+1)(t-1)(t-2)/2, -(t+1)t(t-2)/2, (t+1)t(t-1)/6 [V]. */
 #if 0

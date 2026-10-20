@@ -243,18 +243,20 @@ but change the CPU's choices relative to the original (decision for T26) [I cons
 |---|---|---:|---|
 | `src/hud.c` | 0x3C1A78-0x3C3150 | 10 / 12 | `Hud_DrawMarkers` (1 line: one store takes the register of an equal value), `Hud_DrawLifeBar` (registers and stack slots) |
 | `src/model_draw.c` | 0x3DB758-0x3DC9C8 | 18 / 18 | - |
-| `src/scene3d.c` | 0x34C508-0x34E748 | 8 / 15 | `func_0034C508`, `func_0034CC38`, `func_0034D108`, `func_0034D258`, `func_0034E018`, `func_0034E148`, `func_0034E640` |
+| `src/scene3d.c` | 0x34C508-0x34E748 | 8 / 15 | `func_0034C508`, `func_0034CC38` (10 lines, scheduling), `func_0034D108` (8), `func_0034D258`, `func_0034E018` (18), `func_0034E148` (21, loop layout), `func_0034E640` |
 | `src/scene3d_b.c` | 0x34FF10-0x3504C0 | 6 / 6 | - |
-| `src/scene3d_c.c` | 0x3504C0-0x351E98 | 9 / 15 | `func_00350728`, `func_00350C40`, `func_003517F0`, `func_00351860`, `func_003518B8`, `func_00351AA0` |
-| `src/scene3d_d.c` | 0x351E98-0x3543F0 | 33 / 37 | `func_00351E98`, `func_00352F50`, `func_00353448`, `func_00354120` |
-| `src/effects.c` | 0x3A04B8-0x3A6460 | 49 / 58 | `func_003A0CE8` (50 lines, table loads hoisted), `func_003A1378` (hazard nop), `func_003A1C78` (75, registers), `func_003A3438` (hazard nop), `func_003A35C8` (needs no `-ffast-math`), `func_003A4128` (hazard nop), `func_003A44F8` (13, registers), `func_003A4C28` (hazard nop), `func_003A6110` (hazard nop) |
-| `src/model_anim.c` | 0x3D0660-0x3D3630 | 68 / 72 | `func_003D0E18` (5, a v0 / v1 swap), `func_003D1468` (needs no `-ffast-math`), `func_003D1980` (2, store order), `func_003D2B88` (182, registers of the round-end bonus) |
-| `src/model_anim_b.c` | 0x3D3630-0x3DB758 | 73 / 101 | 28 drafts: needs no `-ffast-math` (`func_003D4B18`, `func_003D4F58`, `func_003D5798`, `func_003D5998`), hazard nops (`func_003D3C68`, `func_003D7A40`, `func_003D8038`, `func_003D8088`, `func_003D80E8`), registers / scheduling (`func_003D3B80`, `func_003D3FF8`, `func_003D43A8`, `func_003D4728`, `func_003D52B0`, `func_003D5B58`, `func_003D5E80`, `func_003D6BC0`, `func_003D7E10`, `func_003D8158`, `func_003D8D38`, `func_003D9280`, `func_003D9468`, `func_003D9588`, `func_003D9BE8`), large drafts (`func_003D62A0`, `func_003D7378`, `func_003DA138`, `func_003DAA80`) |
-| `src/effects_draw.c` | 0x3A6460-0x3A9678 | 44 / 50 | `Fade_Draw` (4, two constants swapped), `func_003A76C0` (19, spill slots and order), `func_003A88B0` (24, a folded count), `Fx_AddQuad` (1, `addu` operands), `func_003A8D08` (needs no `-ffast-math`), `func_003A95D8` (hazard nops) |
+| `src/scene3d_c.c` | 0x3504C0-0x351E98 | 9 / 15 | `func_00350728`, `func_00350C40`, `func_003517F0`, `func_00351860`, `func_003518B8` (every instruction matches; its `.lit4` word lies outside the object's pool), `func_00351AA0` |
+| `src/scene3d_d.c` | 0x351E98-0x3543F0 | 34 / 37 | `func_00351E98`, `func_00353448` (1 line, an alignment nop), `func_00354120` |
+| `src/effects.c` | 0x3A04B8-0x3A6460 | 55 / 58 | `func_003A0CE8` (50 lines, table loads hoisted), `func_003A1C78` (75, registers), `func_003A44F8` (13, registers) |
+| `src/model_anim.c` | 0x3D0660-0x3D3630 | 69 / 72 | `func_003D0E18` (5, a v0 / v1 swap), `func_003D1980` (2, store order), `func_003D2B88` (203, registers of the round-end bonus) |
+| `src/model_anim_b.c` | 0x3D3630-0x3DB758 | 82 / 101 | 19 drafts: registers / scheduling (`func_003D3B80`, `func_003D3FF8`, `func_003D43A8`, `func_003D4728`, `func_003D52B0`, `func_003D5B58`, `func_003D5E80`, `func_003D6BC0`, `func_003D7E10`, `func_003D8158`, `func_003D8D38`, `func_003D9280`, `func_003D9468`, `func_003D9588`, `func_003D9BE8`), large drafts (`func_003D62A0`, `func_003D7378`, `func_003DA138`, `func_003DAA80`) |
+| `src/effects_draw.c` | 0x3A6460-0x3A9678 | 46 / 50 | `Fade_Draw` (4, two constants swapped), `func_003A76C0` (13, spill slots and order), `func_003A88B0` (24, a folded count), `Fx_AddQuad` (1, `addu` operands) |
 
-The reasons are in each draft's `NON_MATCHING` note and in [decomp_guide.md](../decomp_guide.md), "Lessons from T17
-batch 1" and "Lessons from T17 batch 2". "Hazard nop": a `nop` that gas adds and the original lacks (before an unfilled
-`bc1f` / `bc1t` after an FPU compare, or between `li.s` and a prelude `mtc1`), a change of `include/gcc_prelude.inc`.
+The reasons are in each draft's `NON_MATCHING` note (counts are fdiff lines) and in [decomp_guide.md](../decomp_guide.md),
+"Lessons from T17 batch 1" to "batch 4". T17 batch 4 matched the 20 drafts that waited for the build: the hazard nops
+gas added (before an unfilled `bc1f` / `bc1t` after an FPU compare, between `li.s` and a prelude `mtc1`) are gone
+(`configure.py` rewrites the compiler's output), and `effects.c`, `effects_draw.c`, `scene3d.c` and both `model_anim`
+objects are built without `-ffast-math`.
 
 ## 10. Open
 
@@ -263,10 +265,9 @@ batch 1" and "Lessons from T17 batch 2". "Hazard nop": a `nop` that gas adds and
   `func_00346830` in the `geometry` range) and the dispatcher `func_0035BF10`.
 - How the original wrote the 64-bit to 128-bit move of the sword effect's TEX0 (`por`), which this compiler refuses.
 - The renderer behind `func_00341B28` (the draw lists of section 11) and the stage objects' VU1 program.
-- Both `model_anim` objects also look built without `-ffast-math` (section 11.5): five drafts wait for the per-file flag.
-- Whether `scene3d.c`'s float functions were built without `-ffast-math` (section in the guide). The effects are: a
-  per-file flag for `effects.c` / `effects_draw.c` is the next test (needs `configure.py`), and `func_003A8D08` then also
-  needs the original's libcall names (`sqrt`, `__fixunssfsi` where this compiler calls `sqrtf`, `fptoui`).
+- How the original wrote the bare `sqrt.s` of the objects built without `-ffast-math` (`scene3d`, `effects_draw`, both
+  `model_anim` objects): the drafts use an inline-asm `SqrtS` (marked fake), while `func_003A8D08` has the errno form of
+  `sqrtf` with the libcalls `sqrt` and `__fixunssfsi` (decomp_guide.md, "Lessons from T17 batch 4").
 
 ## 11. Models (`src/model_anim.c`, `src/model_anim_b.c`)
 
@@ -355,7 +356,7 @@ only, so it is picture state unless something in the simulation reads it [I: no 
 - **Tag**: `Tag_StepCounters` counts the per-side counters `D_01FB6ED0` / `D_01FB6EE0` down (1 finishes the swap,
   `func_003D33F8`; 0 lets `Battle_RecoverLife` run, `func_003D3528`); see fighter.md section 5.7 [V].
 
-**Compiler**: both objects match only without `-ffast-math` in five functions (`func_003D1468`, `func_003D4B18`,
-`func_003D4F58`, `func_003D5798`, `func_003D5998`: `-x + c` kept as `neg.s` / `add.s`, divisions by constants kept), while
-every other function compiles the same either way; their bare `sqrt.s` comes from an inline-asm square root, not from
-`sqrtf` (decomp_guide.md, "Lessons from T17 batch 3").
+**Compiler**: both objects are built without `-ffast-math` (`configure.py` `NO_FAST_MATH`, T17 batch 4): five functions
+match only that way (`func_003D1468`, `func_003D4B18`, `func_003D4F58`, `func_003D5798`, `func_003D5998`: `-x + c` kept as
+`neg.s` / `add.s`, divisions by constants kept), every other function compiles the same either way; their bare `sqrt.s`
+comes from an inline-asm square root, not from `sqrtf` (decomp_guide.md, "Lessons from T17 batch 3").

@@ -3,7 +3,8 @@
  * and 12, the fighters' texture animation channels, a queue of textured quads, character 0x1D's special attack volume,
  * and helpers shared with src/effects.c (random float, bank entries, angles). A cut of the effects object (its .rodata
  * 0x519940-0x519B30 and .lit4 0x5F5300-0x5F531C follow effects' without a gap), not a proven object edge. Every
- * NON_MATCHING draft (#if 0) compiles when enabled; func_003A8D08 needs the file built without -ffast-math. */
+ * NON_MATCHING draft (#if 0) compiles when enabled. Built without -ffast-math (configure.py NO_FAST_MATH):
+ * func_003A8D08 has the errno check of sqrtf. */
 #include "common.h"
 #include "fighter.h"
 #include "effect.h"
@@ -930,12 +931,21 @@ INCLUDE_RODATA("asm/nonmatchings/effects_draw", D_00519A08);
 INCLUDE_RODATA("asm/nonmatchings/effects_draw", D_00519A20);
 INCLUDE_RODATA("asm/nonmatchings/effects_draw", D_00519A68);
 INCLUDE_RODATA("asm/nonmatchings/effects_draw", D_00519AB0);
-/* NON_MATCHING (19 lines): the spill slots of the two hoisted stack addresses (sp+0x40 / sp+0x10) are swapped,
- * `near = 0` and `id -= 4` of the second loop are scheduled after the call, and the 10000.0f / 5000.0f loads come
- * before the sqrt.s (the original loads them after it; the T13 `do {} while (0)` fake fixes that but adds a nop).
+/* NON_MATCHING (13 lines, the file built without -ffast-math and the square roots as SqrtS): the spill slots of the
+ * two hoisted stack addresses (sp+0x40 / sp+0x10) are swapped and `near = 0` / `id -= 4` of the second loop are
+ * scheduled after the call.
  * Stage 4 background actors (update callback): layers 0-3 and 4-6 play random frame lists, with a sound and a light
  * change when the actor is near the screen centre. Calls rand() every frame. */
 #if 0
+/* A bare sqrt.s with the two nops the compiler puts in front of it: the file is built without -ffast-math (the errno
+ * check of func_003A8D08), where sqrtf() would add the check and a call (fake: as in src/model_anim_b.c). */
+static inline f32 SqrtS(f32 x) {
+    f32 r;
+
+    __asm__ volatile("nop\n\tnop\n\tsqrt.s %0, %1" : "=f"(r) : "f"(x));
+    return r;
+}
+
 void func_003A76C0(Effect *e) {
     FxStageActor *a;
     FxStageActor *b;
@@ -981,7 +991,7 @@ void func_003A76C0(Effect *e) {
                     f32 dx = 0x8000 - v[0];
                     f32 dy = 0x8000 - v[1];
 
-                    if (sqrtf(dx * dx + dy * dy) < 10000.0f) {
+                    if (SqrtS(dx * dx + dy * dy) < 10000.0f) { /* fake: SqrtS */
                         near = 1;
                     }
                 }
@@ -1054,7 +1064,7 @@ void func_003A76C0(Effect *e) {
                     f32 dx = 0x8000 - v[0];
                     f32 dy = 0x8000 - v[1];
 
-                    if (sqrtf(dx * dx + dy * dy) < 5000.0f) {
+                    if (SqrtS(dx * dx + dy * dy) < 5000.0f) { /* fake: SqrtS */
                         near = 1;
                     }
                 }
@@ -1615,15 +1625,15 @@ void func_003A8C50(s32 side) {
     Light_StartFlash(v, D_005F6248);
 }
 
-/* NON_MATCHING: 69 lines with the build flags; without -ffast-math 38, all of them: the libcalls (the original
- * calls `sqrt` for the sqrtf errno fallback and `__fixunssfsi` where this gcc calls `sqrtf` / `fptoui`), the hazard
- * nop gas puts between c.eq.s and bc1t, and the loop alignment nop that follows from it; the rest is branch offsets.
- * The sqrt.s + c.eq.s + bc1t + call sequence is the non-fast-math expansion: this object was built without
- * -ffast-math.
- * Draws the special attack volume of character 0x1D from point b back to point a: a flash sprite at the fighter for
+/* fake: this compiler names the errno fallback of sqrtf and the float-to-unsigned conversion `sqrtf` and `fptoui`;
+ * the original object calls `sqrt` (0x407818) and `__fixunssfsi` (0x40EBA0), so the assembler maps the two names. */
+#if !defined(M2CTX) && !defined(PERMUTER)
+__asm__(".set sqrtf, sqrt\n.set fptoui, __fixunssfsi");
+#endif
+
+/* Draws the special attack volume of character 0x1D from point b back to point a: a flash sprite at the fighter for
  * the first 15 frames (D_005F6D18), then up to 36 segments of 500 units as textured quads (texture 0x14 / 0x17 + 1 or
  * + 2 for the first), each with its frame phase D_008D7820[side][k] % 7 advanced every unpaused frame. */
-#if 0
 void func_003A8D08(Fighter *f, s32 *a, s32 *b, s32 size) {
     Vu0Matrix m;
     FVec4 va;
@@ -1777,11 +1787,6 @@ void func_003A8D08(Fighter *f, s32 *a, s32 *b, s32 size) {
         nxt[2] -= dz;
     }
 }
-#else
-LIT4_WORD(D_005F5308, 0x4AA8C000);
-LIT4_WORD(D_005F530C, 0x3FC90FDB);
-INCLUDE_ASM("asm/nonmatchings/effects_draw", func_003A8D08);
-#endif
 
 /* Entry i (clamped to the last) of an offset table: bank[0] entries, offsets at bank[2 * i + 1]. */
 void *Fx_GetBankEntry(u32 *bank, u32 i) {
@@ -1817,10 +1822,7 @@ void func_003A9550(f32 *out, f32 a, f32 b, f32 c) {
     out[0] = func_003A9528(b, func_003A95D8(a, c, out[1]));
 }
 
-/* NON_MATCHING: 6 lines, only the hazard nop gas puts between c.eq.s and an unfilled bc1f (twice) and the
- * branch offsets after it (Lessons from T17 batch 1).
- * |x / sin(a)| when |x| > |z|, else |z / cos(a)| (zero sines / cosines replaced by 1e-5). */
-#if 0
+/* |x / sin(a)| when |x| > |z|, else |z / cos(a)| (zero sines / cosines replaced by 1e-5). */
 f32 func_003A95D8(f32 x, f32 z, f32 a) {
     f32 s;
 
@@ -1839,11 +1841,6 @@ f32 func_003A95D8(f32 x, f32 z, f32 a) {
     }
     return fabsf(s);
 }
-#else
-LIT4_WORD(D_005F5314, 0x3727C5AC);
-LIT4_WORD(D_005F5318, 0x3727C5AC);
-INCLUDE_ASM("asm/nonmatchings/effects_draw", func_003A95D8);
-#endif
 
 /* The next object's .rodata (loading_title, still in the generic chunk) starts on a 16-byte boundary: its jump
  * tables are 16-aligned, the split chunk only 8-aligned. */

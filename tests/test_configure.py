@@ -93,6 +93,15 @@ class IncludedAsm(unittest.TestCase):
                 '#define INCLUDE_ASM(FOLDER, NAME) x\n')
         self.assertEqual(configure.included_asm(text), [])
 
+    def test_rodata_includes_are_split_files_too(self):
+        # A C file whose functions are all C still includes its tables from the split: without the dependency ninja
+        # compiles it while a second split has emptied asm/ (the flaky clean rebuild of T17 b3).
+        text = ('INCLUDE_RODATA("asm/nonmatchings/file", gFileTable);\n'
+                'INCLUDE_ASM("asm/nonmatchings/file", func_00397948);\n'
+                '#define INCLUDE_RODATA(FOLDER, NAME) x\n')
+        self.assertEqual(configure.included_asm(text),
+                         ["asm/nonmatchings/file/gFileTable.s", "asm/nonmatchings/file/func_00397948.s"])
+
 
 class GFlag(unittest.TestCase):
     def test_default_and_prefix(self):
@@ -105,6 +114,91 @@ class GFlag(unittest.TestCase):
         finally:
             configure.G_FLAGS.clear()
             configure.G_FLAGS.update(old)
+
+
+class CcFlags(unittest.TestCase):
+    def test_default_flags(self):
+        with mock.patch.object(configure, "NO_FAST_MATH", ()):
+            self.assertEqual(configure.cc_flags("src/main.c"), configure.CC_FLAGS)
+
+    def test_file_without_fast_math(self):
+        with mock.patch.object(configure, "NO_FAST_MATH", ("src/effects.c",)):
+            flags = configure.cc_flags("src/effects.c").split()
+            self.assertNotIn("-ffast-math", flags)
+            self.assertEqual(flags, [f for f in configure.CC_FLAGS.split() if f != "-ffast-math"])
+            # a path, not a prefix of another file's name
+            self.assertIn("-ffast-math", configure.cc_flags("src/effects_draw.c").split())
+
+    def test_listed_files_exist(self):
+        for src in configure.NO_FAST_MATH:
+            self.assertTrue((ROOT / src).is_file(), src)
+
+
+class FixSplitAsm(unittest.TestCase):
+    def test_bare_accumulator_gets_its_dollar(self):
+        line = "    /* 9BE08 003DAE08 BD41C44A */  vmulay.yz  ACC, $vf8, $vf4y\n"
+        self.assertEqual(configure.fix_split_asm(line),
+                         "    /* 9BE08 003DAE08 BD41C44A */  vmulay.yz  $ACC, $vf8, $vf4y\n")
+
+    def test_leaves_everything_else(self):
+        text = ("    /* AE38 00349E38 BC49E74B */  vmulax.xyzw $ACC, $vf9, $vf7x\n"
+                "    /* 0 0 0 */  addiu      $a0, $a0, %lo(ACC_TABLE)\n"
+                '.asciz "ACC, ok"\n'
+                "glabel ACC\n")
+        self.assertEqual(configure.fix_split_asm(text), text)
+
+
+class FixCompilerAsm(unittest.TestCase):
+    """ee-gcc output rewritten where the game's assembler and the modern gas differ (docs/build.md)."""
+
+    def fix(self, *lines):
+        return configure.fix_compiler_asm("".join(self.line(l) + "\n" for l in lines)).splitlines()
+
+    @staticmethod
+    def line(text):
+        return text if text.endswith(":") else "\t" + text
+
+    def test_li_s_with_lui_form_moves_without_hazard(self):
+        self.assertEqual(self.fix("li.s\t$f0,2.04800000000000000000e3", "mtc1\t$0,$f24"),
+                         ["\t.set\tnoat", "\tlui\t$1,0x4500", "\tmtc1\t$1,$f0", "\t.set\tat", "\tmtc1\t$0,$f24"])
+
+    def test_li_s_zero_and_negative_zero(self):
+        self.assertEqual(self.fix("li.s\t$f2,0.00000000000000000000e0"), ["\tmtc1\t$0,$f2"])
+        self.assertEqual(self.fix("li.s\t$f2,-0.00000000000000000000e0")[1:3], ["\tlui\t$1,0x8000", "\tmtc1\t$1,$f2"])
+
+    def test_li_s_from_the_literal_pool_unchanged(self):
+        lines = ["li.s\t$f0,1.10000002384185791016e0"]
+        self.assertEqual(self.fix(*lines), ["\t" + lines[0]])
+
+    def test_li_s_in_noreorder_unchanged(self):
+        lines = [".set\tnoreorder", "li.s\t$f0,1.00000000000000000000e0", ".set\treorder"]
+        self.assertEqual(self.fix(*lines), ["\t" + l for l in lines])
+
+    def test_compare_before_unfilled_fpu_branch_is_data(self):
+        out = self.fix("c.lt.s\t$f0,$f1", "#nop", "bc1f\t$L4")
+        self.assertTrue(out[0].startswith("\t.word\t0x46010034"), out[0])
+        self.assertEqual(out[1:], ["\t#nop", "\tbc1f\t$L4"])
+        self.assertTrue(self.fix("c.le.s\t$f12,$f14", "bc1t\t$L1")[0].startswith("\t.word\t0x460E6036"))
+        self.assertTrue(self.fix("c.eq.s\t$f31,$f2", "bc1t\t$L1")[0].startswith("\t.word\t0x4602F832"))
+
+    def test_compare_before_filled_branch_unchanged(self):
+        # gcc's noreorder block: gas's hazard nop at `.set noreorder` is in the original
+        lines = ["c.lt.s\t$f12,$f13", "#nop", ".set\tnoreorder", ".set\tnomacro", "bc1fl\t$L3", "sub.s\t$f0,$f12,$f14"]
+        self.assertEqual(self.fix(*lines), ["\t" + l for l in lines])
+        lines = ["c.lt.s\t$f0,$f1", "add.s\t$f2,$f2,$f3", "bc1f\t$L4"]
+        self.assertEqual(self.fix(*lines), ["\t" + l for l in lines])
+
+    def test_sqrt_fills_the_delay_slot_of_a_following_jal(self):
+        out = self.fix(".set\tnoreorder", "nop", "nop", "sqrt.s\t$f13,$f13", ".set\treorder", "jal\tatan2f",
+                       "mov.s\t$f22,$f0")
+        self.assertEqual(out, ["\t.set\tnoreorder", "\tnop", "\tnop", "\tjal\tatan2f", "\tsqrt.s\t$f13,$f13",
+                               "\t.set\treorder", "\tmov.s\t$f22,$f0"])
+
+    def test_sqrt_and_div_elsewhere_unchanged(self):
+        for lines in ([".set\tnoreorder", "nop", "nop", "div.s\t$f0,$f0,$f1", ".set\treorder", "jal\tfoo"],
+                      [".set\tnoreorder", "nop", "nop", "sqrt.s\t$f0,$f0", ".set\treorder", "j\t$31"],
+                      [".set\tnoreorder", "nop", "nop", "sqrt.s\t$f0,$f0", ".set\treorder", "$L2:", "jal\tfoo"]):
+            self.assertEqual(self.fix(*lines), [self.line(l) for l in lines])
 
 
 class SetEabi64(unittest.TestCase):
@@ -242,6 +336,32 @@ class NinjaFile(unittest.TestCase):
         self.assertIn("deps = gcc", cc)
         split = next(line for line in text.splitlines() if line.endswith(f": split {' '.join(configure.SPLIT_INPUTS)}"))
         self.assertIn(configure.SPLIT_DONE, split.split(":")[0].split())
+
+    def test_c_objects_get_their_flags_and_the_asm_fix(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "build").mkdir()
+            (root / configure.LD_SCRIPT).write_text("        build/src/x.o(.text);\n        build/src/y.o(.text);\n")
+            (root / "src").mkdir()
+            (root / "src" / "x.c").write_text('INCLUDE_RODATA("asm/nonmatchings/x", D_00500000);\n')
+            (root / "src" / "y.c").write_text("")
+            with mock.patch.object(configure, "ROOT", root), \
+                    mock.patch.object(configure, "NO_FAST_MATH", ("src/x.c",)):
+                configure.write_ninja()
+                x_flags = configure.cc_flags("src/x.c")
+            text = (root / "build.ninja").read_text()
+        cc = text[text.index("rule cc"):text.index("rule ld")]
+        self.assertIn("--fix-asm $out.s", cc)
+        self.assertLess(cc.index("--fix-asm"), cc.index("include/gcc_prelude.inc"))
+        lines = text.splitlines()
+        x = lines.index(next(l for l in lines if l.startswith("build build/src/x.o: cc")))
+        self.assertIn("asm/nonmatchings/x/D_00500000.s", lines[x])
+        # the rewrite of the compiler's assembly lives in configure.py: a change to it rebuilds the C objects
+        self.assertIn("configure.py", lines[x].split("|", 1)[1].split())
+        self.assertIn(f"  cflags = {x_flags}", lines[x + 1:x + 3])
+        self.assertNotIn("-ffast-math", x_flags)
+        split = next(l for l in lines if l.endswith(f": split {' '.join(configure.SPLIT_INPUTS)}"))
+        self.assertIn("asm/nonmatchings/x/D_00500000.s", split.split(":")[0].split())
 
 
 if __name__ == "__main__":

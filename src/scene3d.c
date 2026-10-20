@@ -3,8 +3,8 @@
  * by the wind of the fighter's side); func_0034D258 places the slot's accessory parts each frame (special handlers for
  * characters 0x21 / 0xF, otherwise a float spring: lag, gravity, wind, collision shapes, floor clamp) and
  * func_0034E148 sets their records and state up. The float code of func_0034CC38 and func_0034E148 keeps x + 0.0f,
- * x * C / C and x / 12.0f * s, which -ffast-math folds; they come within a few lines only without -ffast-math
- * (docs/decomp_guide.md, "Lessons from T17 batch 1"). Its .rodata (0x51EA60-0x51EB00: the jump table of func_0034CA70
+ * x * C / C and x / 12.0f * s, which -ffast-math folds, so the file is built without it (configure.py NO_FAST_MATH;
+ * docs/decomp_guide.md, "Lessons from T17 batch 4"); both still differ in scheduling and loop layout. Its .rodata (0x51EA60-0x51EB00: the jump table of func_0034CA70
  * and D_0051EAF0) and .lit4 (0x5F5350-0x5F535C) are subsegments. Every NON_MATCHING draft (#if 0) compiles when
  * enabled. */
 #include "common.h"
@@ -205,6 +205,16 @@ extern Vec4f D_01FAC760[][3];
 
 f32 atan2f(f32 y, f32 x);
 f32 sqrtf(f32 x);
+
+/* A bare sqrt.s with the two nops the compiler puts in front of it: this object is built without -ffast-math, where
+ * sqrtf() would add the errno check and call (fake: the original's own sqrt helper is unknown; as in
+ * src/model_anim_b.c). */
+static inline f32 SqrtS(f32 x) {
+    f32 r;
+
+    __asm__ volatile("nop\n\tnop\n\tsqrt.s %0, %1" : "=f"(r) : "f"(x));
+    return r;
+}
 s32 rand(void);
 void *memcpy(void *, const void *, u32);
 void *memset(void *p, s32 c, s32 n);
@@ -257,7 +267,7 @@ void Wind_Sample(f32 x, f32 y, f32 z, f32 *out);
 
 #define V(v) (&(v).vx)
 
-/* NON_MATCHING: 65 lines: the original keeps &p in two registers (a copy in s2 and a spilled one); frame 0x10 smaller */
+/* NON_MATCHING: 63 lines: the original keeps &p in two registers (a copy in s2 and a spilled one); frame 0x10 smaller */
 /* Local matrix of extra joint i (18+) [V]: rest angles D_01FAB5E0[slot][i - 18] the first frame (and joints 18 / 19
  * at rest while unkB130 bit 0); otherwise a pendulum: the joint's tip (length unk8 along x) is smoothed over unk2
  * frames in D_01FAB610, kept above the joint (y <= 0), turned into the parent frame and normalised; the direction is
@@ -461,7 +471,8 @@ void func_0034CBA8(Fighter *f, s32 j, Vu0Matrix m) {
     }
 }
 
-/* NON_MATCHING: 61 lines (9 without -ffast-math: one delay slot): x + 0.0f and x / 12.0f * s are folded */
+/* NON_MATCHING: 10 lines (the file is built without -ffast-math since T17 b4, which keeps x + 0.0f): the original's
+ * bnezl with the struct load in its delay slot and the scheduling of that struct copy (61 lines with -ffast-math) */
 /* Parts of character 0x21 [V]: id -> matrix index (func_0034CA70); hidden (scaled to 0) when func_003ABD38() or
  * option D_0043B7F8[0] == 8; index k > 0 copies the fighter's matrix k keeping m's translation; index 0 is a body
  * floating at (0, 150, -800) from matrix 0: lagged (x / 12, y and z / 16 per frame) towards the fighter's 0x560
@@ -554,7 +565,7 @@ s32 func_0034D038(s32 id, Vu0Matrix m, Fighter *f, Obj3D *o, s32 arg4) {
     return r;
 }
 
-/* NON_MATCHING: 15 lines: r and o in swapped saved registers, r = 1 not in the compare's delay slot */
+/* NON_MATCHING: 8 lines: r and o in swapped saved registers, r = 1 not in the compare's delay slot */
 /* Parts 0x78 / 0x7B and 0x7E / 0x81 of characters 0xF and 0x21 [V]: shown (scale 1) only while the fighter's unk28 is
  * 0x1A resp. 4, else the rotation is scaled to 0. Returns 1 when it handled the part. */
 #if 0
@@ -828,7 +839,8 @@ LIT4_WORD(D_005F5354, 0x3E4CCCCD);
 INCLUDE_ASM("asm/nonmatchings/scene3d", func_0034D258);
 #endif
 
-/* NON_MATCHING: 19 lines: address computations and store order after the sqrt; the empty loop is a fake */
+/* NON_MATCHING: 18 lines: address computations and store order after the sqrt (SqrtS, the file being built without
+ * -ffast-math); the empty loop is a fake */
 /* Wind of the fighter's side, once per frame (start of Skel_Update) unless gMode 5 [V]: Wind_Sample turns the
  * fighter's unk4 / unk8 / unkC into the float vector D_01FAB740[side]; its length goes to D_005F6E20[side] (float) and
  * D_005F6E18[side] (x 4096), the vector x 4096 with y and z negated to D_01FAB6D0[side] (GTE space). */
@@ -841,7 +853,7 @@ void func_0034E018(Fighter *f) {
     if (gMode != 5) {
         v = D_01FAB740[side];
         Wind_Sample(f->unk4, f->unk8, f->unkC, v);
-        len = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+        len = SqrtS(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]); /* fake: SqrtS */
         do {
         } while (0); /* fake */
         D_005F6E18[side] = len * 4096.0f;
@@ -861,8 +873,9 @@ void func_0034E130(PartRec *p) {
     p->unkE = -1;
 }
 
-/* NON_MATCHING: 77 lines (23 without -ffast-math): x * 3.141593f / 180.0f folded; the record search loop is laid out
- * differently, three float zero stores go through a register in the original */
+/* NON_MATCHING: 21 lines (the file is built without -ffast-math since T17 b4, which keeps x * 3.141593f / 180.0f; 77
+ * with it): the record search loop is laid out differently, three float zero stores go through a register in the
+ * original */
 /* Sets up the n accessory parts of a fighter [V]: clears its ready flag; for each part finds (or appends, after the
  * terminator func_0034E130 writes) the record with the model's part id (d->unkC[i + 0x62]->unk1C) in the slot's
  * list func_00367390, keeps it in D_01FAB1E0[slot][i], and fills the state D_0043BD10[slot][i]: angle limits in
@@ -990,7 +1003,7 @@ s32 func_0034E5A8(void) {
     return r;
 }
 
-/* NON_MATCHING: 14 lines: the registers of the shared reset stores (a1 / a2 / a3 rotated) */
+/* NON_MATCHING: 23 lines: the registers of the shared reset stores (a1 / a2 / a3 rotated) */
 /* Sets extra joint j (18+) of characters 0x11 and 0x14 up [V]: rest angles D_0043BC50 / D_0043BC68 and swing
  * parameters D_0043BC40 / D_0043BC30 for the slot, then clears the joint's smoothed tip and first-frame flag. */
 #if 0
