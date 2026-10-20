@@ -1,4 +1,23 @@
 // Game module model_anim (docs/game_overview.md section 4; the range is provisional).
 // Naming rules: docs/decomp_guide.md, "Naming".
 // range: 0x003D0660 0x003DB758
+Model_FlushDrawLists = 0x003D11D8; // type:func
+Model_QueueDraw = 0x003D17A0; // type:func
+Model_ClearMatrixStack = 0x003D1E28; // type:func
+Model_PushMatrix = 0x003D1E30; // type:func
+Model_PopMatrix = 0x003D1E80; // type:func
+Model_LoadMatrix = 0x003D1EB8; // type:func
+Model_MulMatrix = 0x003D1EC8; // type:func
+Model_GetMatrix = 0x003D1EE0; // type:func
+Model_LoadIdentity = 0x003D1EF0; // type:func
+Fighter_LogMove = 0x003D2A38; // type:func
+Fighter_ClearMoveLog = 0x003D2B38; // type:func
+Tag_ResetCounters = 0x003D31B8; // type:func // guess
+Tag_SetCounter = 0x003D31F8; // type:func // guess
+Tag_SetCounter2 = 0x003D3210; // type:func // guess
+Tag_StepCounters = 0x003D3228; // type:func // guess
 Fighter_TagSwap = 0x003D3288; // type:func
+Wind_Init = 0x003D3630; // type:func // guess
+Wind_Update = 0x003D37E0; // type:func // guess
+Wind_Sample = 0x003D3D08; // type:func // guess
+Wind_StepLorenz = 0x003D42F8; // type:func

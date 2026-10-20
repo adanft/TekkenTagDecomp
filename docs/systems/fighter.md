@@ -362,7 +362,7 @@ in frame N+1 [V order]. For netplay the inputs of both sides enter only through 
     after it is `unkC4 + 1` with `unkB8 = unkC0`; else, with `unkD6 >= 0` the frame `unkC0->unk1B` is held `unkD6`
     more times, with `unkD6 < 0` and `unkFE` set the frame advances by one until `unk1B`, otherwise `unkC4 += unkDA`
     (at least 1); `unkBC` follows `unkC4`;
-  - when a move starts: the tag / character change of section 5.7, `func_003D2A38`, `func_0036BDA0`, then the
+  - when a move starts: the tag / character change of section 5.7, `Fighter_LogMove`, `func_0036BDA0`, then the
     resets (`unkD6 = -1`, `unkDA = 1`, `unkE4 = 0`, hit bytes cleared), `unk110` / `unk114` = the other fighter's
     position, the damage `unkCA` (`unk148` when set, else `func_0036C228`), the flags from the record: `unkCC` =
     `unk4`, `unkD5 = (unk4 >> 11) & 0x1F` (move state), the attack level `unkD0` = the low half of `unk8`, `unkD4 =
@@ -561,7 +561,7 @@ in turn as the defender `d` of the other `o` [V; names I]:
   the list's end move) [V]. The swap, in order: the incoming member is the old partner `unk2`; `unk0` and `unk2` of
   the same slot flip (`^= 1`); the life and red life come from the incoming member's record (`+0xC`, `+0x10`);
   `func_003C1A78(side)` (the outgoing member's `unk28` back to 100, a check of the incoming one's against 120 [I]);
-  `func_003D31F8(side, 2)` sets the per-side tag state `D_01FB6ED0[side] = 2`; the character and costume of the new
+  `Tag_SetCounter(side, 2)` sets the per-side tag state `D_01FB6ED0[side] = 2`; the character and costume of the new
   active member are loaded (`func_0035C8D0(f, character, costume)`, `func_0035C850(f, 1)`), then its body
   (`func_00368168`, `func_00377F58` body spheres, `func_003465F0`, `func_00344318`, `Fx_LoadFighterTex`,
   `func_00370E20(f, 1)`, `func_0038ADF8(side)`); in practice mode (game type 7) `func_0037A970(f)` and

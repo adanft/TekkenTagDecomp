@@ -89,8 +89,8 @@ frames x groups x 3 s16}` stored raw. Bank 0 replaces the per-move motion while 
 4. The motion blend (`func_00373E38` in game mode 5, else `func_00373428` when `D_005F5F10` frames are stepped;
    battle_flow, NON_MATCHING drafts), `func_00365248`.
 5. `Skel_SetRootMatrix` (section 3.2), `func_003632E0`, `func_00362C28`, `func_00350728` (blade trail on / off by move, render.md section 3).
-6. Unless `func_003D3228(slot, 1)` (a per-slot countdown in `model_anim`): `Skel_ComputeWorld` (section 3.2),
-   `func_003478F0(f, 0)`, `Light_UpdateFighter(side, f + 0x590)` (the fighter's lights, [render.md](render.md) section 4), `func_0034FB48` (`func_003D3210(slot, 1)` for a move with
+6. Unless `Tag_StepCounters(slot, 1)` (a per-slot countdown in `model_anim`): `Skel_ComputeWorld` (section 3.2),
+   `func_003478F0(f, 0)`, `Light_UpdateFighter(side, f + 0x590)` (the fighter's lights, [render.md](render.md) section 4), `func_0034FB48` (`Tag_SetCounter2(slot, 1)` for a move with
    flag 0x10000, then `Skel_ProjectJoints`).
 
 ### 3.2 Matrices
@@ -156,8 +156,8 @@ frames x groups x 3 s16}` stored raw. Bank 0 replaces the per-move motion while 
 | `unkB884`, `unkB5D2` | `Skel_SetRootMatrix` | the motion blend |
 
 The other `model_anim` functions the simulation calls are not animation: `func_003D29E8` looks up a start frame for a
-move by character (`D_00447480`), `func_003D2A38` keeps a per-member list at `Fighter + 0x64`, `func_003D3228` /
-`func_003D31F8` are the per-side tag counters `D_01FB6ED0` / `D_01FB6EE0` [V code; I roles].
+move by character (`D_00447480`), `Fighter_LogMove` keeps a per-member list at `Fighter + 0x64`, `Tag_StepCounters` /
+`Tag_SetCounter` are the per-side tag counters `D_01FB6ED0` / `D_01FB6EE0` [V code; I roles].
 
 ## 5. Determinism
 

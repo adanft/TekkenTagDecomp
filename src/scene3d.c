@@ -250,7 +250,7 @@ s32 func_0039C0E0(s32 y, s32 x);
 s32 func_003A9698(void);
 s32 func_003ABD38(void);
 u8 *func_003B87F8(s32 slot);
-void func_003D3D08(f32 x, f32 y, f32 z, f32 *out);
+void Wind_Sample(f32 x, f32 y, f32 z, f32 *out);
 
 /* The simulation does not advance this frame [I] (the pause tests of func_00373428 in battle_flow). */
 #define SIM_FROZEN() (D_005F5EE0 != 0 || D_005F5EE4 != 0 || func_003A9698() != 0)
@@ -829,7 +829,7 @@ INCLUDE_ASM("asm/nonmatchings/scene3d", func_0034D258);
 #endif
 
 /* NON_MATCHING: 19 lines: address computations and store order after the sqrt; the empty loop is a fake */
-/* Wind of the fighter's side, once per frame (start of Skel_Update) unless gMode 5 [V]: func_003D3D08 turns the
+/* Wind of the fighter's side, once per frame (start of Skel_Update) unless gMode 5 [V]: Wind_Sample turns the
  * fighter's unk4 / unk8 / unkC into the float vector D_01FAB740[side]; its length goes to D_005F6E20[side] (float) and
  * D_005F6E18[side] (x 4096), the vector x 4096 with y and z negated to D_01FAB6D0[side] (GTE space). */
 #if 0
@@ -840,7 +840,7 @@ void func_0034E018(Fighter *f) {
 
     if (gMode != 5) {
         v = D_01FAB740[side];
-        func_003D3D08(f->unk4, f->unk8, f->unkC, v);
+        Wind_Sample(f->unk4, f->unk8, f->unkC, v);
         len = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
         do {
         } while (0); /* fake */

@@ -170,7 +170,7 @@ void func_00357DB0(void);
 void func_00357DB8(void);
 void func_00357DD8(void);
 void func_003567A8(void);
-s32 func_003D3228(s32 i, s32 a);
+s32 Tag_StepCounters(s32 i, s32 a);
 void func_00357640(s32 i);
 void Fx_DrawFighterTex(s32 i);
 void func_00343340(Fighter *f, s32 a);
@@ -189,7 +189,7 @@ void Movie_Update(s32 a);
 void func_0039C2C0(void);
 void func_0035DB90(void);
 void func_003DE6C0(u16 stage);
-void func_003D11D8(s32 a);
+void Model_FlushDrawLists(s32 a);
 void func_00340E28(s32 a);
 void func_003DB758(void);
 void func_003621F8(s32 a);
@@ -498,7 +498,7 @@ void func_00357A78(void) {
     if (gDrawFighterCount != 0) {
         func_003567A8();
         for (i = 0; i < gDrawFighterCount; i++) {
-            if (gFighters[i].unk127 != 0 && func_003D3228(i, 0) == 0) {
+            if (gFighters[i].unk127 != 0 && Tag_StepCounters(i, 0) == 0) {
                 func_00357640(i);
                 Fx_DrawFighterTex(i);
                 func_00343340(&gFighters[i], 0);
@@ -569,7 +569,7 @@ void func_00357C60(void) {
 void func_00357C88(void) {
     if (gDrawStagePass) {
         func_003DE6C0(D_005F5CB6);
-        func_003D11D8(0);
+        Model_FlushDrawLists(0);
         func_00340E28(1);
         func_003DB758();
         func_003621F8(0);
@@ -578,7 +578,7 @@ void func_00357C88(void) {
         func_003DB7B0();
         if (D_005F5C04 == 0) {
             func_00340E28(0);
-            func_003D11D8(1);
+            Model_FlushDrawLists(1);
         }
     }
 }
@@ -603,14 +603,14 @@ void func_00357D38(void) {
     if (gDrawStagePass) {
         if (D_005F5C04) {
             func_00340E28(0);
-            func_003D11D8(1);
+            Model_FlushDrawLists(1);
         }
         if (D_005F5CB6 == 2 || D_005F5CB6 == 0x13 || D_005F5CB6 == 0x16) {
             func_003E7270(D_004334C0);
         }
     }
     if (gDrawModelPass) {
-        func_003D11D8(1);
+        Model_FlushDrawLists(1);
     }
 }
 
@@ -632,7 +632,7 @@ void func_00357DD8(void) {
     if (gDrawFighterCount) {
         func_003567A8();
         for (i = 0; i < gDrawFighterCount; i++) {
-            if (gFighters[i].unk127 != 0 && func_003D3228(i, 0) == 0) {
+            if (gFighters[i].unk127 != 0 && Tag_StepCounters(i, 0) == 0) {
                 func_00357640(i);
                 Fx_DrawFighterTex(i);
                 func_00343340(&gFighters[i], 1);
@@ -640,7 +640,7 @@ void func_00357DD8(void) {
         }
         func_003567A8();
         for (i = 0; i < gDrawFighterCount; i++) {
-            if (gFighters[i].unk127 != 0 && func_003D3228(i, 0) == 0) {
+            if (gFighters[i].unk127 != 0 && Tag_StepCounters(i, 0) == 0) {
                 func_00350C40(&gFighters[i]);
             }
         }

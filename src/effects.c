@@ -192,14 +192,14 @@ extern FVec4 D_00437A50, D_00437A60, D_00437A70, D_00437A80, D_00437A90, D_00437
 void func_00366EA8(Vu0Matrix m);
 void func_00366EB8(Vu0Matrix m);
 void func_0034A5D0(Vu0Matrix m, f32 *v);
-s32 func_003D3228(s32 side, s32 a);
+s32 Tag_StepCounters(s32 side, s32 a);
 float fabsf(float);
 void sceVu0ApplyMatrix(f32 *out, Vu0Matrix m, f32 *v);
 void sceVu0RotTransPers(s32 *out, Vu0Matrix m, f32 *v, s32 mode);
 
 f32 Fx_RandFloat(void);
 void *Fx_GetBankEntry(void *bank, u16 i);
-void func_003D3D08(f32 x, f32 y, f32 z, f32 *out);
+void Wind_Sample(f32 x, f32 y, f32 z, f32 *out);
 void func_00346600(void);
 
 void func_003A04B8(Effect *e);
@@ -515,7 +515,7 @@ void func_003A05F8(Effect *e) {
     }
 }
 
-/* Animated sprite whose frame offsets move its position, drifting along func_003D3D08 by 0.5-1 x unk120. */
+/* Animated sprite whose frame offsets move its position, drifting along Wind_Sample by 0.5-1 x unk120. */
 void func_003A06F0(Effect *e) {
     FxSubX *s = (FxSubX *)&e->sub;
     FxFrame *fr = s->unk10;
@@ -543,7 +543,7 @@ void func_003A06F0(Effect *e) {
     s->unkE0[1] = cur[1];
     s->unkE0[2] = cur[2];
     if (D_005F5EE0 == 0 && D_005F5EE4 == 0 && func_003A9698() == 0) {
-        func_003D3D08(s->unk0, s->unk4, s->unk8, d);
+        Wind_Sample(s->unk0, s->unk4, s->unk8, d);
         r = (Fx_RandFloat() * 0.5f + 0.5f) * s->unk120;
         s->unk0 += d[0] * r;
         fr++;
@@ -583,7 +583,7 @@ void func_003A08D8(Effect *e) {
     s->unkE0[1] = cur[1];
     s->unkE0[2] = cur[2];
     if (D_005F5EE0 == 0 && D_005F5EE4 == 0 && func_003A9698() == 0) {
-        func_003D3D08(s->unk0, s->unk4, s->unk8, d);
+        Wind_Sample(s->unk0, s->unk4, s->unk8, d);
         r = Fx_RandFloat() * s->unk120;
         s->unk0 += d[0] * r;
         fr++;
@@ -1199,7 +1199,7 @@ void func_003A1C78(Effect *e) {
         v[1] = -(f32)-D_00415808[6];
         v[2] = -(f32)-D_00415808[7];
         sceVu0ApplyMatrix(m[3], m, v);
-        if (FX_FIGHTERS[0].unk127 != 0 && func_003D3228(0, 0) == 0) {
+        if (FX_FIGHTERS[0].unk127 != 0 && Tag_StepCounters(0, 0) == 0) {
             sceVu0ApplyMatrix(w, m, FX_FIGHTERS[0].unk590);
             t = w[0] * w[0] + w[1] * w[1];
             if (t < min) {
@@ -1217,7 +1217,7 @@ void func_003A1C78(Effect *e) {
             }
             min = m2;
         }
-        if (FX_FIGHTERS[1].unk127 != 0 && func_003D3228(1, 0) == 0) {
+        if (FX_FIGHTERS[1].unk127 != 0 && Tag_StepCounters(1, 0) == 0) {
             sceVu0ApplyMatrix(w, m, FX_FIGHTERS[1].unk590);
             t = w[0] * w[0] + w[1] * w[1];
             if (t < min) {

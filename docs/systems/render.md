@@ -1,9 +1,10 @@
-# Rendering (`scene3d`, `model_draw`, `hud`, `effects`)
+# Rendering (`scene3d`, `model_draw`, `hud`, `effects`, `model_anim`)
 
 How a frame gets from the game state to the GS, and the modules decompiled for it: in T17 batch 1 (2026-10-20)
 `src/scene3d.c`, `src/scene3d_b.c`, `src/scene3d_c.c`, `src/scene3d_d.c` (the `scene3d` range 0x34C508-0x3543F0 without
 the skeleton cut), `src/model_draw.c` (0x3DB758-0x3DC9C8) and `src/hud.c` (0x3C1A78-0x3C3150); in T17 batch 2 the effects,
-`src/effects.c` (0x3A04B8-0x3A6460) and `src/effects_draw.c` (0x3A6460-0x3A9678), section 7.
+`src/effects.c` (0x3A04B8-0x3A6460) and `src/effects_draw.c` (0x3A6460-0x3A9678), section 7; in T17 batch 3 the
+`model_anim` module, `src/model_anim.c` (0x3D0660-0x3D3630) and `src/model_anim_b.c` (0x3D3630-0x3DB758), section 11.
 
 Tags: **[V]** read in matching C or in the disassembly, **[I]** inferred.
 
@@ -89,7 +90,7 @@ Fighters with the sword (character 4, or 15 / 33 with costume 4) get a trail and
 ## 4. Fighter state for drawing (`src/scene3d.c`, `src/scene3d_d.c`)
 
 - **Wind** (`func_0034E018`, first in `Skel_Update` outside mode 5): per side a float vector `D_01FAB740` from
-  `func_003D3D08(position)`, its length `D_005F6E20`, a fixed-point copy `D_01FAB6D0` and strength `D_005F6E18` [V].
+  `Wind_Sample(position)`, its length `D_005F6E20`, a fixed-point copy `D_01FAB6D0` and strength `D_005F6E18` [V].
 - **Extra joints 18+** (`func_0034C508`, from `Skel_ComputeWorld`): a fixed-point pendulum: the tip is averaged over a
   few frames, blended with the joint's down axis and the wind, and turned into yaw / pitch with the GTE-style helpers;
   frozen while paused [V].
@@ -120,7 +121,7 @@ alpha-blended; colour `D_005F6738`, Z `D_005F6730 >> 4`) [V]:
   record (`TeamMember.unkC` life, `unk10` red life, `unk14` maximum). Drawn in order: background, red life, life, and a
   white damage trail that falls by max / 400 per frame; rising life is drawn climbing by max / 800 per frame.
 - **Partner bar and tag**: the active bar sits at y 15, the partner's 15 px lower and further out; a tag (counter
-  `func_003D3228(side, 0)` between 1 and 15) slides them past each other over 30 frames. A side with one member is
+  `Tag_StepCounters(side, 0)` between 1 and 15) slides them past each other over 30 frames. A side with one member is
   drawn 8 px lower.
 - **Partner counter** (`TeamMember.unk28`, 100 at rest, pair rules of `func_003CF278` on a tag): at 120 or more the bar
   flashes and the active fighter's `unk400` is set (`func_003C1B38`) [V code; I "rage"].
@@ -226,6 +227,15 @@ but change the CPU's choices relative to the original (decision for T26) [I cons
   (section 7.1), so the effect update must keep running, in the same order, even where nothing is drawn.
 - The stage and fighter texture layers (section 7) are GS image uploads per frame: the port's GS core must take them
   like any other VRAM upload.
+- **Models (section 11)**: the stage scenes and the round camera are float / libvu0 code on the EE and stay C; what the
+  port replaces is underneath: the renderer the draw lists end in (`func_00341B28`, VU0 skinning of `dma_gif`), the
+  stage objects' VIF1 packets (VU1 microcode, a template in `.vudata` 0x4FAF80-0x4FB800 plus DMA references into the
+  model banks), `sceVu0ClipAll` and the inline VU0 macro code of `func_003DA138` / `func_003DAA80` (plain float math
+  in a port), and the scratchpad work areas (`Spr_Setup`, toSPR copies, `Dma_Wait`).
+- **The stage wind and the stage animations use `rand()` and the CPU generator** (`func_003800D8` in the round camera,
+  `rand()` through `func_003D8128` and `Fx_RandFloat` in the stage animations): as for the effects (section 7.1) they
+  must run every frame in the original order, drawn or not, to keep the `rand()` stream of the CPU opponent [I: which
+  of them run during a fight depends on the stage].
 
 ## 9. Status
 
@@ -238,6 +248,8 @@ but change the CPU's choices relative to the original (decision for T26) [I cons
 | `src/scene3d_c.c` | 0x3504C0-0x351E98 | 9 / 15 | `func_00350728`, `func_00350C40`, `func_003517F0`, `func_00351860`, `func_003518B8`, `func_00351AA0` |
 | `src/scene3d_d.c` | 0x351E98-0x3543F0 | 33 / 37 | `func_00351E98`, `func_00352F50`, `func_00353448`, `func_00354120` |
 | `src/effects.c` | 0x3A04B8-0x3A6460 | 49 / 58 | `func_003A0CE8` (50 lines, table loads hoisted), `func_003A1378` (hazard nop), `func_003A1C78` (75, registers), `func_003A3438` (hazard nop), `func_003A35C8` (needs no `-ffast-math`), `func_003A4128` (hazard nop), `func_003A44F8` (13, registers), `func_003A4C28` (hazard nop), `func_003A6110` (hazard nop) |
+| `src/model_anim.c` | 0x3D0660-0x3D3630 | 68 / 72 | `func_003D0E18` (5, a v0 / v1 swap), `func_003D1468` (needs no `-ffast-math`), `func_003D1980` (2, store order), `func_003D2B88` (182, registers of the round-end bonus) |
+| `src/model_anim_b.c` | 0x3D3630-0x3DB758 | 73 / 101 | 28 drafts: needs no `-ffast-math` (`func_003D4B18`, `func_003D4F58`, `func_003D5798`, `func_003D5998`), hazard nops (`func_003D3C68`, `func_003D7A40`, `func_003D8038`, `func_003D8088`, `func_003D80E8`), registers / scheduling (`func_003D3B80`, `func_003D3FF8`, `func_003D43A8`, `func_003D4728`, `func_003D52B0`, `func_003D5B58`, `func_003D5E80`, `func_003D6BC0`, `func_003D7E10`, `func_003D8158`, `func_003D8D38`, `func_003D9280`, `func_003D9468`, `func_003D9588`, `func_003D9BE8`), large drafts (`func_003D62A0`, `func_003D7378`, `func_003DA138`, `func_003DAA80`) |
 | `src/effects_draw.c` | 0x3A6460-0x3A9678 | 44 / 50 | `Fade_Draw` (4, two constants swapped), `func_003A76C0` (19, spill slots and order), `func_003A88B0` (24, a folded count), `Fx_AddQuad` (1, `addu` operands), `func_003A8D08` (needs no `-ffast-math`), `func_003A95D8` (hazard nops) |
 
 The reasons are in each draft's `NON_MATCHING` note and in [decomp_guide.md](../decomp_guide.md), "Lessons from T17
@@ -250,6 +262,100 @@ batch 1" and "Lessons from T17 batch 2". "Hazard nop": a `nop` that gas adds and
   `render_fighter_a` are not decompiled yet (T17 later batches); nor the effect pool itself (`func_003464F8` ..
   `func_00346830` in the `geometry` range) and the dispatcher `func_0035BF10`.
 - How the original wrote the 64-bit to 128-bit move of the sword effect's TEX0 (`por`), which this compiler refuses.
+- The renderer behind `func_00341B28` (the draw lists of section 11) and the stage objects' VU1 program.
+- Both `model_anim` objects also look built without `-ffast-math` (section 11.5): five drafts wait for the per-file flag.
 - Whether `scene3d.c`'s float functions were built without `-ffast-math` (section in the guide). The effects are: a
   per-file flag for `effects.c` / `effects_draw.c` is the next test (needs `configure.py`), and `func_003A8D08` then also
   needs the original's libcall names (`sqrt`, `__fixunssfsi` where this compiler calls `sqrtf`, `fptoui`).
+
+## 11. Models (`src/model_anim.c`, `src/model_anim_b.c`)
+
+T17 batch 3 (2026-10-20). The `model_anim` range holds no fighter models (those are `skeleton`, `dma_gif` and
+`render_fighter_a`): it is the **stage scenery** (animated stage parts and stage objects), the stage wind, the round
+camera shots, and the fight bookkeeping the simulation calls (tag counters, move log). Two objects: 0x3D0660-0x3D3630
+and 0x3D3630-0x3DB758 (game_overview.md section 4) [V].
+
+### 11.1 Model hierarchy (`src/model_anim.c`, 0x3D0C68-0x3D22E0)
+
+- **Scenes**: `D_00520FC0` (`.rodata`, 0x10-byte entries `{ModelDef *def, s32, draw(nodes), init(nodes)}`). A
+  `ModelDef` lists parent / child links (`s16[2]`), node definitions (0x40 bytes: indices, rotation, translation, update
+  and init callbacks), per-part kinds and floats. `func_003D0CC8(scene)` resets the pools and copies the kinds and
+  floats into `D_00444C60` / `D_00445620`; `func_003D0E18` builds the node tree (from the stage set-up in
+  `fighter_setup`, 0x367970 / 0x367BF0); `func_003D1040` sets the camera matrices and calls the scene's draw callback
+  (from `loading_title`, 0x3A991C) [V].
+- **Nodes** (`ModelNode`, 0x70 bytes, pool `D_00445690[64]`, counter `D_005F677C`): camera slot, flags (view-relative,
+  Euler order, drawn), draw list, parent, children (pool `D_01FAD710`), word and float arrays (pool `D_01FAD810`), part
+  index, resource set, scale, rotation (+0x40), translation (+0x50), update callback (+0x60). `func_003D1B68` copies a
+  subtree [V].
+- **Matrix stack** (VU0 matrices through libvu0): current matrix `D_01FAD6D0`, stack `D_01FAD450[10]`, depth
+  `D_005F6EF0`; `Model_ClearMatrixStack`, `Model_PushMatrix`, `Model_PopMatrix`, `Model_LoadMatrix`, `Model_MulMatrix`,
+  `Model_GetMatrix`, `Model_LoadIdentity` [V].
+- **Draw path**: `func_003D10D0(part, m, scale)` / `func_003D1160(node, m, scale)` walk a subtree (`func_003D1468`,
+  recursive: rotation + translation into the matrix stack, camera x world, depth); `Model_QueueDraw` copies the 0x150-byte
+  draw context (five matrices and the part) into a draw object (pool `D_01FADC10[96]`, 0x160 bytes) and queues
+  `{depth, object}` in one of four lists `D_01FB6110[4][96]` (counts `D_01FB6100`). `Model_FlushDrawLists(a)` runs from
+  the stage pass (`func_00357C88`, `func_00357D38`): lists 0-1 with `a = 0`, lists 2-3 with `a = 1`; lists 1 and 3 are
+  merge-sorted by decreasing depth (`func_003D1F00`, back to front, the translucent lists [I]) and every entry goes to
+  `func_00341B28(res, obj, lights, kind)` (`render_fighter_a`, VU0 / VU1 drawing) [V calls; I roles].
+
+### 11.2 Stage animations (`src/model_anim_b.c`, 0x3D47A8-0x3D8158)
+
+Per-stage node update callbacks (handler arrays `D_0044B230`, `D_0044B800`, `D_0044BEA0`, `D_0044C1A0` in `.data`,
+game_overview.md section 3) that move parts of the scene every frame [V code; I looks]: a flock of ten birds of four
+parts each and a leader (`func_003D4830` / `func_003D4B18`), parts on ten lanes wrapping around the camera
+(`func_003D5B58` / `func_003D5E80`), orbiting and bobbing parts, parts that turn by the clock or toward a target, a
+40-node ring with a Hermite curve in Newton form (`func_003D6BC0`, curve at `D_00444D78`), debris blown off by blast
+points (`func_003D7378`), a camera node (`func_003D7AB0`), stereo panning of stage sounds from distance and view
+direction (`func_003D4F58`, `func_003D5998`, `func_003D62A0`, through `sound`'s `func_00375930` / `func_003758F0`).
+The work area `D_00444CD0` (`.data`) is a per-stage union. Helpers: `func_003D8128` (`rand() * 2^-31`), `func_003D80E8` /
+`func_003D8088` / `func_003D8038` (angle wraps), `func_003D47A8` / `func_003D47E8` (random ranges).
+
+### 11.3 Stage wind (`src/model_anim_b.c`, 0x3D3630-0x3D47A8)
+
+`Wind_Init(stage)` (battle_flow, round set-up) starts the stage's generators (`D_00447EC0`, 0xC bytes per stage); each
+generator (`D_00447FE0`, 3 x 0x1060) is a Lorenz attractor (`Wind_StepLorenz`: sigma 10, rho 28, beta 8/3, dt 0.01)
+sampled into 0x400 values; four gusts (`D_0044B100`, 0x30 bytes: radial pushes that fade). `Wind_Update` steps them every
+unpaused frame and records a 120-frame ring (`D_01FB6EF0`) that replays reuse; `Wind_Sample(x, y, z, out)` gives the
+wind at a point (the fighters' secondary motion, section 4, and effects). It is float code fed by the round's time
+only, so it is picture state unless something in the simulation reads it [I: no simulation reader found].
+
+### 11.4 Stage objects (`src/model_anim_b.c`, 0x3D8158-0x3DB758)
+
+- **Lists** `D_01FBF680` / `D_01FC0D00` (0x1680 bytes): up to 36 objects of 0x90 bytes (matrix, definition, animation,
+  position, Y rotation, scale, wait, repeat count, frame, animation id, bounding box, bank, clip flags), bounding boxes at
+  +0x1440, the clip volume at +0x1640, a bone parent table at +0x1660, the count at +0x1678. Set up by `func_003DB578`
+  from the stage's entry in `D_00453FC8` (`func_003D9280` places each object from its 0x20-byte definition; random
+  variants and repeat chains `func_003D8908` / `func_003D8B20` / `func_003D8D38` / `func_003D8E30`); banks of models
+  `D_01FC2380[16]` and the hook pair by `func_003DB368`; flags `D_005F67B8` [V code; I names].
+- **Per frame**: `func_003DB698(frames)` (from battle_flow with `D_005F5F10`, the frames stepped) calls the update hook
+  `D_005F6FD0(list, t, n)` on each active list: `func_003D9588` or `func_003D9BE8` step the animations (`func_00367CD0`
+  frame counts), sort or push the animated objects, build their matrices and clip them with `sceVu0ClipAll` (a shear
+  matrix gives the planar shadow on y = 100 along the light of `func_00353C88(0)`); `func_003DB2A8` loops a stage sound
+  on stage 15 [V].
+- **Draw**: the stage pass calls `D_005F6FD4(list)` (`func_003DB758` / `func_003DB7B0`, src/model_draw.c):
+  `func_003DA138` / `func_003DAA80` build the 18 bone matrices with inline VU0 macro code (`vmula` / `vmadd` rotations,
+  sin / cos from `func_003E8FA0`) in a scratchpad work area (`Spr_Setup(1, 0x34C0)`), then send VIF1 packets: the
+  template `D_004FAF80`-`D_004FB800` (VU1 code and set-up), the matrices, and DMA references into the bank's data; each
+  object is drawn again with the shadow matrix when its shadow is visible [V calls; I details].
+- **GS images of model files**: `func_003D8158` relocates a model file's image records and patches them for draw modes
+  0-3; `func_003D83A8` uploads a record chain at once (libpkt, `func_00354290`, `func_0035E6B8`) [V].
+
+### 11.5 Round camera and fight bookkeeping (`src/model_anim.c`)
+
+- **Round camera shots** (0x3D0660-0x3D0C68, 0x3D22E0-0x3D29E8): `func_003D0660` picks one of 14 shot sequences with the
+  CPU generator `func_003800D8` and keeps the last hit position; `func_003D0748` places the eye of the next shot from
+  `D_00520C40` (0x14-byte shots: target source, rotation and random spread, distance) chosen by `D_00520F88`, around a
+  fighter or the hit position; `func_003D0A38` eases the target; `func_003D2330` / `func_003D2818` set up and play a
+  scripted move (`D_00521140`, quarter-sine interpolation). Camera keys go through `func_0035B690` / `func_0035B858`
+  (src/stage.c's camera). Because they draw from the CPU generator, these run in the simulation order [V calls].
+- **Move log**: `Fighter_LogMove` (when a move starts) counts flagged moves per team member (`Fighter + 0x5C`) and moves
+  repeated within the member's last 20 (`+0x60`, log at `+0x64`); `Fighter_ClearMoveLog` resets it;
+  `func_003D2B88` (round end) pays a bonus `D_005F5CC8[side]` when the counts pass per-character thresholds
+  (`D_00521190`), rescaled by the time left [V code; I meaning of the bonus].
+- **Tag**: `Tag_StepCounters` counts the per-side counters `D_01FB6ED0` / `D_01FB6EE0` down (1 finishes the swap,
+  `func_003D33F8`; 0 lets `Battle_RecoverLife` run, `func_003D3528`); see fighter.md section 5.7 [V].
+
+**Compiler**: both objects match only without `-ffast-math` in five functions (`func_003D1468`, `func_003D4B18`,
+`func_003D4F58`, `func_003D5798`, `func_003D5998`: `-x + c` kept as `neg.s` / `add.s`, divisions by constants kept), while
+every other function compiles the same either way; their bare `sqrt.s` comes from an inline-asm square root, not from
+`sqrtf` (decomp_guide.md, "Lessons from T17 batch 3").

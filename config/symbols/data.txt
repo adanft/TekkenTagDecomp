@@ -134,6 +134,26 @@ D_00519A20 = 0x00519A20; // size:0x48 force_not_migration:True
 D_00519A68 = 0x00519A68; // size:0x48 force_not_migration:True
 D_00519AB0 = 0x00519AB0; // size:0x50 force_not_migration:True
 jtbl_00519B00 = 0x00519B00; // size:0x30 force_not_migration:True
+// .rodata of model_anim (0x520C40-0x521700, src/model_anim.c; 0x521B80-0x521CE0, src/model_anim_b.c): every table is
+// included in place; 0x521700-0x521B80 between them belongs to the object at 0x340000.
+D_00520C40 = 0x00520C40; // size:0x348 force_not_migration:True
+D_00520F88 = 0x00520F88; // size:0x38 force_not_migration:True
+D_00520FC0 = 0x00520FC0; // size:0x180 force_not_migration:True
+D_00521140 = 0x00521140; // size:0x50 force_not_migration:True
+D_00521190 = 0x00521190; // size:0x550 force_not_migration:True
+jtbl_005216E0 = 0x005216E0; // size:0x20 force_not_migration:True
+D_00521B80 = 0x00521B80; // size:0x10 force_not_migration:True
+D_00521B90 = 0x00521B90; // size:0x10 force_not_migration:True
+D_00521BA0 = 0x00521BA0; // size:0x10 force_not_migration:True
+D_00521BB0 = 0x00521BB0; // size:0x10 force_not_migration:True
+D_00521BC0 = 0x00521BC0; // size:0x10 force_not_migration:True
+jtbl_00521BD0 = 0x00521BD0; // size:0x20 force_not_migration:True
+D_00521BF0 = 0x00521BF0; // size:0x10 force_not_migration:True
+D_00521C00 = 0x00521C00; // size:0x10 force_not_migration:True
+D_00521C10 = 0x00521C10; // size:0x10 force_not_migration:True
+D_00521C20 = 0x00521C20; // size:0x10 force_not_migration:True
+jtbl_00521C30 = 0x00521C30; // size:0x90 force_not_migration:True
+jtbl_00521CC0 = 0x00521CC0; // size:0x20 force_not_migration:True
 gSinTable = 0x004FCE88; // type:u16 size:0x2800
 // .rodata of the sound object (0x500780-0x500D50): every table is included in place from src/sound.c.
 D_00500780 = 0x00500780; // size:0x30 force_not_migration:True

@@ -56,7 +56,7 @@ extern const char D_0051F6A0[];
 extern const char D_0051F6B0[];
 s32 Text_Printf(const char *fmt, ...);
 s32 func_003C0098(void);
-s32 func_003D3228(s32 side, s32 a);
+s32 Tag_StepCounters(s32 side, s32 a);
 void Hud_DrawMarkers(void);
 void Hud_DrawLifeBar(s32 side, s32 member, s32 fade, s32 partner);
 void func_003C6738(s32 a, s32 n, s32 x, s32 y);
@@ -562,7 +562,7 @@ void func_003C2EF8(void) {
 }
 
 /* Per-frame fight HUD [V]: Z from func_003C0098, markers (Hud_DrawMarkers), then per side the two life bars. When a tag
- * starts (func_003D3228(side, 0) in 1..15) a 30-frame counter slides the bars: fade = counter / 2 for the incoming
+ * starts (Tag_StepCounters(side, 0) in 1..15) a 30-frame counter slides the bars: fade = counter / 2 for the incoming
  * bar, 15 - fade for the other; the active member (the one that is not gFighters[side].unk0) is drawn first with
  * partner 0. Last the timer: (gRoundTimer * 6 / 7 - 1) / 60 as two digits at x 320, y 6 (func_003C6738). */
 void Hud_Draw(void) {
@@ -578,7 +578,7 @@ void Hud_Draw(void) {
         h = &D_01FAC8B8[side];
         b = 0;
         a = 15;
-        if (h->unk0 == 0 && func_003D3228(side, 0) != 0 && func_003D3228(side, 0) < 16) {
+        if (h->unk0 == 0 && Tag_StepCounters(side, 0) != 0 && Tag_StepCounters(side, 0) < 16) {
             h->unk0 = 30;
         }
         if (func_0036E158() != 1 || D_005F5EE0 != 0 || D_005F5EE4 != 0 || func_003A9698() != 0) {

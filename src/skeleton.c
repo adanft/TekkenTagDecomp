@@ -74,7 +74,7 @@ void Skel_SetRootMatrix(Fighter *f);
 void func_003632E0(Fighter *f);
 void func_00362C28(Fighter *f);
 void func_00350728(Fighter *f);
-s32 func_003D3228(s32 a, s32 b);
+s32 Tag_StepCounters(s32 a, s32 b);
 void Skel_ComputeWorld(Fighter *f);
 void func_003478F0(Fighter *f, s32 n);
 void Light_UpdateFighter(s32 side, void *p);
@@ -94,7 +94,7 @@ void func_003A02C0(s32 j, Fighter *f, GteMatrix *m, s16 *d, GteMatrix *out);
 GteMatrix *func_0034FC68(s32 side, s32 k);
 s32 func_003626B8(Fighter *f, s32 j, GteMatrix **m);
 void func_0034C508(Fighter *f, s32 j);
-void func_003D3210(s32 a, s32 b);
+void Tag_SetCounter2(s32 a, s32 b);
 void Skel_ProjectJoints(Fighter *f);
 void func_0034FD10(GteMatrix *cam, GteMatrix *m);
 s32 func_00398600(s32 x, s32 y, s32 z, s16 *out);
@@ -136,7 +136,7 @@ typedef struct {
 
 /* The per-frame skeleton update of a fighter (via func_0034E8B0 from func_00371B18): root channels of the base motion
  * (unkB8) into D_005F5E70 and unk30..unk34, the pose of the current move (unkC0) at frame unkC4 into D_00416A18, the
- * motion blend, the root matrix (Skel_SetRootMatrix) and, unless the slot's countdown func_003D3228 runs, the world
+ * motion blend, the root matrix (Skel_SetRootMatrix) and, unless the slot's countdown Tag_StepCounters runs, the world
  * matrices (Skel_ComputeWorld) and the joint projections (func_0034FB48). */
 void Skel_Update(Fighter *f) {
     func_0034E018();
@@ -161,7 +161,7 @@ void Skel_Update(Fighter *f) {
     func_003632E0(f);
     func_00362C28(f);
     func_00350728(f);
-    if (func_003D3228((s16)f->unk20, 1) == 0) {
+    if (Tag_StepCounters((s16)f->unk20, 1) == 0) {
         Skel_ComputeWorld(f);
         func_003478F0(f, 0);
         Light_UpdateFighter(f->unk1E, (u8 *)f + 0x590);
@@ -483,11 +483,11 @@ void func_0034FA60(Fighter *f) {
     }
 }
 
-/* func_003D3210(slot, 1) for a move with flag 0x10000 (the low 19 bits of unk24 seen as a bit field), then
+/* Tag_SetCounter2(slot, 1) for a move with flag 0x10000 (the low 19 bits of unk24 seen as a bit field), then
  * Skel_ProjectJoints. */
 void func_0034FB48(Fighter *f) {
     if (((MoveFlags24 *)&f->unkC0->unk24)->lo & 0x10000) {
-        func_003D3210((s16)f->unk20, 1);
+        Tag_SetCounter2((s16)f->unk20, 1);
     }
     Skel_ProjectJoints(f);
 }

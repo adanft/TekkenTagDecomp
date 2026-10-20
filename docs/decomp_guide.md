@@ -1104,6 +1104,74 @@ Tools:
 - Such a comparator must not end a function at splat's `jlabel` case labels, and must compare `%hi` / `%lo` of data
   symbols by value (splat leaves some as literal immediates).
 
+### Lessons from T17 batch 3 (2026-10-20)
+
+Objects and data:
+
+- **Data order finds object edges inside a module.** `model_anim`'s `.rodata` (0x520C40-0x521700, then 0x521B80-0x521CE0),
+  `.lit4` (0x5F5370-0x5F5378, then 0x5F539C-0x5F5614) and `.sbss` (0x5F6ED0-0x5F6F18, then 0x5F6F2C-) are each split by
+  data of the object at 0x340000 (`D_00521700`, `D_005F5378`-`D_005F5398`, `D_005F6F1C`-`D_005F6F28`), so the module is two
+  objects and the edge lies where both pools change hands: 0x3D3630 (`src/model_anim.c` / `src/model_anim_b.c`). No
+  function of the range saves a register with `sq`, so the u128 edge test of T17 b1 gave nothing here.
+- **splat writes the VU0 accumulator as a bare `ACC`** in the function files of a C segment (`vmulax.xy ACC, ...` in
+  `func_003DA138` / `func_003DAA80`; the generic chunk had `$ACC`), which gas refuses. `src/model_anim_b.c` defines gas
+  macros for the three mnemonics that rewrite the operand and then use the real instruction (each macro purges itself
+  around the use and is defined again); inline asm in C must spell it `$ACC`.
+- The clean rebuild once failed with missing `asm/nonmatchings/file/*.s` right after `configure.py` (a second split ran
+  while `file.c` compiled); running `ninja` again built it. Rerun before suspecting a source change.
+- Three C jump tables (`func_003D85D8`, `func_003D8E30` here; `func_003D2B88` stays a draft) needed no `RODATA_ALIGN`.
+
+Compiler:
+
+- **Both `model_anim` objects look built without `-ffast-math`**, like `effects` (T17 b2): `func_003D1468`, `func_003D4B18`,
+  `func_003D5798` and `func_003D5998` match only without the flag (`-x + c` kept as `neg.s` / `add.s`, `-atan2f(...) + pi/2`
+  not reassociated), and every other function compiles the same either way. Their bare `sqrt.s` (no errno call) is an
+  inline-asm square root (`nop; nop; sqrt.s`, a `static inline` of the file, marked [I] / fake), which also keeps loads
+  after it as the original; the builtin `sqrtf` folds `x / sqrtf(y)` into `rsqrt.s` and schedules across it.
+- With `-ffast-math`, a constant divisor stays `div.s` only from a local assigned right before the division, one local
+  per constant; `(y - x) * 10.0f` must be its own statement or the 10 and the 0.01 fold.
+
+Code shapes:
+
+- **Two-case switches**: the original `==1; slti 2; ==2; ==3` trees come from extra labels: `case 0: case 2: break; case 1:
+  case 3:` (`Model_FlushDrawLists`), `case 2: default:` (round camera), `case 0:` plus `default:` for `switch (i % 4)`;
+  the source order of the cases sets the layout. A test of a call result against 0 then 1 is a `switch` (`func_003D3528`).
+- **Loop initialisers**: `for (i = 1, cnt = 0; ...)` gave the original `li a2, 1` / `move a3, zero` order where every
+  order of separate statements kept them swapped (`Fighter_LogMove`, found after the helper's sweep).
+- **12-byte copies through an inline** `CopyV3(FVec4 *d, FVec4 *s) { memcpy(d, s, 12); }` let the compiler hoist the
+  pointers into saved registers before a loop as the original (`func_003D1B68`); a plain `memcpy` was 38 lines off.
+- **A base pointer in a local** (`birds = D_00444D20; b = &birds[i];`) gives the EE `mtlo` / `madd` address arithmetic;
+  `&D_00444D20[i]` gives `mult` / `addu` (`func_003D4830`).
+- **Unit matrices** store 1.0f as integer words (`((s32 *)m)[k] = 0x3F800000`, k = 0, 5, 10, 15, marked fake): the float
+  stores give `mtc1` / `swc1` where the original has `lui` / `sw`. Chained float zeros (`a = b = c = 0.0f`) give `mtc1
+  zero` + `swc1` where separate statements give `sw zero`.
+- A 16-byte `.rodata` vector copied with `ld` / `sd` needs an `aligned(8)` struct type, with `lq` / `sq` an `aligned(16)`
+  one; without the attribute the copy is `ldl` / `ldr`.
+- Non-constant aggregate initialisers (`GteVector v = {x, y, z, 0}`) reproduce the original stack temporary and its
+  struct copy; later locals reuse its slot, so declaration order sets the frame (`func_003D2330`).
+- A sorted list insert whose first test uses the new object is a `while (p && cmp) { prev = p; p = p->next; }` (gcc
+  copies the test in front of the loop, `func_003DB578`); a five-value equality test is a `switch` (`func_003DB2A8`).
+- Float and integer parameters are passed in separate register files, but their order in the prototype still changes
+  the scheduling of the caller's loads (`Model_QueueDraw(ctx, res, kind, f32 scale, list, f32 depth)`).
+
+Types: the 0x70-byte model node is `ModelNode` in `src/model_anim.c` and `StgObj` in `src/model_anim_b.c`; the stage
+objects have a set-up view (`StageObjSetup` / `StageObjSetupList`) and an update / draw view (`StageObj` / `StageObjList`)
+of the same memory, joined by casts at the two calls between them (no code change). `src/model_draw.c` declares
+`StageObjList.obj[39]`; the stage code uses 36 objects and data at 0x1440.
+
+Not matched yet: 32 drafts with one-line reasons in their `NON_MATCHING` notes (render.md section 9): five need the file
+built without `-ffast-math`, five are hazard nops, the rest register allocation and scheduling (`func_003D1980` 2 lines,
+`func_003D0E18` 5, `func_003D8D38` 9, `func_003D3FF8` 10, `func_003D7E10` 10 ...) and four large drafts (`func_003D62A0`,
+`func_003D7378`, `func_003DA138`, `func_003DAA80`, the last two with inline VU0 code).
+
+Tools:
+
+- Six helper agents each owned a group in a scratch file compared by a scratch comparator (the build's compiler and
+  prelude, objdump of both sides, `.lit4` loads by value, `%hi` / `%lo` by address); the parent merged the groups by script
+  (OK functions replace their `INCLUDE_ASM` and `LIT4_WORD` lines, drafts go into `#if 0` with the note), unified the
+  clashing types and prototypes by hand, and confirmed every function with fdiff and the SHA-1. The comparator must skip
+  objdump's `.L` symbols (splat's `jlabel` case labels), or it cuts functions with jump tables short.
+
 ## Decompiled so far
 
 | File | Range | C / functions | Notes |
@@ -1124,7 +1192,8 @@ Tools:
 | `src/battle_flow.c` | 0x3682F8-0x3745E8 | 120 / 148 | the fight simulation: per-frame update, input fetch and history, command matching and situation tests, move start and move events, hits and throws (`Battle_ResolveHits`, `Fighter_StartThrownMove`), launches, the round state machine (`Battle_UpdateRound`) and results ([systems/fighter.md](systems/fighter.md) section 5); includes the four functions of the former `src/374520.c`; `.rodata` 0x4FF8D0-0x500780 included in place; damage `Fighter_ApplyDamage` and its `.lit4` 0x5F5168 |
 | `src/fight_misc.c` | 0x376C30-0x3790C8 | 26 / 29 | the hit test (attack volumes against body spheres), body sphere radii, push sphere radii, the special attack volume of character 0x1D ([systems/fighter.md](systems/fighter.md) section 5.5); `.rodata` 0x506150-0x506260, `.lit4` 0x5F5170 |
 | `src/select_results.c` | 0x3C1470-0x3C1A78 | 2 / 4 | team life at round start and its per-frame recovery ([systems/fighter.md](systems/fighter.md) section 5.6); a cut inside the `select_results` module, not an object edge |
-| `src/model_anim.c` | 0x3D3288-0x3D33F0 | 1 / 1 | the tag swap ([systems/fighter.md](systems/fighter.md) section 5.7); a cut inside the `model_anim` module, not an object edge |
+| `src/model_anim.c` | 0x3D0660-0x3D3630 | 68 / 72 | round camera shots, the model hierarchy of the stage scenes (nodes, VU0 matrix stack `Model_*`, depth-sorted draw lists), the move log (`Fighter_LogMove`) and round-end bonus, the tag counters (`Tag_*`) and the tag swap ([systems/render.md](systems/render.md) section 11, [systems/fighter.md](systems/fighter.md) section 5.7); `.rodata` 0x520C40-0x521700, `.lit4` 0x5F5370-0x5F5378; the end is an object edge [V: data order], the start the module edge [I] |
+| `src/model_anim_b.c` | 0x3D3630-0x3DB758 | 73 / 101 | the stage wind (`Wind_*`, Lorenz generators and gusts), the animated stage scenes, GS images of model files, the stage objects (update / VU1 draw hooks, planar shadows) ([systems/render.md](systems/render.md) section 11); `.rodata` 0x521B80-0x521CE0, `.lit4` 0x5F539C-0x5F5614; gas macros for splat's bare `ACC` operand |
 | `src/stage.c` | 0x38BF98-0x396D00 | 58 / 105 | the fight camera and its per-stage values (module `camera_stage`): the per-frame camera step `Cam_Update` on `gRoundPhase`, camera keys and blends, camera scripts, reaction cameras drawn at random, stage camera distances ([systems/stage.md](systems/stage.md)); `.rodata` 0x507EE0-0x509D00 included in place; `.lit4` 0x5F5174-0x5F519C (`LIT4_WORD` for the float functions still in assembly) |
 | `src/skeleton.c` | 0x34E748-0x34FF10 | 13 / 16 | the fighter skeleton (module `skeleton`): per-frame update `Skel_Update`, the root matrix that writes the position `unk51C`..`unk524`, joint world matrices, body / push spheres and attack volumes on joints, joint screen positions ([systems/animation.md](systems/animation.md)); `.lit4` 0x5F5114-0x5F5154 (`LIT4_WORD` for `Skel_SetRootMatrix`) |
 | `src/motion.c` | 0x3639F0-0x364448 | 17 / 19 | motion data (module `motion`): frame sampling, the delta / run-length frame decoder, motion banks and clips ([systems/animation.md](systems/animation.md)); `.rodata` 0x4FC610-0x4FC630 (the decoder's jump table) included in place |
@@ -1139,4 +1208,4 @@ Tools:
 
 Functions left as `INCLUDE_ASM` carry their closest attempt above them in `#if 0` with a `NON_MATCHING:` note; in
 `fighter_core.c`, `battle_flow.c` and `fight_misc.c` every remaining function has one (T14 b9); in `stage.c` every
-remaining function has one that compiles when enabled (T15 b2), as in `skeleton.c` and `motion.c` (T16 b1) and the T17 files (`hud.c`, `scene3d*.c`, `effects.c`, `effects_draw.c`).
+remaining function has one that compiles when enabled (T15 b2), as in `skeleton.c` and `motion.c` (T16 b1) and the T17 files (`hud.c`, `scene3d*.c`, `effects.c`, `effects_draw.c`, `model_anim.c`, `model_anim_b.c`).

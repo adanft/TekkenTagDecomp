@@ -20,7 +20,7 @@ Tags: **[V]** read in matching C or in the disassembly, **[I]** inferred.
     module) and `func_00350578` for both (fighter.md section 5.11).
 - **The stage index** `D_005F5CB6` (u16, 0-0x18 used; 23 values in the byte tables 0x455D50 / 0x455D68) selects data
   that is drawn or heard, not simulated: the stage model and textures (`func_00367938`, `func_00340070`,
-  `func_003D3630`), the music (`func_003751A0`, `func_00375868`), the camera distances and camera style (`D_00507FE0`, below)
+  `Wind_Init`), the music (`func_003751A0`, `func_00375868`), the camera distances and camera style (`D_00507FE0`, below)
   and the demo camera scripts (`Stage_GetCamScriptBank`). The camera style matters to the simulation (section 5, item 3).
 - **The camera is what the simulation depends on**: `Cam_Update` runs inside `Battle_UpdateFrame` every simulated
   frame, advances the round's camera phase `gRoundPhase`, writes the camera angles that `Battle_UpdateFacing` reads,

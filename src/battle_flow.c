@@ -181,7 +181,7 @@ void HitLog_ReplayFrame(s16 n);
 void func_003A6390(Fighter *f, s32 n);
 void func_003BAEF0(void);
 void func_003C1B38();
-s32 func_003D3228(s32 a, s32 b);
+s32 Tag_StepCounters(s32 a, s32 b);
 void func_003D3528(void);
 void func_003D3C68(f32 x, f32 y, f32 z, f32 w);
 void func_003DB690(void);
@@ -1254,7 +1254,7 @@ void func_0036A330(Fighter *f, Fighter *o) {
  * original cross-jumps */
 void func_0036A330(Fighter *f, Fighter *o);
 void func_00370F28(Fighter *f, Fighter *o);
-void func_003D2A38(Fighter *f, Fighter *o);
+void Fighter_LogMove(Fighter *f, Fighter *o);
 s32 func_0035BA00(s32 side);
 void Fighter_TagSwap(s32 side);
 void Snd_StopVoiceSeq(Fighter *f);
@@ -1410,7 +1410,7 @@ void Fighter_StepMove(Fighter *f, Fighter *o) {
         f->unk182 = 0;
         f->unk180 = 0;
     }
-    func_003D2A38(f, o);
+    Fighter_LogMove(f, o);
     func_0036BDA0(f);
     if (f->unkF8 == 3) {
         f->unk178 = 1;
@@ -3109,9 +3109,9 @@ void func_003BBC08(void);
 s32 func_003BFA40(void);
 void func_003C1C90(void);
 void func_003D0620(void);
-void func_003D2B38(Fighter *f);
-void func_003D31B8(void);
-void func_003D3630(u16 n);
+void Fighter_ClearMoveLog(Fighter *f);
+void Tag_ResetCounters(void);
+void Wind_Init(u16 n);
 void func_003F0C00(void);
 void func_0036C420(Fighter *f, s32 arg1);
 void func_003645D8(s32 n);
@@ -3153,7 +3153,7 @@ void func_0036D010(s16 cpu1, s16 cpu2) {
     D_005F67BC = 0;
     D_005F6788 = 0;
     D_005F678C = 0;
-    func_003D31B8();
+    Tag_ResetCounters();
     func_00353658();
     func_003ADDE8();
     for (i = 0; i < 2; i++) {
@@ -3237,13 +3237,13 @@ void func_0036D010(s16 cpu1, s16 cpu2) {
     gFighters[0].unk62 = 0;
     gFighters[0].unk60 = 0;
     gFighters[1].unk62 = 0;
-    func_003D2B38(&gFighters[0]);
-    func_003D2B38(&D_00884EE0);
+    Fighter_ClearMoveLog(&gFighters[0]);
+    Fighter_ClearMoveLog(&D_00884EE0);
     func_003645D8(1);
     Battle_InitTeamLife();
     func_003C1C90();
     func_00340070(D_005F5CB6);
-    func_003D3630(D_005F5CB6);
+    Wind_Init(D_005F5CB6);
     func_00366DB0(D_005F5CB6);
     func_00346600();
     func_00344BE0();
@@ -3497,7 +3497,7 @@ s32 Battle_UpdateFrame(void) {
                 func_003D3C68((f32)f1->unk51C, (f32)f1->unk520, (f32)-f1->unk524, (f32)f1->unk122);
             }
             func_00377AE8(f0, f1);
-            if (gRoundPhase < 0xE && func_003D3228(0, 0) == 0 && func_003D3228(1, 0) == 0) {
+            if (gRoundPhase < 0xE && Tag_StepCounters(0, 0) == 0 && Tag_StepCounters(1, 0) == 0) {
                 Battle_ApplyVelocity(f0, f1);
             }
             Battle_ResolveHits(f0, f1);
