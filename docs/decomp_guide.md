@@ -1307,21 +1307,82 @@ Matched (57): `func_003608B8`, `func_00360A08`, `func_00360A30`, `func_00360C98`
 `func_003403B8`, `func_003403F8`, `func_00340408`, `func_00340528`, `func_00340BF0`, `func_00340DF8`, `func_00341AE8`
 (render_fighter_a, 8). Not matched (drafts) and not attempted: render.md section 9.
 
+### Lessons from T17 batch 6 (2026-10-21)
+
+Objects and data:
+
+- **`sprite2d` is one C file with data subsegments**: `[0x8E298, c, sprite2d]`, `[0x1E1648, .rodata, sprite2d]`
+  (0x520648-0x520C40, 11 tables with `force_not_migration`, each included in front of its first reader) and
+  `[0x2B6364, .lit4, sprite2d]` (three words in text order: `LIT4_WORD` lines until the readers were C, then the C literals).
+  Its data starts right after `select_results`' (`D_00520638`, `D_005F535C`), so 0x3CD298 is a cut, not a proven edge. The
+  clean rebuild stayed byte-identical with every function still `INCLUDE_ASM` before any C was written.
+- **A jump table among other objects' data blocks the C**: `func_00356A78`'s `jtbl_00522030` sits between `Model_Render`'s
+  `jtbl_00522010` and other objects' tables in the generic `.rodata`, and `draw_list` has no `.rodata` subsegment, so a C
+  switch there would move the table; the function stays a draft. `func_00360F40`'s table (inside `font_tex`'s subsegment)
+  landed at its place with no `RODATA_ALIGN`: the `.s` file before it ends 16-aligned.
+- **The `vu1_packet` pool cannot be reproduced by C literals**: reading a `.lit4` word by name from C crashes gas
+  (`Internal error in nopic_need_relax`) whether the `LIT4_WORD` label is defined before or after the reader (tested), so
+  the four functions whose words follow `func_00342E38`'s stay drafts (`func_00342818` 9 lines, `func_003420C8` all
+  instructions).
+- A struct view across files: the sprite table `D_00440F60` is one 0x20-byte record read as a texture / CLUT entry by one
+  half of `sprite2d` and as an image record by the other; the merged file keeps one declaration and casts at the two
+  readers (no code change).
+
+Code shapes:
+
+- **Range tests kept as separate branches with `li K / slt`**: `func_003408B0` matched only with its screen test in an
+  inline whose right and bottom bounds are parameters (`Scene_IsOff(c, 0x940, 0x8E0)`, marked fake): written in place,
+  `x < 0x6C0 || x > 0x940` folds to `addiu / sltiu` (range test) or `slti 0x941`. The same function needed a pointer local
+  for the second loop (`p = top[i]`) to drop two saved registers.
+- **Scratchpad header words through one struct pointer and a `switch`** (`SprHeader *s = (SprHeader *)0x70000000`,
+  `switch (s->count)`): `func_00342FB0` (NON_MATCHING since T13 b2) matched; absolute addresses let gcc keep 0x70000004 in a
+  register.
+- **A run of four-word vector stores** (`v = D_005F6780->box[i]; v[0..3] = ...`) took the original's register rotation only
+  through a `static inline` helper called per corner; a separate `u128 *` pointer for a 16-byte copy (marked fake) forces the
+  reload of a global pointer that `*(u128 *)&s->f` does not (`func_00340070`, 110 to 9 lines).
+- `sinf(-f())` under `-ffast-math` evaluated `f()` twice; the negated angle goes through a local (`func_00340E28`).
+- **sprite2d GIF code**: header-then-body packets match with the body through a second pointer (`q = p + 6; q[i] = ...`),
+  `*p++` puts an `addiu` after every store; packet fields read as whole `u64` locals reproduce `ld` plus shifts where
+  `(pk[0] >> 32) & 0xFFF` narrows to `lwu` / `lhu`; the OR order inside a BITBLTBUF expression sets the emitted order; a
+  `prim = D_005F6748 | 0x316` local puts the `$gp` load first.
+- The colour constants 0x80 and 0x808000 stay two hoisted registers only through `u64` locals (fake), every constant form
+  folds them to 0x808080 (`Sprite_DrawCurrentGouraud`, still 2 lines: the original stores the GIF tag word p[1] before p[0]).
+- A switch of 28 states matched first try once the cases were written in the order of their code with the original's
+  fall-throughs (`func_00360F40`); one value held in the same argument register across three loops came from one
+  function-scope variable (`func_00361EA8`, 96 to 29 lines).
+- A 16-byte record copied with two `ld / sd` pairs needs a `u64` member (8-aligned struct); a bitfield struct for a 64-bit GS
+  register gives `lw` + `andi 0x3FFF` where a mask narrows to `lhu`.
+
+Tools:
+
+- The cmp.py-style comparator marks original instructions `<` and compiled ones `>`; several NON_MATCHING notes had the
+  direction reversed.
+- decomp-permuter scored `func_00343340` (2 lines in the comparator) at 4865: its inline asm `lqc2` block and the VU0
+  memory stores make the permuter's base differ; the run was stopped. Helpers worked in copies outside the repository
+  (`~/.cache`, which survives a reboot) with the comparator; the parent merged whole files and confirmed with fdiff and the
+  SHA-1.
+
+Matched (52): the 46 C functions of `src/sprite2d.c` (`Sprite_*`, `Num_ToBcd`, `NameEntry_Init`, `Fighter_ClearLife` and 25
+placeholders), `func_00342FB0` (dma_gif), `func_00340588`, `func_003408B0`, `func_00340BA0`, `func_00340E28`
+(render_fighter_a), `func_00360F40` (font_tex). Not matched: the drafts of [systems/render.md](systems/render.md) section 9,
+carried to T19. Left in assembly on purpose: the four hand-written VU0 routines of `dma_gif` (`func_003435C0` ..
+`func_003438B8`).
+
 ## Decompiled so far
 
 | File | Range | C / functions | Notes |
 |---|---|---:|---|
-| `src/render_fighter_a.c` | 0x340000-0x341B28 | 10 / 18 | the stage renderer (module `render_fighter_a`, formerly `src/340000.c`): stage scene, depth merge sort, level of detail, per-frame scene update `func_00341AE8` ([systems/render.md](systems/render.md) section 12); `.lit4` 0x5F5378-0x5F539C |
+| `src/render_fighter_a.c` | 0x340000-0x341B28 | 14 / 18 | the stage renderer (module `render_fighter_a`, formerly `src/340000.c`): stage scene, depth merge sort, level of detail, per-frame scene update `func_00341AE8`, the scene set-up and build, the screen cull, the stage draw `func_00340E28` ([systems/render.md](systems/render.md) section 12); `.lit4` 0x5F5378-0x5F539C |
 | `src/render_fighter_b.c` | 0x341B28-0x3420C8 | 4 / 6 | the VU1 model renderer: `Model_Draw`, `Model_Render`, `Model_SendMatrices`, `Model_SendParts` (section 12.3) |
 | `src/vu1_packet.c` | 0x3420C8-0x342E78 | 8 / 12 | fighter shadows and fixed VIF1 / DIRECT packets (section 12.1); `.lit4` 0x5F57EC-0x5F5804 out of text order |
 | `src/draw_list.c` | 0x356A70-0x3572A0 | 12 / 15 | model bank relocation and GS image uploads (section 12.4); ends with the padding before crt0 |
-| `src/font_tex.c` | 0x3608B8-0x3621F8 | 25 / 30 | memory card screens and the GS image upload `Gfx_PkAddImage` (section 13); `.rodata` 0x4FC280-0x4FC610 |
+| `src/font_tex.c` | 0x3608B8-0x3621F8 | 26 / 30 | memory card screens and the GS image upload `Gfx_PkAddImage` (section 13); `.rodata` 0x4FC280-0x4FC610 |
 | `src/main.c` | 0x357358-0x358A38 | 34 / 40 | boot, main loop, frame phases, mode dispatch, input state |
 | `src/rng_misc.c` | 0x35C2B0-0x35D048 | 45 / 47 | RNG, string and table helpers, play counters |
 | `src/pad.c` | 0x396D00-0x397948 | 10 / 11 | libpad/libmtap set-up sequence, per-player input |
 | `src/file.c` | 0x397948-0x398510 | 29 / 29 | file requests, descrambling, IOP status |
 | `src/gfx.c` | 0x398510-0x3994C0 | 47 / 51 | GS set-up, VBlank handler, display packet, helpers |
-| `src/dma_gif.c` | 0x342E78-0x346398 | 38 / 52 | DMA kicks and waits, VU0 microcode upload, VU1 matrix packets, side tables; four handwritten VU0 routines stay in assembly |
+| `src/dma_gif.c` | 0x342E78-0x346398 | 39 / 52 | DMA kicks and waits, VU0 microcode upload, VU1 matrix packets, the fighter draw (`func_00343340`, `func_003439B0`, drafts) and its texture packets, side tables; four handwritten VU0 routines stay in assembly ([systems/render.md](systems/render.md) section 12.1) |
 | `src/dma_spr.c` | 0x35D048-0x35E808 | 53 / 63 | file loads by number, scratchpad buffers and DMA, DMAC helpers |
 | `src/memcard.c` | 0x35E808-0x3608B8 | 42 / 43 | memory card requests, libmc call steps, state flags |
 | `src/sound.c` | 0x3745E8-0x376C30 | 59 / 65 | SPU2 set-up, sound effect voices and banks, delayed effects, fighter voices |
@@ -1337,6 +1398,7 @@ Matched (57): `func_003608B8`, `func_00360A08`, `func_00360A30`, `func_00360C98`
 | `src/skeleton.c` | 0x34E748-0x34FF10 | 13 / 16 | the fighter skeleton (module `skeleton`): per-frame update `Skel_Update`, the root matrix that writes the position `unk51C`..`unk524`, joint world matrices, body / push spheres and attack volumes on joints, joint screen positions ([systems/animation.md](systems/animation.md)); `.lit4` 0x5F5114-0x5F5154 (`LIT4_WORD` for `Skel_SetRootMatrix`) |
 | `src/motion.c` | 0x3639F0-0x364448 | 17 / 19 | motion data (module `motion`): frame sampling, the delta / run-length frame decoder, motion banks and clips ([systems/animation.md](systems/animation.md)); `.rodata` 0x4FC610-0x4FC630 (the decoder's jump table) included in place |
 | `src/hud.c` | 0x3C1A78-0x3C3150 | 10 / 12 | the fight HUD (`Hud_Draw`: life bars with red life, damage trail, partner bar and tag slide, round markers, timer; K.O. percentages), [systems/render.md](systems/render.md) section 5; a cut inside the `select_results` range |
+| `src/sprite2d.c` | 0x3CD298-0x3D0660 | 46 / 59 | 2D sprites and text of the HUD and menus (`Sprite_*`), image banks, screen masks, record tables, name entry ([systems/render.md](systems/render.md) section 14); `.rodata` 0x520648-0x520C40, `.lit4` 0x5F5364-0x5F5370 |
 | `src/model_draw.c` | 0x3DB758-0x3DC9C8 | 18 / 18 | 2D GS primitives (scissor, rectangles, gradient quad, menu window), stage-object draw hooks, text helpers ([systems/render.md](systems/render.md) section 6); no models |
 | `src/scene3d.c` | 0x34C508-0x34E748 | 8 / 15 | fighters' secondary motion: per-side wind, extra-joint pendulums, accessory parts ([systems/render.md](systems/render.md) section 4); `.rodata` 0x51EA60-0x51EB00, `.lit4` 0x5F5350-0x5F535C |
 | `src/scene3d_b.c` | 0x34FF10-0x3504C0 | 6 / 6 | the sword effect's packet senders (scratchpad headers); the end is an object edge (128-bit save mode, Lessons from T17 batch 1) |
@@ -1347,4 +1409,4 @@ Matched (57): `func_003608B8`, `func_00360A08`, `func_00360A30`, `func_00360C98`
 
 Functions left as `INCLUDE_ASM` carry their closest attempt above them in `#if 0` with a `NON_MATCHING:` note; in
 `fighter_core.c`, `battle_flow.c` and `fight_misc.c` every remaining function has one (T14 b9); in `stage.c` every
-remaining function has one that compiles when enabled (T15 b2), as in `skeleton.c` and `motion.c` (T16 b1) and the T17 files (`hud.c`, `scene3d*.c`, `effects.c`, `effects_draw.c`, `model_anim.c`, `model_anim_b.c`, `render_fighter_a.c`, `render_fighter_b.c`, `vu1_packet.c`, `draw_list.c`, `font_tex.c`).
+remaining function has one that compiles when enabled (T15 b2), as in `skeleton.c` and `motion.c` (T16 b1) and the T17 files (`hud.c`, `scene3d*.c`, `effects.c`, `effects_draw.c`, `model_anim.c`, `model_anim_b.c`, `render_fighter_a.c`, `render_fighter_b.c`, `vu1_packet.c`, `draw_list.c`, `font_tex.c`, `dma_gif.c`, `sprite2d.c`).

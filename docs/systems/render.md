@@ -1,4 +1,4 @@
-# Rendering (`scene3d`, `model_draw`, `hud`, `effects`, `model_anim`)
+# Rendering (`scene3d`, `model_draw`, `hud`, `effects`, `model_anim`, `dma_gif`, `sprite2d`)
 
 How a frame gets from the game state to the GS, and the modules decompiled for it: in T17 batch 1 (2026-10-20)
 `src/scene3d.c`, `src/scene3d_b.c`, `src/scene3d_c.c`, `src/scene3d_d.c` (the `scene3d` range 0x34C508-0x3543F0 without
@@ -8,7 +8,8 @@ the skeleton cut), `src/model_draw.c` (0x3DB758-0x3DC9C8) and `src/hud.c` (0x3C1
 T17 batch 5 the stage renderer and the VU1 model path, `src/render_fighter_a.c` (0x340000-0x341B28),
 `src/render_fighter_b.c` (0x341B28-0x3420C8), `src/vu1_packet.c` (0x3420C8-0x342E78) and `src/draw_list.c`
 (0x356A70-0x3572A0), section 12, and the memory card screens with the GS image upload, `src/font_tex.c`
-(0x3608B8-0x3621F8), section 13.
+(0x3608B8-0x3621F8), section 13; in T17 batch 6 the fighter draw path of `src/dma_gif.c` (section 12.1), the 2D sprite
+and text primitives `src/sprite2d.c` (0x3CD298-0x3D0660, section 14) and the functions left over in batch 5.
 
 Tags: **[V]** read in matching C or in the disassembly, **[I]** inferred.
 
@@ -115,7 +116,7 @@ Fighters with the sword (character 4, or 15 / 33 with costume 4) get a trail and
 ## 5. The fight HUD (`src/hud.c`)
 
 `Hud_Draw` runs once per update from `func_0036EA80` (battle_flow) while `D_005F5C74` is set; all elements are sprites of
-the sprite2d module (`func_003CE258` native size, `func_003CE318` stretched, `func_003CE2B8` / `func_003CE398` the same
+the sprite2d module (section 14: `Sprite_Draw` native size, `Sprite_DrawScaled` stretched, `Sprite_DrawBlended` / `Sprite_DrawScaledBlended` the same
 alpha-blended; colour `D_005F6738`, Z `D_005F6730 >> 4`) [V]:
 
 - **Order**: Z for the frame, round markers (`Hud_DrawMarkers`), for each side two life bars (`Hud_DrawLifeBar(side,
@@ -254,9 +255,26 @@ but change the CPU's choices relative to the original (decision for T26) [I cons
 - **GS image uploads through VIF1 DIRECTHL** (`Gfx_PkAddImage`, section 13): BITBLTBUF / TRXPOS / TRXREG / TRXDIR then
   IMAGE GIF tags of at most 0x7FFF quadwords; the port's GS core takes them like the GIF-path uploads.
 
+**Final list at the close of T17 (2026-10-21)**: what the PC port replaces, everything else in sections 2-14 stays the
+game's C:
+
+| Replaced | Original | Where |
+|---|---|---|
+| GS (rasteriser, VRAM, texture uploads) | GIF PACKED / REGLIST / IMAGE data, A+D writes, BITBLTBUF uploads | every packet path of section 2, `Gfx_PkAddImage`, `Sprite_SendImagePacket` |
+| DMA channels, scratchpad, MFIFO rings | toSPR / fromSPR, VIF1 / GIF channels, `Dma_Wait`, BC0F waits | `dma_spr`, `dma_gif`, `gfx`, `vu1_packet` |
+| VU0 skinning | `func_003435C0` .. `func_003438B8` (hand-written VU0 macro code) and the VU0 data memory set up by `func_00343340` / `func_003439B0` | `src/dma_gif.c`, section 12.1 |
+| VU0 micro-programs and libvu0 | `vcallms` programs of `.vudata` (`Vu0_LoadMicrocode`), `sceVu0*` | everywhere (plain float math) |
+| VU1 program | the `.vudata` packets of docs/systems/vu1 run by `Model_Render`, the stage objects and the shadow / reflection packets | `render_fighter_b`, `model_anim_b`, `vu1_packet` |
+| Display | VBlank handler, double buffer, display DMA chain | `gfx` |
+| 64-bit layout of model files | in-place relocation (offset + file address) | `draw_list`, `dma_gif` (`func_00343CC8`), `sprite2d` banks |
+
+Must keep running in the original order even when nothing is drawn (they draw from `rand()` or the CPU generator, or
+step the simulation): the effect update (section 7.1), the stage wind and stage animations (section 11), the scene update
+`func_00341AE8` with the scene build `func_00341218` (section 12.1), the round camera.
+
 ## 9. Status
 
-| File | Range | C / functions | Drafts (`#if 0`, compile when enabled) |
+| File | Range | C / functions | Drafts (`#if 0`, compile when enabled), carried to T19 |
 |---|---|---:|---|
 | `src/hud.c` | 0x3C1A78-0x3C3150 | 10 / 12 | `Hud_DrawMarkers` (1 line: one store takes the register of an equal value), `Hud_DrawLifeBar` (registers and stack slots) |
 | `src/model_draw.c` | 0x3DB758-0x3DC9C8 | 18 / 18 | - |
@@ -268,31 +286,34 @@ but change the CPU's choices relative to the original (decision for T26) [I cons
 | `src/model_anim.c` | 0x3D0660-0x3D3630 | 69 / 72 | `func_003D0E18` (5, a v0 / v1 swap), `func_003D1980` (2, store order), `func_003D2B88` (203, registers of the round-end bonus) |
 | `src/model_anim_b.c` | 0x3D3630-0x3DB758 | 82 / 101 | 19 drafts: registers / scheduling (`func_003D3B80`, `func_003D3FF8`, `func_003D43A8`, `func_003D4728`, `func_003D52B0`, `func_003D5B58`, `func_003D5E80`, `func_003D6BC0`, `func_003D7E10`, `func_003D8158`, `func_003D8D38`, `func_003D9280`, `func_003D9468`, `func_003D9588`, `func_003D9BE8`), large drafts (`func_003D62A0`, `func_003D7378`, `func_003DA138`, `func_003DAA80`) |
 | `src/effects_draw.c` | 0x3A6460-0x3A9678 | 46 / 50 | `Fade_Draw` (4, two constants swapped), `func_003A76C0` (13, spill slots and order), `func_003A88B0` (24, a folded count), `Fx_AddQuad` (1, `addu` operands) |
-| `src/render_fighter_a.c` | 0x340000-0x341B28 | 10 / 18 | `func_003403C8` (8 lines, load / store order), `func_00340B30` (12, registers), `func_00340BA0` (4, a pointer copy); not attempted: `func_00340070`, `func_00340588`, `func_003408B0`, `func_00340E28`, `func_00341218` |
+| `src/render_fighter_a.c` | 0x340000-0x341B28 | 14 / 18 | `func_00340070` (9, two float registers, a `lui` scheduled later), `func_003403C8` (8, load / store order), `func_00340B30` (12, registers), `func_00341218` (268, registers of the scene build) |
 | `src/render_fighter_b.c` | 0x341B28-0x3420C8 | 4 / 6 | `func_00341B70` (16, s0 / s1 swapped), `Model_Render` (4, the `li.s` before the last `jal`, section 12) |
-| `src/vu1_packet.c` | 0x3420C8-0x342E78 | 8 / 12 | `func_003420C8` (every instruction matches; its `.lit4` word is last in the pool); not attempted: `func_003424A8`, `func_00342818`, `func_00342A38` (their words sit after `func_00342E38`'s, see the file) |
-| `src/draw_list.c` | 0x356A70-0x3572A0 | 12 / 15 | `func_00356F48` (7, `xori` / `movn` form), `func_00357160` (16, s0-s2 rotated); not attempted: `func_00356A78` |
-| `src/font_tex.c` | 0x3608B8-0x3621F8 | 25 / 30 | `func_003608E0` (13, block layout), `func_00360B90` (6, registers of one argument), `func_00361E20` (30, registers); not attempted: `func_00360F40` (461 instructions), `func_00361EA8` |
+| `src/vu1_packet.c` | 0x3420C8-0x342E78 | 8 / 12 | `func_003420C8` (every instruction matches), `func_00342818` (9), `func_003424A8` (104), `func_00342A38` (82): all four own `.lit4` words that the original pool puts after `func_00342E38`'s, so none can be C in place (see the file) |
+| `src/dma_gif.c` | 0x342E78-0x346398 | 39 / 52 | `func_00343340` (2, one temporary register), `func_00343178` (12, the DMA wait loop shape), `func_00344BE0` (23, a1 / a2 swap), `func_003459D0` (78), `func_00345070` (84), `func_003457C0` (98), `func_00344318` (108), `func_00343CC8` (147), `func_003439B0` (167): registers; the four VU0 routines `func_003435C0` .. `func_003438B8` are hand-written assembly and stay so |
+| `src/draw_list.c` | 0x356A70-0x3572A0 | 12 / 15 | `func_00356F48` (7, `xori` / `movn` form), `func_00357160` (16, s0-s2 rotated), `func_00356A78` (129, first draft; its jump table lies among other objects' `.rodata`, so it cannot be C in place) |
+| `src/font_tex.c` | 0x3608B8-0x3621F8 | 26 / 30 | `func_003608E0` (13, block layout), `func_00360B90` (6, registers of one argument), `func_00361E20` (30, registers), `func_00361EA8` (29, registers) |
+| `src/sprite2d.c` | 0x3CD298-0x3D0660 | 46 / 59 | `Sprite_DrawCurrentGouraud` (2, two GIF tag stores swapped), `func_003CF608` (4, t0 / t1), `func_003CEEC8` (18), `func_003CE920` (22), `func_003CD298` (28), `func_003CF850` (31), `func_003CF500` (35), `func_003CF278` (38, `lb` + `sllv` bit test), `NameEntry_Step` (43), `func_003CE5D8` (45), `func_003CE770` (51), `func_003CFAD8` (161), `func_003CFE38` (324) |
 
 The reasons are in each draft's `NON_MATCHING` note (counts are fdiff lines) and in [decomp_guide.md](../decomp_guide.md),
-"Lessons from T17 batch 1" to "batch 4". T17 batch 4 matched the 20 drafts that waited for the build: the hazard nops
+"Lessons from T17 batch 1" to "batch 6". T17 batch 4 matched the 20 drafts that waited for the build: the hazard nops
 gas added (before an unfilled `bc1f` / `bc1t` after an FPU compare, between `li.s` and a prelude `mtc1`) are gone
 (`configure.py` rewrites the compiler's output), and `effects.c`, `effects_draw.c`, `scene3d.c` and both `model_anim`
 objects are built without `-ffast-math`.
 
 ## 10. Open
 
-- The sprite2d module (0x3CD298-0x3D0660), `zsort`, `draw_list`, `vu1_packet` and the fighter draw in `dma_gif` /
-  `render_fighter_a` are not decompiled yet (T17 later batches); nor the effect pool itself (`func_003464F8` ..
-  `func_00346830` in the `geometry` range) and the dispatcher `func_0035BF10`.
+- Not decompiled yet in the render paths: `zsort` (0x3994C0-0x399FC8), the effect pool itself (`func_003464F8` ..
+  `func_00346830`, `geometry` range) and the dispatcher `func_0035BF10` (T19 or the module batches that own them).
 - How the original wrote the 64-bit to 128-bit move of the sword effect's TEX0 (`por`), which this compiler refuses.
-- The VU1 program the model parts run on (section 12: `Model_Render` sends matrices and parts, the code is the `.vudata`
-  packet of docs/systems/vu1) and the stage objects' VU1 program.
-- An assembler rule for the `li.s` load before a `jal` (section 12, `Model_Render`): the game's assembler left it out of
-  the delay slot there.
+- The VU1 program the model parts run on (section 12) and the stage objects' VU1 program.
+- An assembler rule for the `li.s` load before a `jal` (`Model_Render`): the game's assembler left it out of the delay
+  slot there.
+- The `.lit4` pool of `vu1_packet` out of text order (`func_00342E38`'s words first): how the original produced it is
+  unknown; four drafts that match (or nearly) wait on it.
 - How the original wrote the bare `sqrt.s` of the objects built without `-ffast-math` (`scene3d`, `effects_draw`, both
-  `model_anim` objects): the drafts use an inline-asm `SqrtS` (marked fake), while `func_003A8D08` has the errno form of
-  `sqrtf` with the libcalls `sqrt` and `__fixunssfsi` (decomp_guide.md, "Lessons from T17 batch 4").
+  `model_anim` objects) and of `sprite2d`'s `func_003CF408`: the C uses an inline-asm square root (marked fake), while
+  `func_003A8D08` has the errno form of `sqrtf` with the libcalls `sqrt` and `__fixunssfsi` (decomp_guide.md, "Lessons
+  from T17 batch 4").
 
 ## 11. Models (`src/model_anim.c`, `src/model_anim_b.c`)
 
@@ -404,23 +425,62 @@ objects [V: their `.lit4` words lie in two pools, 0x5F5378-0x5F539C and 0x5F5700
    light matrices (`Light_GetFighterMatrices`) and the camera offset into VU0 data memory and calls `func_003439B0` for
    each of the ten part slots of the model, which runs the hand-written VU0 skinning loops (`func_003435C0` ..
    `func_003438B8`, assembly) and streams GIF packets [V].
+
+   The skinning in detail (T17 b6, [V code of the drafts; I roles of the VU0 programs]):
+   - `func_00343340(f, pass)` writes VU0 data memory (0x11004000): the matrix `D_004334C0` at quadwords 4-7, three rows
+     from `Light_GetFighterMatrices` at 8-10, the light vector (`D_00415808` minus the fighter position, normalised by
+     `func_0034A868`) at 11, the matrix `D_00433400` at 0xFC-0xFF, and loads four more rows into `vf8`-`vf11`. The model's
+     part table (`func_003B87B0(f->unk22)->unk8 + 0x2C`) holds per pass two rows of five part ids; `D_005F67C0 == 1`
+     skips the second row (C, 2 instructions off).
+   - `func_003439B0(part, mats)` streams the part's segments (`func_00343CA8` finds them) through two scratchpad buffers,
+     fetching the next segment by DMA while the current one is processed. Type 1 records open a block (copied as they
+     are, they set the mode of the following records), type 2 records are expanded into VU1-ready vertex packets by the
+     four hand-written VU0 routines `func_003435C0` .. `func_003438B8` (`lqc2` / `ctc2` / `vcallms` macro mode, jumps
+     through `$t4` into an unrolled body: written in assembly, not compiler output), type 0 uploads up to n skin
+     matrices from `mats` (0xC0 bytes per joint) to VU0 memory. Each finished segment is sent with `func_00343178`.
+   - `func_00343CC8(part, tbp)` relocates a loaded part in place: segment offsets become addresses, type 1 records get
+     log2 of the texture size, type 2 records get their TBP0 / CBP moved by `tbp` and vertex indexes scaled by 12.
+   - `func_00344318` rebuilds the fighters' texture upload packets per texture set (`unk22` bits 0-1) into `D_00168A30`
+     (`func_00354120`, VRAM base 0x3B40) and keeps a TEX0 value per record; `func_003459D0` draws a billboard effect
+     object (projection, depth size, culling, ALPHA / RGBA, the quad through `func_003457C0`).
 3. **Fighter pass 1** (`func_00357B50`): `func_00343340(f, 1)` for the second set of parts, then the sword effect
    (section 3), effects, the HUD lists (section 5) [V].
 4. **Shadows** (`vu1_packet`, from the stage pass `func_00340E28`): `func_00342128` builds the planar shadow matrix
    `D_01FC49F0` from the light direction of the fighter's side (`func_00353C88`), scaled by 1 / `D_005F694C` (3200, or
    5800 when a fighter has `unkB130` bit 1, `func_003420C8`); `func_003422C0` draws a model relative to the fighter
    with it; `func_00342390` / `func_00342400` / `func_00342988` send fixed VIF1 / DIRECT packets (`D_0046B180`,
-   `D_0046B240`, `D_00522F90`); `func_003424A8`, `func_00342818`, `func_00342A38` (assembly) draw the shadow quads with
-   the `.vudata` blocks 0x4FAF80-0x4FB800 [V calls; I roles].
+   `D_0046B240`, `D_00522F90`); `func_003424A8(f, offset)` draws the fighter's shadow: the `.vudata` template
+   0x4FAF80-0x4FB800 (VU1 code and set-up) copied to the scratchpad, the shadow matrix (light direction of the side scaled
+   by 256 / `D_005F694C`, centred at 2048) times each of the 15 skeleton joints (`D_0046B2B0`, joints 11 and 14 turned by
+   -150 degrees about Z) and the model's extra joints (`func_003B87C8`), then DMA references to the shadow model's parts
+   (`func_00367350`); `func_00342818(f)` draws the side's shadow and, for side 0 with the partner drawn, the partner's
+   shadow within 1590 units; `func_00342A38(f)` draws the fighter again flattened onto one depth through the camera
+   matrices (`D_00433400`, `D_00433480`, y mirrored; the reflection of stage 14 [I]) [V drafts; I roles].
 
 ### 12.2 Stage scene (`src/render_fighter_a.c`)
 
 `D_005F6780` points to the scene (0x1A300 bytes): the camera position (floats at 0x14), up to five level-of-detail
-thresholds (`levels`, `thr[4]` at 0x30), 256 entries of 0x150 bytes at 0x448, and the depth-sort keys at 0x19300 with
-their work array at 0x19B00 [V offsets; I roles]. `func_00340BA0` clears the keys, `func_00340DF8` sorts them with the
+thresholds (`levels`, `thr[4]` at 0x30), the floor boxes at 0x60, the 16 x 16 cell grid of model ids at 0xF0, 256 entries of
+0x150 bytes at 0x300 (matrices, position, light set at 0xC0, file / model / flags at 0x140), 256 matrices at 0x15300, and
+the depth-sort keys at 0x19300 with their work array at 0x19B00 [V offsets; I roles]. `func_00340BA0` clears the keys, `func_00340DF8` sorts them with the
 merge sort `func_00340BF0` (largest key first, indexes in `.sbss` 0x5F6F1C-0x5F6F28), `func_00340408` picks a level 1-5
 from the mean depth of four corners (65535 when none is in front), `func_00340528` tests a value between two bounds,
-`func_00340AF0` a point within a radius, `func_00340B30` meets a line with the floor plane y = 0. `func_00340000` /
+`func_00340AF0` a point within a radius, `func_00340B30` meets a line with the floor plane y = 0.
+
+T17 b6 [V code]: `func_00340070(stage)` sets the scene up from the stage's model bank (`func_00356E50`: level count, grid
+size, stage width and depth) and record `D_00521700[stage]`: the cell grid (`(row % rows) * cols + col % cols`), the floor
+box corners (scaled by the record's factor) and, when the record has a raised floor height, a second box; the level
+thresholds (stage 0: 8000; `func_003AA5A0()`: 0 / 50000; otherwise 5000 / 8000 / 10000 / 13000, and 65535). `func_00341218`
+(every simulated frame, from `func_00341AE8`) builds the scene in a scratchpad work area: view matrices, the camera's grid
+cell (cell origin to `unk40`, wrapped `row` / `col`), the fighters' shadow centres projected along the light, then for
+a rows x cols window of cells around the camera a distance cull (`unk20`), a screen cull (`func_003408B0`: the floor
+corners projected, `func_00340588` tests whether a box edge crosses the 640 x 448 screen), a level of detail
+(`func_00340408`), an entry (matrices, position, model id from the grid, shadow flags within `unk28` of a fighter's
+shadow centre) and its sort key; it ends with the depth sort. `func_00340E28(pass)` returns when the pass's bank is not
+loaded, builds the light set rotated by the light angle, draws every sorted entry with `Model_Draw` (on pass 0 with
+`unk2 == 1` through `func_00342F98` with the entry's value at 0x13C), then the fighter shadows: `func_00342A38` per drawn
+fighter when `D_005F5CB6 == 14`, else `func_00342818` / `func_00342128` per fighter and `func_003422C0` for every entry
+flagged in that fighter's shadow; it ends with `func_00342988`. `func_00340000` /
 `func_00357258` give every one of the 27 stage model entries the light value of the stage record (`D_00521700`, 0x30
 bytes per stage). `func_00340E28(pass)` is the stage draw of the stage pass (`func_00357C88`, `func_00357D38`); it calls
 `Model_Draw` and the shadow senders above; `func_00341F68` draws one model with the camera (`D_00433440`, `D_00433400`)
@@ -449,7 +509,7 @@ Not a draw list: the module relocates loaded model files in place. `func_0035716
 bank `slot` (`D_01FC4680`, 0x70 bytes per slot: a root table and 27 sub-tables): the 27 entry kinds are 5, then 2 or 3
 from the stage's record (`func_00356F48(func_00340398())`), and kind 3 entries get their light value
 (`func_00340000`); `func_00357028` turns the root table's offsets into pointers (offset + file address) and
-`func_00356F68` each sub-table's, calling `func_00356A78` (assembly, a jump table on the kind: patches the GS registers
+`func_00356F68` each sub-table's, calling `func_00356A78` (a draft, a jump table on the kind: patches the GS registers
 of every part's packets, sets up the stage light on kind 0, `Light_SetupStage`) on each entry. `func_00356D78` uploads a
 chain of GS image records through a GIF packet (as `func_003542E8`, plus `sceGifPkEnd`); `func_00356E00` /
 `func_00357128` upload into fixed buffers; `func_00356E50` / `func_00356EE8` pick the bank of a fighter side from
@@ -466,7 +526,8 @@ The `font_tex` module holds no font: 0x3608B8-0x361B88 continues the memory card
   draws it; `func_003608E0` draws the YES / NO window ("%H%V%F%S%cYES %cNO"); `func_00360CA0` reads the YES / NO input;
   `func_00360D50` moves the menu selection; `func_00360DE0` / `func_00360E38` / `func_00360E88` classify a card status
   (bits 1, 8, 4, 0x400, 0x100, 0x200, 0x4000). `func_00360F40` is the menu state machine (28 states, jump table,
-  assembly); `func_00361978` the card check at boot and `func_00361710` the error screen (both C, request functions of
+  C since T17 b6: states 0-2 the entry list, then four YES / NO flows that check the card, start a request (0x1A, 0x12,
+  0x10, 0x25) and show the result, 26-27 write the option byte back); `func_00361978` the card check at boot and `func_00361710` the error screen (both C, request functions of
   `src/memcard.c`). Sound effects go through `func_003B4D28` [V].
 - **GS image upload**: `Gfx_PkAddImage(pk, dbp, dpsm, dbw, data, qwc, x, y, w, h)` adds BITBLTBUF / TRXPOS / TRXREG /
   TRXDIR as A+D through VIF1 DIRECTHL (`D_004FC350`, the A+D GIF tag), then the image as DMA references of at most 0x7FFF
@@ -474,4 +535,35 @@ The `font_tex` module holds no font: 0x3608B8-0x361B88 continues the memory card
   texture images of `D_006E3550` (`TexSlot`: data, a skip flag, size in 256-byte blocks; `func_00361D50` sets one) from
   block 0x2300: `func_00361D70` sorts them by size, `func_00361E20` leaves out the largest until the rest fits in 0x1640
   blocks, then the packets are streamed through the scratchpad [V code; I which images].
+
+## 14. 2D sprites and text (`src/sprite2d.c`)
+
+T17 batch 6 (2026-10-21). The `sprite2d` range 0x3CD298-0x3D0660 is one C file with its own `.rodata` (0x520648-0x520C40)
+and `.lit4` (0x5F5364-0x5F5370) subsegments; its start follows `select_results`' data without a gap, so 0x3CD298 is a cut
+[I], the end is `model_anim`'s start. Everything is written into the GIF buffers of section 2 (A or B, chosen by the first
+argument), GS context 2 [V]:
+
+- **Packets and state**: `Sprite_BeginPacket(buf)` / `Sprite_EndPacket(buf, p)` open and close buffer A or B;
+  `Sprite_SetBlend` writes TEST_2 / ALPHA_2 from the blend table `D_00520648[mode]` and CLAMP_2, `Sprite_SetFilter`
+  TEX1_2 (bilinear on / off), `Sprite_TexFlush` TEXFLUSH. Draw state: Z `D_005F6730 >> 4`, colour `D_005F6738`,
+  ALPHA `D_005F6740`, PRIM bits `D_005F6748`; eight colours `D_0043B840`.
+- **The current sprite** `D_00440F20` (0x40 bytes: TEX0, screen and texel rectangles, four alphas, rotation):
+  `Sprite_SetTexture(tex, clut)` builds TEX0 from two entries of the sprite table `D_00440F60` (0x20 bytes: GS buffer,
+  rectangle, upload packet); `Sprite_DrawCurrent` draws it as a SPRITE, `func_003CDC10` as a strip,
+  `Sprite_DrawCurrentRotated` turned around its corner (libvu0 RotZ), `Sprite_DrawCurrentGouraud` with four alphas.
+  `Sprite_Draw` / `Sprite_DrawBlended` (native size) and `Sprite_DrawScaled` / `Sprite_DrawScaledBlended` (w x h) are what
+  the HUD and the menus call; `func_003CE418` / `func_003CE508` take a texel sub-rectangle.
+- **Untextured primitives**: an alpha strip of four vertices (`func_003CE5D8`), a Gouraud strip with a colour per vertex
+  (`func_003CE770`), an alpha triangle (`func_003CE920`), the spotlight and iris masks of the screen transitions (the
+  screen darkened outside a circle `func_003CF850` or an ellipse `func_003CFAD8`, 15 segments per quadrant, step
+  3.14 / 30) and a window bevel of three gradient quads (`func_003CFE38`).
+- **Image banks**: `Sprite_LoadBank(bank, dest, size)` loads a bank file (`func_0035D048`) and `Sprite_UploadBank` sends
+  its images; per image `func_003CEB68` / `func_003CEC98` link it to its packet and patch BITBLTBUF, `func_003CEEC8`
+  records its rectangle and `Sprite_SendImagePacket` sends the packet over GIF DMA (channel 2). `func_003CF488` /
+  `func_003CF4C8` / `func_003CF4E8` map an image to its bank (`D_00520990`); sprite sets (`func_003CF608`, `D_00444310`,
+  defaults `D_00520A68`) place layouts.
+- **Not sprites**: the score and time record tables (`func_003CD298`, `func_003CD440`, `D_00440D50`), the partner-counter
+  pair rules `func_003CF278` (`D_005207F0`), `Num_ToBcd`, the three-letter name entry (`NameEntry_Init`, `NameEntry_Step`,
+  letters `D_00520BE8`, reserved names `D_004443D8`), `Fighter_ClearLife`, the practice hit marker `func_003D0548`
+  (`D_00520C18`) and the practice set-up `func_003D0620` [V].
 

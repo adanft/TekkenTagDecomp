@@ -28,8 +28,14 @@ typedef struct {
 typedef struct {
     /* 0x000 */ u8 pad0[0x1E];
     /* 0x01E */ s16 unk1E;
-    /* 0x020 */ u8 pad20[0x570];
+    /* 0x020 */ s16 unk20;
+    /* 0x022 */ s16 unk22;
+    /* 0x024 */ u8 pad24[0x103];
+    /* 0x127 */ u8 unk127;
+    /* 0x128 */ u8 pad128[0x468];
     /* 0x590 */ f32 pos[3];
+    /* 0x59C */ u8 pad59C[0x84];
+    /* 0x620 */ f32 unk620;                   /* depth of the fighter (Model_Render) */
 } Unk3422C0;
 
 extern f32 D_005F694C;
@@ -63,6 +69,41 @@ void func_00353C88(s32 i, f32 *out);
 void func_0034A5D0(Vu0Matrix m, f32 *v);
 void func_00356710(Vu0Matrix m);
 void func_00341B70(void *files, DrawObj *o, Vu0Matrix m);
+void *memset(void *d, s32 c, s32 n);
+void sceVu0RotMatrixZ(Vu0Matrix m0, Vu0Matrix m1, f32 rz);
+
+/* A fighter model's shadow data (func_00367350): its packet size at 0xC, the number of parts at 0x10 and their sizes
+ * in quadwords from 0x14 (8 bytes each). */
+typedef struct {
+    /* 0x00 */ u8 pad0[0xC];
+    /* 0x0C */ s32 unkC;
+    /* 0x10 */ s32 unk10;
+    /* 0x14 */ s32 unk14[1][2];
+} ShadowMdl;
+
+/* Extra joints of a fighter model (func_003B87C8): their count at 4 and joint indexes at 0x60. */
+typedef struct {
+    /* 0x00 */ u8 pad0[4];
+    /* 0x04 */ s32 unk4;
+    /* 0x08 */ u8 pad8[0x58];
+    /* 0x60 */ s32 unk60[1];
+} ShadowJoints;
+
+ShadowMdl *func_00367350(s32 id);
+ShadowJoints *func_003B87C8(s32 id);
+extern u32 D_004FAF80[];
+extern u32 D_004FAFA0[];
+extern u32 D_004FB800[];
+extern s32 D_0046B2B0[];
+extern u8 D_0046B2F0[];
+extern f32 D_00433440[];
+extern Vu0Matrix D_00433400;
+extern Vu0Matrix D_00433480;
+void sceVif1PkCloseDirectCode(Vif1Packet *pk);
+s32 Tag_StepCounters(s32 side, s32 a);
+void func_003424A8(Unk3422C0 *f, f32 (*v)[4]);
+void func_00342818(Unk3422C0 *f);
+void func_00342A38(Unk3422C0 *f);
 void func_00342F00(Vu0Matrix *a, Vu0Matrix *b, Vu0Matrix *c, Vu0Matrix *d, void *pkt);
 
 /* NON_MATCHING: every instruction matches, but its .lit4 word (5800.0f) lies last in the object's pool, after the
@@ -148,7 +189,7 @@ void func_00342390(void) {
     func_00343178((u32)pk.pBase, sceVif1PkSize(&pk));
 }
 
-void func_00342400(void) {
+void func_00342400() {
     Vif1Packet pk;
     u32 spr;
     u32 p;
@@ -164,9 +205,116 @@ void func_00342400(void) {
     func_00343178((u32)pk.pBase, sceVif1PkSize(&pk));
 }
 
-INCLUDE_ASM("asm/nonmatchings/vu1_packet", func_003424A8);
+/* NON_MATCHING: 104 lines (first draft); cannot match in place: its .lit4 word D_005F57F4 must follow func_00342E38's in the pool */
+#if 0
+void func_003424A8(Unk3422C0 *f, f32 (*off)[4]) {
+    Vif1Packet pk;
+    Vu0Matrix t;
+    Vu0Matrix r;
+    Vu0Matrix m;
+    f32 l[4];
+    s32 n;
+    s32 *sz;
+    f32 s;
+    ShadowMdl *mdl;
+    ShadowJoints *ex;
+    u32 spr;
+    u8 *dst;
+    u8 *data;
+    s32 i;
+    s32 k;
+    s32 q;
 
+    n = D_004FB800 - D_004FAF80;
+    mdl = func_00367350(f->unk22);
+    s = 256.0f / D_005F694C;
+    if (mdl == NULL) {
+        return;
+    }
+    sz = mdl->unk14[0];
+    ex = func_003B87C8(f->unk22);
+    spr = Spr_Setup(1, 0x900);
+    dst = (u8 *)(spr + 0x10);
+    func_00343128((u32)dst, D_004FAF80, n >> 2);
+    func_00353C88(f->unk1E, l);
+    func_0034A5D0(m, l);
+    sceVu0ScaleVectorXYZ(m[0], m[0], s);
+    sceVu0ScaleVectorXYZ(m[1], m[1], s);
+    sceVu0ScaleVectorXYZ(m[2], m[2], s);
+    m[3][1] = 2048.0f;
+    m[3][3] = 1.0f;
+    m[3][0] = 2048.0f;
+    m[3][2] = 0.0f;
+    func_00356710(t);
+    t[3][0] = -f->pos[0] + (*off)[0];
+    t[3][1] = -f->pos[1] + (*off)[1];
+    t[3][2] = -f->pos[2] + (*off)[2];
+    sceVu0MulMatrix(m, m, t);
+    func_00356710(r);
+    sceVu0RotMatrixZ(r, r, -2.6179938f);
+    sceVif1PkInit(&pk, spr);
+    Dma_Wait((volatile u32 *)0x1000D400);
+    sceVif1PkCnt(&pk, 0);
+    sceVif1PkAlign(&pk, 2, 0);
+    pk.pBase[3] = 0x11000000;
+    sceVif1PkReserve(&pk, n);
+    dst += (D_004FAFA0 - D_004FAF80) * 4;
+    for (i = 0; i < 15; i++) {
+        sceVu0MulMatrix((f32 (*)[4])dst, m, (f32 (*)[4])((u8 *)f + D_0046B2B0[i] * 0xC0 + 0xDB0));
+        if (i == 11 || i == 14) {
+            sceVu0MulMatrix((f32 (*)[4])dst, (f32 (*)[4])dst, r);
+        }
+        dst += 0x70;
+    }
+    for (i = 0; i < ex->unk4; i++) {
+        sceVu0MulMatrix((f32 (*)[4])dst, m, (f32 (*)[4])((u8 *)f + ex->unk60[i] * 0xC0 + 0xDB0));
+        dst += 0x70;
+    }
+    k = mdl->unk10;
+    data = (u8 *)(((u32)mdl + mdl->unkC + 0xF) & ~0xF);
+    for (i = 0; i < k; i++) {
+        q = *sz;
+        sceVif1PkRef(&pk, data, q, 0, 0, 0);
+        sz += 2;
+        data += q << 4;
+    }
+    sceVif1PkTerminate(&pk);
+    func_00343178(spr, sceVif1PkSize(&pk));
+}
+#else
+INCLUDE_ASM("asm/nonmatchings/vu1_packet", func_003424A8);
+#endif
+
+/* NON_MATCHING: 9 lines: the side passed to func_00342400 is loaded with lhu and sign-extended; its .lit4 word D_005F57F8 must also follow func_00342E38's in the pool */
+#if 0
+void func_00342818(Unk3422C0 *f) {
+    f32 v[2][4];
+    f32 l[4];
+    Unk3422C0 *g;
+
+    memset(v, 0, 0x10);
+    func_00342390();
+    func_003424A8(f, v);
+    if (f->unk1E == 0) {
+        g = (Unk3422C0 *)&gFighters[1];
+        if (g->unk127 != 0 && Tag_StepCounters(g->unk20, 0) == 0) {
+            func_00353C88(f->unk1E, l);
+            v[0][1] = g->pos[1] - f->pos[1];
+            v[1][0] += -g->pos[1] * l[0] / l[1] + f->pos[1] * l[0] / l[1];
+            v[1][2] += -g->pos[1] * l[2] / l[1] + f->pos[1] * l[2] / l[1];
+            v[0][0] = g->pos[0] - f->pos[0];
+            v[0][2] = g->pos[2] - f->pos[2];
+            v[1][1] = 0.0f;
+            if (v[0][0] * v[0][0] + v[0][2] * v[0][2] < 2528100.0f) {
+                func_003424A8(g, v);
+            }
+        }
+    }
+    func_00342400((s16)(u16)f->unk1E);
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/vu1_packet", func_00342818);
+#endif
 
 void func_00342988(void) {
     Vif1Packet pk;
@@ -186,7 +334,97 @@ void func_00342988(void) {
     func_00343178((u32)pk.pBase, sceVif1PkSize(&pk));
 }
 
+/* NON_MATCHING: 82 lines (first draft): the fighter flattened onto a constant depth through the camera (a mirror image [I]); cannot match in place: its .lit4 word D_005F57FC must follow func_00342E38's in the pool */
+#if 0
+void func_00342A38(Unk3422C0 *f) {
+    Vif1Packet pk;
+    Vu0Matrix r;
+    Vu0Matrix m;
+    f32 l[4];
+    s32 n;
+    s32 *sz;
+    f32 d;
+    f32 z;
+    ShadowMdl *mdl;
+    ShadowJoints *ex;
+    Unk3422C0 *g;
+    u32 spr;
+    u8 *dst;
+    u8 *data;
+    s32 i;
+    s32 k;
+    s32 q;
+
+    n = D_004FB800 - D_004FAF80;
+    mdl = func_00367350(f->unk22);
+    if (mdl == NULL) {
+        return;
+    }
+    ex = func_003B87C8(f->unk22);
+    spr = Spr_Setup(1, 0x900);
+    dst = (u8 *)(spr + 0x10);
+    func_00343128((u32)dst, D_0046B2F0, 2);
+    Dma_Wait((volatile u32 *)0x1000D400);
+    sceVif1PkInit(&pk, spr);
+    sceVif1PkReset(&pk);
+    sceVif1PkCnt(&pk, 0);
+    sceVif1PkOpenDirectCode(&pk, 0);
+    sceVif1PkReserve(&pk, 8);
+    sceVif1PkCloseDirectCode(&pk);
+    sceVif1PkTerminate(&pk);
+    func_00343178((u32)pk.pBase, sceVif1PkSize(&pk));
+    Dma_Wait((volatile u32 *)0x1000D000);
+    func_00343128((u32)dst, D_004FAF80, n >> 2);
+    g = (Unk3422C0 *)&gFighters[1 - f->unk1E];
+    d = f->unk620 + 1000.0f;
+    if (g->unk127 != 0 && Tag_StepCounters(g->unk20, 0) == 0) {
+        d = (d + (g->unk620 + 1000.0f)) * 0.5f;
+    }
+    z = D_00433440[10] + D_00433440[14] / d;
+    sz = mdl->unk14[0];
+    func_00353C88(f->unk1E, l);
+    func_00356710(m);
+    m[1][1] = -m[1][1];
+    sceVu0MulMatrix(m, D_00433400, m);
+    sceVu0MulMatrix(m, D_00433480, m);
+    func_00356710(r);
+    sceVu0RotMatrixZ(r, r, -2.6179938f);
+    sceVif1PkInit(&pk, spr);
+    Dma_Wait((volatile u32 *)0x1000D400);
+    sceVif1PkCnt(&pk, 0);
+    sceVif1PkAlign(&pk, 2, 0);
+    pk.pBase[3] = 0x11000000;
+    sceVif1PkReserve(&pk, n);
+    dst += (D_004FAFA0 - D_004FAF80) * 4;
+    for (i = 0; i < 15; i++) {
+        sceVu0MulMatrix((f32 (*)[4])dst, m, (f32 (*)[4])((u8 *)f + D_0046B2B0[i] * 0xC0 + 0xDB0));
+        if (i == 11 || i == 14) {
+            sceVu0MulMatrix((f32 (*)[4])dst, (f32 (*)[4])dst, r);
+        }
+        ((f32 *)dst)[10] = z;
+        ((f32 *)dst)[14] = 0.0f;
+        dst += 0x70;
+    }
+    for (i = 0; i < ex->unk4; i++) {
+        sceVu0MulMatrix((f32 (*)[4])dst, m, (f32 (*)[4])((u8 *)f + ex->unk60[i] * 0xC0 + 0xDB0));
+        ((f32 *)dst)[10] = z;
+        ((f32 *)dst)[14] = 0.0f;
+        dst += 0x70;
+    }
+    k = mdl->unk10;
+    data = (u8 *)(((u32)mdl + mdl->unkC + 0xF) & ~0xF);
+    for (i = 0; i < k; i++) {
+        q = *sz;
+        sceVif1PkRef(&pk, data, q, 0, 0, 0);
+        sz += 2;
+        data += q << 4;
+    }
+    sceVif1PkTerminate(&pk);
+    func_00343178(spr, sceVif1PkSize(&pk));
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/vu1_packet", func_00342A38);
+#endif
 
 void func_00342E38(void) {
     f32 *vu = (f32 *)0x11004000;

@@ -45,11 +45,11 @@ s32 func_0036E158(void);
 s32 func_003A9698(void);
 s32 func_003CF278(u8 c0, u8 k0, u8 c1, u8 k1, s32 kind, s32 n);
 void func_003CF608(s32 a);
-void func_003CD918(s32 a, s32 b);
-void func_003CD868(s32 a, s32 b);
+void Sprite_SetFilter(s32 a, s32 b);
+void Sprite_SetBlend(s32 a, s32 b);
 s32 func_003CF230(s32 chr, s32 costume);
 s32 func_0039C778(void);
-void func_003CE398(s32 a, s32 b, s32 c, s32 x, s32 y, s32 w, s32 h);
+void Sprite_DrawScaledBlended(s32 a, s32 b, s32 c, s32 x, s32 y, s32 w, s32 h);
 void func_003CF1C0(s32 a, s32 b, s32 x, s32 y);
 extern s8 D_0051F678[];
 extern const char D_0051F6A0[];
@@ -60,8 +60,8 @@ s32 Tag_StepCounters(s32 side, s32 a);
 void Hud_DrawMarkers(void);
 void Hud_DrawLifeBar(s32 side, s32 member, s32 fade, s32 partner);
 void func_003C6738(s32 a, s32 n, s32 x, s32 y);
-void func_003CE258(s32 a, s32 b, s32 c, s32 x, s32 y);
-void func_003CE318(s32 a, s32 b, s32 c, s32 x, s32 y, s32 w, s32 h);
+void Sprite_Draw(s32 a, s32 b, s32 c, s32 x, s32 y);
+void Sprite_DrawScaled(s32 a, s32 b, s32 c, s32 x, s32 y, s32 w, s32 h);
 
 /* Blink of the newest marker: unk20 toggles every unk18 frames for unk14 frames, the period shrinking by one each
  * time the phase turns back to 0 (never below 2) [V]. */
@@ -154,18 +154,18 @@ void Hud_InitRound(void) {
 void Hud_DrawNamePlate(s32 side, s32 member, s32 x, s32 y) {
     s32 name = func_003CF230(D_00440940[side][member].unk0, D_00440940[side][member].unk4);
 
-    func_003CD918(0, 1);
-    func_003CD868(0, 4);
+    Sprite_SetFilter(0, 1);
+    Sprite_SetBlend(0, 4);
     if (func_0039C778() == 0) {
         if (D_0051F678[D_00440940[side][member].unk0] == 0) {
-            func_003CE398(0, 0x39, 0x3A, x, y, 0x7C, 0x22);
+            Sprite_DrawScaledBlended(0, 0x39, 0x3A, x, y, 0x7C, 0x22);
         } else {
-            func_003CE398(0, 0x3B, 0x3C, x, y, 0x7C, 0x22);
+            Sprite_DrawScaledBlended(0, 0x3B, 0x3C, x, y, 0x7C, 0x22);
         }
     }
-    func_003CD868(0, 1);
+    Sprite_SetBlend(0, 1);
     func_003CF1C0(0, name, x, y);
-    func_003CD918(0, 1);
+    Sprite_SetFilter(0, 1);
 }
 
 /* Resets the marker blink state of both sides [V]. */
@@ -209,8 +209,8 @@ void Hud_DrawMarkers(void) {
     s32 save;
     HudSide *h;
 
-    func_003CD918(0, 1);
-    func_003CD868(0, 0);
+    Sprite_SetFilter(0, 1);
+    Sprite_SetBlend(0, 0);
     if (D_0043B7F8[0] == 2) {
         x = 0xFC;
         for (ix = 0; ix < 2; ix++) {
@@ -249,10 +249,10 @@ void Hud_DrawMarkers(void) {
                     D_005F6738 = 0x80808080;
                 }
                 if (ix == 0) {
-                    func_003CE398(0, 0x49, 0x4A, x, 0x3C, 0x14, 0x19);
+                    Sprite_DrawScaledBlended(0, 0x49, 0x4A, x, 0x3C, 0x14, 0x19);
                     x += 16;
                 } else {
-                    func_003CE398(0, 0x49, 0x4A, x, 0x3C, -0x14, 0x19);
+                    Sprite_DrawScaledBlended(0, 0x49, 0x4A, x, 0x3C, -0x14, 0x19);
                     x -= 16;
                 }
             }
@@ -276,9 +276,9 @@ void Hud_DrawMarkers(void) {
         if (D_005F5CC8[p] != 0) {
             save = D_005F6730;
             D_005F6730 = 0xFFF00;
-            func_003CD918(1, 1);
-            func_003CD868(1, 1);
-            func_003CE258(1, 0x47, 0x48, ix, 400);
+            Sprite_SetFilter(1, 1);
+            Sprite_SetBlend(1, 1);
+            Sprite_Draw(1, 0x47, 0x48, ix, 400);
             D_005F6730 = save;
         }
         if (D_005F5C70 >= 2) {
@@ -296,18 +296,18 @@ void Hud_DrawMarkers(void) {
             for (ix = 0; ix < D_005F5C70; ix++) {
                 if (ix < gFighters[p].unk5A) {
                     if (h->unkC == 1 && h->unk10 - 1 == ix && h->unk20 == 0) {
-                        func_003CE258(0, 0x45, 0x46, x, k);
+                        Sprite_Draw(0, 0x45, 0x46, x, k);
                     } else {
-                        func_003CE258(0, 0x43, 0x44, x, k);
+                        Sprite_Draw(0, 0x43, 0x44, x, k);
                     }
                 } else {
-                    func_003CE258(0, 0x45, 0x46, x, k);
+                    Sprite_Draw(0, 0x45, 0x46, x, k);
                 }
                 x += dx;
             }
         }
     }
-    func_003CD918(0, 1);
+    Sprite_SetFilter(0, 1);
 }
 #else
 INCLUDE_ASM("asm/nonmatchings/hud", Hud_DrawMarkers);
@@ -495,17 +495,17 @@ void Hud_DrawLifeBar(s32 side, s32 member, s32 fade, s32 partner) {
         trR = trL + len;
     }
 
-    func_003CD918(0, 0);
-    func_003CD868(0, 1);
+    Sprite_SetFilter(0, 0);
+    Sprite_SetBlend(0, 1);
     D_005F6738 = (u64)alpha | ((u64)0x8000 << 16) | ((alpha << 16) | (alpha << 8));
-    func_003CE318(0, 0x33, tCapL, capL, y, 9, 0x1C);
-    func_003CE318(0, 0x35, tCapR, capR, y, 9, 0x1C);
-    func_003CE318(0, 0x31, tBg, bgL, y, bgR - bgL, 0x1C);
-    func_003CE318(0, 0x37, tRed, redL, y, redR - redL, 0x1C);
-    func_003CE318(0, 0x2D, tLife, lifeL, y, end - lifeL, 0x1C);
-    func_003CE318(0, 0x2F, tTrail, trL, y, trR - trL, 0x1C);
+    Sprite_DrawScaled(0, 0x33, tCapL, capL, y, 9, 0x1C);
+    Sprite_DrawScaled(0, 0x35, tCapR, capR, y, 9, 0x1C);
+    Sprite_DrawScaled(0, 0x31, tBg, bgL, y, bgR - bgL, 0x1C);
+    Sprite_DrawScaled(0, 0x37, tRed, redL, y, redR - redL, 0x1C);
+    Sprite_DrawScaled(0, 0x2D, tLife, lifeL, y, end - lifeL, 0x1C);
+    Sprite_DrawScaled(0, 0x2F, tTrail, trL, y, trR - trL, 0x1C);
     D_005F6738 = 0x80808080;
-    func_003CD918(0, 1);
+    Sprite_SetFilter(0, 1);
     if (D_0043B7F8[0] == 7) {
         D_00440940[side][member].unkC = D_005F6E58;
         D_00440940[side][member].unk10 = D_005F6E5C;
@@ -555,8 +555,8 @@ void Hud_DrawKoPercent(Fighter *a, Fighter *b) {
 
 /* HUD of game type 9 [V]: filtering and blend preset 1 on buffer 1, neutral colour, Z 0xFFFF0. */
 void func_003C2EF8(void) {
-    func_003CD918(1, 1);
-    func_003CD868(1, 1);
+    Sprite_SetFilter(1, 1);
+    Sprite_SetBlend(1, 1);
     D_005F6738 = 0x80808080;
     D_005F6730 = 0xFFFF0;
 }
@@ -598,7 +598,7 @@ void Hud_Draw(void) {
         }
     }
     t = (gRoundTimer * 6 / 7 - 1) / 60;
-    func_003CD868(0, 1);
+    Sprite_SetBlend(0, 1);
     func_003C6738(0, t, 320, 6);
 }
 

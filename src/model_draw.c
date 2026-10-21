@@ -277,12 +277,12 @@ typedef struct {
 
 extern WinSkin D_00443780;
 
-void func_003CD918(s32 list, s32 on);
+void Sprite_SetFilter(s32 list, s32 on);
 
 #define WIN_UV(u, v) ((u64)(((u) << 4) + 8) | ((u64)(((v) << 4) + 8) << 16))
 #define WIN_XYZF(x, y) ((u64)(((x) + 0x6C0) << 4) | ((u64)(((y) + 0x720) << 4) << 16) | ((u64)z << 32) | ((u64)1 << 56))
 
-/* Window frame around (x, y, w, h): TEX1_2 bilinear (func_003CD918), TEST_2 / ALPHA_2 / CLAMP_2, RGBAQ 0x80808080
+/* Window frame around (x, y, w, h): TEX1_2 bilinear (Sprite_SetFilter), TEST_2 / ALPHA_2 / CLAMP_2, RGBAQ 0x80808080
  * and TEX0_2 of D_00443780 (TW = TH = 10, TCC, CLD 1), then eight textured sprites (PRIM 0x356) 16 pixels wide from
  * the eight tiles of the skin: corners and edges, counter-clockwise from the top-left [V]. */
 void func_003DC188(u32 x, u32 y, u32 w, u32 h, u32 z) {
@@ -293,7 +293,7 @@ void func_003DC188(u32 x, u32 y, u32 w, u32 h, u32 z) {
     WinClutRef *ref;
     u64 *p;
 
-    func_003CD918(1, 1);
+    Sprite_SetFilter(1, 1);
     tex = D_00443780.tex;
     ref = &D_00443780.unk20;
     clut = ref->clut;

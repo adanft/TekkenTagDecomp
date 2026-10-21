@@ -36,7 +36,9 @@ s32 func_003678B8(void);
 void func_003E13C8(f32 x);
 s32 func_00340398(void);
 void func_00340000(s32 id);
-s32 func_00356A78(void *p, s32 a, s32 b);
+s32 func_00356A78(u8 *p, s32 a, s32 b);
+void func_003E1330(void *p, s32 n);
+void Light_SetupStage(s32 stage, void *p);
 MdlSlot *func_00356E38(s32 i);
 s32 func_00356F48(s32 x);
 void func_00356F68(MdlSlot *s, u32 i, MdlTable *t, s32 a, s32 kind);
@@ -46,7 +48,113 @@ s32 func_00356A70(void) {
     return D_005F7048;
 }
 
+/* NON_MATCHING: 129 lines (first draft); cannot become C in place anyway: its jump table jtbl_00522030 lies between other objects' .rodata (after Model_Render's jtbl_00522010) and draw_list has no .rodata subsegment */
+#if 0
+s32 func_00356A78(u8 *p, s32 base, s32 kind) {
+    s32 size[12];
+    s32 skip[12];
+    u8 *start;
+    s32 seg;
+    s32 acc;
+    s32 reg;
+    s32 n;
+    s32 i;
+    s32 cnt;
+    s32 m;
+    s32 flag;
+    u8 *q;
+    u32 w0;
+    u32 w1;
+    u32 w2;
+    u32 w3;
+
+    seg = 0;
+    start = (u8 *)(((u32)p + 0x7F) & ~0xF);
+    acc = 0;
+    switch (kind) {
+    case 3:
+        reg = 0x640;
+        break;
+    case 0:
+    case 1:
+    case 2:
+    case 4:
+    default:
+        reg = 0x50;
+        break;
+    case 5:
+        reg = 0x3A2;
+        break;
+    }
+    n = *(s32 *)(p + 0x10);
+    for (i = 0; i < n; i++) {
+        size[i] = ((s32 *)(p + 0x14))[i * 2] << 4;
+        skip[i] = ((s32 *)(p + 0x14))[i * 2 + 1];
+    }
+    cnt = *(s32 *)(p + 0x6C);
+    q = (u8 *)(((u32)(p + 0x70) + 0xF) & ~0xF) + 0x24;
+    for (; cnt >= 0; cnt--) {
+        if (q - start == acc + size[seg] - skip[seg]) {
+            acc += size[seg];
+            q += skip[seg];
+            seg++;
+        }
+        w0 = ((u32 *)q)[0x10];
+        w1 = ((u32 *)q)[0x11];
+        w2 = ((u32 *)q)[0x12];
+        w3 = ((u32 *)q)[0x13];
+        if (kind < 5) {
+            w0 = (w0 & 0xFFFFC000) | (((w0 & 0x3FFF) + base) & 0x3FFF);
+            w1 = (w1 & 0xFFF8001F) | (((((w1 >> 5) & 0x3FFF) + base) & 0x3FFF) << 5);
+        } else if (kind == 5) {
+            ((u32 *)q)[8] = 0x46;
+            ((u32 *)q)[11] = 0x42;
+            ((u32 *)q)[9] = 0;
+            ((u32 *)q)[10] = 0x42;
+            ((u32 *)q)[12] = kind;
+            w0 = 0x20A13940;
+            w1 = 0xE;
+        }
+        ((u32 *)q)[0x10] = w0;
+        ((u32 *)q)[0x11] = w1;
+        ((u32 *)q)[0x12] = w2;
+        ((u32 *)q)[0x13] = w3;
+        w0 = ((u32 *)q)[0x14];
+        m = w0 & 0x7FFF;
+        flag = (w0 & 0x8000) >> 15;
+        w1 = ((u32 *)q)[0x15];
+        w2 = ((u32 *)q)[0x16];
+        w3 = ((u32 *)q)[0x17];
+        if ((u32)kind < 6 && (u32)kind >= 4) {
+            w1 = (w1 | 0x200000) & 0xFFBFFFFF;
+        }
+        ((u32 *)q)[0x14] = w0;
+        ((u32 *)q)[0x15] = w1;
+        ((u32 *)q)[0x16] = w2;
+        ((u32 *)q)[0x17] = w3;
+        q += 0x68;
+        q += m * 4;
+        q += 8;
+        q += m * 8;
+        q += 8;
+        if (kind == 3) {
+            func_003E1330(q, m);
+        }
+        q += m * 0x18;
+        if (flag) {
+            *(u32 *)q = reg | 0x15000000;
+            q += 4;
+        }
+    }
+    q = (u8 *)(((u32)q + 0xF) & ~0xF);
+    if (kind == 0) {
+        Light_SetupStage(D_005F7044, q);
+        D_005F7048 = (s32)(q + 0xB0);
+    }
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/draw_list", func_00356A78);
+#endif
 
 /* Uploads a chain of GS image records now through a GIF packet built in `buf`; returns its size in 256-byte blocks. */
 u32 func_00356D78(void *rec, u32 base, void *buf) {

@@ -16,7 +16,15 @@ typedef struct {
     /* 0x00 */ u16 unk0;
     /* 0x02 */ u16 unk2;
     /* 0x04 */ s16 unk4;
-    /* 0x06 */ u8 pad6[0x12];
+    /* 0x06 */ u16 unk6;  /* TBP0 */
+    /* 0x08 */ u8 unk8;   /* TBW */
+    /* 0x09 */ u8 unk9;   /* PSM */
+    /* 0x0A */ u8 unkA;   /* TW (log2 of the width) */
+    /* 0x0B */ u8 unkB;   /* TH */
+    /* 0x0C */ u16 unkC;  /* CBP */
+    /* 0x0E */ u8 unkE;   /* CPSM */
+    /* 0x0F */ u8 padF;
+    /* 0x10 */ u64 unk10; /* the TEX0 value */
 } Unk8BF3A0;
 
 typedef struct {
@@ -56,7 +64,7 @@ typedef struct {
     /* 0x51 */ u8 unk51;
     /* 0x52 */ u8 unk52;
     /* 0x53 */ u8 pad53;
-    /* 0x54 */ s32 unk54;
+    /* 0x54 */ f32 unk54;
     /* 0x58 */ f32 unk58;
     /* 0x5C */ u8 pad5C[4];
     /* 0x60 */ f32 unk60[4];
@@ -182,28 +190,34 @@ void func_00342FA8(f32 v) {
 }
 
 /* Rotates the first two or three words of the scratchpad (count at 0x7000000E) and returns the new first. */
-#if 0
-/* NON_MATCHING: the original reaches each scratchpad word with its own absolute address (lui per access); the compiler
- * shares the base. */
+/* The scratchpad header (0x70000000, as in dma_spr.c). */
+typedef struct {
+    /* 0x0 */ s32 buf[3];
+    /* 0xC */ u16 size;
+    /* 0xE */ u8 count;
+    /* 0xF */ u8 unkF;
+} SprHeader;
+
 s32 func_00342FB0(void) {
-    u8 n = *(u8 *)0x7000000E;
-    s32 first = *(s32 *)0x70000000;
+    SprHeader *s = (SprHeader *)0x70000000;
+    s32 first;
     s32 t;
 
-    if (n == 2) {
-        t = *(s32 *)0x70000004;
-        *(s32 *)0x70000004 = first;
-        *(s32 *)0x70000000 = t;
-    } else if (n == 3) {
-        *(s32 *)0x70000000 = *(s32 *)0x70000004;
-        *(s32 *)0x70000004 = *(s32 *)0x70000008;
-        *(s32 *)0x70000008 = first;
+    first = s->buf[0];
+    switch (s->count) {
+    case 2:
+        t = s->buf[1];
+        s->buf[1] = first;
+        s->buf[0] = t;
+        break;
+    case 3:
+        s->buf[0] = s->buf[1];
+        s->buf[1] = s->buf[2];
+        s->buf[2] = first;
+        break;
     }
-    return *(s32 *)0x70000000;
+    return s->buf[0];
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/dma_gif", func_00342FB0);
-#endif
 
 /* Starts DMA channel `chan` in chain mode on the tag at `tag` (scratchpad addresses get the SPR bit). */
 void Dma_SendChain(volatile u32 *chan, void *tag) {
@@ -260,11 +274,12 @@ void func_00343128(u32 spr, void *src, u32 qwc) {
     } while (0);
 }
 
+/* NON_MATCHING: 12 lines: the first `n <= qwc` test is hoisted above the DMA wait loop and the n - qwc store is
+ * scheduled after the DMA register writes; the original's alignment nops before both loop heads suggest real C loops
+ * there. */
 #if 0
 /* Sends `qwc` quadwords from the scratchpad ring buffer (fromSPR) once that many are ready, waiting for the
  * stream (func_0035E1C8) while they are not. */
-/* NON_MATCHING: the loops are written with goto (a `while` loop hoists the 0x1000D000 load); the first test of the
- * retry loop and the registers of qwc/madr still differ. */
 void func_00343178(u32 spr, u32 qwc) {
     u32 sadr = spr & 0x3FF0;
     u32 n = *(u32 *)0x70000010;
@@ -320,7 +335,6 @@ void Vu0_LoadMicrocode(void) {
     }
 }
 
-#if 0
 typedef struct {
     /* 0x000 */ u8 pad0[0x1E];
     /* 0x01E */ s16 unk1E;
@@ -331,6 +345,17 @@ typedef struct {
     /* 0x59C */ u8 pad59C[0x814];
     /* 0xDB0 */ u8 unkDB0[1];
 } Unk343340;
+
+void func_00343340(Unk343340 *o, s32 side);
+void func_003439B0(s32 id, u8 *mats);
+
+/* NON_MATCHING: 2 lines: the temporary of the first quadword copy (vu[4]) is v0 where the original has v1. */
+#if 0
+/* The part ids of a model (func_003B87B0's unk8): per side, two rows of five. */
+typedef struct {
+    /* 0x00 */ u8 pad0[0x2C];
+    /* 0x2C */ s32 part[2][2][5];
+} PartTbl;
 
 typedef struct {
     /* 0x00 */ u8 pad0[8];
@@ -345,12 +370,9 @@ extern s32 D_005F67C0;
 Unk3B87B0 *func_003B87B0(s32 id);
 void Light_GetFighterMatrices(s32 id, u128 *m);
 void func_0034A868(f32 *out, f32 *in);
-void func_003439B0(s32 a, u8 *b);
 
 #define VU0_MEM ((u128 *)0x11004000)
 
-/* NON_MATCHING: the matrix uploads match; the order of the index terms (j * 4 + i * 0x14 + side * 0x28) and the
- * loop-constant registers differ in the two copies of the part loop. */
 /* Uploads the matrices of an object to VU0 data memory and draws its parts (func_003439B0); with D_005F67C0 == 1
  * the second row of parts is skipped. */
 void func_00343340(Unk343340 *o, s32 side) {
@@ -381,6 +403,7 @@ void func_00343340(Unk343340 *o, s32 side) {
     vu[0xFE] = D_00433400[2];
     vu[0xFF] = D_00433400[3];
     __asm__ volatile(
+        "nop\n" /* [I] the original has a nop before the loads */
         "lqc2 $vf8, 0x0(%0)\n"
         "lqc2 $vf9, 0x10(%0)\n"
         "lqc2 $vf10, 0x20(%0)\n"
@@ -392,7 +415,7 @@ void func_00343340(Unk343340 *o, s32 side) {
                 continue;
             }
             for (j = 0; j < 5; j++) {
-                a = *(s32 *)(p->unk8 + (j * 4 + i * 0x14 + side * 0x28) + 0x2C);
+                a = ((PartTbl *)p->unk8)->part[side][i][j];
                 if (a != 0) {
                     func_003439B0(a, o->unkDB0);
                 }
@@ -404,7 +427,7 @@ void func_00343340(Unk343340 *o, s32 side) {
                 continue;
             }
             for (j = 0; j < 5; j++) {
-                a = *(s32 *)(p->unk8 + (j * 4 + i * 0x14 + side * 0x28) + 0x2C);
+                a = ((PartTbl *)p->unk8)->part[side][i][j];
                 if (a != 0) {
                     func_003439B0(a, o->unkDB0);
                 }
@@ -427,21 +450,24 @@ INCLUDE_ASM("asm/nonmatchings/dma_gif", func_003437B8);
 
 INCLUDE_ASM("asm/nonmatchings/dma_gif", func_003438B8);
 
+/* NON_MATCHING: 167 lines: register allocation only (the frame and stack slots match; the original keeps `mats` in fp
+ * and one more value in a callee-saved register, which renames every s register). */
 #if 0
 u128 *func_003435C0(u128 **dst, u128 *src, s32 n, u128 *hdr);
 u128 *func_003436B8(u128 **dst, u128 *src, s32 n, s64 a);
 u128 *func_003437B8(u128 **dst, u128 *src, s32 n, s64 a);
 u128 *func_003438B8(u128 **dst, u128 *src, s32 n, u128 *hdr);
 
-/* NON_MATCHING: same logic; the stack slots (the header copy at sp+0 in the original) and the register allocation
- * differ. */
 /* Streams the segments of part `id` through the scratchpad, expanding them into VU1 packets: type 1 records start a
  * block, type 2 records are expanded by the VU0 routines, type 0 uploads matrices (from `mats`) to VU0 memory. */
 void func_003439B0(s32 id, u8 *mats) {
     u128 *dst;
     PartSeg *segs;
     u32 n0;
-    u128 hdr;
+    union {
+        u128 q;
+        u32 w[4];
+    } hdr;
     u32 count;
     PartSeg *seg;
     PartSeg *next;
@@ -466,18 +492,18 @@ void func_003439B0(s32 id, u8 *mats) {
     while (count != 0) {
         buf = (u128 *)func_00342FB0();
         out = buf + 0x170;
-        dst = buf + 0x171;
         if (count >= 2) {
             func_00343128(*(u32 *)0x70000004, (void *)seg[1].addr, seg[1].qwc);
         } else {
             Dma_Wait(0x1000D400);
         }
+        dst = out + 1;
         p = buf;
         count--;
         next = seg + 1;
         do {
-            hdr = *p;
-            switch (((u32 *)&hdr)[3]) {
+            hdr.q = *p;
+            switch (hdr.w[3]) {
             case 2:
                 dst[0] = p[0];
                 dst[1] = p[1];
@@ -508,7 +534,7 @@ void func_003439B0(s32 id, u8 *mats) {
             case 0:
                 vu = (u128 *)0x110040C0;
                 k = (u32 *)(p + 1);
-                for (n = ((u32 *)&hdr)[0]; n != 0; n--) {
+                for (n = hdr.w[0]; n != 0; n--) {
                     m = (u128 *)(mats + *k * 0xC0);
                     k += 2;
                     vu[4] = m[0];
@@ -549,9 +575,11 @@ s32 *func_00343CA8(s32 *a, s32 *b, s32 *c) {
     return c + 4;
 }
 
+void func_00343CC8(s32 *part, u32 tbp);
+
+/* NON_MATCHING: 147 lines: first draft; the loop structure (the record loop restarts on a reloaded quadword), the
+ * 64-bit masks and the registers differ widely. */
 #if 0
-/* NON_MATCHING: first draft; the loop structure (the record loop restarts on a reloaded quadword), the 64-bit
- * masks and the registers differ widely. */
 /* Relocates a part (header as for func_00343CA8): adds the base to each segment address, then fixes its records:
  * type 1 gets log2 of the texture sizes, type 2 gets TBP0/CBP moved by `tbp` and its vertex indices scaled by 12. */
 void func_00343CC8(s32 *part, u32 tbp) {
@@ -811,8 +839,258 @@ void func_00344150(void) {
     func_00343178((u32)pk.base, sceVif1PkSize(&pk));
 }
 
-/* Not written in C yet (T13 batch 3): 452 instructions building the VU1 packets of the side textures. */
+/* Rebuilds the GS upload packets of the texture records: picks a texture set for each fighter (by bits 0-1 of its
+ * unk22) into records 14-25, then for every record marked to load (bit 0) walks its bank's frames, writes one
+ * GIF image packet per frame into D_168A30[i][k] (func_00354120) and keeps the TEX0 value of the first frame and its
+ * CLUT; bit 1 marks the record ready. */
+/* NON_MATCHING: 108 lines: register allocation (the original spills the first fighter's two set pointers to sp+0x10 /
+ * sp+0x14 and keeps the bank entry in s4; here the entry pointer is spilled). */
+#if 0
+/* A GS image upload record of a texture bank (as the layer frames use it). */
+typedef struct {
+    /* 0x00 */ u8 pad0[0x14];
+    /* 0x14 */ union {
+        struct {
+            u32 dbp : 14;
+            u32 : 2;
+            u32 dbw : 6;
+            u32 : 2;
+            u32 dpsm : 6;
+            u32 : 2;
+        } f;
+        u32 w;
+    } unk14; /* the high word of BITBLTBUF */
+    /* 0x18 */ u8 pad18[0x18];
+    /* 0x30 */ u32 unk30; /* RRW */
+    /* 0x34 */ u32 unk34; /* RRH */
+    /* 0x38 */ u8 pad38[0x18];
+    /* 0x50 */ u32 unk50; /* image quadwords (low 15 bits) */
+    /* 0x54 */ u8 pad54[0xC];
+} TexImageRec;
+
+typedef struct {
+    /* 0x0 */ u32 *cur;
+    /* 0x4 */ u128 *base;
+    /* 0x8 */ u32 pad8[2];
+} GifPkHead;
+
+f32 logf(f32 x);
+u32 func_00354120(void *pk, void *rec, u32 base);
+
+extern Fighter D_00884EE0; /* gFighters[1] */
+
+void func_00344318(void) {
+    Fighter *f0 = &gFighters[0];
+    Fighter *f1 = &D_00884EE0;
+    GifPkHead pk;
+    u32 *b0;
+    u32 *b2;
+    u32 *c0;
+    u32 *c2;
+    u32 *t0;
+    u32 *t1;
+    u16 *e;
+    TexImageRec *img;
+    Unk8BF3A0 *r;
+    u32 *bank;
+    s32 idx;
+    s32 i;
+    s32 k;
+    s32 n;
+    f32 w;
+    f32 h;
+
+    e = NULL;
+    if (func_003BB4D8() != 0 || func_003ABCD0() != 0) {
+        t1 = (u32 *)D_008BF2C0.unk18[2];
+        t0 = (u32 *)D_008BF2C0.unk18[0];
+        b0 = (u32 *)D_008BF308.unk18[0];
+        c2 = (u32 *)D_008BF308.unk18[10];
+        b2 = (u32 *)D_008BF308.unk18[2];
+        c0 = (u32 *)D_008BF308.unk18[8];
+    } else {
+        if (!(f0->unk22 & 1)) {
+            if (!(f0->unk22 & 2)) {
+                t0 = (u32 *)D_008BF2C0.unk18[0];
+                c0 = (u32 *)D_008BF308.unk18[8];
+                b0 = (u32 *)D_008BF308.unk18[0];
+            } else {
+                t0 = (u32 *)D_008BF2C0.unk18[1];
+                c0 = (u32 *)D_008BF308.unk18[9];
+                b0 = (u32 *)D_008BF308.unk18[1];
+            }
+        } else if (!(f0->unk22 & 2)) {
+            t0 = (u32 *)D_008BF2C0.unk18[2];
+            c0 = (u32 *)D_008BF308.unk18[10];
+            b0 = (u32 *)D_008BF308.unk18[2];
+        } else {
+            t0 = (u32 *)D_008BF2C0.unk18[3];
+            c0 = (u32 *)D_008BF308.unk44;
+            b0 = (u32 *)D_008BF308.unk18[3];
+        }
+        if (!(f1->unk22 & 1)) {
+            if (!(f1->unk22 & 2)) {
+                t1 = (u32 *)D_008BF2C0.unk18[0];
+                c2 = (u32 *)D_008BF308.unk18[8];
+                b2 = (u32 *)D_008BF308.unk18[0];
+            } else {
+                t1 = (u32 *)D_008BF2C0.unk18[1];
+                c2 = (u32 *)D_008BF308.unk18[9];
+                b2 = (u32 *)D_008BF308.unk18[1];
+            }
+        } else if (!(f1->unk22 & 2)) {
+            t1 = (u32 *)D_008BF2C0.unk18[2];
+            c2 = (u32 *)D_008BF308.unk18[10];
+            b2 = (u32 *)D_008BF308.unk18[2];
+        } else {
+            t1 = (u32 *)D_008BF2C0.unk18[3];
+            c2 = (u32 *)D_008BF308.unk44;
+            b2 = (u32 *)D_008BF308.unk18[3];
+        }
+    }
+    D_008BF350[4].unk0 = (u16 *)t0;
+    if (t0 != NULL) {
+        D_008BF350[4].unk4 = *(u16 *)t0;
+    }
+    D_008BF350[5].unk0 = (u16 *)t1;
+    if (t1 != NULL) {
+        D_008BF350[5].unk4 = *(u16 *)t1;
+    }
+    for (i = 0; i < 3; i++) {
+        D_008BF3A0[i + 14].unk0 = 0;
+        D_008BF3A0[i + 17].unk0 = 0;
+        D_008BF3A0[i + 20].unk0 = 0;
+        D_008BF3A0[i + 23].unk0 = 0;
+    }
+    if (b0 != NULL) {
+        n = *b0;
+        for (i = 0; i < n; i++) {
+            D_008BF3A0[i + 14].unk0 |= 1;
+        }
+    }
+    if (b2 != NULL) {
+        n = *b2;
+        for (i = 0; i < n; i++) {
+            D_008BF3A0[i + 17].unk0 |= 1;
+        }
+    }
+    if (c0 != NULL) {
+        n = *c0;
+        for (i = 0; i < n; i++) {
+            D_008BF3A0[i + 20].unk0 |= 1;
+        }
+    }
+    if (c2 != NULL) {
+        n = *c2;
+        for (i = 0; i < n; i++) {
+            D_008BF3A0[i + 23].unk0 |= 1;
+        }
+    }
+    for (i = 0, r = D_008BF3A0; i < 26; i++, r++) {
+        if (!(r->unk0 & 1)) {
+            continue;
+        }
+        switch (i) {
+        case 0:
+            idx = 0;
+            bank = (u32 *)D_008BF308.ptr[0];
+            goto get;
+        case 3:
+            idx = 0;
+            bank = (u32 *)D_008BF308.ptr[1];
+            goto get;
+        case 1:
+            idx = 0;
+            bank = (u32 *)D_008BF308.ptr[2];
+            goto get;
+        case 2:
+            idx = 0;
+            bank = (u32 *)D_008BF308.ptr[3];
+            goto get;
+        case 4:
+            idx = 0;
+            bank = (u32 *)D_008BF308.ptr[4];
+            goto get;
+        case 5:
+            idx = 0;
+            bank = (u32 *)D_008BF308.ptr[5];
+            goto get;
+        case 14:
+        case 15:
+        case 16:
+            bank = b0;
+            idx = i - 14;
+            goto get;
+        case 17:
+        case 18:
+        case 19:
+            bank = b2;
+            idx = i - 17;
+            goto get;
+        case 6:
+        case 7:
+            idx = i - 6;
+            bank = (u32 *)D_008BF308.unk18[4];
+            goto get;
+        case 8:
+        case 9:
+            idx = i - 8;
+            bank = (u32 *)D_008BF308.unk18[5];
+            goto get;
+        case 10:
+        case 11:
+            idx = i - 10;
+            bank = (u32 *)D_008BF308.unk18[6];
+            goto get;
+        case 12:
+        case 13:
+            idx = i - 12;
+            bank = (u32 *)D_008BF308.unk18[7];
+            goto get;
+        case 20:
+        case 21:
+        case 22:
+            bank = c0;
+            idx = i - 20;
+            goto get;
+        case 23:
+        case 24:
+        case 25:
+            bank = c2;
+            idx = i - 23;
+        get:
+            e = Fx_GetBankEntry((s32)bank, idx);
+            break;
+        }
+        r->unk4 = 0;
+        r->unk2 = *e;
+        for (k = 0; k < r->unk2; k++) {
+            img = (TexImageRec *)Fx_GetBankEntry((s32)e, k);
+            sceGifPkInit(&pk, &D_168A30[i][k]);
+            func_00354120(&pk, img, 0x3B40);
+            if (k == 0) {
+                r->unk6 = img->unk14.f.dbp;
+                r->unk8 = img->unk14.f.dbw;
+                r->unk9 = img->unk14.f.dpsm;
+                w = img->unk30 & 0x7FF;
+                h = img->unk34 & 0x7FF;
+                r->unkA = logf(w) / logf(2.0f);
+                r->unkB = logf(h) / logf(2.0f);
+                img = (TexImageRec *)((u8 *)img + ((img->unk50 & 0x7FFF) * 16 + 0x60));
+                r->unkE = (img->unk14.w >> 24) & 0x3F;
+                r->unkC = img->unk14.w & 0x3FFF;
+                r->unk10 = (u64)r->unk6 | ((u64)r->unk8 << 14) | ((u64)r->unk9 << 20) | ((u64)r->unkA << 26)
+                    | ((u64)r->unkB << 30) | ((u64)1 << 34) | ((u64)r->unkC << 37) | ((u64)r->unkE << 51)
+                    | ((u64)1 << 61);
+            }
+            sceGifPkTerminate(&pk);
+        }
+        r->unk0 |= 2;
+    }
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/dma_gif", func_00344318);
+#endif
 
 typedef struct {
     /* 0x00 */ u8 pad0[0x1E];
@@ -870,6 +1148,9 @@ void func_00344A28(Unk344A28 *o) {
     }
 }
 
+void func_00344BE0(void);
+
+/* NON_MATCHING: 23 lines: the loop counter and the 0x60 stride constant are in swapped registers (a1/a2). */
 #if 0
 /* The two fighters' entries of D_00440940 (0x60 bytes each). */
 typedef struct {
@@ -888,7 +1169,6 @@ s32 func_003ABCC0(void);
 u32 func_00364550(u16 *blk);
 void Fx_UpdateStageAmbient(void);
 
-/* NON_MATCHING: the loop counter and the 0x60 stride constant are in swapped registers (a1/a2). */
 /* Picks the extra texture set (slot 7) from the two fighters' entries (types 0x13, 0xF and 0x21 paired with 0x1D),
  * marks records 12-13, then rebuilds the packets (func_00344318) and adds the object Fx_UpdateStageAmbient. */
 void func_00344BE0(void) {
@@ -1006,11 +1286,13 @@ void func_00344EA8(Unk344A28 *o) {
     }
 }
 
+void func_00345070(void);
+
+/* NON_MATCHING: 84 lines: first draft; the three cases share their tail in the original and the registers differ. */
 #if 0
 u16 *func_00367868(void);
 u32 func_00364550(u16 *blk);
 
-/* NON_MATCHING: first draft; the three cases share their tail in the original and the registers differ. */
 /* Marks the stage texture records 6-13 from the stage data (func_00367868): up to three blocks, each with up to two
  * texture sets for the two sides. */
 void func_00345070(void) {
@@ -1247,7 +1529,6 @@ void *func_00345780() {
     return NULL;
 }
 
-#if 0
 /* Two GS vertices (ST and XYZ register values) of a line, read as words and as fields. */
 typedef union {
     u64 d[8];
@@ -1267,7 +1548,10 @@ typedef union {
     } s;
 } GsLine;
 
-/* NON_MATCHING: same logic; register allocation of the t registers differs (decomp-permuter: 3470 -> 1425). */
+void func_003457C0(u8 *pk, GsLine *v, s32 i);
+
+/* NON_MATCHING: 98 lines: register allocation of the t registers (decomp-permuter: 3470 -> 1425). */
+#if 0
 /* Builds the GS packet of a line split into 1-16 segments by its length (interpolating x and q), and sends it
  * through the scratchpad. */
 void func_003457C0(u8 *pk, GsLine *v, s32 i) {
@@ -1347,8 +1631,231 @@ void func_003457C0(u8 *pk, GsLine *v, s32 i) {
 INCLUDE_ASM("asm/nonmatchings/dma_gif", func_003457C0);
 #endif
 
-/* Not written in C yet (T13 batch 3): 378 instructions, scratchpad matrices (sceVu0*), unaligned 64-bit copies. */
+/* Draws a billboard object (func_003456B0's set-up): projects its position (or takes a screen position with flag
+ * 0x80), sizes it by its depth, culls it against the screen and the depth `far`, and sends it as a GS quad
+ * (func_003457C0); returns 0 when drawn. Off screen, a timed object (unk96) ages and is removed (func_003465C8). */
+s32 func_003459D0(Unk3456B0 *o, f32 far);
+
+/* NON_MATCHING: 78 lines: register allocation (the screen x / y are kept in two registers each in the original, the
+ * ALPHA value in v0) and the scheduling of the alpha constants. */
+#if 0
+/* The GS ALPHA register. */
+typedef struct {
+    u64 a : 2;
+    u64 b : 2;
+    u64 c : 2;
+    u64 d : 2;
+    u64 : 24;
+    u64 fix : 8;
+    u64 : 24;
+} SprAlpha;
+
+/* A GS vertex pair as func_003459D0 fills it (the GsLine of func_003457C0, by fields). */
+typedef struct {
+    /* 0x00 */ u16 x0;
+    /* 0x02 */ u16 y0;
+    /* 0x04 */ u32 z0;
+    /* 0x08 */ u8 r;
+    /* 0x09 */ u8 g;
+    /* 0x0A */ u8 b;
+    /* 0x0B */ u8 a;
+    /* 0x0C */ f32 q;
+    /* 0x10 */ s32 s0;
+    /* 0x14 */ s32 t0;
+    /* 0x18 */ SprAlpha alpha;
+    /* 0x20 */ u16 x1;
+    /* 0x22 */ u16 y1;
+    /* 0x24 */ u32 z1;
+    /* 0x28 */ u32 rgba1[2];
+    /* 0x30 */ f32 s1;
+    /* 0x34 */ f32 t1;
+} SprVtx;
+
+typedef struct {
+    u32 w[2];
+} SprRgbaq;
+
+/* The scratchpad work area of func_003459D0 (0x70000100). */
+typedef struct {
+    /* 0x000 */ u32 *cur; /* a libgraph GIF packet header */
+    /* 0x004 */ u128 *base;
+    /* 0x008 */ u32 pad8[2];
+    /* 0x010 */ u8 pad10[0x80];
+    /* 0x090 */ Vu0Matrix unit;
+    /* 0x0D0 */ Vu0Matrix rot;
+    /* 0x110 */ Vu0Matrix trans;
+    /* 0x150 */ Vu0Matrix local_screen;
+    /* 0x190 */ Vu0Matrix world_screen;
+    /* 0x1D0 */ s32 sx;
+    /* 0x1D4 */ s32 sy;
+    /* 0x1D8 */ u32 sz;
+    /* 0x1DC */ s32 sw;
+    /* 0x1E0 */ u8 *buf;
+    /* 0x1E4 */ u8 pad1E4[0xC];
+    /* 0x1F0 */ SprVtx v;
+} SprWork;
+
+extern s32 gFrameOverrun;
+extern s32 D_005F5EE0;
+extern s32 D_005F5EE4;
+void func_00356710(Vu0Matrix m);
+f32 func_0034A570(f32 a);
+void sceVu0RotMatrixY(Vu0Matrix m0, Vu0Matrix m1, f32 ry);
+void sceVu0TransMatrix(Vu0Matrix m0, Vu0Matrix m1, f32 *tv);
+void sceVu0MulMatrix(Vu0Matrix m0, Vu0Matrix m1, Vu0Matrix m2);
+void sceVu0RotTransPers(s32 *out, Vu0Matrix m, f32 *v, s32 mode);
+s32 func_003ABD08(void);
+s32 func_00393810(void);
+s32 func_0036DE60(void);
+s32 func_003A9698(void);
+void func_003465C8(Unk3456B0 *p);
+
+s32 func_003459D0(Unk3456B0 *o, f32 far) {
+    SprWork *w = (SprWork *)0x70000100;
+    Unk3456B0Sub *s;
+    u32 z;
+    s32 x;
+    s32 y;
+    f32 size;
+    f32 a;
+    s32 h;
+    SprAlpha al;
+    s32 x0;
+    s32 y0;
+    s32 x1;
+    s32 y1;
+
+    sceGifPkInit(w, w->buf);
+    s = &o->sub;
+    if (s->unk54 == 0.0f) {
+        return 1;
+    }
+    if (s->unk58 == 1.0f) {
+        return 1;
+    }
+    if (o->unk14 & 0x80) {
+        w->sx = s->unk0;
+        w->sy = s->unk4;
+        w->sz = s->unk8;
+        w->sw = *(s32 *)&s->unkC;
+    } else {
+        func_00356710(w->unit);
+        sceVu0RotMatrixY(w->rot, w->unit, func_0034A570(s->unk70[1]));
+        sceVu0TransMatrix(w->trans, w->rot, (f32 *)s);
+        sceVu0MulMatrix(w->local_screen, w->world_screen, w->trans);
+        sceVu0RotTransPers(&w->sx, w->local_screen, s->unk60, 1);
+    }
+    if ((o->unk14 & 4) && func_003BB4D8() == 0 && func_003ABD08() == 0 && func_00393810() == 0
+        && func_0036DE60() == 0 && (f32)w->sw < far) {
+        goto off;
+    }
+    z = w->sz;
+    if (z > 0xFDE8) {
+        goto off;
+    }
+    x = w->sx;
+    if (x < 0x2000) {
+        goto off;
+    }
+    y = w->sy;
+    if (y < 0x2000) {
+        goto off;
+    }
+    if (x > 0xDFF0 || y > 0xDFF0) {
+        goto off;
+    }
+    if (!(o->unk14 & 0x80)) {
+        size = (f32)(u32)s->unk90 * s->unk54 * (f32)((s32)z / 4) / s->unk48;
+    } else {
+        size = (f32)(u32)s->unk90 * s->unk54;
+    }
+    if (size > 8192.0f) {
+        size = 8192.0f;
+    }
+    if (gFrameOverrun != 0 && ((o->unk14 & 2) || (u16)o->sub.unk14[3] == 2 || (u16)o->sub.unk14[3] == 0)) {
+        func_003465C8(o);
+        return 1;
+    }
+    h = size;
+    if (s->unk96 != 0) {
+        x0 = 0x6C00 - h;
+        y0 = 0x7200 - h;
+        x1 = h + 0x9400;
+        y1 = h + 0x8E00;
+        if (x < x0 || y < y0 || x > x1 || y > y1) {
+            goto off;
+        }
+    }
+    w->sz = z + s->unk4C * 4;
+    if (s->unk40 == 1) {
+        goto c1;
+    }
+    if (s->unk40 != 0) {
+        goto dflt;
+    }
+    a = (1.0f - s->unk58) * s->unk44;
+    al = w->v.alpha;
+    al.a = 0;
+    al.b = 1;
+    al.c = 0;
+    al.d = 1;
+    w->v.alpha = al;
+    w->v.alpha.fix = 0;
+    goto done;
+c1:
+    al = w->v.alpha;
+    al.a = 0;
+    al.b = 2;
+    goto tail;
+dflt:
+    al = w->v.alpha;
+    al.a = 2;
+    al.b = 0;
+tail:
+    al.c = 2;
+    al.d = 1;
+    w->v.alpha = al;
+    a = 128.0f;
+    w->v.alpha.fix = (1.0f - s->unk58) * s->unk44;
+done:
+    w->v.r = s->unk50;
+    w->v.g = s->unk51;
+    w->v.a = a;
+    w->v.b = s->unk52;
+    w->v.q = 1.0f;
+    *(SprRgbaq *)w->v.rgba1 = *(SprRgbaq *)&w->v.r;
+    w->v.s1 = 1.0f;
+    w->v.z0 = w->sz;
+    *(u64 *)&w->v.x1 = *(u64 *)&w->v.x0;
+    w->v.x0 = (u16)w->sx - h;
+    w->v.y0 = (u16)w->sy - h;
+    w->v.x1 = (u16)w->sx + h;
+    w->v.y1 = (u16)w->sy + h;
+    w->v.s0 = 0;
+    w->v.t0 = 0;
+    w->v.t1 = 1.0f;
+    func_003457C0(w->buf, (GsLine *)&w->v, (u16)s->unk14[3]);
+    return 0;
+off:
+    if (D_005F5EE0 != 0) {
+        return 1;
+    }
+    if (D_005F5EE4 != 0) {
+        return 1;
+    }
+    if (func_003A9698() != 0) {
+        return 1;
+    }
+    if (s->unk96 != 0) {
+        if (s->unk96 < ++s->unk94) {
+            func_003465C8(o);
+        }
+    }
+    return 1;
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/dma_gif", func_003459D0);
+#endif
 
 s32 func_00345FB8(void) {
     return 0x2C000;

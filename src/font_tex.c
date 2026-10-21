@@ -47,6 +47,37 @@ typedef struct {
 
 extern TexSlot D_006E3550[];
 
+/* The upload packet of one image (D_006E3500): its size in quadwords and its address. */
+typedef struct {
+    /* 0x0 */ u16 qwc;
+    /* 0x2 */ u16 unk2;
+    /* 0x4 */ u8 *addr;
+    /* 0x8 */ u64 unk8;
+} TexUpload;
+
+/* A DMA tag written at the end of a scratchpad buffer. */
+typedef union {
+    u128 q;
+    u16 h[8];
+} SprTag;
+
+extern TexUpload D_006E3500[];
+extern u8 D_006D7500[];
+extern u8 D_00617500[];
+u32 func_00364550(void *data);
+s32 func_00364558(u32 i, void *data);
+void *func_00364528(u32 i, void *data);
+s32 func_003623B8(void *data, s32 vram, u8 **pk, u16 skip, u8 **end);
+void Dma_AddRefTag(u8 **pkt, s32 i);
+void FlushCache(s32 op);
+u32 Spr_Setup(u32 count, s32 reserved);
+void func_00343128(u32 spr, void *src, u32 qwc);
+u32 Dma_Wait(volatile u32 *chan);
+void *func_00342FB0(void);
+void func_0035E6B8(void *tag);
+void func_00361E20(s32 *order, TexSlot *slots);
+void func_00361EA8(s32 *blocks, s32 *subBlocks);
+
 /* VIF1 packet of the SDK (sceVif1Packet). */
 typedef struct {
     /* 0x0 */ u32 *pCurrent;
@@ -109,6 +140,21 @@ s32 func_003E5020(s32 id);
 s32 func_003E5140(s32 id);
 void func_003E5268(s32 x, s32 y, s32 id, s32 color);
 void func_003DEB80(s32 a);
+
+/* The entries of the memory card menu (.data; src/memcard.c). */
+typedef struct {
+    /* 0x0 */ s32 type;
+    /* 0x4 */ const char *help;
+    /* 0x8 */ const char *label;
+} McMenuItem;
+
+extern McMenuItem D_00416040[];
+extern s8 D_00439C60[];
+extern s32 D_005F6B40;
+void func_00360670(McMenu *m);
+void func_003B1488(void);
+s32 func_0035E898(void);
+s32 func_0035E8B8(void);
 
 void func_003608B8(McMenu *m) {
     D_005F6B44 = 0xFF;
@@ -397,7 +443,295 @@ void func_00360F28(McMenu *m, s32 next) {
     m->unk4 = next;
 }
 
-INCLUDE_ASM("asm/nonmatchings/font_tex", func_00360F40);
+/* The memory card menu (D_006173F8): the entry list (states 0-2; the entry's type in D_00416040 is the next state, type
+ * 0x10 toggles the option byte D_00439C92), then four flows that ask YES / NO, check the card status (errors in 6 / 11),
+ * start a request and show its result: 5-9 request 0x1A (then func_003B1488 and the option byte are reloaded), 10-15
+ * request 0x12 (other messages when the card is unformatted), 17-20 request 0x10, 21-24 request 0x25. State 4 waits
+ * `timer` frames, then goes to unk4; 26 / 27 leave the menu. Returns 0 once left, else 1. */
+s32 func_00360F40(s32 held, s32 pressed) {
+    McMenu *m;
+    s32 r = 1;
+    s32 st;
+
+    m = &D_006173F8;
+    m->held = held;
+    m->pressed = pressed;
+    st = func_0035E8D8();
+    switch (D_006173F8.state) {
+    case 0:
+        func_00360A30(m, 0);
+        m->state = 1;
+    case 1:
+        if (func_00360EE0(m) != 0) {
+            break;
+        }
+        func_00360D50(m);
+        D_00439C60[0x32] = m->unk18;
+        if (D_00416040[m->sel].type == 0x10) {
+            if (m->pressed & 0xA000) {
+                func_003B4D28(0);
+                func_00360A30(m, 0);
+                D_00439C60[0x32] = D_00439C60[0x32] == 0;
+                if (D_00439C60[0x32] != 0 && (st & ~0x8000)) {
+                    m->state = D_00416040[m->sel].type;
+                } else {
+                    m->unk18 = D_00439C60[0x32];
+                }
+            }
+        } else if (m->pressed & 0x8FC) {
+            func_003B4D28(0);
+            m->state = D_00416040[m->sel].type;
+        }
+        break;
+    case 3:
+        func_00360A30(m, 1);
+        m->timer = 0x3C;
+        m->state = 4;
+        break;
+    case 4:
+        if (m->timer != 0) {
+            m->timer--;
+        } else {
+            m->state = m->unk4;
+        }
+        break;
+    case 5:
+        func_00360C98(m, 0);
+        m->state = 7;
+        m->unk4 = 5;
+    case 7:
+        if (func_00360E38(st) != 0) {
+            func_003B4D28(1);
+            m->state = 6;
+            break;
+        }
+        func_00360A30(m, 5);
+        if (func_00360CA0(m) != 0) {
+            if (func_00360D48(m) != 0) {
+                m->state = 8;
+            } else {
+                m->state = 0;
+            }
+        }
+        break;
+    case 6:
+        if (func_00360E38(st) == 0 && !(st & 0x8000)) {
+            m->state = 5;
+            break;
+        }
+        if (st & 1) {
+            func_00360A30(m, 2);
+        } else if (st & 8) {
+            func_00360A30(m, 0xA);
+        } else if (st & 4) {
+            func_00360A30(m, 9);
+        } else if (st & 0x400) {
+            func_00360A30(m, 3);
+        } else if (st & 0x200) {
+            func_00360A30(m, 0xB);
+        } else if (st & 0x4000) {
+            func_00360A30(m, 4);
+        }
+        if (func_00360EE0(m) != 0) {
+            break;
+        }
+        if (func_00360D50(m) != 0) {
+            m->state = 0;
+        } else if (m->pressed & 0x8FC) {
+            m->state = 0;
+        }
+        break;
+    case 8:
+        func_00360A30(m, 6);
+        if (func_0035E858() == 0) {
+            func_00360F28(m, 9);
+        }
+        break;
+    case 9:
+        if (st & 0x8000) {
+            break;
+        }
+        if (st == 0) {
+            func_003B4D28(0);
+            func_00360A30(m, 7);
+            func_003B1488();
+            m->unk18 = D_00439C92[0];
+        } else {
+            func_00360A30(m, 8);
+            func_003B4D28(1);
+        }
+        m->state = 2;
+        break;
+    case 10:
+    case 16:
+        func_00360C98(m, 0);
+        m->state = 0xC;
+        m->unk4 = 0xA;
+    case 12:
+        if (func_00360DE0(st) != 0) {
+            m->state = 0xB;
+            func_003B4D28(1);
+            break;
+        }
+        func_00360A30(m, 0xC);
+        if (func_00360CA0(m) != 0) {
+            if (func_00360D48(m) != 0) {
+                if ((st & 4) || (st & 0x202) == 2) {
+                    func_00360C98(m, 0);
+                    m->state = 0xD;
+                } else {
+                    m->state = 0xE;
+                }
+            } else {
+                m->state = 0;
+            }
+        }
+        break;
+    case 13:
+        if (func_00360DE0(st) != 0) {
+            m->state = 0xB;
+            func_003B4D28(1);
+            break;
+        }
+        if (st & 4) {
+            func_00360A30(m, 0x13);
+        } else {
+            func_00360A30(m, 0xD);
+        }
+        if (func_00360CA0(m) != 0) {
+            if (func_00360D48(m) != 0) {
+                m->state = 0xE;
+            } else {
+                m->state = 0;
+            }
+        }
+        break;
+    case 11:
+        if (func_00360DE0(st) == 0 && !(st & 0x8000)) {
+            m->state = 0xA;
+            break;
+        }
+        if (st & 1) {
+            func_00360A30(m, 2);
+        } else if (st & 8) {
+            func_00360A30(m, 0x11);
+        } else if (st & 0x400) {
+            func_00360A30(m, 3);
+        } else if (st & 0x100) {
+            func_00360A30(m, 0x12);
+        } else if (st & 0x4000) {
+            func_00360A30(m, 4);
+        }
+        if (func_00360EE0(m) != 0) {
+            break;
+        }
+    case 2:
+        if (func_00360D50(m) != 0) {
+            m->state = 0;
+        } else if (m->pressed & 0x8FC) {
+            m->state = 0;
+        }
+        break;
+    case 14:
+        D_005F6B40 = 0;
+        if (st & 4) {
+            D_005F6B40 = 1;
+            func_00360A30(m, 0x14);
+        } else {
+            func_00360A30(m, 0xE);
+        }
+        if (func_0035E838() == 0) {
+            func_00360F28(m, 0xF);
+        }
+        break;
+    case 15:
+        if (D_005F6B40 != 0 && !(st & 4)) {
+            D_005F6B40 = 0;
+            func_00360A30(m, 0xE);
+        }
+        if (st & 0x8000) {
+            break;
+        }
+        if (st == 0) {
+            m->unk18 = D_00439C92[0];
+            func_00360A30(m, 0xF);
+            func_003B4D28(0);
+        } else {
+            func_003B4D28(1);
+            if (D_005F6B40 != 0) {
+                func_00360A30(m, 0x15);
+            } else {
+                func_00360A30(m, 0x10);
+            }
+        }
+        m->state = 2;
+        break;
+    case 17:
+        func_00360C98(m, 0);
+        m->state = 0x12;
+    case 18:
+        func_00360A30(m, 0x16);
+        if (func_00360CA0(m) != 0) {
+            if (func_00360D48(m) != 0) {
+                m->state = 0x13;
+            } else {
+                m->state = 0;
+            }
+        }
+        break;
+    case 19:
+        func_00360A30(m, 0x17);
+        if (func_0035E898() == 0) {
+            func_00360F28(m, 0x14);
+        }
+        break;
+    case 20:
+        if (st & 0x8000) {
+            break;
+        }
+        func_00360A30(m, 0x18);
+        func_003B4D28(0);
+        m->state = 2;
+        break;
+    case 21:
+        func_00360C98(m, 0);
+        m->state = 0x16;
+    case 22:
+        func_00360A30(m, 0x19);
+        if (func_00360CA0(m) != 0) {
+            if (func_00360D48(m) != 0) {
+                m->state = 0x17;
+            } else {
+                m->state = 0;
+            }
+        }
+        break;
+    case 23:
+        func_00360A30(m, 0x1A);
+        if (func_0035E8B8() == 0) {
+            func_00360F28(m, 0x18);
+        }
+        break;
+    case 24:
+        if (st & 0x8000) {
+            break;
+        }
+        func_00360A30(m, 0x1B);
+        func_003B4D28(0);
+        m->state = 2;
+        break;
+    case 26:
+        m->state = 0x1B;
+    case 27:
+        r = 0;
+        D_00439C92[0] = m->unk18;
+        break;
+    }
+    func_00360670(m);
+    func_00360B90(m);
+    func_003608E0(m);
+    return r;
+}
 
 void func_00361678(void) {
     McMenu *m = &D_006173F8;
@@ -709,4 +1043,98 @@ void func_00361E20(s32 *order, TexSlot *slots) {
 INCLUDE_ASM("asm/nonmatchings/font_tex", func_00361E20);
 #endif
 
+/* NON_MATCHING: 29 lines: register allocation only (the original keeps the slot size in a2 in all three loops and
+ * data / &cur in s0 / s3, swapped here) */
+#if 0
+/* Places the five images of D_006E3550 in VRAM from block 0x2300 (largest first, leaving out what does not fit),
+ * writing each image's block to `blocks` (the sub-images of slot 4 to `subBlocks`), builds their upload packets one
+ * after the other from D_006D7500 into D_006E3500, then streams each packet through the scratchpad to the GIF. */
+void func_00361EA8(s32 *blocks, s32 *subBlocks) {
+    s32 order[5];
+    u8 *cur;
+    u8 *end;
+    u8 *start;
+    TexSlot *s;
+    TexUpload *spr;
+    void *data;
+    s32 vram;
+    s32 i;
+    s32 j;
+    s32 idx;
+    u16 size;
+    u32 n;
+    u32 max;
+    u32 count;
+    u16 skip;
+    SprTag *tag;
+
+    vram = 0x2300;
+    func_00361D70(order, D_006E3550);
+    func_00361E20(order, D_006E3550);
+    for (j = 0; j < 5; j++) {
+        i = order[j];
+        s = &D_006E3550[i];
+        size = s->size;
+        if (size != 0) {
+            blocks[i] = vram;
+            if (s->skip == 0) {
+                vram += size;
+            }
+        }
+    }
+    end = D_00617500;
+    cur = D_006D7500;
+    for (i = 4; i >= 0; i--) {
+        size = D_006E3550[i].size;
+        if (size != 0) {
+            skip = D_006E3550[i].skip;
+            vram = blocks[i];
+            start = cur;
+            data = D_006E3550[i].data;
+            if (i == 4) {
+                count = func_00364550(data);
+                for (j = 0; j < count; j++) {
+                    if (func_00364558(j, data) != 0) {
+                        subBlocks[j] = vram;
+                        vram = func_003623B8(func_00364528(j, data), vram, &cur, skip, &end);
+                    }
+                }
+            } else {
+                func_003623B8(data, vram, &cur, skip, &end);
+            }
+            Dma_AddRefTag(&cur, 0x18);
+            D_006E3500[i].qwc = (s32)(cur - start) >> 4;
+            D_006E3500[i].unk2 = 0;
+            D_006E3500[i].addr = start;
+        }
+    }
+    FlushCache(0);
+    spr = (TexUpload *)Spr_Setup(2, 0x10);
+    max = *(u16 *)0x7000000C - 0x10;
+    max = (max >> 7) << 3;
+    for (i = 4; i >= 0; i--) {
+        size = D_006E3550[i].size;
+        if (D_006E3550[i].skip == 0 && size != 0) {
+            *spr = D_006E3500[i];
+            while (spr->qwc != 0) {
+                tag = *(SprTag **)0x70000004;
+                n = spr->qwc;
+                if (n > max) {
+                    n = max;
+                }
+                func_00343128((u32)tag, spr->addr, n);
+                Dma_Wait((volatile u32 *)0x1000D400);
+                spr->qwc -= n;
+                spr->addr += n << 4;
+                tag = (SprTag *)((u8 *)tag + (n << 4));
+                tag->q = 0;
+                tag->h[1] = 0x7000;
+                func_0035E6B8(func_00342FB0());
+            }
+        }
+    }
+    Dma_Wait((volatile u32 *)0x1000A000);
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/font_tex", func_00361EA8);
+#endif

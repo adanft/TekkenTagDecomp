@@ -1,3 +1,23 @@
 // Game module sprite2d (docs/game_overview.md section 4; the range is provisional).
 // Naming rules: docs/decomp_guide.md, "Naming".
 // range: 0x003CD298 0x003D0660
+Sprite_BeginPacket = 0x003CD820; // type:func
+Sprite_EndPacket = 0x003CD850; // type:func
+Sprite_SetBlend = 0x003CD868; // type:func
+Sprite_SetFilter = 0x003CD918; // type:func
+Sprite_TexFlush = 0x003CD998; // type:func
+Sprite_SetTexture = 0x003CD9F8; // type:func
+Sprite_DrawCurrent = 0x003CDAD0; // type:func
+Sprite_DrawCurrentRotated = 0x003CDDA0; // type:func
+Sprite_DrawCurrentGouraud = 0x003CE078; // type:func
+Sprite_Draw = 0x003CE258; // type:func
+Sprite_DrawBlended = 0x003CE2B8; // type:func
+Sprite_DrawScaled = 0x003CE318; // type:func
+Sprite_DrawScaledBlended = 0x003CE398; // type:func
+Sprite_SendImagePacket = 0x003CEDB0; // type:func
+Sprite_UploadBank = 0x003CF0E0; // type:func
+Sprite_LoadBank = 0x003CF160; // type:func
+Num_ToBcd = 0x003CF358; // type:func
+NameEntry_Init = 0x003D0308; // type:func
+NameEntry_Step = 0x003D0350; // type:func
+Fighter_ClearLife = 0x003D0528; // type:func
