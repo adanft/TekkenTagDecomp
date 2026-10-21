@@ -1368,6 +1368,57 @@ placeholders), `func_00342FB0` (dma_gif), `func_00340588`, `func_003408B0`, `fun
 carried to T19. Left in assembly on purpose: the four hand-written VU0 routines of `dma_gif` (`func_003435C0` ..
 `func_003438B8`).
 
+### Lessons from T18 batch 1 (2026-10-21)
+
+Objects and data:
+
+- **Data order splits the `modes` module into two objects**: `scene3d`'s `.rodata` (0x51EA60-0x51EB00) sits between the
+  tables of 0x3B9178-0x3BB228 and those of 0x3BB310 on, so `src/modes.c` (0x3B90C0-0x3BB310, `.rodata` 0x51E970-0x51EA60)
+  and `src/modes_b.c` (0x3BB310-0x3BDF60, `.rodata` 0x51EB00-0x51F150) are separate files. `Mode_Change` moved from
+  `game_pause_results.txt` to `game_modes.txt` (the range edge moved to 0x3B90C0); `modes.c` starting there is a cut [I].
+- **`battle_mode` follows `main`'s `.rodata`**: `main`'s ends at 0x4FB9B4 and the 12 zero bytes up to 0x4FB9C0 are the
+  alignment of `battle_mode`'s jump-table `.rodata`; they stay in the generic chunk (`[0x1BC9B4, rodata]`) and
+  `src/battle_mode.c` starts with `RODATA_ALIGN16()` and its subsegment at 0x4FB9C0.
+- The three C files were created with every function `INCLUDE_ASM` and every `.rodata` symbol `force_not_migration` +
+  `INCLUDE_RODATA` in front of its first reader (a generator script over the split), and the clean rebuild was
+  byte-identical before any C was written.
+- Two C jump tables shorter than their `.s` files (which carried the padding): `Mode_Title`'s table needed
+  `RODATA_ALIGN8()` before `D_0051EFE0`, `Mode_Transition`'s `RODATA_ALIGN16()` before the included `jtbl_0051E9B0`. As
+  before, fdiff said OK and only the SHA-1 step caught them; `cmp -l` showed the shifted table at once.
+
+Code shapes:
+
+- **Float locals per `case`**: declaring the fade's `t` / `d` inside each `case` block gave the original FPU registers
+  (`Mode_Transition` matched, `Mode_Boot` went from 138 to 18 lines); a divisor kept as `div.s` again comes from a local
+  (`d = 30.0f`).
+- **Elapsed frames** are `(gFrameCount - start) & 0xFFFF`; a `(u16)` cast narrows the timer load to `lhu`. Pad words tested
+  with a mask that fits 16 bits (`& 0xF4`) are read with `lhu` through `(u16)` casts, with `& 0x800` with `lw`.
+- **Switch trees again**: `==0; slti 3; ==3` came from `case 1: case 2:` and `case 3:` only; `beq 1; slti 2; ==2` needed
+  an added `case 0: break;` (`func_00359C40`).
+- `s16` globals copied through `u16` locals (`u16 p0 = D[0], p1 = D[1]; E[0] = p0; E[1] = p1;`) give the original `lhu lhu
+  sh sh` order; an 18-bit wrap matched only as `(x & 0x20000) == 0 ? (x & 0x3FFFF) : (x | ~0x3FFFF)`.
+- Screen x as `i * 320 + (i == 0 ? 0x90 : 0xB0)` gave the single `mult` + `movz` of `func_003BC048` (the `if` forms were
+  47-82 lines off); a callee the caller passes an extra argument register to gets an unused trailing parameter
+  (`func_003BB4E8`).
+- One field read through the pointer parameter and the same global read directly in the same function is kept that way
+  in the source (`func_003BC370`); the merged form changes the registers.
+
+Tools:
+
+- Three helpers each owned one file in a scratch copy under `~/.cache` with a scratch comparator (the build's flags,
+  `--fix-asm` and prelude; the targets copied out of `asm/nonmatchings` so a re-split could not pull them away); the parent
+  merged each result by script (OK blocks replace `INCLUDE_ASM` and drop their own `jtbl_` includes, drafts go into
+  `#if 0`). The comparator reports false differences for branches to splat's `jlabel` case labels (a relocation in the
+  original) and for jump-table addends in files with several tables; turning `jlabel X` into a local label fixes the
+  first.
+- decomp-permuter on `func_003BAD98` (4 lines) found nothing below its base score in about 135,000 iterations.
+
+Matched (136): 39 of `src/modes.c` (`Mode_Change`, `Mode_Transition`, the per-type set-ups `func_003B9AE0`..`func_003BA118`,
+`Game_UpdateContinue`, the win streak and vibration helpers), 34 of `src/modes_b.c` (`Mode_Loading`, `Mode_EnterLoading`,
+`Mode_Title`, the side status texts, the controller warnings, the menu list), 63 of `src/battle_mode.c`. Not matched: the 17
+drafts of [systems/modes.md](systems/modes.md) section 6. Renamed: `Mode_MainMenu`, `Mode_Loading`, `Mode_EnterLoading`,
+`Game_Start`, `Game_UpdateContinue`, `Mode_NameEntry` (guess).
+
 ## Decompiled so far
 
 | File | Range | C / functions | Notes |
@@ -1406,7 +1457,10 @@ carried to T19. Left in assembly on purpose: the four hand-written VU0 routines 
 | `src/scene3d_d.c` | 0x351E98-0x3543F0 | 34 / 37 | look-at, fighter lights (`Light_*`), GS image upload ([systems/render.md](systems/render.md) section 4); `.lit4` 0x5F5668-0x5F5700 |
 | `src/effects.c` | 0x3A04B8-0x3A6460 | 55 / 58 | effect callbacks: bank sprites, stage ambient effects and lens flare, hit sparks, flashes and bursts, the hit log, body-part glows, move effects ([systems/render.md](systems/render.md) section 7); `.rodata` 0x5194E0-0x519940, `.lit4` 0x5F51A4-0x5F5300 |
 | `src/effects_draw.c` | 0x3A6460-0x3A9678 | 46 / 50 | screen fade, title logo, stage texture layers, fighter texture channels, quad queue, character 0x1D's volume, effect helpers; a cut of the same object; `.rodata` 0x519940-0x519B30, `.lit4` 0x5F5300-0x5F531C |
+| `src/battle_mode.c` | 0x358A38-0x35C2B0 | 63 / 67 | `Mode_Battle` (mode 4) and its per-game-type set-up and match-end handlers, arcade opponents, survival pairs, random teams, camera keys and hit-spark helpers ([systems/modes.md](systems/modes.md)); `.rodata` 0x4FB9C0-0x4FBB28 |
+| `src/modes.c` | 0x3B90C0-0x3BB310 | 39 / 46 | `Mode_Change`, `Mode_Transition`, `Mode_Boot`, `Game_Start` and the per-type set-ups, the continue countdown, win streaks, controller vibration; `.rodata` 0x51E970-0x51EA60 |
+| `src/modes_b.c` | 0x3BB310-0x3BDF60 | 34 / 40 | `Mode_Loading`, controller / multitap warnings, the fight's side status texts, `Mode_Title`, `Mode_MainMenu` and its unlock tests; `.rodata` 0x51EB00-0x51F150 |
 
 Functions left as `INCLUDE_ASM` carry their closest attempt above them in `#if 0` with a `NON_MATCHING:` note; in
 `fighter_core.c`, `battle_flow.c` and `fight_misc.c` every remaining function has one (T14 b9); in `stage.c` every
-remaining function has one that compiles when enabled (T15 b2), as in `skeleton.c` and `motion.c` (T16 b1) and the T17 files (`hud.c`, `scene3d*.c`, `effects.c`, `effects_draw.c`, `model_anim.c`, `model_anim_b.c`, `render_fighter_a.c`, `render_fighter_b.c`, `vu1_packet.c`, `draw_list.c`, `font_tex.c`, `dma_gif.c`, `sprite2d.c`).
+remaining function has one that compiles when enabled (T15 b2), as in `skeleton.c` and `motion.c` (T16 b1) and the T17 files (`hud.c`, `scene3d*.c`, `effects.c`, `effects_draw.c`, `model_anim.c`, `model_anim_b.c`, `render_fighter_a.c`, `render_fighter_b.c`, `vu1_packet.c`, `draw_list.c`, `font_tex.c`, `dma_gif.c`, `sprite2d.c`) and the T18 files (`battle_mode.c`, `modes.c`, `modes_b.c`).

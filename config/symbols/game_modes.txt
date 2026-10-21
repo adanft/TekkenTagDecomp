@@ -1,8 +1,14 @@
 // Game module modes (docs/game_overview.md section 4; the range is provisional).
 // Naming rules: docs/decomp_guide.md, "Naming".
-// range: 0x003B9178 0x003BDF60
+// range: 0x003B90C0 0x003BDF60
 
 // Game modes (handlers of Mode_Dispatch's jump table) and mode change.
-Mode_Transition = 0x003B9178; // type:func // guess
+Mode_Change = 0x003B90C0; // type:func
+Mode_Transition = 0x003B9178; // type:func
 Mode_Boot = 0x003B9628; // type:func // guess
-Mode_Title = 0x003BCC88; // type:func // guess
+Game_Start = 0x003BA168; // type:func
+Game_UpdateContinue = 0x003BA560; // type:func
+Mode_Loading = 0x003BB310; // type:func
+Mode_EnterLoading = 0x003BB4C0; // type:func
+Mode_Title = 0x003BCC88; // type:func
+Mode_MainMenu = 0x003BD2E0; // type:func

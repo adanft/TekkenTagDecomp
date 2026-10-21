@@ -145,15 +145,15 @@ void func_003ADFA8(void);
 void Mode_Boot(void);
 void Mode_Transition(void);
 void Mode_Title(void);
-void func_003BD2E0(void);
+void Mode_MainMenu(void);
 void Mode_Battle(void);
 void Mode_CharSelect(void);
 void func_003C8A50(void);
-void func_003C8A88(void);
+void Mode_NameEntry(void);
 void func_003ABBD0(void);
 void Mode_Options(void);
 void Mode_Results(void);
-void func_003BB310(void);
+void Mode_Loading(void);
 void func_00354BE0(void);
 void Mode_Theater(void);
 void func_00355D30(void);
@@ -439,7 +439,7 @@ void Mode_Dispatch(void) {
         Mode_Title();
         break;
     case 3:
-        func_003BD2E0();
+        Mode_MainMenu();
         break;
     case 4:
         Mode_Battle();
@@ -451,7 +451,7 @@ void Mode_Dispatch(void) {
         func_003C8A50();
         break;
     case 7:
-        func_003C8A88();
+        Mode_NameEntry();
         break;
     case 8:
         func_003ABBD0();
@@ -463,7 +463,7 @@ void Mode_Dispatch(void) {
         Mode_Results();
         break;
     case 11:
-        func_003BB310();
+        Mode_Loading();
         break;
     case 12:
         func_00354BE0();

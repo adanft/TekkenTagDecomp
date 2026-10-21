@@ -129,15 +129,15 @@ There is no task list or object scheduler at the top: a mode number selects one 
 | 0 | `Mode_Boot` 0x3B9628 | first mode after `Sys_Init` [V]; 7 sub-states (`jtbl_0051E9B0`) |
 | 1 | `Mode_Transition` 0x3B9178 | the mode `Mode_Change` passes through [V]; fades/loads, then `next` |
 | 2 | `Mode_Title` 0x3BCC88 | copyright strings ("ALL RIGHTS RESERVED") |
-| 3 | `func_003BD2E0` | main menu ("START", "GALLERY", screenshot list `SCRN-%02d.CPT`) |
+| 3 | `Mode_MainMenu` 0x3BD2E0 | main menu: 12 entries, ids 0-8 are the game types ([systems/modes.md](systems/modes.md)) [V] |
 | 4 | `Mode_Battle` 0x35A6A0 | fight: 26 sub-states (`jtbl_004FBA30`), game-type switch on `D_0043B7F8[0]` (10 types, `jtbl_004FBAA0`); reaches "PAUSE", "PRACTICE", "K.O.", "ROUND %d", "GAME OVER", "A NEW CHALLENGER!" |
 | 5 | `Mode_CharSelect` 0x3CB900 | "PLAYER", "VS", "ON TEAM", "MULTITAP(PS2) DISCONNECTED" |
-| 6 | `func_003C8A50` | small (4 callees) |
-| 7 | `func_003C8A88` | text-entry style screen (`%H%V%F%c%s`) |
-| 8 | `func_003ABBD0` | "LOADING...", "REPLAY"; reaches the whole fight code |
+| 6 | `func_003C8A50` | name entry set-up, then mode 7 |
+| 7 | `Mode_NameEntry` 0x3C8A88 | name entry (`NameEntry_Init`) after a record |
+| 8 | `func_003ABBD0` | "LOADING...", "REPLAY"; the ending / movie player entered through `func_003ABDA0` (T18 b1) |
 | 9 | `Mode_Options` 0x3B4B20 | "OPTIONS MENU", "CONTROLLER SETUP", "RECORDS", "MEMORY CARD(PS2)" |
 | 10 | `Mode_Results` 0x3B6258 | "TIME ATTACK RESULTS", "1 ON 1 RESULTS", "THE KING OF IRONBOWL" |
-| 11 | `func_003BB310` | "LOADING..."; reaches the fight code |
+| 11 | `Mode_Loading` 0x3BB310 | "LOADING..." screen of the title's attract cycle (`Mode_EnterLoading`) [V] |
 | 12 | `func_00354BE0` | theater sub-mode |
 | 13 | `Mode_Theater` 0x354D68 | "THEATER", "BGM VOLUME" |
 | 14 | `func_00355D30` | one callee (`func_0039A140`) |
@@ -177,7 +177,7 @@ though an edge could still fall between two objects that are both inside the ran
 | `theater` | 0x3543F0 | 0x356A70 | 24 | modes 12-15, "THEATER", "MUSIC PLAYER" |
 | `draw_list` | 0x356A70 | 0x3572A0 | 15 | No draw list (T17 b5): stage model banks relocated in place (`func_00357160`, `func_00357028`, `func_00356F68`, the per-part patch `func_00356A78`), GS image uploads through a GIF packet (`func_00356D78`) [V]. `src/draw_list.c`; the end is the object edge before crt0 (`_start` 0x3572A0, 16-aligned) [V]; its jump table `jtbl_00522030` and byte table `D_00521FF0` lie among other objects' `.rodata` (not subsegments). [systems/render.md](systems/render.md) section 12.4 |
 | `main` | 0x357358 | 0x358A38 | 40 | `Sys_BootIop`, `Sys_Init`, `main`, frame phases, `Mode_Dispatch`, per-player input (`Input_*`) [V start: first function after crt0; its `.rodata` (IRX paths, two jump tables) is the first of the executable, 0x4FB880]. `src/main.c` |
-| `battle_mode` | 0x358A38 | 0x35C2B0 | 67 | `Mode_Battle`, "GAME OVER", "A NEW CHALLENGER!" |
+| `battle_mode` | 0x358A38 | 0x35C2B0 | 67 | `Mode_Battle` (mode 4: 26 sub-states, per-game-type set-up and match-end handlers, continue, "GAME OVER", "A NEW CHALLENGER!"), the arcade opponent table and the survival opponent picker, random teams, the fight camera keys and hit-spark helpers (T18 b1) [V]. `src/battle_mode.c`, one C file for the range; its `.rodata` 0x4FB9C0-0x4FBB28 (BGM table `D_004FB9C0`, Mode_Battle's four jump tables) is a subsegment, right after `main`'s and 16-aligned; the end of the `.rodata` is [I] (the next tables are read only from `.data`). [systems/modes.md](systems/modes.md) |
 | `rng_misc` | 0x35C2B0 | 0x35D048 | 47 | `Rng_*` [V], small helpers (strings, character tables, play counters, file loads by number). `src/rng_misc.c` |
 | `dma_spr` | 0x35D048 | 0x35E808 | 63 | file loads by number (0x35D048-0x35D458), scratchpad 0x70000000 setup (`Spr_Setup`), the scratchpad DMA state `gSprDma` shared with the DMAC handler (accessed `volatile`), toSPR / fromSPR waits; `sceOpen`/`sceClose` in one uncalled function 0x35D3C0. `src/dma_spr.c` [V end: the next three functions request memory card operations] |
 | `memcard` | 0x35E808 | 0x3608B8 | 43 | `Mc_Request` (0x35E808) and its callers, `sceMc*` wrappers, `Mc_Update`, "BASLUS-20001TekkenTT"; state `gMc` (`McState`, include/memcard.h); no `$gp`. `src/memcard.c` |
@@ -203,8 +203,8 @@ though an edge could still fall between two objects that are both inside the ran
 | `loading_title` | 0x3A9678 | 0x3ADFA8 | 83 | mode 8, "LOADING...", "REPLAY", "TEKKEN TAG TOURNAMENT", "STAGE %d" |
 | `menu_common` | 0x3ADFA8 | 0x3B1478 | 82 | 3D menu helpers (rotations), shared by modes 2-11 |
 | `options` | 0x3B1478 | 0x3B4D50 | 38 | `Mode_Options`, `scePadInfoAct` (vibration test) |
-| `pause_results` | 0x3B4D50 | 0x3B9178 | 75 | `Mode_Results`, "PAUSE P%d", "RESET?", "CAPTURE?", "FIGHT" |
-| `modes` | 0x3B9178 | 0x3BDF60 | 85 | `Mode_Change`, `Mode_Transition`, `Mode_Boot`, `Mode_Title`, mode 3, mode 11, "CONTINUE? %d" |
+| `pause_results` | 0x3B4D50 | 0x3B90C0 | 74 | `Mode_Results`, "PAUSE P%d", "RESET?", "CAPTURE?", "FIGHT" |
+| `modes` | 0x3B90C0 | 0x3BDF60 | 86 | Two objects (T18 b1) [V: `scene3d`'s `.rodata` 0x51EA60-0x51EB00 lies between theirs]. `src/modes.c` (0x3B90C0-0x3BB310, `.rodata` 0x51E970-0x51EA60): `Mode_Change`, `Mode_Transition` (mode 1), `Mode_Boot` (mode 0), the game start `Game_Start` and its per-type set-ups, the continue countdown `Game_UpdateContinue`, win streaks, the controller vibration scripts; its start at `Mode_Change` is a cut [I]. `src/modes_b.c` (0x3BB310-0x3BDF60, `.rodata` 0x51EB00-0x51F150): `Mode_Loading` (mode 11), controller and multitap warnings, the per-side status texts of the fight, `Mode_Title` (mode 2), `Mode_MainMenu` (mode 3) with its unlock tests; the end is [I]. [systems/modes.md](systems/modes.md) |
 | `select_results` | 0x3BDF60 | 0x3CD298 | 189 | `Mode_CharSelect`, modes 6-7, "WINS %d", ranking ("ST/ND/RD/TH"), `Text_Printf` 0x3C6C60. Also the team members' life at round start (`Battle_InitTeamLife`) and its per-frame recovery (`Battle_RecoverLife`): `src/select_results.c` covers only 0x3C1470-0x3C1A78 (T14 b4), a cut between two functions, not an object edge (the part emits no data) [systems/fighter.md](systems/fighter.md) section 5.6 | Without 0x3C1A78-0x3C3150 (`hud`, next row).
 | `hud` | 0x3C1A78 | 0x3C3150 | 12 | The fight HUD (T17 b1): `Hud_Draw` once per update from battle_flow's `func_0036EA80`: life bars with red life and damage trail, the partner's bar and the tag slide, round markers, the timer (70 frames per displayed second), name plates; the K.O. percentages `Hud_DrawKoPercent`, the round set-up `Hud_InitRound`, the partner counter `TeamMember.unk28` (`func_003C1A78` on a tag, `func_003C1B38` per frame) [V]. `src/hud.c`, a cut inside `select_results`, not an object edge [V: its `.rodata` strings follow `func_003C1350`'s jump table in text order]; draws through `sprite2d`. [systems/render.md](systems/render.md) section 5 |
 | `sprite2d` | 0x3CD298 | 0x3D0660 | 59 | The 2D sprites and text of the HUD and the menus (T17 b6): GIF buffer packets, blend / filter state, the current sprite `D_00440F20` and the sprite table `D_00440F60` (`Sprite_Draw*`), untextured strips and the spotlight / iris screen masks, image banks uploaded over GIF DMA (`Sprite_LoadBank`, `Sprite_UploadBank`); also the score / time record tables, the partner-counter pair rules `func_003CF278`, the name entry (`NameEntry_*`) and practice helpers [V]. `src/sprite2d.c`, one C file with `.rodata` (0x520648-0x520C40) and `.lit4` (0x5F5364-0x5F5370) subsegments; the start is a cut [I: its data follows `select_results`' without a gap], the end is `model_anim`'s start. [systems/render.md](systems/render.md) section 14 |

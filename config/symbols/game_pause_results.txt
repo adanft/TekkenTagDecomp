@@ -1,9 +1,6 @@
 // Game module pause_results (docs/game_overview.md section 4; the range is provisional).
 // Naming rules: docs/decomp_guide.md, "Naming".
-// range: 0x003B4D50 0x003B9178
+// range: 0x003B4D50 0x003B90C0
 
 // Results screen (handler of Mode_Dispatch's jump table).
 Mode_Results = 0x003B6258; // type:func // guess
-
-// Mode change, the last function of this range: the boundary with `modes` (0x3B9178) is provisional.
-Mode_Change = 0x003B90C0; // type:func
