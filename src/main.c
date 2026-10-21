@@ -111,7 +111,7 @@ void func_0035CE38(void);
 void func_003C8A38(void);
 void Options_Apply(void);
 void func_003B7AB8(void);
-void func_003F1F58(void);
+void Bowl_InitHighScores(void);
 void Spr_Setup(s32 a, s32 b);
 u16 *func_00342FB0(void);
 void *func_003B8798(s32 a);
@@ -154,9 +154,9 @@ void Mode_Ending(void);
 void Mode_Options(void);
 void Mode_Results(void);
 void Mode_Loading(void);
-void func_00354BE0(void);
+void Mode_EnterTheater(void);
 void Mode_Theater(void);
-void func_00355D30(void);
+void Mode_EnterMusicPlayer(void);
 void Mode_MusicPlayer(void);
 void Mode_Gallery(void);
 void func_00357C60(void);
@@ -322,7 +322,7 @@ void func_00357600(void) {
     func_003C8A38();
     Options_Apply();
     func_003B7AB8();
-    func_003F1F58();
+    Bowl_InitHighScores();
 }
 
 /* Sends the DMA packet of fighter `i` through the scratchpad. */
@@ -466,13 +466,13 @@ void Mode_Dispatch(void) {
         Mode_Loading();
         break;
     case 12:
-        func_00354BE0();
+        Mode_EnterTheater();
         break;
     case 13:
         Mode_Theater();
         break;
     case 14:
-        func_00355D30();
+        Mode_EnterMusicPlayer();
         break;
     case 15:
         Mode_MusicPlayer();

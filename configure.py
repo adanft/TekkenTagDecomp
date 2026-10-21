@@ -48,7 +48,8 @@ CC = "tools/compilers/ee-gcc2.9-991111-01/bin/ee-gcc"
 CC_FLAGS = "-O2 -fno-strength-reduce -ffast-math -fno-strict-aliasing -Iinclude"
 # C files (paths) whose object was built without -ffast-math: their float code keeps `x + 0.0f`, `-x + c` and
 # divisions by constants, and sqrtf has its errno check (docs/decomp_guide.md, "Lessons from T17 batch 4").
-NO_FAST_MATH = ("src/effects.c", "src/effects_draw.c", "src/loading_title.c", "src/scene3d.c", "src/model_anim.c", "src/model_anim_b.c")
+NO_FAST_MATH = ("src/effects.c", "src/effects_draw.c", "src/loading_title.c", "src/scene3d.c", "src/model_anim.c", "src/model_anim_b.c", "src/menu_bg.c",
+                "src/gallery_jpeg.c", "src/tekken_bowl.c")
 # o64, not eabi: with eabi the modern gas expands address macros (la, addu with an immediate) to daddiu/daddu,
 # while the game's assembler wrote addiu/addu. The code is the same either way, so the object's ABI tag is set
 # to eabi64 afterwards (configure.py --eabi64), or the linker would refuse to mix it with the split files.
@@ -122,13 +123,20 @@ def cc_flags(src):
 
 
 # splat writes the VU0 accumulator operand of the function files as a bare `ACC` (the generic chunks have `$ACC`),
-# which gas refuses: `vmulay.yz  ACC, $vf8, $vf4y`.
+# which gas refuses: `vmulay.yz  ACC, $vf8, $vf4y`. The same holds for the Q register (`vdiv  Q, $vf0w, $vf13w`,
+# `vmulq.xyz  $vf18, $vf13, Q`), which can stand anywhere in the operand list.
 BARE_ACC = re.compile(r"^(.*\*/\s+v[a-z]+(?:\.[xyzw]+)?\s+)ACC\b", re.M)
+BARE_Q = re.compile(r"^(.*\*/\s+v[a-z]+(?:\.[xyzw]+)?\s+(?:[^\n]*?[\s,])?)Q\b", re.M)
 
 
 def fix_split_asm(text):
-    """Split assembly with every bare `ACC` operand of a VU0 macro instruction written `$ACC`."""
-    return BARE_ACC.sub(r"\1$ACC", text)
+    """Split assembly with every bare `ACC` or `Q` operand of a VU0 macro instruction written `$ACC` / `$Q`."""
+    text = BARE_ACC.sub(r"\1$ACC", text)
+    while True:
+        fixed = BARE_Q.sub(r"\1$Q", text)
+        if fixed == text:
+            return text
+        text = fixed
 
 
 # R5900 FPU compares: the condition field of the four the CPU has (c.f.s, c.eq.s, c.lt.s, c.le.s).

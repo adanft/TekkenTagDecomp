@@ -276,7 +276,7 @@ void func_003B0378(s32 a);
 void func_003BFE78(s32 a);
 void Unlock_ApplyAll(void);
 void func_003B4B18(void);
-void func_003E5910(void);
+void Gallery_Enter(void);
 void func_003B8900(void);
 void func_003DBAA8(u32 x0, u32 x1, u32 y0, u32 y1);
 void func_003CCF40(s32 a, s32 b, s32 c, s32 d);
@@ -1475,7 +1475,7 @@ void Mode_MainMenu(void) {
                 gSubMode = 0;
                 gMode = 16;
                 func_003B4B18();
-                func_003E5910();
+                Gallery_Enter();
                 break;
             }
             if (!stay) {

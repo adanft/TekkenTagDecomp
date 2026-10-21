@@ -61,7 +61,7 @@ void sceVu0RotMatrixY(Vu0Matrix m0, Vu0Matrix m1, f32 ry);
 f32 sinf(f32 x);
 f32 cosf(f32 x);
 void func_00356840(void);
-void func_00356710(Vu0Matrix m);
+void Mtx_Unit(Vu0Matrix m);
 void func_00366EA8(Vu0Matrix m);
 void func_00366EB8(Vu0Matrix m);
 f32 func_00366EC8(void);
@@ -218,7 +218,7 @@ void func_00341F68(Vu0Matrix a, Vu0Matrix b) {
     func_00353D68(light);
     ang = func_00366EC8();
     func_00366EB8(m3);
-    func_00356710(rot);
+    Mtx_Unit(rot);
     sceVu0RotMatrixY(rot, rot, ang);
     sceVu0MulMatrix(m2, D_00433400, rot);
     light[0][0][3] = sinf(0.0f);
@@ -226,7 +226,7 @@ void func_00341F68(Vu0Matrix a, Vu0Matrix b) {
     m2[3][0] = (f32)D_00415808[5] - m3[3][0];
     m2[3][1] = -(f32)D_00415808[6] - m3[3][1];
     m2[3][2] = -(f32)D_00415808[7] - m3[3][2];
-    func_00356710(rot);
+    Mtx_Unit(rot);
     sceVu0RotMatrixY(rot, rot, -ang);
     sceVu0ApplyMatrix(m2[3], rot, m2[3]);
     Model_Render(func_00367898(), light, (ModelRef *)m1, 0);

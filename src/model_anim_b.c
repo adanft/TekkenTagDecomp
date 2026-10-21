@@ -316,7 +316,7 @@ void sceVu0SubVector(f32 *out, f32 *a, f32 *b);
 void sceVu0ScaleVector(f32 *out, f32 *v, f32 s);
 void func_0034A868(f32 *out, f32 *v);
 s32 func_003D7A40(s32 i, f32 x, f32 y, f32 z);
-void func_00356710(Vu0Matrix m);
+void Mtx_Unit(Vu0Matrix m);
 void Model_GetMatrix(Vu0Matrix m);
 void func_003D1468(StgObj *o);
 void Model_ClearMatrixStack(void);
@@ -453,7 +453,7 @@ f32 func_003D8088(f32 a);
 f32 Fx_RandFloat(void);
 s32 func_003800D8(s32 n);
 f32 func_00366EC8(void);
-void func_00356710(Vu0Matrix m); /* unit matrix */
+void Mtx_Unit(Vu0Matrix m); /* unit matrix */
 void func_003D1B48(StgObj *o, f32 *pos);
 void func_003D10D0(s32 i, Vu0Matrix m, f32 s);
 void Model_QueueDraw(Unk5F6780Ent *e, s32 a, s32 n, s32 b, f32 s, f32 d);
@@ -1362,7 +1362,7 @@ void func_003D4B18(StgObj *o) {
     s32 j;
     Unk444D20 *birds = D_00444D20;
 
-    func_00356710(m);
+    Mtx_Unit(m);
     for (i = 0; i < 10; i++) {
         b = &birds[i];
         r = b->lim.v;
@@ -1416,7 +1416,7 @@ void func_003D4B18(StgObj *o) {
     }
     l->rot[1] = -atan2f(l->pos[2], l->pos[0]);
     l->rot[1] = func_003D80E8(l->rot[1]);
-    func_00356710(ml);
+    Mtx_Unit(ml);
     t = ml[3];
     t[0] = -50000.0f;
     t[1] = D_005F6798[0];
@@ -1457,7 +1457,7 @@ void func_003D4F58(StgObj *o) {
     f32 r;
 
     Model_GetMatrix(root);
-    func_00356710(m);
+    Mtx_Unit(m);
     sceVu0RotMatrix(m, m, o->rot);
     sceVu0TransMatrix(m, m, o->pos);
     sceVu0MulMatrix(m, root, m);
@@ -1502,9 +1502,9 @@ void func_003D5190(StgObj *o) {
     Vu0Matrix mt;
     StgObj *t = D_00444D10[0];
 
-    func_00356710(mt);
+    Mtx_Unit(mt);
     sceVu0TransMatrix(mt, mt, t->pos);
-    func_00356710(m);
+    Mtx_Unit(m);
     sceVu0TransMatrix(m, m, o->pos);
     sceVu0MulMatrix(m, mt, m);
     o->rot[1] = -atan2f(m[3][2], m[3][0]);
@@ -1545,7 +1545,7 @@ void func_003D52B0(StgObj *o) {
     s32 i;
     s32 n;
 
-    func_00356710(m);
+    Mtx_Unit(m);
     func_003D10D0(0, m, one);
     func_003D10D0(13, m, one);
     func_003D10D0(14, m, one);
@@ -1602,10 +1602,10 @@ void func_003D5538(StgObj *o) {
     o->pos[1] = sinf(w[0]) * 300.0f;
     p = o->parent;
     slot = o->unk28->unk0;
-    func_00356710(m);
+    Mtx_Unit(m);
     sceVu0RotMatrix(m, m, p->rot);
     sceVu0TransMatrix(m, m, p->pos);
-    func_00356710(ml);
+    Mtx_Unit(ml);
     sceVu0RotMatrix(ml, ml, o->rot);
     sceVu0TransMatrix(ml, ml, o->pos);
     sceVu0MulMatrix(D_00444CD0.m[slot], m, ml);
@@ -1648,7 +1648,7 @@ void func_003D56F0(StgObj *o) {
     V4q v = D_00521B90;
     Vu0Matrix m;
 
-    func_00356710(m);
+    Mtx_Unit(m);
     sceVu0RotMatrixY(m, m, Fx_RandFloat() * 0.0872664675f + 0.0872664675f);
     sceVu0ApplyMatrix(v.v, m, v.v);
     v.v[2] = -v.v[2];
@@ -1670,7 +1670,7 @@ void func_003D5798(StgObj *o) {
     o->rot[1] = -atan2f(o->pos[2], o->pos[0]) + 1.57079637f;
     o->rot[1] = func_003D80E8(o->rot[1]);
     if (func_003D2110() == 0) {
-        func_00356710(m);
+        Mtx_Unit(m);
         m[0][0] = cosf(o->rot[1]);
         m[0][2] = sinf(o->rot[1] + 3.14159274f);
         sceVu0ApplyMatrix(v.v, m, v.v);
@@ -1679,7 +1679,7 @@ void func_003D5798(StgObj *o) {
     one = 1.0f;
     o->rot[1] = -atan2f(o->pos[2], o->pos[0]);
     o->rot[1] = func_003D80E8(o->rot[1]);
-    func_00356710(m);
+    Mtx_Unit(m);
     t = m[3];
     t[0] = 140000.0f;
     t[1] = D_005F67B4[0];
@@ -1693,7 +1693,7 @@ void func_003D5798(StgObj *o) {
     if (func_003D2110() == 0) {
         if (--D_00444CD0.i[0] <= 0) {
             r = D_00521B90;
-            func_00356710(mr);
+            Mtx_Unit(mr);
             sceVu0RotMatrixY(mr, mr, Fx_RandFloat() * 0.0872664675f + 0.0872664675f);
             sceVu0ApplyMatrix(r.v, mr, r.v);
             r.v[2] = -r.v[2];
@@ -1718,7 +1718,7 @@ void func_003D5998(StgObj *o) {
     f32 d;
 
     Model_GetMatrix(root);
-    func_00356710(m);
+    Mtx_Unit(m);
     sceVu0RotMatrix(m, m, o->rot);
     sceVu0TransMatrix(m, m, o->pos);
     sceVu0MulMatrix(m, root, m);
@@ -1878,11 +1878,11 @@ void func_003D5E80(StgObj *o) {
                 p->pos[2] += 40000.0f;
             }
             p->pos[0] = wk->row[i].unk4;
-            func_00356710(m);
+            Mtx_Unit(m);
             func_003D1160(p, m, 1.0f);
         }
     }
-    func_00356710(m);
+    Mtx_Unit(m);
     func_003D10D0(1, m, 1.0f);
     list[0] = p4;
     list[1] = p5;
@@ -1962,7 +1962,7 @@ void func_003D62A0(StgObj *o) {
     f32 k;
 
     Model_GetMatrix(w);
-    func_00356710(m);
+    Mtx_Unit(m);
     sceVu0RotMatrix(m, m, o->rot);
     sceVu0TransMatrix(m, m, o->pos);
     sceVu0MulMatrix(m, w, m);
@@ -2094,7 +2094,7 @@ void func_003D62A0(StgObj *o) {
     o->rot[2] = func_003D80E8(o->rot[2]);
     l = D_00521BF0;
     Model_GetMatrix(w2);
-    func_00356710(m2);
+    Mtx_Unit(m2);
     sceVu0RotMatrix(m2, m2, o->rot);
     sceVu0TransMatrix(m2, m2, o->pos);
     sceVu0MulMatrix(m2, w2, m2);
@@ -2210,7 +2210,7 @@ void func_003D6BC0(StgObj *tpl) {
         v = D_00521C00;
         v.v[0] *= func_003D8128();
         r = 3.1415927f - func_003D8128() * 6.2831855f;
-        func_00356710(m);
+        Mtx_Unit(m);
         sceVu0RotMatrixY(m, m, r);
         sceVu0ApplyMatrix(o->pos, m, v.v);
         o->rot[1] = 3.1415927f - func_003D8128() * 6.2831855f;
@@ -2297,27 +2297,27 @@ void func_003D6FD8(void) {
         D_00444CD0.path.z = (gFighters[0].unk524 + gFighters[1].unk524) * 0.5f;
     }
     D_00444CD0.path.z = -D_00444CD0.path.z;
-    func_00356710(m);
+    Mtx_Unit(m);
     for (i = 0; i < 40; i++) {
         Model_ClearMatrixStack();
         Model_LoadIdentity();
         obj[i]->unk3C = 1.0f;
         func_003D1468(obj[i]);
     }
-    func_00356710(sh);
+    Mtx_Unit(sh);
     func_00353C88(0, l);
     sh[1][0] = -l[0] / l[1];
     sh[1][1] = 0.0f;
     sh[1][2] = -l[2] / l[1];
     for (i = 0; i < 40; i++) {
-        func_00356710(n);
+        Mtx_Unit(n);
         sceVu0RotMatrix(n, n, obj[i]->rot);
         sceVu0TransMatrix(n, n, obj[i]->pos);
         sceVu0MulMatrix(n, sh, n);
         func_003D10D0(0x13, n, 1.0f);
     }
     one = 1.0f;
-    func_00356710(m);
+    Mtx_Unit(m);
     s0 = 0.89f;
     m[2][2] = s0;
     m[0][0] = s0;
@@ -2353,7 +2353,7 @@ void func_003D6FD8(void) {
     m[2][2] = s3;
     m[0][0] = s3;
     func_003D10D0(13, m, one);
-    func_00356710(m);
+    Mtx_Unit(m);
     func_003D10D0(14, m, one);
     func_003D10D0(15, m, one);
     func_003D10D0(16, m, one);
@@ -2497,7 +2497,7 @@ void func_003D7378(StgObj *o) {
                 w.v[0] *= fx;
                 w.v[2] *= fz;
                 w.v[1] = g * -500.0f;
-                func_00356710(m);
+                Mtx_Unit(m);
                 sceVu0RotMatrixY(m, m, rot[1]);
                 sceVu0ApplyMatrix(w.v, m, w.v);
                 sceVu0AddVector(pos, pos, w.v);
@@ -2521,7 +2521,7 @@ void func_003D7378(StgObj *o) {
         c[3] = 1.0f;
         c[1] = 0.0f;
         r = 3.1415927f - func_003D8128() * 6.2831855f;
-        func_00356710(m2);
+        Mtx_Unit(m2);
         sceVu0RotMatrixY(m2, m2, r);
         sceVu0ApplyMatrix(pos, m2, w.v);
         sceVu0AddVector(pos, pos, c);
@@ -2580,13 +2580,13 @@ void func_003D7AB0(StgObj *o) {
     sceVu0CopyMatrix(D_004455A0[0], D_0046AF50[0]);
     sceVu0CopyMatrix(D_004455A0[1], D_0046AF50[1]);
     Model_GetMatrix(w);
-    func_00356710(m);
+    Mtx_Unit(m);
     sceVu0RotMatrix(m, m, o->rot);
     sceVu0TransMatrix(m, m, o->pos);
     sceVu0MulMatrix(w, w, m);
     Wind_Sample(w[3][0], w[3][1], -w[3][2], v);
     sceVu0ScaleVectorXYZ(v, v, 5000.0f);
-    func_00356710(r);
+    Mtx_Unit(r);
     sceVu0RotMatrixY(r, r, o->rot[1]);
     sceVu0ApplyMatrix(v, r, v);
     D_004455A0[0][0][0] += v[0];
@@ -2623,7 +2623,7 @@ void func_003D7C38(StgObj *o) {
         }
         o->rot[0] = f;
     }
-    func_00356710(m);
+    Mtx_Unit(m);
     sceVu0RotMatrixX(m, m, o->rot[0]);
     sceVu0RotMatrixY(m, m, o->rot[1]);
     sceVu0RotMatrixZ(m, m, o->rot[2]);
@@ -2676,7 +2676,7 @@ void func_003D7E10(Fighter *a, Fighter *b, s32 n) {
     }
     c = 65535.0f;
     ang = func_003D80E8(ang - func_003D80E8(dir / c * 2.0f * 3.1415927f));
-    func_00356710(m);
+    Mtx_Unit(m);
     sceVu0RotMatrixY(m, m, ang);
     for (i = 0; i < 2; i++) {
         v[0] = f[i]->unk4;

@@ -177,8 +177,8 @@ void func_0035E6B8(void *tag);
 void func_00349D70(Vu0Matrix m, f32 *r);
 void func_00349EE0(Vu0Matrix m, f32 *r);
 void func_0034A868(f32 *out, f32 *in);
-void func_00356710(Vu0Matrix m);
-void func_00356740(Vu0Matrix m);
+void Mtx_Unit(Vu0Matrix m);
+void Mtx_Zero(Vu0Matrix m);
 void func_00356760(f32 *dst, f32 *src);
 void func_00356780(f32 *dst, f32 *src, f32 s);
 s32 func_0036E160(void);
@@ -637,8 +637,8 @@ f32 func_00352F50(f32 x, f32 near, f32 far) {
 void func_00352FA8(LightSet *out, LightSet *in, f32 s, f32 amb) {
     s32 i;
 
-    func_00356740((f32 (*)[4])out);
-    func_00356740(out->col);
+    Mtx_Zero((f32 (*)[4])out);
+    Mtx_Zero(out->col);
     for (i = 0; i < 3; i++) {
         *(u128 *)((f32 (*)[4])out)[i] = *(u128 *)in->dir[i];
         sceVu0ScaleVector(out->col[i], in->col[i], s);
@@ -656,8 +656,8 @@ void func_00353070(LightSet *out, LightSet *in, f32 s, f32 amb) {
     f32 *z = (f32 *)out + 2;
     s32 o;
 
-    func_00356740((f32 (*)[4])out);
-    func_00356740(out->col);
+    Mtx_Zero((f32 (*)[4])out);
+    Mtx_Zero(out->col);
     for (i = 0; i < 3; i++) {
         o = i * 16;
         *(f32 *)((u8 *)x + o) = -in->dir[i][0];
@@ -785,7 +785,7 @@ void func_00353448(s32 i, s32 chr, f32 (*m)[4]) {
     v[0] = 1.0f;
     s = &D_01FC4210.slot[i];
     if (p->on != 0) {
-        func_00356710(rot);
+        Mtx_Unit(rot);
         sceVu0RotMatrixY(rot, rot, -0.03f);
         sceVu0ApplyMatrix(v, rot, v);
         sceVu0ApplyMatrix(v, m, v);
@@ -928,8 +928,8 @@ void Light_GetFighterMatrices(s32 i, LightSet *out) {
     s32 j;
     s32 o;
 
-    func_00356740((f32 (*)[4])out);
-    func_00356740(out->col);
+    Mtx_Zero((f32 (*)[4])out);
+    Mtx_Zero(out->col);
     if (gMode == 4) {
         a = func_00366EC8();
     } else {

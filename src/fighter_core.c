@@ -2246,7 +2246,7 @@ s32 func_0037EE18(Fighter *f);
 void func_003DEC20(void);
 void func_003DD158(s32 side);
 void func_003DD188(s32 x, s32 y, s32 side, s32 a, s32 b);
-void func_003DD5B8(Fighter *f, s32 n);
+void Prac_DrawCongratulations(Fighter *f, s32 n);
 
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", jtbl_00506DF0);
 
@@ -2315,7 +2315,7 @@ s32 func_0037EB00(u16 *pad, Fighter *f) {
             D_005F62AC = 0;
         }
         if (d->unk10 < 0x78) {
-            func_003DD5B8(f, d->unkC);
+            Prac_DrawCongratulations(f, d->unkC);
         }
         if (pad[2] & 0x800) {
             D_005F5C40[0] &= 0xFFFFF7FF;
@@ -2536,15 +2536,15 @@ void func_003DBCF0(s32 a, s32 y, s32 w, s32 h, s32 b, s32 color);
 void Ui_DrawWindow(s32 x, s32 y, s32 w, s32 h, s32 a, s32 b, s32 c);
 void func_003DEB80(s32 a);
 void func_003E08D0(s32 n);
-void func_003E5268(s32 x, s32 y, s32 id, s32 color);
-void func_003E54F0(s32 x, s32 y, s32 w, s32 color);
+void Text_DrawId(s32 x, s32 y, s32 id, s32 color);
+void Menu_DrawCursorBar(s32 x, s32 y, s32 w, s32 color);
 
 /* Shows the practice help box of text `id` [I]. */
 #define PRAC_HELP(y, id)                                                                                             \
     do {                                                                                                             \
         func_003DEB80(0);                                                                                            \
         func_003DBCF0(0, (y) - 1, 0x280, 0x30, 0xFFFE, 0x18181860);                                                  \
-        func_003E5268(0x1E, (y), (id), 0x60606080);                                                                  \
+        Text_DrawId(0x1E, (y), (id), 0x60606080);                                                                  \
     } while (0)
 
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", jtbl_00507270);
@@ -2552,7 +2552,7 @@ INCLUDE_RODATA("asm/nonmatchings/fighter_core", jtbl_00507270);
 /* Draws the practice menu D_008B8068.unk4 (four pages of lines) at unk0 / unk2 with the cursor unk5 (kept below the
  * count of selectable lines): the frame, the title D_00431860, the help box of the page or the selected line
  * (D_00507120 / D_00507128 / D_00507178 / D_00507190, while func_003B1468), each label (colour 0xB when selected,
- * with the marker func_003BB890 / func_003E54F0) and its value right-aligned at +0x17C: 0 the setting unk6
+ * with the marker func_003BB890 / Menu_DrawCursorBar) and its value right-aligned at +0x17C: 0 the setting unk6
  * (D_00431870, with D_00507250 / D_00507260 for 6 / 7), 1 unkA (D_004318A0), 2 the per-page values unk7-unkB
  * (D_004318B8, func_003E08D0 for the selected one), 3 the character name of the fighter unkE / unkF (func_0035C710)
  * and its D_004318C0 text, 4 the count unkD against the character's limit D_005070F8 [V calls; I meaning]. */
@@ -2618,7 +2618,7 @@ void func_0037EFB0(void) {
             color = 0xB;
         }
         if (color == 0xB) {
-            func_003E54F0(x - 0x2C, y, 0x19C, 0xFFFF0);
+            Menu_DrawCursorBar(x - 0x2C, y, 0x19C, 0xFFFF0);
         }
         Text_Printf(D_005071A0, 0xA, 4, color, x + 8, y, items[i].unk4);
         if (i == 0 && color == 0xB) {

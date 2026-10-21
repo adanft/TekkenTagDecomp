@@ -271,7 +271,7 @@ s32 func_003CD298(void);
 void Sprite_DrawBlended(s32 a, s32 b, s32 c, s32 x, s32 y);
 typedef f32 S2aVec[4];
 typedef f32 S2aMtx[4][4];
-void func_00356710(S2aMtx m);
+void Mtx_Unit(S2aMtx m);
 void sceVu0RotMatrixZ(S2aMtx m0, S2aMtx m1, f32 rz);
 void sceVu0ApplyMatrix(f32 *out, S2aMtx m, f32 *v);
 /* D_00440D50: the two record tables (ten scores, ten times) and the last entry. */
@@ -660,7 +660,7 @@ void Sprite_DrawCurrentRotated(s32 a) {
     p[7] = u1 | ((u64)v0 << 16);
     p[9] = u0 | ((u64)v1 << 16);
     p[11] = u1 | ((u64)v1 << 16);
-    func_00356710(m);
+    Mtx_Unit(m);
     sceVu0RotMatrixZ(m, m, s->rot);
     hw = (s->w << 4) >> 1;
     m[3][0] = (s->x + 0x6C0) << 4;

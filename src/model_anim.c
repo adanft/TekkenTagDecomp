@@ -286,7 +286,7 @@ void Model_Draw(ModelRes *res, DrawObj *obj, void *lights, s32 kind);
 void func_00342F98(f32 v);
 f32 func_00342FA0(void);
 void func_00353D68(Vu0Matrix *out);
-void func_00356710(Vu0Matrix m);
+void Mtx_Unit(Vu0Matrix m);
 void func_00356840(void);
 void func_00357230(s32 a, ModelRes *res, s32 b, s32 c, s32 *kinds);
 void func_00357258(f32 *values, s32 count);
@@ -757,7 +757,7 @@ void func_003D1468(ModelNode *n) {
             n->update(n);
         }
     }
-    func_00356710(m);
+    Mtx_Unit(m);
     if (n->unk8 != 0) {
         sceVu0RotMatrixX(m, m, n->rot[0]);
         sceVu0RotMatrixY(m, m, n->rot[1]);
@@ -777,7 +777,7 @@ void func_003D1468(ModelNode *n) {
                 sceVu0CopyMatrix(ctx.m1, D_004455A0[1]);
             } else {
                 sceVu0MulMatrix(ctx.m1, D_00433400, m);
-                func_00356710(m);
+                Mtx_Unit(m);
                 sceVu0RotMatrixY(m, m, asinf(ctx.m2[2][0]));
                 ctx.m1[3][3] = 1.0f;
                 ctx.m1[3][0] = -m[3][0] + (f32)D_00415808[5];
@@ -1061,7 +1061,7 @@ void Model_GetMatrix(Vu0Matrix m) {
 
 /* Sets the current matrix to identity. */
 void Model_LoadIdentity(void) {
-    func_00356710(D_01FAD6D0);
+    Mtx_Unit(D_01FAD6D0);
 }
 
 /* Merge sort of a draw list by decreasing key (tmp holds the left half; indices in globals). */
@@ -1110,7 +1110,7 @@ void func_003D2160(ModelNode *nodes) {
 void func_003D2168(ModelNode *nodes) {
     Vu0Matrix m;
 
-    func_00356710(m);
+    Mtx_Unit(m);
     func_003D10D0(0, m, 1.0f);
     func_003D10D0(1, m, 1.0f);
 }
@@ -1119,7 +1119,7 @@ void func_003D2168(ModelNode *nodes) {
 void func_003D21B8(ModelNode *nodes) {
     Vu0Matrix m;
 
-    func_00356710(m);
+    Mtx_Unit(m);
     if (gMode != 10) {
         func_003D10D0(10, m, 1.0f);
     }
@@ -1132,7 +1132,7 @@ void func_003D21F8(ModelNode *n) {
 
     n->unkC = 0;
     Model_GetMatrix(cur);
-    func_00356710(m);
+    Mtx_Unit(m);
     sceVu0RotMatrix(m, m, n->rot);
     sceVu0TransMatrix(m, m, n->trans);
     sceVu0MulMatrix(D_00444CD0, cur, m);

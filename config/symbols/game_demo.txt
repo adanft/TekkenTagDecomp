@@ -1,3 +1,12 @@
 // Game module demo (docs/game_overview.md section 4; the range is provisional).
 // Naming rules: docs/decomp_guide.md, "Naming".
 // range: 0x003DC9C8 0x003E1C68
+PracFont_GlyphWidth = 0x003DF708; // type:func
+PracFont_StrWidth = 0x003DF768; // type:func
+PracFont_DrawGlyph = 0x003DEDD8; // type:func
+Prac_DrawCongratulations = 0x003DD5B8; // type:func
+Prac_DrawDemoPrompt = 0x003DD3C8; // type:func
+Gfx_BuildImageUpload = 0x003DE7E8; // type:func
+Gfx_DrawLine = 0x003E1438; // type:func
+Gfx_DrawRect = 0x003E1888; // type:func
+Gfx_DrawTriangle = 0x003E19E0; // type:func

@@ -1,3 +1,22 @@
 // Game module tekken_bowl (docs/game_overview.md section 4; the range is provisional).
 // Naming rules: docs/decomp_guide.md, "Naming".
 // range: 0x003E8AD8 0x003F3320
+Bowl_PinHomePos = 0x003EA050; // type:func
+Bowl_ResetPins = 0x003EA140; // type:func
+Bowl_IsSplit = 0x003EA3A0; // type:func
+Bowl_NextBall = 0x003EA2B0; // type:func
+Bowl_SetFighterMove = 0x003E9550; // type:func
+Bowl_DrawSpare = 0x003EF660; // type:func
+Bowl_DrawMissFoul = 0x003EF470; // type:func
+Bowl_InsertHighScore = 0x003F2128; // type:func
+Bowl_InitHighScores = 0x003F1F58; // type:func
+Bowl_DrawTop5 = 0x003F2D00; // type:func
+Pause_BowlTop5 = 0x003F3118; // type:func
+Pause_BowlOptions = 0x003F1CB8; // type:func
+Bowl_NameEntry = 0x003F2EB8; // type:func
+Bowl_DrawSpeed = 0x003EAD18; // type:func
+Bowl_UpdateSpeed = 0x003EAC88; // type:func
+Bs_Init = 0x003E8AD8; // type:func // guess
+Bs_PutBits = 0x003E8B98; // type:func // guess
+Bs_GetBits = 0x003E8C60; // type:func // guess
+Bs_GetBitsN = 0x003E8E48; // type:func // guess

@@ -640,7 +640,7 @@ void sceVu0TransMatrix(f32 (*m0)[4], f32 (*m1)[4], f32 *v);
 void sceVu0AddVector(f32 *out, f32 *a, f32 *b);
 void sceVu0SubVector(f32 *out, f32 *a, f32 *b);
 void func_00366EB8(f32 (*m)[4]);
-void func_00356710(f32 (*m)[4]);
+void Mtx_Unit(f32 (*m)[4]);
 void func_00353C88(s32 i, f32 *out);
 void func_00340B30(f32 *dir, f32 *p, f32 *out);
 s32 func_003408B0(f32 (*m)[4], f32 (*out)[4]);
@@ -769,7 +769,7 @@ void func_00341218(void) {
     }
     D_005F6780->row = row;
     D_005F6780->col = col0;
-    func_00356710(m);
+    Mtx_Unit(m);
     sceVu0TransMatrix(m, m, cam);
     sceVu0MulMatrix(spr->view, spr->view, m);
     if (D_005F6780->unkE != 0) {
@@ -803,8 +803,8 @@ void func_00341218(void) {
         eye[3] = 1.0f;
         eye[2] = -((f32)D_00415808[7] + cam[2]);
     }
-    func_00356710(world);
-    func_00356710(local);
+    Mtx_Unit(world);
+    Mtx_Unit(local);
     for (i = 0; i < rows; i++) {
         cells = D_005F6780->grid[row];
         col = col0;

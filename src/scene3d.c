@@ -250,7 +250,7 @@ s32 func_0034D038(s32 id, Vu0Matrix m, Fighter *f, Obj3D *o, s32 arg4);
 s32 func_0034D108(s32 id, Vu0Matrix m, Fighter *f, Obj3D *o, Ang3 *a, s32 arg5);
 s32 func_0034E5A8(void);
 GteMatrix *func_0034FC68(s32 side, s32 k);
-void func_00356710(Vu0Matrix m);
+void Mtx_Unit(Vu0Matrix m);
 Unk367370 *func_00367370(s32 i);
 PartRec *func_00367390(s32 i);
 void func_00398690(s16 x, s16 y, s16 z, GteMatrix *m);
@@ -658,7 +658,7 @@ void func_0034D258(u8 *base, Vu0Matrix *mtx, s32 slot, s32 n, s32 arg4) {
     }
     ws = Spr_Setup(1, 0x440);
     i = 0;
-    func_00356710(ws->unkC0);
+    Mtx_Unit(ws->unkC0);
     ws->unk110[0] = 0.0f;
     alt = (f->unkB130 & 0x2000) != 0;
     for (; i < n; i++, o++, mtx++, ps++, ang++, tip++) {

@@ -31,11 +31,11 @@ unlock flags and their save block. T18 batch 1 covered `src/modes.c`, `src/modes
 | 9 | `Mode_Options` 0x3B4B20 | options [V] |
 | 10 | `Mode_Results` 0x3B6258 | results and records; to mode 6 for a new record of game types 3 / 5 [V] |
 | 11 | `Mode_Loading` | "LOADING..." screen of the attract path, entered by `Mode_EnterLoading(target)` from the title, the theater and `func_003A9690`; ends with `Mode_Change(3)` or `func_003BDF08` (title, sub-state 6) [V] |
-| 12 | `func_00354BE0` | theater set-up, then mode 13 [V] |
-| 13 | `Mode_Theater` 0x354D68 | theater menu [V] |
-| 14 | `func_00355D30` | music player set-up (`Bgm_Stop`), then mode 15 [V] |
+| 12 | `Mode_EnterTheater` 0x354BE0 | theater set-up (movie list), then mode 13 [V] (section 15) |
+| 13 | `Mode_Theater` 0x354D68 | theater menu: endings, movies, music player [V] (section 15) |
+| 14 | `Mode_EnterMusicPlayer` 0x355D30 | music player set-up (`Bgm_Stop`), then mode 15 [V] |
 | 15 | `Mode_MusicPlayer` 0x355D90 | music player [V] |
-| 16 | `Mode_Gallery` 0x3E5A98 | screenshot gallery [V] |
+| 16 | `Mode_Gallery` 0x3E5A98 | screenshot gallery, JPEG files on the memory card [V] (section 18) |
 
 ## 2. Flow
 
@@ -162,7 +162,7 @@ bytes) is copied to `gCpu + 0x344`; the demo (`D_005F5CBC`) uses `D_00432D90` in
 | `src/battle_mode.c` | 0x358A38-0x35C2B0 | 63 / 67 | `Mode_Battle` (902 against 890 instructions, register allocation and scheduling), `func_003596D8` (about 8 real lines, the survival pair-table loop), `func_00359FB8` (register allocation of the versus result counters), `func_0035BB58` (LCG product and angle terms scheduled differently) |
 
 Batch 1 left `select_results`, `pause_results`, `options`, `menu_common` and `loading_title` to batch 2 (sections 7-13);
-`theater`, `menu_bg`, `gallery_jpeg`, `tekken_bowl` and `demo` are still to do.
+batch 3 did `theater`, `demo`, `menu_bg`, `gallery_jpeg` and `tekken_bowl` (sections 15-19).
 
 ## 7. Character select (mode 5) and the tag partner
 
@@ -178,7 +178,7 @@ Batch 1 left `select_results`, `pause_results`, `options`, `menu_common` and `lo
   cursor over the grid (cell 0x36 is skipped, 0x37 is the random cell), `func_003C99C8` rolls a random character (0x22
   characters, locked ones and the current one skipped), `func_003C9ED8` picks the costume from the button pressed (0x80,
   0x40, 0x10, 0x20, 4, 0x800 give costumes 0-4; random for a CPU side or in team mode; a costume already taken by the
-  other member is changed) [V]. `func_003CA470` is the per-side step that calls them [I, not attempted].
+  other member is changed) [V]. `func_003CA470` is the per-side step that calls them [I; a compiling draft since T18 b3].
 - **Tag partner**: each side picks its members one after the other into `D_00440C28` (8 member slots of 0xC bytes per
   side, count `D_005F62A8[side]`); `func_003C9518` undoes the last pick (and the partner side's when `D_005F6EAA` is set),
   with sound 3. `func_003CB610` commits: characters and costumes to the team records `D_00440940[side][member]` (through
@@ -237,8 +237,8 @@ Batch 1 left `select_results`, `pause_results`, `options`, `menu_common` and `lo
 - **`Pause_Update`** 0x3B7B98 (draft), called by `Mode_Battle` while paused [V]: an 8-entry cursor `D_005F6DE0` (entries
   skipped by game type, `func_003BFEF8` and `func_003B7B18`); the flag word `D_005F6DE6` holds the open sub-screen: 0x08
   the yes / no confirm (entry 3: `func_003B7998(1)`, else `func_0035A518`, quit), 0x02 `func_003DD098`, 0x04 the screen
-  position (`func_003B4938`), 0x10 the controller set-up (`Options_ControllerSetup`), 0x20 `func_003F3118`, 0x40
-  `func_003F1CB8`; sound 5 on a confirm, 3 on a move. `func_003B7998` / `func_003B79E0` / `func_003B7A68` /
+  position (`func_003B4938`), 0x10 the controller set-up (`Options_ControllerSetup`), 0x20 `Pause_BowlTop5`, 0x40
+  `Pause_BowlOptions`; sound 5 on a confirm, 3 on a move. `func_003B7998` / `func_003B79E0` / `func_003B7A68` /
   `func_003B7AC8` open, test, quit and close it [V code, I roles].
 - **Between rounds and matches**: `func_003B5328` (6 phases on `D_005F64D8`, called from `battle_mode`) and
   `func_003B5DB0` (from `battle_flow`) swap in the tag partner or re-place the fighters (`func_0035C8D0`,
@@ -304,7 +304,164 @@ flag, the gallery). `Unlock_Step` (+0x18 ++, apply, save dirty), `Unlock_SetClea
 | `src/options.c` | 0x3B1478-0x3B4D50 | 27 / 38 | 11: `Options_Apply` (56), `func_003B15F8` (26), `func_003B19C0` (49), `func_003B2090` (25), `func_003B2358` (29), `func_003B2670` (9), `func_003B2B58` (27), `func_003B2C28` (31), `Options_ControllerSetup` (837), `func_003B40C0` (62), `func_003B4938` (58) |
 | `src/pause_results.c` | 0x3B4D50-0x3B90C0 | 65 / 74 | 9: `func_003B5328` (90), `func_003B5CA8` (44), `func_003B5DB0` (2), `func_003B6408` (62), `func_003B6808` (2), `func_003B6C68` (200), `func_003B77B8` (35), `func_003B7888` (41), `Pause_Update` (285) |
 | `src/select_results.c` | 0x3BDF60-0x3C1A78 | 60 / 72 | 12: `func_003BE118` (88), `func_003BE3E8` (10), `func_003BEAB0` (139), `func_003BECC0` (4), `func_003BF080` (53), `func_003BF4B8` (87), `func_003BFFB0` (14), `func_003C0210` (17), `Arcade_BuildOpponents` (480), `func_003C1078` (12), `func_003C1350` (2), `func_003C1620` (115) |
-| `src/select_results_b.c` | 0x3C3150-0x3CD298 | 82 / 117 | 34 drafts (from 2 lines: `func_003C68F0`, `func_003C9778`, to 549: `func_003C59D8`; `Mode_CharSelect` 80, `Mode_NameEntry` 257, `Text_Printf` 257); `func_003CA470` (1062 instructions) not attempted |
+| `src/select_results_b.c` | 0x3C3150-0x3CD298 | 82 / 117 | 34 drafts (from 2 lines: `func_003C68F0`, `func_003C9778`, to 549: `func_003C59D8`; `Mode_CharSelect` 80, `Mode_NameEntry` 257, `Text_Printf` 257); `func_003CA470` (1062 instructions) a draft since T18 b3 (1292 lines, m2c-based) |
 
 The line counts are fdiff's for one draft enabled at a time; a draft whose size differs also counts shifted `$gp` and
 branch offsets. Every draft carries its one-line reason in the source.
+
+## 15. Theater and music player (modes 12-15, `src/theater.c`, `src/theater_b.c`)
+
+- **`Mode_EnterTheater`** 0x354BE0 (mode 12) [V]: stops the BGM, clears the theater flags `D_005F7055`-`D_005F705C`,
+  applies the unlocks, fills the 41 movie entries `D_004562F0` (12 bytes each) from the id list `D_00522AD0` (an id other
+  than 0x38-0x3A becomes 0x36, locked, unless the selectable set `D_0043B968` has the character, `func_003ADA08`) and sets
+  `gMode = 13`. Kept quirk [V]: the loop reads byte 40 of a 40-byte copy (one past the end).
+- **`Mode_Theater`** 0x354D68 (mode 13, draft) [V calls, I roles]: "THEATER", "EXIT THEATER MENU", "MUSIC PLAYER",
+  "ARCADE MOVIE", "OPENING MOVIE", "BGM VOLUME: OFF" and the per-character ending names. An entry id below 0x108 replays
+  that ending (`Mode_EnterEnding(13, id, id)`, mode 8); 0x108 / 0x109 / 0x1C0 / 0x1C1 play a movie (`func_0039C7D8`, the
+  `movie` module); 0x1C2 / 0x1C3 run `func_003A9678(0 / 1)` then `Mode_EnterLoading(13)`; 0x1C8 opens the music player
+  (`Theater_OpenMusicPlayer(13)`, which stores the return mode in `D_005F704C`); 0x1D0 exits. `func_003543F8` maps an
+  entry to its unlock word (`D_00455E50`), `func_003544C8` / `func_003545A8` give a row's availability (0, 1, 2),
+  `func_00354730` lays out a tile, `func_00355C88` draws its sprite.
+- **`Mode_MusicPlayer`** 0x355D90 (mode 15, draft) [V]: 22 rows, the last "RETURN TO THEATER MENU"; the track table
+  `D_00455D80` holds 8-byte records with the BGM id at +0 (-2 = the return row; the names at 0x522048 are track titles
+  [I]). X / circle (pad 0x840) `Bgm_Play(id)`, pad 0xBC `Bgm_Stop`, 0x100 or the return row stops and goes back to
+  `gMode = D_005F704C`. An 11-bar level meter animates from `D_01FC48E0` while `Iop_StreamBusy` reports the stream.
+- The two later objects of the `theater` range are not theater code [V]: `src/theater_c.c` (fighter skeleton matrices
+  `func_003564C8`, which records the joints of part ids 31-38 into `D_0046B010[slot]`, unit / zero matrices `Mtx_Unit` /
+  `Mtx_Zero` written as inline assembly, vector copy and scale) and `src/theater_d.c` (two GIF and two VIF1 DIRECT blocks
+  sent through the scratchpad, a DMA chain relocation, the per-stage byte tables `D_00455D50` / `D_00455D68`).
+
+## 16. Practice command list (`src/demo.c`) and the attract demo
+
+**`demo` is not the attract demo** [V]: its strings are "%cx%c=DEMO", "%co%c=EXIT", "When Facing Right",
+"CONGRATULATIONS!" and a minutes'seconds"hundredths time. It is the practice mode's command list and move demonstration:
+the command texts `D_01FC4930` (16 bytes per `Fighter.unk22` slot), a proportional glyph font (`PracFont_GlyphWidth`,
+`PracFont_StrWidth`, `PracFont_DrawGlyph`), command icons, image uploads (`Gfx_BuildImageUpload`, the `D_01FC4970` slots),
+the posing of the demonstration dummy (`func_003DD918`), `Prac_DrawDemoPrompt` and `Prac_DrawCongratulations`. The "VIF1
+DIRECT code" is `func_003DE6C0`: one GS register pair from `D_00456540[i]` and a linear map `D_005F6944` / `D_005F6948`
+[I: depth to fog]. The end of the range (0x3DFF30-0x3E1C68) holds shared 2D helpers (`Gfx_DrawLine`, `Gfx_DrawRect`,
+`Gfx_DrawTriangle`, rotated icons) used by `menu_bg`, `tekken_bowl` and the render code.
+
+**The attract demo (game type 9) is CPU against CPU, not an input replay** [V]:
+
+- The title's sub-state 10 calls `Game_Start(9, 0)`: side mask 0, no human side. `func_003BA118` sets `D_005F5CBC = 1` (the
+  CPU's special parameter block `D_00432D90`, section 5) and the difficulty from the options.
+- `Mode_Battle` sub-state 0 for type 9 builds random teams (`Team_BuildRandom`, `rand()`) and sets `D_005F6678 = 1`;
+  `func_0036C680` then forces every fighter's input source to 2, so both sides take their buttons from `Cpu_GetInput`
+  ([fighter.md](fighter.md) section 2). No pad table or file is read.
+- The demo ends after 0xE11 frames (`D_005F6B14`, non-paused frames) or a round result of 3 or more (sub-state 16:
+  `Bgm_Stop`, `gMode = 6`); a button in sub-states 7-8 (`func_003B1198` [I]) leaves through `func_0035A4F0(0x19)`.
+- **Determinism**: the demo depends on `rand()`, which `Rng_Init` seeds from the EE Timer 0 count at boot, and which
+  `Rng_Reseed` reseeds every frame outside fights with the VBlank count added (`D_005F5CDC`). A port determinism test
+  of the demo must pin the boot seed and the VBlank count; a recorded fight (practice recorder, [fighter.md](fighter.md))
+  or fixed inputs are the deterministic alternative.
+
+## 17. Tekken Bowl (game type 8, `src/tekken_bowl.c`, `src/menu_bg.c`)
+
+`Mode_Battle` calls `func_003F0008` (draft) instead of `Battle_UpdateFrame` for type 8, on stage 0x14 [V].
+
+- **Players and score** [V]: each player's game is a 0x5E-byte record at `D_01FC61E0[2]`: +0 ball index (two per frame,
+  20 and more is the tenth frame), +0x0D pins per ball, +0x42 `s16[11]` cumulative frame scores, +0x56 (index 10) the
+  total, negative until the game ends. `Bowl_NextBall` advances: +2 after a strike in frames 1-9, otherwise the turn
+  passes to the other player (`D_005F70AC ^= 1`). Cumulative frame scores with the strike skip are standard ten-pin
+  scoring [I: the bonus arithmetic sits in the drafts].
+- **Pins** [V]: ten rigid bodies (`D_01FC5260`, 0x180 bytes each) placed by `Bowl_PinHomePos` in the usual triangle
+  (head pin at z -788, rows 227.5 apart, offset +8000 in z); collisions pin-pin, pin-fighter (the body spheres at
+  `Fighter` +0x1F0) and floor (`func_003EEBF8`, `func_003ECF70`, `func_003EDB98`, ray against sphere); gravity +2.45 /
+  +4.9 per frame; lane walls at x = +-2550. The fighter is the ball: `func_003E99C0` loads it through `func_0035C8D0`,
+  `Bowl_SetFighterMove` takes the throw moves from `D_00523590[move][phase]` (`D_005237B0` for character 15) and the frame
+  counter `D_005F70D4` drives them.
+- **Throw**: the aiming HUD of `menu_bg` (`Bowl_DrawHud`, section 18) shows TARGET / POWER / ANGLE; the input steps are in
+  the drafts `func_003F0008` / `func_003EAF78` [I]. `Bowl_UpdateSpeed` / `Bowl_DrawSpeed` show the speed in MPH (ball z
+  speed x 0.216, then -6 above 20 or x 0.7 below, then x 0.625) [V].
+- **Results** [V]: "STRIKE!", "DOUBLE!!", "TURKEY!!!", "!!GREAT!!", "PUNCH OUT", "PERFECT" by strike streak
+  (`func_003EF8B0`); "SPARE", or "NICE COVER" when `D_005F70C6` is set (`Bowl_DrawSpare`); "MISS" / "FOUL"
+  (`Bowl_DrawMissFoul`), "OVER CHARGED", "K.O.". `Bowl_IsSplit`: the head pin is down and a standing pin is more than 500
+  from its nearest standing neighbour.
+- **High scores** [V]: the top 5 `D_0046BC70` (0x66-byte records: rank, character and costume, four-letter name, the game),
+  defaults from `D_00523C00` / `D_00523C10` (`Bowl_InitHighScores`); `Bowl_InsertHighScore` inserts a score at or above
+  a slot's, then `Bowl_NameEntry`; "THE KING OF IRONBOWL" / "TOP 5 BOWLERS" (`Bowl_DrawTop5`, sound 0x1058 for a 300 game).
+  A top-5 score of 200 or more sets flag +0x202 of the block ("BONUS AT 200 PTS"), which enables the JUKEBOX row; 300 sets
+  +0x204; characters 4, 0xC, 0x10, 0x15, 0x16 are excluded from this bonus (`func_003F2418`). The block is saved with the
+  options (section 4, `D_0046BC70`).
+- **Pause sub-screens** [V]: `Pause_BowlTop5` (flag 0x20) and `Pause_BowlOptions` (0x40: HELP MESSAGES, SPECIAL EFFECTS,
+  JUKEBOX picks tracks 7-0x14 through `Bgm_Play(D_00455D80[n].b0)`, 0x15 = off, EXIT).
+- **Randomness** [V]: `rand()` only in `func_003E92E0` (a random order of three slots of `D_01FC6340[2]`) in the matched
+  part. The unlock level `setup +0x22` is not read by any matched function; `func_003F1570` reads setup +0x1A / +0x1F /
+  +0x20.
+- A bit-stream writer / reader with 0xFF stuffing (`Bs_*`, `D_005F7098`-`D_005F70A6`) and libvu0-style VU0 helpers
+  (rotation matrices as C calls between `__asm__` blocks) open the file.
+
+## 18. Bowl HUD (`src/menu_bg.c`) and the gallery (`src/gallery_jpeg.c`, mode 16)
+
+- **`menu_bg` is mostly the Tekken Bowl aiming HUD** [V]: `Bowl_DrawHud` 0x3E4BC0 is called only from `func_003F0008`. A
+  kind 0-3 from the character id at +0x2E selects the layout; the window opens over 12 frames (`D_01FC4A40` states 0-3)
+  with scanlines, a scope, telemetry with random hex values (DISTANCE, ANGLE, GRAVITY, WEIGHT, POWER, ENERGY, FRICTION,
+  ERROR), scrolling Z80 / VU mnemonics (`D_0046B3B0`), "DR.BOSKONOVITCH", "TARGET", a wireframe cube (`Bowl_DrawCube`), a
+  floor grid, barcodes with "ABEL LABO LTD." / "BOSKONOVITCH LABO LTD." / "OPTICAL ARMOR 184K" (`Bowl_DrawBarcode`).
+  The two `srand` calls are deterministic: 0x3E2E50 seeds with the kind, 0x3E2A08 with the HUD timer / 384 (the timer
+  `D_01FC4A40` + 0x36 counts frames). Note that they reseed the game's `rand()`, so the Bowl HUD changes the sequence the
+  rest of the frame draws. The shared part: the text table helpers (`Text_Get`, `Text_Width`, `Text_LineCount`,
+  `Text_DrawId`, called by options, pause, practice, the bowl and the card screens), `Fade_DrawScreen`,
+  `Menu_DrawCursorBar`, the card-slot helpers.
+- **Gallery** `Mode_Gallery` (draft) [V]: twelve memory card files "SCRN-%02d.CPT" (1-12), listed in two columns of six
+  plus EXIT (`Gallery_DrawList`); a 13-byte slot status array (0 empty, 1 present, 2 corrupt) from the card's file mask.
+  VIEW reads a file (at most 0x25800 bytes) and decodes it in two 640 x 224 strips (`Jpeg_DecodeStrip`, 14 MCU rows of 40)
+  uploaded one under the other, 640 x 448; a decode error marks the slot corrupt. DELETE asks YES / NO and deletes the
+  file. States 14-15 show a ten-line notice (text ids 0x2C-0x35) when `func_003BFEF8()` returns 0 [I: gallery locked].
+- **JPEG codec** [V]: baseline DCT, 4:2:0 (an MCU is four Y blocks, Cb, Cr), JFIF coefficients for the colour conversion.
+  The header (`Jpeg_WriteHeader`) is SOI, APP0 JFIF 1.02, a COM text, two DQT, four prebuilt DHT blobs (`D_0046B998` ...),
+  SOF0 640 x 448, SOS; the decoder skips a fixed 0x287-byte header (`Jpeg_SkipHeader`). The forward and inverse DCT
+  (`Jpeg_Fdct`, `Jpeg_Idct`) are direct O(n^4) sums over a cos(k pi / 16) table; the AC symbol index is run * 10 + size
+  (ZRL 0x97); the Huffman decoder `Jpeg_HuffDecode` is canonical. The encoder (`Jpeg_EncodeBegin` / `Row` / `End`) has no
+  direct caller: the link to `Scrn_Capture` and to the pause menu's "CAPTURE?" goes through a pointer or is unused [I].
+- `func_003E6B10`-`func_003E7270` in the gallery range are a stage particle effect built as VU1 packets [V]
+  (`func_003E7210` from the stage loader `func_00367938`, `func_003E7270` per frame from `func_00357D38` on stages 2, 19
+  and 22).
+
+## 19. Code (T18 batch 3)
+
+| File | Range | C / functions | Data |
+|---|---|---:|---|
+| `src/theater.c` | 0x3543F0-0x355D30 | 7 / 10 | `.rodata` 0x5221E0-0x522B90 |
+| `src/theater_b.c` | 0x355D30-0x3564C8 | 1 / 2 | `.rodata` 0x522048-0x5221C0 |
+| `src/theater_c.c` | 0x3564C8-0x3567A8 | 5 / 5 | `.rodata` 0x5221C0-0x5221E0 (one jump table) |
+| `src/theater_d.c` | 0x3567A8-0x356A70 | 4 / 5 | `.rodata` 0x521CE0-0x521E20 |
+| `src/demo.c` | 0x3DC9C8-0x3E1C68 | 34 / 51 | `.rodata` 0x522B90-0x522DE0, `.lit4` 0x5F5710-0x5F573C |
+| `src/menu_bg.c` | 0x3E1C68-0x3E55C8 | 15 / 21 | `.rodata` 0x522FC0-0x5233F0, `.lit4` 0x5F5804-0x5F58DC; without `-ffast-math` |
+| `src/gallery_jpeg.c` | 0x3E55C8-0x3E8AD8 | 24 / 32 | `.rodata` 0x5233F0-0x523570, `.lit4` 0x5F58DC-0x5F596C; without `-ffast-math` |
+| `src/tekken_bowl.c` | 0x3E8AD8-0x3F3320 | 98 / 136 | `.rodata` 0x523570-0x523FA0, `.lit4` 0x5F596C-0x5F5BCC; without `-ffast-math` |
+
+The `theater` range was splat's 24 labels; two of them (0x356738, 0x356754) are not functions: they are the compiler's
+`jr ra / nop` after the inline-assembly bodies of `Mtx_Unit` / `Mtx_Zero`, which end in their own `jr $31` (0x356754 is
+not 8-aligned) [V]. The game now counts 2813 functions.
+
+## 20. T18 status: drafts carried to T19
+
+Every function of the T18 files has C; the ones below are compiling drafts in `#if 0` with their `NON_MATCHING` note
+(fdiff lines with the draft enabled alone). Batch 1 and 2 drafts: sections 6 and 14.
+
+- `src/theater.c` (3): `Mode_EnterTheater` (4, constants 1 / -1 kept in a2 / a1), `func_00354730` (244, store order and
+  registers), `Mode_Theater` (1057, m2c draft).
+- `src/theater_b.c` (1): `Mode_MusicPlayer` (560, m2c draft).
+- `src/theater_d.c` (1): `func_003568E0` (13, loop temporaries swapped).
+- `src/demo.c` (17): `func_003E06A0` (2, table base hoisted as `D - 0x20`), `Prac_DrawDemoPrompt` (4), `func_003DD098` (5),
+  `PracFont_StrWidth` (7), `func_003DE0D8` (about 60), `func_003DE4E0` (66), `func_003DF2F0` (75), the packet builders
+  `PracFont_DrawGlyph`, `func_003DEF98`, `func_003DF150`, `func_003DF500`, `func_003E0460` (an extra 0x10 stack slot in the
+  original's frame), and the m2c drafts `func_003DC9C8` (311), `func_003DFA00` (328), `func_003DFF30` (344),
+  `func_003DD918` (494), `func_003E08D8` (1074).
+- `src/menu_bg.c` (6): `func_003E4860` (100), `Bowl_DrawHud` (102), `func_003E2A08` (143), `func_003E3178` (218), the
+  m2c drafts `func_003E1C68`, `func_003E38F0`.
+- `src/gallery_jpeg.c` (8): `Jpeg_RgbToYcc` (2, two copies swapped; decomp-permuter 15 minutes: nothing below its base),
+  `func_003E7210` (15), `Jpeg_YccToRgb` (18), `Jpeg_Fdct` (93), `Mode_Gallery` (829), the particle drafts `func_003E6B10`,
+  `func_003E6DA0`, `func_003E7270`.
+- `src/tekken_bowl.c` (38): hazard or alignment nops `func_003E8FA0` (1, gas puts a nop between `cfc2.ni` and `beqz`) and
+  `func_003E92E0` (2); small register / store-order misses `func_003EFDB8` (2), `Bowl_PinHomePos` (3), `func_003E9AE8`
+  (4), `Pause_BowlTop5` (6), `func_003E9C10` (6), `func_003E9FD8` (10), `func_003ECDE8` (13), `func_003ECF70` (13),
+  `func_003ECAD8` (15), `func_003E9808` (17), `Bowl_ResetPins` (21), `func_003F2418` (28), `Bowl_DrawSpare` (30),
+  `func_003EC200` (39), `func_003EE2F8` (47), `Pause_BowlOptions` (48), `func_003EAE08` (49), `func_003F2AC0` (55); m2c
+  drafts `func_003EA978` (86), `func_003F1570` (118), `func_003EC388` (118), `func_003EDC90` (121), `func_003EF8B0`
+  (126), `func_003EEF00` (131), `func_003F1968` (135), `func_003F0FF0` (162), `func_003EA4C8` (185), `func_003E9C58`
+  (198), `func_003F25D8` (227), `func_003EDF88` (265), `func_003EFB00` (279), `func_003EBC98` (370), `func_003EE598` (408),
+  `func_003F0008` (465), `func_003ED338` (518), `func_003EAF78` (707).
+- `src/select_results_b.c`: `func_003CA470` (1292, m2c draft; its C jump table replaces `jtbl_005204D0` when enabled).

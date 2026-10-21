@@ -136,9 +136,9 @@ void func_003608E0(McMenu *m);
 void func_00360B90(McMenu *m);
 s32 func_00360DE0(s32 err);
 s32 func_00360E38(s32 err);
-s32 func_003E5020(s32 id);
-s32 func_003E5140(s32 id);
-void func_003E5268(s32 x, s32 y, s32 id, s32 color);
+s32 Text_Width(s32 id);
+s32 Text_LineCount(s32 id);
+void Text_DrawId(s32 x, s32 y, s32 id, s32 color);
 void func_003DEB80(s32 a);
 
 /* The entries of the memory card menu (.data; src/memcard.c). */
@@ -232,11 +232,11 @@ void func_00360A30(McMenu *m, s32 msg) {
     first = e->first;
     if (lines != 0) {
         for (i = 0; i < lines; i++) {
-            tw = func_003E5020(first + i);
+            tw = Text_Width(first + i);
             if (maxw < tw) {
                 maxw = tw;
             }
-            rows += func_003E5140(first + i);
+            rows += Text_LineCount(first + i);
         }
         w = maxw + 0xC;
         h = rows * 0x12 + 0x10;
@@ -267,7 +267,7 @@ void func_00360B90(McMenu *m) {
     if (m->unk24 == 0) {
         if (lines != 0) {
             for (i = 0; i < lines; i++) {
-                func_003E5268(0x140 - (func_003E5020(first + i) >> 1), m->win.y + i * 0x12 + 8, first + i, 0x60606080);
+                Text_DrawId(0x140 - (Text_Width(first + i) >> 1), m->win.y + i * 0x12 + 8, first + i, 0x60606080);
             }
         }
     }

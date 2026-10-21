@@ -31,7 +31,7 @@ s32 func_003B1468(void);
 void func_003DEB80(s32 a);
 void func_003DBCF0(s32 a, s32 y, s32 w, s32 h, s32 z, u32 color);
 s32 func_003E08D0(s32 a);
-void func_003E5268(s32 x, s32 y, const char *text, u32 color);
+void Text_DrawId(s32 x, s32 y, const char *text, u32 color);
 
 /* The entries of the memory card menu (.data). */
 typedef struct {
@@ -689,7 +689,7 @@ void func_00360670(Unk360670 *m) {
             if (D_00416040[m->sel].type == 0x10) {
                 func_003E08D0(m->unk18);
             }
-            func_003E5268(0x1E, 0x186, help, 0x60606080);
+            Text_DrawId(0x1E, 0x186, help, 0x60606080);
         }
     }
 }

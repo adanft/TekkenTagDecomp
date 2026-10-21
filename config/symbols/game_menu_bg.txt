@@ -1,3 +1,13 @@
 // Game module menu_bg (docs/game_overview.md section 4; the range is provisional).
 // Naming rules: docs/decomp_guide.md, "Naming".
 // range: 0x003E1C68 0x003E55C8
+Text_Get = 0x003E4FC8; // type:func
+Text_Width = 0x003E5020; // type:func
+Text_LineCount = 0x003E5140; // type:func
+Text_DrawId = 0x003E5268; // type:func
+Fade_DrawScreen = 0x003E5370; // type:func
+Menu_DrawCursorBar = 0x003E54F0; // type:func
+Bowl_DrawHud = 0x003E4BC0; // type:func
+Bowl_DrawCube = 0x003E43A8; // type:func
+Bowl_DrawFloorGrid = 0x003E4100; // type:func
+Bowl_DrawBarcode = 0x003E2E50; // type:func

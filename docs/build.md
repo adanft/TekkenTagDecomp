@@ -8,8 +8,8 @@
 splat on `config/SLUS_200.01.yaml` when the split is missing, unfinished or older than the config (`--split` forces
 it) and writes `build.ninja`. A split first empties `asm/`, so no file of an earlier layout stays behind (tools such
 as `scripts/callgraph.py` read every file there), and writes `build/split.done` only when it ran to the end: a split
-that fails or is killed runs again next time. After splat, it writes the VU0 accumulator operand that splat leaves
-bare in the function files (`vmulay.yz ACC, ...`, which gas refuses) as `$ACC`, as the generic chunks have it. It
+that fails or is killed runs again next time. After splat, it writes the VU0 accumulator and Q operands that splat leaves
+bare in the function files (`vmulay.yz ACC, ...`, `vdiv Q, ...`, which gas refuses) as `$ACC` / `$Q`. It
 touches nothing else under `build/`. ninja then:
 
 1. assembles every split file under `asm/` with the project's binutils (`include/macro.inc` defines splat's
@@ -46,7 +46,8 @@ Each C file is built in four steps, because the 1999 compiler driver cannot run 
 
 1. `ee-gcc -O2 -fno-strength-reduce -ffast-math -fno-strict-aliasing -G8 -S` (the flags are in `configure.py`; `G_FLAGS` sets
    another `-G` for a path prefix, and the files in `NO_FAST_MATH` are built without `-ffast-math`, as their objects
-   were: `effects.c`, `effects_draw.c`, `scene3d.c`, `model_anim.c`, `model_anim_b.c`, `loading_title.c`);
+   were: `effects.c`, `effects_draw.c`, `scene3d.c`, `model_anim.c`, `model_anim_b.c`, `loading_title.c`, `menu_bg.c`,
+   `gallery_jpeg.c`, `tekken_bowl.c`);
 2. `configure.py --fix-asm` rewrites three things in the compiler's assembly where the game's assembler and the modern
    gas differ and the difference depends on the neighbouring lines (`fix_compiler_asm`): a `li.s` that gas would build
    with `lui $at / mtc1` is written out with the prelude's `mtc1`, an FPU compare right before a `bc1t` / `bc1f` that

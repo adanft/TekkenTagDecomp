@@ -1698,7 +1698,7 @@ typedef struct {
 extern s32 gFrameOverrun;
 extern s32 D_005F5EE0;
 extern s32 D_005F5EE4;
-void func_00356710(Vu0Matrix m);
+void Mtx_Unit(Vu0Matrix m);
 f32 func_0034A570(f32 a);
 void sceVu0RotMatrixY(Vu0Matrix m0, Vu0Matrix m1, f32 ry);
 void sceVu0TransMatrix(Vu0Matrix m0, Vu0Matrix m1, f32 *tv);
@@ -1739,7 +1739,7 @@ s32 func_003459D0(Unk3456B0 *o, f32 far) {
         w->sz = s->unk8;
         w->sw = *(s32 *)&s->unkC;
     } else {
-        func_00356710(w->unit);
+        Mtx_Unit(w->unit);
         sceVu0RotMatrixY(w->rot, w->unit, func_0034A570(s->unk70[1]));
         sceVu0TransMatrix(w->trans, w->rot, (f32 *)s);
         sceVu0MulMatrix(w->local_screen, w->world_screen, w->trans);

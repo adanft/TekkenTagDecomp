@@ -4,3 +4,8 @@
 
 Mode_Theater = 0x00354D68; // type:func // guess
 Mode_MusicPlayer = 0x00355D90; // type:func // guess
+Mode_EnterTheater = 0x00354BE0; // type:func
+Mode_EnterMusicPlayer = 0x00355D30; // type:func
+Theater_OpenMusicPlayer = 0x00355D20; // type:func
+Mtx_Unit = 0x00356710; // type:func
+Mtx_Zero = 0x00356740; // type:func

@@ -325,7 +325,7 @@ void func_00361968(void);
 s32 func_003B1468(void);
 void func_003DEB80(s32 a);
 void func_003DBCF0(s32 a, s32 y, s32 w, s32 h, s32 z, u32 color);
-void func_003E5268(s32 x, s32 y, s32 id, u32 color);
+void Text_DrawId(s32 x, s32 y, s32 id, u32 color);
 extern s16 D_005F6D8E;
 
 /* NON_MATCHING: 49 lines, register allocation (trig, col and the loop temporaries in other saved registers) */
@@ -390,7 +390,7 @@ void func_003B19C0(s32 pad, s32 trig) {
     if (func_003B1468()) {
         func_003DEB80(0);
         func_003DBCF0(0, 0x185, 0x280, 0x30, 0xFFFE, 0x18181860);
-        func_003E5268(0x1E, 0x186, D_005F6D8C, 0x60606080);
+        Text_DrawId(0x1E, 0x186, D_005F6D8C, 0x60606080);
     }
     if (ok) {
         func_003B18E0(0);
@@ -697,7 +697,7 @@ void func_003C9368(void);
 s32 func_003B1468(void);
 void func_003DEB80(s32 a);
 void func_003DBCF0(s32 a, s32 y, s32 w, s32 h, s32 z, u32 color);
-void func_003E5268(s32 x, s32 y, s32 id, u32 color);
+void Text_DrawId(s32 x, s32 y, s32 id, u32 color);
 
 void func_003B2978(s32 a, s32 pad) {
     s32 u = (pad >> 13) & 1;
@@ -745,7 +745,7 @@ void func_003B2978(s32 a, s32 pad) {
     if (func_003B1468()) {
         func_003DEB80(0);
         func_003DBCF0(0, 0x185, 0x280, 0x30, 0xFFFE, 0x18181860);
-        func_003E5268(0x1E, 0x186, D_005F6D8E / 2 + 0x18, 0x60606080);
+        Text_DrawId(0x1E, 0x186, D_005F6D8E / 2 + 0x18, 0x60606080);
     }
     func_003B18F8(pad, 0x6FF);
 }
@@ -1413,7 +1413,7 @@ void func_003B40C0(s32 pad, s32 trig, s32 hold) {
         if (it->value) {
             func_003E08D0(*it->value);
         }
-        func_003E5268(0x1E, 0x186, D_005F6D8E + 6, 0x60606080);
+        Text_DrawId(0x1E, 0x186, D_005F6D8E + 6, 0x60606080);
     }
     y = 0x5A;
     for (i = 0; (u32)i < 14; i++, y += 0x14) {

@@ -181,7 +181,7 @@ void func_003CF850(s32 cx, s32 cy, s32 r);
 extern u8 D_00884EE0[];
 extern f32 D_008D7E00[4][4];
 extern u16 D_005F5CB6;
-void func_00356710(f32 (*m)[4]);
+void Mtx_Unit(f32 (*m)[4]);
 void sceVu0RotMatrix(f32 (*m0)[4], f32 (*m1)[4], f32 *rot);
 void func_003D10D0(s32 id, void *m, f32 s);
 
@@ -2476,7 +2476,7 @@ void func_003ACB08(LtFx *e) {
             } else {
                 f32 r[4] __attribute__((aligned(16)));
 
-                func_00356710(D_008D7E00);
+                Mtx_Unit(D_008D7E00);
                 r[0] = -0.34906587f;
                 r[1] = 0.7853982f;
                 r[2] = 0.0f;

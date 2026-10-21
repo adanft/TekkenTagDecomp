@@ -94,7 +94,7 @@ references (`"sceGsSyncPath: DMA ..."`); check each one, a string can also name 
 | | |
 |---|---|
 | Compiler | Sony ee-gcc `2.9-ee-991111-01` (decomp.me archive `ee-gcc2.9-991111-01`; `cc1` SHA-1 `4af299f2cebfa6043e876b34af7f8173d99c43c7`) |
-| Flags | `-O2 -fno-strength-reduce -ffast-math -fno-strict-aliasing` (six objects without `-ffast-math`, `NO_FAST_MATH` in `configure.py`) |
+| Flags | `-O2 -fno-strength-reduce -ffast-math -fno-strict-aliasing` (nine objects without `-ffast-math`, `NO_FAST_MATH` in `configure.py`) |
 | `-G` | `-G8`, the compiler's default (see "Small data" below for the open part) |
 | Language | C (the driver's `-lang-c`; the preprocessor is built into `cc1`) |
 | Driver use | `ee-gcc ... -S` only; the project's gas assembles the output behind `include/gcc_prelude.inc` |
@@ -1485,6 +1485,65 @@ attempted. Renamed (20): `Mode_Ending` / `Mode_EnterEnding` (guess), `Credits_Up
 `Unlock_SetClearBit`, `Team_BuildRandom`, `Arcade_BuildOpponents`, `Records_InitDefault`, `Records_DrawRank`,
 `Text_PutGlyph`, `Results_DrawStageTimes`, `Results_DrawSurvival`.
 
+### Lessons from T18 batch 3 (2026-10-21)
+
+Objects and data:
+
+- **The `theater` range is four objects by data order** [I edges]: `.rodata` runs `theater_d` (0x521CE0), `scene3d_c` /
+  `scene3d_d` / `draw_list`'s tables, `theater_b` (the music player, 0x522048), `theater_c` (one jump table, 0x5221C0),
+  `theater` (0x5221E0), then `demo`, `geometry`, `vu1_packet`, `menu_bg`, `gallery_jpeg`, `tekken_bowl`; `.data` and
+  `.sbss` agree. A jump table makes an object's `.rodata` 16-aligned (`.align 4`, checked with a test compile), so the
+  music player (0x522048, 8-aligned) cannot own `jtbl_005221C0`: `func_003564C8` starts another object. Strings read only
+  by `.data` tables (track and ending names) belong to the object whose `.data` points at them.
+- **`.balign` in `RODATA_ALIGN8()` does raise the section alignment**: `src/theater_d.c` starts with it so its `.rodata`
+  lands at 0x521CE0, after the 4 padding bytes behind `model_anim_b`'s 0x15C-byte `.rodata` (without it the object was
+  placed at 0x521CDC).
+- **splat writes the VU0 `Q` register bare** (`vdiv Q, $vf0w, $vf13w`, `vmulq.xyz $vf18, $vf13, Q`) in function files,
+  which gas refuses: `fix_split_asm` now writes `$Q` like `$ACC` (anywhere in the operand list of a VU0 instruction).
+- **Two splat "functions" were compiler epilogues**: `Mtx_Unit` / `Mtx_Zero` are inline assembly ending in their own `jr
+  $31`; the compiler's `jr ra / nop` after each asm block became the labels 0x356738 and 0x356754 (not 8-aligned). The C
+  file reproduces the bytes with no `INCLUDE_ASM` for them; the game count went from 2815 to 2813.
+- **Three more objects without `-ffast-math`** (`NO_FAST_MATH`): `menu_bg.c` (`func_003E45E0` keeps `neg.s` + `add.s`),
+  `gallery_jpeg.c` (`Jpeg_Idct` keeps `coef * c * cv`), `tekken_bowl.c` (`x + 0.0f` / `x - 0.0f` kept in `func_003EF3A8`
+  and `Bowl_PinHomePos`); every function that already matched still does.
+- Tables read by several functions must be included in front of the first jump table the C emits, or the table lands
+  at the wrong `.rodata` offset; a draft's jump-table `INCLUDE_RODATA` and its `LIT4_WORD` lines go in the draft's
+  `#else`, with the data around them moved outside the `#if` so the order holds.
+- A non-small-data global of 8 bytes or less (`.bss`, `.data`) declared as a scalar is reached through `$gp` and the link
+  fails (`R_MIPS_GPREL16` / "small-data section exceeds 64KB"): declare it `[]`; `D_005F5CB0` (`.sdata`) must be `u16[2]`.
+
+Code shapes:
+
+- `s32 r = f(); return r;` keeps `jal` + epilogue; `return f();`, a void call or an `int` function with no `return` give
+  the tail `j` (`Jpeg_EncodedSize`, `Jpeg_EncodeEnd`, `Jpeg_EncodeBegin`; `Text_DrawId` is `s32` with no `return`).
+- A separate `x *= 2;` keeps a constant multiplication from folding into the next one (`Jpeg_Cos`, `Jpeg_RgbToYcc`).
+- A chained store `a = b = c = d = 0.0f` is emitted a, d, c, b (`func_003EBB80`); `a = b = x` stores `b` first.
+- A global float updated in place (`D += v`) kept the original FPU registers where a local copy did not (`Bowl_DrawMissFoul`).
+- GS packet builders match as flat `*p++ = (u64)...` with the OR terms in GS field order (BITBLTBUF: SBW, SPSM, DBP,
+  DBW, DPSM); stores of a +-r cube in ascending offset order give the original's scheduled order (`func_003E13C8`).
+- libvu0-style VU0 code matches as C calls between separate `__asm__ volatile` blocks (vf4-vf7 survive the calls,
+  `func_003E9038`); a leaf VU0 routine as one asm block, gas filling the `jr` slot (`func_003E92C0`).
+- Bit readers / writers with tail recursion match as real recursion (`func_003E8D18`).
+
+Tools:
+
+- m2c: `.venv/bin/python -m m2c.main -t mipsee-gcc-c` (the EE target; `mips-gcc-c` loses float arguments), with
+  `--context` on the preprocessed file and `--valid-syntax`; its output compiles once `M2C_FIELD` / `M2C_UNK` /
+  `M2C_BITWISE` are defined per draft block (`M2C_BITWISE` through an `s32` cast, else a float to `s64` conversion needs
+  the missing `__fixsfdi`), float arguments are reordered by hand, inlined `.rodata` strings are mapped back to their `D_`
+  symbols, and scalar globals become arrays.
+- Three helpers in full repository copies under `~/.cache` (one per file group, two rounds each: matching, then compiling
+  drafts of the rest); the parent copied the files in and confirmed with the clean rebuild and fdiff. decomp-permuter on
+  `Jpeg_RgbToYcc` (2 lines) found nothing below its base in 15 minutes.
+
+Matched (188): 51 in the theater files and `demo.c`, 15 in `menu_bg.c`, 24 in `gallery_jpeg.c`, 98 in `tekken_bowl.c`.
+Not matched: the drafts of [systems/modes.md](systems/modes.md) section 20, `func_003CA470` among them; nothing is left
+unattempted in the T18 files. Renamed (67): `Mode_EnterTheater`, `Mode_EnterMusicPlayer`, `Theater_OpenMusicPlayer`,
+`Mtx_Unit`, `Mtx_Zero`, `PracFont_*` (3), `Prac_DrawCongratulations`, `Prac_DrawDemoPrompt`, `Gfx_BuildImageUpload`,
+`Gfx_DrawLine` / `Rect` / `Triangle`, `Text_Get` / `Width` / `LineCount` / `DrawId`, `Fade_DrawScreen`,
+`Menu_DrawCursorBar`, `Gallery_DrawList`, `Gallery_Enter`, `Jpeg_*` (22), `Bowl_*` (17), `Pause_BowlTop5`,
+`Pause_BowlOptions`, `Bs_*` (4, guess).
+
 ## Decompiled so far
 
 | File | Range | C / functions | Notes |
@@ -1531,8 +1590,17 @@ attempted. Renamed (20): `Mode_Ending` / `Mode_EnterEnding` (guess), `Credits_Up
 | `src/options.c` | 0x3B1478-0x3B4D50 | 27 / 38 | `Mode_Options` and its pages ([systems/modes.md](systems/modes.md) section 10); `.rodata` 0x51DEF0-0x51E580 |
 | `src/pause_results.c` | 0x3B4D50-0x3B90C0 | 65 / 74 | `Mode_Results`, `Pause_Update`, partner swaps between rounds, start positions (sections 8-9); `.rodata` 0x51E580-0x51E970 |
 | `src/select_results_b.c` | 0x3C3150-0x3CD298 | 82 / 117 | `Mode_CharSelect`, results screens, records block, `Text_Printf`, name entry (sections 7-8); `.rodata` 0x51F6C0-0x520648, `.lit4` 0x5F535C-0x5F5364 |
+| `src/theater.c` | 0x3543F0-0x355D30 | 7 / 10 | mode 12 `Mode_EnterTheater` and mode 13 `Mode_Theater` (endings, movies, music player) ([systems/modes.md](systems/modes.md) section 15); `.rodata` 0x5221E0-0x522B90 |
+| `src/theater_b.c` | 0x355D30-0x3564C8 | 1 / 2 | modes 14-15, the music player; `.rodata` 0x522048-0x5221C0 |
+| `src/theater_c.c` | 0x3564C8-0x3567A8 | 5 / 5 | fighter skeleton matrices, `Mtx_Unit` / `Mtx_Zero` (inline asm), vector helpers; `.rodata` 0x5221C0-0x5221E0 |
+| `src/theater_d.c` | 0x3567A8-0x356A70 | 4 / 5 | GIF / VIF1 blocks through the scratchpad, DMA chain relocation, stage byte tables; `.rodata` 0x521CE0-0x521E20 |
+| `src/demo.c` | 0x3DC9C8-0x3E1C68 | 34 / 51 | the practice command list and move demonstration (not the attract demo), shared 2D line / rect / triangle helpers (section 16); `.rodata` 0x522B90-0x522DE0, `.lit4` 0x5F5710-0x5F573C |
+| `src/menu_bg.c` | 0x3E1C68-0x3E55C8 | 15 / 21 | the Tekken Bowl aiming HUD, text table helpers, screen fade, cursor bar (section 18); `.rodata` 0x522FC0-0x5233F0, `.lit4` 0x5F5804-0x5F58DC; built without `-ffast-math` |
+| `src/gallery_jpeg.c` | 0x3E55C8-0x3E8AD8 | 24 / 32 | `Mode_Gallery`, the baseline JPEG encoder / decoder (`Jpeg_*`), a stage particle effect (section 18); `.rodata` 0x5233F0-0x523570, `.lit4` 0x5F58DC-0x5F596C; built without `-ffast-math` |
+| `src/tekken_bowl.c` | 0x3E8AD8-0x3F3320 | 98 / 136 | Tekken Bowl (game type 8): pins, scoring, results texts, top 5, pause sub-screens, a bit stream, VU0 helpers (section 17); `.rodata` 0x523570-0x523FA0, `.lit4` 0x5F596C-0x5F5BCC; built without `-ffast-math` |
 
 Functions left as `INCLUDE_ASM` carry their closest attempt above them in `#if 0` with a `NON_MATCHING:` note; in
 `fighter_core.c`, `battle_flow.c` and `fight_misc.c` every remaining function has one (T14 b9); in `stage.c` every
 remaining function has one that compiles when enabled (T15 b2), as in `skeleton.c` and `motion.c` (T16 b1) and the T17 files (`hud.c`, `scene3d*.c`, `effects.c`, `effects_draw.c`, `model_anim.c`, `model_anim_b.c`, `render_fighter_a.c`, `render_fighter_b.c`, `vu1_packet.c`, `draw_list.c`, `font_tex.c`, `dma_gif.c`, `sprite2d.c`) and the T18 files (`battle_mode.c`, `modes.c`, `modes_b.c`, `loading_title.c`, `menu_common.c`, `options.c`,
-`pause_results.c`, `select_results.c`, `select_results_b.c`; only `func_003CA470` has no draft yet).
+`pause_results.c`, `select_results.c`, `select_results_b.c`, and the batch 3 files `theater*.c`, `demo.c`, `menu_bg.c`,
+`gallery_jpeg.c`, `tekken_bowl.c`): every function of the T18 files has C.

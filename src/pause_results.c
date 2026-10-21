@@ -1515,12 +1515,12 @@ s32 func_003B0340(void);
 s32 func_003B1468(void);
 void func_003DEB80(s32 a);
 void func_003DBCF0(s32 a, s32 y, s32 w, s32 h, s32 z, u32 color);
-void func_003E5268(s32 x, s32 y, s32 id, u32 color);
+void Text_DrawId(s32 x, s32 y, s32 id, u32 color);
 void func_0035A518(void);
 void func_003B4938(s32 pad, s32 trig);
 s32 Options_ControllerSetup(void);
-s32 func_003F3118(s16 trig);
-s32 func_003F1CB8(s16 held, s16 trig);
+s32 Pause_BowlTop5(s16 trig);
+s32 Pause_BowlOptions(s16 held, s16 trig);
 void func_003BB890(s32 a, s32 x, s32 y, s32 b);
 void *memset(void *p, s32 c, u32 n);
 
@@ -1671,7 +1671,7 @@ void Pause_Update(void) {
             if (func_003B1468()) {
                 func_003DEB80(0);
                 func_003DBCF0(0, 0x185, 0x280, 0x30, 0xFFFE, 0x18181860);
-                func_003E5268(0x1E, 0x186, D_005F6DE0 + 0x1F, 0x60606080);
+                Text_DrawId(0x1E, 0x186, D_005F6DE0 + 0x1F, 0x60606080);
             }
             y = 0xB4;
             p = lab.s;
@@ -1738,14 +1738,14 @@ void Pause_Update(void) {
                     if (func_003B1468()) {
                         func_003DEB80(0);
                         func_003DBCF0(0, 0x185, 0x280, 0x30, 0xFFFE, 0x18181860);
-                        func_003E5268(0x1E, 0x186, 0x27, 0x60606080);
+                        Text_DrawId(0x1E, 0x186, 0x27, 0x60606080);
                     }
                 } else {
                     Text_Printf(D_0051E800, 10, 4, 0x10E, 0xE6, 0x13);
                     if (func_003B1468()) {
                         func_003DEB80(0);
                         func_003DBCF0(0, 0x185, 0x280, 0x30, 0xFFFE, 0x18181860);
-                        func_003E5268(0x1E, 0x186, 0x28, 0x60606080);
+                        Text_DrawId(0x1E, 0x186, 0x28, 0x60606080);
                     }
                 }
                 Text_Printf(D_0051E818, 0x102, 0xFA, 10, 4, D_005F6DE4 == 1 ? 0xB : 0x16, D_005F6DE4 == 0 ? 0xB : 0x16);
@@ -1776,12 +1776,12 @@ void Pause_Update(void) {
             }
         }
         if (D_005F6DE6 & 0x20) {
-            if (func_003F3118(trig)) {
+            if (Pause_BowlTop5(trig)) {
                 snd.move |= 1;
                 D_005F6DE6 &= ~0x20;
             }
         } else if (D_005F6DE6 & 0x40) {
-            if (func_003F1CB8(held, trig)) {
+            if (Pause_BowlOptions(held, trig)) {
                 snd.move |= 1;
                 D_005F6DE6 &= ~0x40;
             }

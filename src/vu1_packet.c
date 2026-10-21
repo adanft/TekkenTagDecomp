@@ -67,7 +67,7 @@ void sceVu0MulMatrix(Vu0Matrix m0, Vu0Matrix m1, Vu0Matrix m2);
 void sceVu0ScaleVectorXYZ(f32 *out, f32 *in, f32 s);
 void func_00353C88(s32 i, f32 *out);
 void func_0034A5D0(Vu0Matrix m, f32 *v);
-void func_00356710(Vu0Matrix m);
+void Mtx_Unit(Vu0Matrix m);
 void func_00341B70(void *files, DrawObj *o, Vu0Matrix m);
 void *memset(void *d, s32 c, s32 n);
 void sceVu0RotMatrixZ(Vu0Matrix m0, Vu0Matrix m1, f32 rz);
@@ -160,7 +160,7 @@ void func_003422C0(Unk3422C0 *f, void *files, DrawObj *o) {
     Vu0Matrix m;
     Vu0Matrix t;
 
-    func_00356710(t);
+    Mtx_Unit(t);
     t[3][0] = o->pos[0] - f->pos[0];
     t[3][1] = o->pos[1] - f->pos[1];
     t[3][2] = o->pos[2] - f->pos[2];
@@ -245,12 +245,12 @@ void func_003424A8(Unk3422C0 *f, f32 (*off)[4]) {
     m[3][3] = 1.0f;
     m[3][0] = 2048.0f;
     m[3][2] = 0.0f;
-    func_00356710(t);
+    Mtx_Unit(t);
     t[3][0] = -f->pos[0] + (*off)[0];
     t[3][1] = -f->pos[1] + (*off)[1];
     t[3][2] = -f->pos[2] + (*off)[2];
     sceVu0MulMatrix(m, m, t);
-    func_00356710(r);
+    Mtx_Unit(r);
     sceVu0RotMatrixZ(r, r, -2.6179938f);
     sceVif1PkInit(&pk, spr);
     Dma_Wait((volatile u32 *)0x1000D400);
@@ -383,11 +383,11 @@ void func_00342A38(Unk3422C0 *f) {
     z = D_00433440[10] + D_00433440[14] / d;
     sz = mdl->unk14[0];
     func_00353C88(f->unk1E, l);
-    func_00356710(m);
+    Mtx_Unit(m);
     m[1][1] = -m[1][1];
     sceVu0MulMatrix(m, D_00433400, m);
     sceVu0MulMatrix(m, D_00433480, m);
-    func_00356710(r);
+    Mtx_Unit(r);
     sceVu0RotMatrixZ(r, r, -2.6179938f);
     sceVif1PkInit(&pk, spr);
     Dma_Wait((volatile u32 *)0x1000D400);

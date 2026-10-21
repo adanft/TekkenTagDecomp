@@ -3,3 +3,27 @@
 // range: 0x003E55C8 0x003E8AD8
 
 Mode_Gallery = 0x003E5A98; // type:func // guess
+Gallery_DrawList = 0x003E55C8; // type:func
+Gallery_Enter = 0x003E5910; // type:func
+Jpeg_WriteHeader = 0x003E74F8; // type:func
+Jpeg_WriteEoi = 0x003E77C0; // type:func
+Jpeg_RgbToYcc = 0x003E77E0; // type:func
+Jpeg_Cos = 0x003E7A40; // type:func
+Jpeg_Fdct = 0x003E7AD0; // type:func
+Jpeg_EncodeBlock = 0x003E7C90; // type:func
+Jpeg_EncodeMcu = 0x003E7F58; // type:func
+Jpeg_EncodeRow = 0x003E7FE0; // type:func
+Jpeg_EncodeBegin = 0x003E8050; // type:func
+Jpeg_EncodeEnd = 0x003E8098; // type:func
+Jpeg_EncodedSize = 0x003E80C0; // type:func
+Jpeg_SkipHeader = 0x003E80E0; // type:func
+Jpeg_CheckEoi = 0x003E80E8; // type:func
+Jpeg_HuffDecode = 0x003E8120; // type:func
+Jpeg_DecodeBlock = 0x003E81F0; // type:func
+Jpeg_Idct = 0x003E8440; // type:func
+Jpeg_DecodeMcu = 0x003E85F8; // type:func
+Jpeg_ClampByte = 0x003E8678; // type:func
+Jpeg_YccToRgb = 0x003E86C0; // type:func
+Jpeg_DecodeStrip = 0x003E8980; // type:func
+Jpeg_DecodeBegin = 0x003E8A18; // type:func
+Jpeg_DecodeEnd = 0x003E8A90; // type:func
