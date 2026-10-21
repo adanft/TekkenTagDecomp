@@ -409,7 +409,8 @@ typedef struct {
     /* 0x051C */ s32 unk51C;
     /* 0x0520 */ s32 unk520;
     /* 0x0524 */ s32 unk524;
-    /* 0x0528 */ u8 pad528[0xFC];
+    /* 0x0528 */ u8 pad528[0xF8];
+    /* 0x0620 */ f32 unk620;                  /* screen depth of the fighter [I] (Model_Render) */
     /* 0x0624 */ s16 unk624;
     /* 0x0626 */ s16 unk626;                  /* returned by the projection of joint 11 (Skel_ProjectJoints) */
     /* 0x0628 */ s16 unk628;                  /* tested against 0x100 / 0x214 / -0x14 (Cmd_CheckSituation, kind 0x5C) */

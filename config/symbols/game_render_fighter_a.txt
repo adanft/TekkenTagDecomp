@@ -1,3 +1,7 @@
 // Game module render_fighter_a (docs/game_overview.md section 4; the range is provisional).
 // Naming rules: docs/decomp_guide.md, "Naming".
 // range: 0x00340000 0x003420C8
+Model_Draw = 0x00341B28; // type:func
+Model_Render = 0x00341DC8; // type:func
+Model_SendParts = 0x00341CD0; // type:func
+Model_SendMatrices = 0x00341BF0; // type:func

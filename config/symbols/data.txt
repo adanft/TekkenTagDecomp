@@ -103,6 +103,9 @@ D_004FC0B0 = 0x004FC0B0; // size:0x10 force_not_migration:True
 D_004FC220 = 0x004FC220; // size:0x10 force_not_migration:True
 D_004FC230 = 0x004FC230; // size:0x10 force_not_migration:True
 D_004FC240 = 0x004FC240; // size:0x10 force_not_migration:True
+// .rodata of the font_tex object (0x4FC280-0x4FC610): the YES / NO format string, three jump tables, then the GS
+// register template of Gfx_PkAddImage, included in place from src/font_tex.c.
+D_004FC350 = 0x004FC350; // size:0x2C0 force_not_migration:True
 // .rodata of the motion object (0x4FC610-0x4FC630): the jump table of func_00363D00, included in place from src/motion.c.
 jtbl_004FC610 = 0x004FC610; // size:0x20 force_not_migration:True
 D_0051EAF0 = 0x0051EAF0; // size:0x10 force_not_migration:True

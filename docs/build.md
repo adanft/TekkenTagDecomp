@@ -58,6 +58,12 @@ Each C file is built in four steps, because the 1999 compiler driver cannot run 
 
 Steps 2 and 4 run code of `configure.py`, so every C object depends on it.
 
+`scripts/permute.py` writes the same steps 1-3 into the `compile.sh` of decomp-permuter (`permuter/<Func>/`): the file's
+own flags (`configure.cc_flags`, so no `-ffast-math` for the `NO_FAST_MATH` files) and `-G` value, then
+`configure.py --fix-asm`, then `as` behind the prelude, so a candidate compiles exactly as the build compiles the file
+(`tests/test_permute.py` runs the generated script with stand-ins for the compiler and the assembler). Step 4 does not
+change the code bytes the permuter scores.
+
 Why these choices: [decomp_guide.md](decomp_guide.md).
 
 ## Why the whole file is split

@@ -1,3 +1,4 @@
 // Game module font_tex (docs/game_overview.md section 4; the range is provisional).
 // Naming rules: docs/decomp_guide.md, "Naming".
 // range: 0x003608B8 0x003621F8
+Gfx_PkAddImage = 0x00361B88; // type:func

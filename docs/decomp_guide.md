@@ -1240,11 +1240,82 @@ Not matched: `func_00392F80` (14 lines), `func_003932F0` (39), `func_00393550` (
 were measured again with fdiff, one draft at a time (enabling all drafts of a file at once moves the `$gp` offsets);
 earlier counts came from the helpers' scratch comparator.
 
+### Lessons from T17 batch 5 (2026-10-21)
+
+Tools:
+
+- **`scripts/permute.py` compiles like the build**: its `compile.sh` takes `configure.cc_flags(src)` (no `-ffast-math`
+  for the `NO_FAST_MATH` files) and runs `configure.py --fix-asm` between the compiler and `as`
+  (`tests/test_permute.py` runs the generated script with stand-ins: RED with 2 failures, then GREEN). Its first run
+  matched `func_00360E88` (16 lines off) in 30 seconds; the same shape (`e = err;` before the last two tests, a return
+  through `e`, both marked fake) then matched `func_00360DE0` and `func_00360E38`.
+- The session scratchpad under `/tmp` was emptied by a reboot in the middle of the batch (the helpers' scratch files and
+  part of a C file went with it). Drafts were then kept in the repository's C files from the start (`#if 0` above the
+  `INCLUDE_ASM`, checked one by one with a comparator that enables a single draft in a copy of the file), so a lost
+  scratchpad costs nothing.
+- A script that rewrites a draft block must match only blocks that contain no other `#if 0`: a non-greedy
+  `#if 0 ... INCLUDE_ASM(f)` pattern spans every earlier block and deleted eight functions once.
+
+Objects and data:
+
+- **Pool order inside one object again** (`vu1_packet`, 0x5F57EC-0x5F5804): the words of the last function
+  (`func_00342E38`) come first, then those of `func_003424A8`, `func_00342818`, `func_00342A38` and the first function
+  `func_003420C8`. With `func_00342E38` in C, its two literals are emitted by the compiler and the other words follow as
+  `LIT4_WORD` lines at the end of the file; a C function whose word must come later cannot use a literal, and reading the
+  word by name from C (`extern f32 D_005F5800;`, defined by a later `LIT4_WORD` in the same file) crashes gas
+  ("Internal error in nopic_need_relax"), so `func_003420C8` stays assembly although every instruction matches.
+- In `render_fighter_a` the pool is in text order (0x5F5378-0x5F539C): `LIT4_WORD` lines in front of the assembly
+  functions and the C literal of `func_00340408` in between give the original bytes.
+- **The object before crt0 ends with padding**: `_start` (0x3572A0) is 16-aligned, and the three `nop`s after
+  `func_00357258` belong to that alignment; `src/draw_list.c` ends with `.balign 16` in the text section (without it
+  every later address moved by 8).
+- A table read by one function that splat does not migrate into the function's `.s` (`D_004FC350`, read by
+  `Gfx_PkAddImage`) is undefined at link time once the object has a `.rodata` subsegment: it needs
+  `force_not_migration:True` and an `INCLUDE_RODATA` (with `RODATA_ALIGN16()` after a C jump table).
+- New `INCLUDE_ASM` lines (a function moved back to assembly) need `configure.py --split` before ninja finds the `.s`.
+
+Code shapes:
+
+- **Prototypes of drafts**: a function whose draft is in `#if 0` has no prototype unless one is written; an implicit
+  `int f()` made the compiler treat `v0` as set by the call and moved a later value from `v0` to `v1`
+  (`func_00361978`, matched in the scratch file, 5 lines off in the build). Declare every draft's prototype.
+- Parameters narrower than `int` show as masks at the function entry (`andi a1, 0xFFFF` for a `u16`), not at the use
+  (`Gfx_PkAddImage`); a 64-bit GS field built from an `s32` has `dsll32` only, from a `u32` `dsll32` / `dsrl32`.
+- `sceVif1Packet` takes 0x20 bytes of stack (`pBase` at +4 is what `func_00343178` gets); a 0x10-byte declaration moved
+  every stack offset by 0x10.
+- Inner `switch` on a three-way result keeps the original `beqzl` store (`func_00361710`); `if / else if` gave a branch
+  and a fall-through. Card-status bits tested in several states are best written inline (`st & 0x8000` in each case),
+  the compiler places the copies where the original has them.
+- Struct copies of 8-byte `{f32, s32}` records with 4-byte alignment are `ldl / ldr / sdl / sdr` (`func_00340BF0`, the
+  merge sort); its comparison matched only as `tmp[j].key >= keys[i].key` (operand order sets the load order).
+- A value stored and kept (`*out = sum / n; d = *out;`) gave the original `div.s` into `$f0` then `mov.s`
+  (`func_00340408`).
+
+Assembler (open): the original keeps a `li.s` load from `.lit4` in front of a `jal` with a `nop` in the delay slot
+(`Model_Render`), where gas moves it into the slot; elsewhere such loads do sit in delay slots. Likely the old gas's
+relaxable gp-relative frag for `li.s` (it does not swap an instruction from a variant frag) [I]; a `--fix-asm` rule
+needs more cases before it can be written.
+
+Matched (57): `func_003608B8`, `func_00360A08`, `func_00360A30`, `func_00360C98`, `func_00360CA0`, `func_00360D48`,
+`func_00360D50`, `func_00360DE0`, `func_00360E38`, `func_00360E88`, `func_00360EE0`, `func_00360F28`, `func_00361678`,
+`func_003616C8`, `func_003616F8`, `func_00361710`, `func_00361968`, `func_00361978`, `func_00361AA8`, `func_00361B18`,
+`func_00361B28`, `func_00361B58`, `Gfx_PkAddImage`, `func_00361D50`, `func_00361D70` (font_tex, 25); `func_00356A70`,
+`func_00356D78`, `func_00356E00`, `func_00356E20`, `func_00356E38`, `func_00356E50`, `func_00356EE8`, `func_00356F68`,
+`func_00357028`, `func_00357128`, `func_00357230`, `func_00357258` (draw_list, 12); `Model_Draw`, `Model_SendMatrices`,
+`Model_SendParts`, `func_00341F68` (render_fighter_b, 4); `func_00342128`, `func_003421D8`, `func_003422C0`,
+`func_00342360`, `func_00342390`, `func_00342400`, `func_00342988`, `func_00342E38` (vu1_packet, 8); `func_00340398`,
+`func_003403B8`, `func_003403F8`, `func_00340408`, `func_00340528`, `func_00340BF0`, `func_00340DF8`, `func_00341AE8`
+(render_fighter_a, 8). Not matched (drafts) and not attempted: render.md section 9.
+
 ## Decompiled so far
 
 | File | Range | C / functions | Notes |
 |---|---|---:|---|
-| `src/340000.c` | 0x340000-0x340B30 | 2 / 11 | `func_00340000`, `func_00340AF0` |
+| `src/render_fighter_a.c` | 0x340000-0x341B28 | 10 / 18 | the stage renderer (module `render_fighter_a`, formerly `src/340000.c`): stage scene, depth merge sort, level of detail, per-frame scene update `func_00341AE8` ([systems/render.md](systems/render.md) section 12); `.lit4` 0x5F5378-0x5F539C |
+| `src/render_fighter_b.c` | 0x341B28-0x3420C8 | 4 / 6 | the VU1 model renderer: `Model_Draw`, `Model_Render`, `Model_SendMatrices`, `Model_SendParts` (section 12.3) |
+| `src/vu1_packet.c` | 0x3420C8-0x342E78 | 8 / 12 | fighter shadows and fixed VIF1 / DIRECT packets (section 12.1); `.lit4` 0x5F57EC-0x5F5804 out of text order |
+| `src/draw_list.c` | 0x356A70-0x3572A0 | 12 / 15 | model bank relocation and GS image uploads (section 12.4); ends with the padding before crt0 |
+| `src/font_tex.c` | 0x3608B8-0x3621F8 | 25 / 30 | memory card screens and the GS image upload `Gfx_PkAddImage` (section 13); `.rodata` 0x4FC280-0x4FC610 |
 | `src/main.c` | 0x357358-0x358A38 | 34 / 40 | boot, main loop, frame phases, mode dispatch, input state |
 | `src/rng_misc.c` | 0x35C2B0-0x35D048 | 45 / 47 | RNG, string and table helpers, play counters |
 | `src/pad.c` | 0x396D00-0x397948 | 10 / 11 | libpad/libmtap set-up sequence, per-player input |
@@ -1276,4 +1347,4 @@ earlier counts came from the helpers' scratch comparator.
 
 Functions left as `INCLUDE_ASM` carry their closest attempt above them in `#if 0` with a `NON_MATCHING:` note; in
 `fighter_core.c`, `battle_flow.c` and `fight_misc.c` every remaining function has one (T14 b9); in `stage.c` every
-remaining function has one that compiles when enabled (T15 b2), as in `skeleton.c` and `motion.c` (T16 b1) and the T17 files (`hud.c`, `scene3d*.c`, `effects.c`, `effects_draw.c`, `model_anim.c`, `model_anim_b.c`).
+remaining function has one that compiles when enabled (T15 b2), as in `skeleton.c` and `motion.c` (T16 b1) and the T17 files (`hud.c`, `scene3d*.c`, `effects.c`, `effects_draw.c`, `model_anim.c`, `model_anim_b.c`, `render_fighter_a.c`, `render_fighter_b.c`, `vu1_packet.c`, `draw_list.c`, `font_tex.c`).

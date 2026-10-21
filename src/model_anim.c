@@ -282,7 +282,7 @@ void sceVu0RotMatrixY(Vu0Matrix m0, Vu0Matrix m1, f32 ry);
 void sceVu0RotMatrixZ(Vu0Matrix m0, Vu0Matrix m1, f32 rz);
 void sceVu0DivVectorXYZ(f32 *out, f32 *in, f32 q);
 
-void func_00341B28(ModelRes *res, DrawObj *obj, void *lights, s32 kind);
+void Model_Draw(ModelRes *res, DrawObj *obj, void *lights, s32 kind);
 void func_00342F98(f32 v);
 f32 func_00342FA0(void);
 void func_00353D68(Vu0Matrix *out);
@@ -680,7 +680,7 @@ void func_003D1160(ModelNode *n, Vu0Matrix m, f32 scale) {
 }
 
 /* Per frame (main loop, opaque lists 0-1 with a = 0, then lists 2-3 with a = 1): sorts lists 1 and 3 by depth, sends
- * every queued draw to the renderer (func_00341B28) and empties the lists. */
+ * every queued draw to the renderer (Model_Draw) and empties the lists. */
 void Model_FlushDrawLists(s32 a) {
     Vu0Matrix lights[2];
     s32 start;
@@ -725,9 +725,9 @@ void Model_FlushDrawLists(s32 a) {
             func_00342F98(o->scale);
             kind = D_00444C60[o->ctx.unk140];
             if (kind == 3) {
-                func_00341B28(o->res, o, o->ctx.m3, 3);
+                Model_Draw(o->res, o, o->ctx.m3, 3);
             } else {
-                func_00341B28(o->res, o, lights, kind);
+                Model_Draw(o->res, o, lights, kind);
             }
         }
     }

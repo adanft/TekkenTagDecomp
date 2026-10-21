@@ -3,6 +3,7 @@
 import importlib.util
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -97,6 +98,58 @@ Disassembly of section .text:
         out = self.filter("func_00100018")
         self.assertTrue(out.startswith("00000018 <func_00100018>:\n"), out)
         self.assertNotIn("sp,sp", out)
+
+
+class CompileScript(unittest.TestCase):
+    """compile.sh compiles like the build's cc rule: the file's own flags (configure.cc_flags, without -ffast-math for
+    the files in NO_FAST_MATH) and the configure.py --fix-asm rewrite between the compiler and the assembler. The
+    generated script runs with stand-ins for the compiler (records its arguments, writes a fixed .s) and the assembler
+    (copies its input .s to the output)."""
+
+    ASM = "\t.text\n\tli.s\t$f0,2048.0\n"
+
+    def run_compile_sh(self, src):
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: subprocess.run(["rm", "-rf", str(tmp)]))
+        log = tmp / "cc.args"
+        (tmp / "asm.txt").write_text(self.ASM)
+        cc = tmp / "cc"
+        cc.write_text(f'#!/bin/bash\nprintf "%s\\n" "$@" > {shlex.quote(str(log))}\n'
+                      'while [ $# -gt 0 ]; do [ "$1" = -o ] && out="$2"; shift; done\n'
+                      f'cp {shlex.quote(str(tmp / "asm.txt"))} "$out"\n')
+        as_ = tmp / "as"
+        as_.write_text('#!/bin/bash\nwhile [ $# -gt 0 ]; do if [ "$1" = -o ]; then out="$2"; shift; else prev="$1"; fi;'
+                       ' shift; done\ncp "$prev" "$out"\n')
+        cc.chmod(0o755)
+        as_.chmod(0o755)
+        script = permute.compile_sh(src)
+        for real, stub in ((permute.ROOT / permute.configure.CC, cc), (permute.AS, as_)):
+            self.assertIn(shlex.quote(str(real)), script)
+            script = script.replace(shlex.quote(str(real)), shlex.quote(str(stub)))
+        (tmp / "compile.sh").write_text(script)
+        (tmp / "in.c").write_text("int x;\n")
+        subprocess.run(["bash", str(tmp / "compile.sh"), str(tmp / "in.c"), "-o", str(tmp / "out.o")], check=True,
+                       capture_output=True, text=True)
+        return log.read_text().split("\n"), (tmp / "out.o").read_text()
+
+    def test_fast_math_file_keeps_the_flag(self):
+        args, _ = self.run_compile_sh("src/main.c")
+        self.assertNotIn("src/main.c", permute.configure.NO_FAST_MATH)
+        self.assertIn("-ffast-math", args)
+
+    def test_no_fast_math_file_drops_the_flag(self):
+        src = permute.configure.NO_FAST_MATH[0]
+        args, _ = self.run_compile_sh(src)
+        self.assertNotIn("-ffast-math", args)
+        for flag in permute.configure.cc_flags(src).split():
+            if not flag.startswith("-I"):
+                self.assertIn(flag, args)
+
+    def test_fix_asm_runs_before_the_assembler(self):
+        _, out = self.run_compile_sh("src/main.c")
+        self.assertEqual(out, permute.configure.fix_compiler_asm(self.ASM))
+        self.assertIn("lui\t$1,0x4500", out)
+        self.assertNotIn("li.s", out)
 
 
 class DefaultJobs(unittest.TestCase):

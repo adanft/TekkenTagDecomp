@@ -772,7 +772,7 @@ void sceVif1PkCloseGifTag(Vif1Packet *pk);
 void sceVif1PkCloseDirectCode(Vif1Packet *pk);
 void sceVif1PkTerminate(Vif1Packet *pk);
 u32 sceVif1PkSize(Vif1Packet *pk);
-void func_00361B88(Vif1Packet *pk, s32 a, s32 b, s32 c, void *data, s32 qwc, s32 w, s32 h, s32 tw, s32 th);
+void Gfx_PkAddImage(Vif1Packet *pk, s32 a, s32 b, s32 c, void *data, s32 qwc, s32 w, s32 h, s32 tw, s32 th);
 
 /* Uploads the texture and CLUT of D_008BF330 to the GS through the scratchpad, or only waits for the fromSPR
  * channel when D_008BF430 is not ready. */
@@ -795,10 +795,10 @@ void func_00344150(void) {
     data = (u8 *)blk + 0x60;
     sceVif1PkInit(&pk, Spr_Setup(1, 0));
     n = blk->unk50 & 0x7FFF;
-    func_00361B88(&pk, t->s.unk6, t->s.unk9, t->s.unk8, data, n,
+    Gfx_PkAddImage(&pk, t->s.unk6, t->s.unk9, t->s.unk8, data, n,
                   blk->unk24 & 0x7FF, (blk->unk24 & mask) >> 16, 1 << t->s.unkA, 1 << t->s.unkB);
     clut = (TexBlock *)((u8 *)blk + (n * 16 + 0x60));
-    func_00361B88(&pk, t->s.unkC, t->s.unkE, clut->unk16 & 0x3F, (u8 *)clut + 0x60, clut->unk50 & 0x7FFF,
+    Gfx_PkAddImage(&pk, t->s.unkC, t->s.unkE, clut->unk16 & 0x3F, (u8 *)clut + 0x60, clut->unk50 & 0x7FFF,
                   clut->unk24 & 0x7FF, (clut->unk24 & mask) >> 16, clut->unk30 & 0x7FF, clut->unk34 & 0x7FF);
     tag = D_00519340;
     sceVif1PkCnt(&pk, 0);
