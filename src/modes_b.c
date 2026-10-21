@@ -115,7 +115,7 @@ extern const char D_0051ED10[];
 extern const char D_0051ED28[];
 extern const char D_0051ED40[];
 
-void func_003B6388(s32 t, s32 *a, s32 *b, s32 *c);
+void Time_FramesToClock(s32 t, s32 *a, s32 *b, s32 *c);
 s32 func_003B0458(void);
 s32 Pad_CountReady(void);
 
@@ -274,7 +274,7 @@ s16 func_003B0348(void);
 void func_003B0380(s32 side);
 void func_003B0378(s32 a);
 void func_003BFE78(s32 a);
-void func_003BFBB0(void);
+void Unlock_ApplyAll(void);
 void func_003B4B18(void);
 void func_003E5910(void);
 void func_003B8900(void);
@@ -642,7 +642,7 @@ void func_003BBF00(s32 stage, s32 t, s32 x, s32 y) {
     s32 s;
     s32 c;
 
-    func_003B6388(t, &m, &s, &c);
+    Time_FramesToClock(t, &m, &s, &c);
     if (stage < 8 || (gFrameCount & 0x20)) {
         Text_Printf(D_0051ED10, 11, 0, x, y, stage);
     } else {
@@ -1457,20 +1457,20 @@ void Mode_MainMenu(void) {
                 func_003992C8(1);
                 break;
             case 11:
-                func_003BFBB0();
+                Unlock_ApplyAll();
                 gSubMode = 0;
                 gMode = 9;
                 func_003B4B18();
                 func_003992C8(1);
                 break;
             case 9:
-                func_003BFBB0();
+                Unlock_ApplyAll();
                 func_003992C8(1);
                 func_003BFE78(2);
                 gMode = 12;
                 break;
             case 10:
-                func_003BFBB0();
+                Unlock_ApplyAll();
                 func_003992C8(1);
                 gSubMode = 0;
                 gMode = 16;

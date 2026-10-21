@@ -48,7 +48,7 @@ CC = "tools/compilers/ee-gcc2.9-991111-01/bin/ee-gcc"
 CC_FLAGS = "-O2 -fno-strength-reduce -ffast-math -fno-strict-aliasing -Iinclude"
 # C files (paths) whose object was built without -ffast-math: their float code keeps `x + 0.0f`, `-x + c` and
 # divisions by constants, and sqrtf has its errno check (docs/decomp_guide.md, "Lessons from T17 batch 4").
-NO_FAST_MATH = ("src/effects.c", "src/effects_draw.c", "src/scene3d.c", "src/model_anim.c", "src/model_anim_b.c")
+NO_FAST_MATH = ("src/effects.c", "src/effects_draw.c", "src/loading_title.c", "src/scene3d.c", "src/model_anim.c", "src/model_anim_b.c")
 # o64, not eabi: with eabi the modern gas expands address macros (la, addu with an immediate) to daddiu/daddu,
 # while the game's assembler wrote addiu/addu. The code is the same either way, so the object's ABI tag is set
 # to eabi64 afterwards (configure.py --eabi64), or the linker would refuse to mix it with the split files.

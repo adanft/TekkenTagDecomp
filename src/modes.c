@@ -183,7 +183,7 @@ void func_003B07F8(void);
 void Fighter_ClearLife(s32 side);
 void func_003B7A58(void);
 void func_003645D8(s32 n);
-void func_003BFBB0(void);
+void Unlock_ApplyAll(void);
 void func_003BF810(void);
 void func_003B6218(void);
 
@@ -195,7 +195,7 @@ void func_00366A20(u64 *p, s32 n);
 void func_003616F8(void);
 s32 func_00361710(void);
 void func_003BFF38(void);
-void func_003B1488(void);
+void Options_Apply(void);
 s32 func_0035CED8(s32 id);
 void *func_003453F0(void);
 u32 func_003B8760(void);
@@ -461,7 +461,7 @@ void Mode_Boot(void) {
             break;
         }
         func_003BFF38();
-        func_003B1488();
+        Options_Apply();
         D_005F5CBC = 1;
         r->next = 2;
         r->prev = 4;
@@ -844,7 +844,7 @@ void Game_Start(u32 kind, s32 mask) {
     s->unk2C = 0;
     s->unk30 = 0;
     s->unk34 = 0;
-    func_003BFBB0();
+    Unlock_ApplyAll();
     func_003BF810();
     p = (u8 *)&D_0043B7F8.unk40;
     for (j = 0; j < 0x130; j++) {

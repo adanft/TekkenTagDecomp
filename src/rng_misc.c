@@ -64,16 +64,16 @@ void Gte_ApplyMatrixXyz(Unk436530 *a, s32 x, s32 y, s32 z, s32 *ox, s32 *oy, s32
 void Gte_SetRotMatrix(Unk436530 *a);
 void Gte_SetTransMatrix(s32 *m);
 void func_003ADA28(u8 *a, u8 *b, u32 *out);
-s32 func_003ADA68(u32 *set);
+s32 CharSet_Count(u32 *set);
 s32 func_003ADA08(u32 *set, s32 i);
 s32 func_003AE3C0(void);
 s16 func_003AD8E0(s16 x);
 void func_00366380(Fighter *o);
-void func_003AD9D8(void *set);
+void CharSet_Clear(void *set);
 void func_003AD910(void *set, s32 i);
 s32 func_003AD920(void *a, void *b);
 void func_003AD960(void *a, void *b, void *c);
-void func_003AD9A8(void *a, void *b);
+void CharSet_Copy(void *a, void *b);
 void func_00361968(void);
 s32 File_LoadSync(s32 id, u32 dest);
 s32 File_Exists(s32 id);
@@ -311,7 +311,7 @@ s32 Rng_PickRandomEntry(u8 *table) {
 
     i = 0;
     func_003ADA28(D_0043B968, table, set);
-    k = func_003ADA68(set);
+    k = CharSet_Count(set);
     pick = (Rng_SpinNext() & 0xFFF) % k;
     k = 0;
     for (; i < 0x22; i++) {
@@ -375,7 +375,7 @@ void func_0035C998(s32 character) {
     u32 set[12];
 
     if (character < 0x22) {
-        func_003AD9D8(set);
+        CharSet_Clear(set);
         func_003AD910(set, character);
         if (func_003AD920(D_0051E878, set)) {
             func_003AD960(set, D_0043B968, D_0043B968);
@@ -387,7 +387,7 @@ void func_0035CA00(s32 character) {
     u32 set[12];
 
     if (character < 0x22) {
-        func_003AD9D8(set);
+        CharSet_Clear(set);
         func_003AD910(set, character);
         if (func_003AD920(D_0051E878, set)) {
             func_003AD960(set, D_0043B990, D_0043B990);
@@ -399,7 +399,7 @@ void func_0035CA68(s32 character) {
     u32 set[12];
 
     if (character < 0x22) {
-        func_003AD9D8(set);
+        CharSet_Clear(set);
         func_003AD910(set, character);
         if (func_003AD920(D_0051E878, set) && func_003AD920(D_0043B968, set)) {
             func_003AD960(set, D_0043B9E0, D_0043B9E0);
@@ -408,14 +408,14 @@ void func_0035CA68(s32 character) {
 }
 
 void func_0035CAE0(void) {
-    func_003AD9A8(D_0051E918, D_0043B9B8);
+    CharSet_Copy(D_0051E918, D_0043B9B8);
 }
 
 void func_0035CAF8(void) {
-    func_003AD9A8(D_0051E850, D_0043B968);
-    func_003AD9A8(D_0051E850, D_0043B990);
-    func_003AD9D8(D_0043B9E0);
-    func_003AD9D8(D_0043B9B8);
+    CharSet_Copy(D_0051E850, D_0043B968);
+    CharSet_Copy(D_0051E850, D_0043B990);
+    CharSet_Clear(D_0043B9E0);
+    CharSet_Clear(D_0043B9B8);
 }
 
 /* Saturating u16 increment. */

@@ -46,7 +46,7 @@ Each C file is built in four steps, because the 1999 compiler driver cannot run 
 
 1. `ee-gcc -O2 -fno-strength-reduce -ffast-math -fno-strict-aliasing -G8 -S` (the flags are in `configure.py`; `G_FLAGS` sets
    another `-G` for a path prefix, and the files in `NO_FAST_MATH` are built without `-ffast-math`, as their objects
-   were: `effects.c`, `effects_draw.c`, `scene3d.c`, `model_anim.c`, `model_anim_b.c`);
+   were: `effects.c`, `effects_draw.c`, `scene3d.c`, `model_anim.c`, `model_anim_b.c`, `loading_title.c`);
 2. `configure.py --fix-asm` rewrites three things in the compiler's assembly where the game's assembler and the modern
    gas differ and the difference depends on the neighbouring lines (`fix_compiler_asm`): a `li.s` that gas would build
    with `lui $at / mtc1` is written out with the prelude's `mtc1`, an FPU compare right before a `bc1t` / `bc1f` that

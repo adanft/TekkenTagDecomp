@@ -1,3 +1,9 @@
 // Game module loading_title (docs/game_overview.md section 4; the range is provisional).
 // Naming rules: docs/decomp_guide.md, "Naming".
 // range: 0x003A9678 0x003ADFA8
+Mode_Ending = 0x003ABBD0; // type:func // guess
+Mode_EnterEnding = 0x003ABDA0; // type:func // guess
+CharSet_Copy = 0x003AD9A8; // type:func
+CharSet_Clear = 0x003AD9D8; // type:func
+CharSet_Count = 0x003ADA68; // type:func
+Credits_Update = 0x003AC018; // type:func

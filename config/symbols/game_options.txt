@@ -8,3 +8,5 @@ Mode_Options = 0x003B4B20; // type:func // guess
 // this range, maybe a file of their own [I].
 Rng_GetSeed = 0x003B4D30; // type:func // guess
 Rng_SetSeed = 0x003B4D40; // type:func // guess
+Options_Apply = 0x003B1488; // type:func
+Options_ControllerSetup = 0x003B2E08; // type:func

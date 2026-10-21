@@ -4,3 +4,5 @@
 
 // Results screen (handler of Mode_Dispatch's jump table).
 Mode_Results = 0x003B6258; // type:func // guess
+Time_FramesToClock = 0x003B6388; // type:func
+Pause_Update = 0x003B7B98; // type:func

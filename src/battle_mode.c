@@ -213,8 +213,8 @@ void func_003992C8(s32 value);
 void func_003A2758(s16 kind, HitRec *p, s32 flag, f32 f);
 void func_003A2BC0(s16 side, s16 unused, HitRec *p, s32 d);
 void func_003A6110(s16 side, s16 kind, HitRec *p);
-void func_003ABDA0(s32 a, s32 b, s32 c);
-void func_003AD9A8(void *a, void *b);
+void Mode_EnterEnding(s32 a, s32 b, s32 c);
+void CharSet_Copy(void *a, void *b);
 void func_003ADA18(s32 chr, void *buf);
 void func_003ADB20(void);
 void func_003ADB70(s32 side, s32 member, s32 n);
@@ -249,7 +249,7 @@ void func_003B6C00(GameSetup *g);
 s32 func_003B6C68(GameSetup *g);
 void func_003B7A58(void);
 void func_003B7A68(void);
-void func_003B7B98(void);
+void Pause_Update(void);
 void func_003BA4B8(s32 a);
 void func_003BA4D8(s32 side);
 void func_003BA528(s32 a);
@@ -264,8 +264,8 @@ void func_003BFCF8(void);
 void func_003BFDF8(s32 a);
 s32 func_003BFEC0(void);
 s32 func_003C0210(s32 chr, s32 c);
-void func_003C02D8(s32 a);
-void func_003C0CD0(void);
+void Arcade_BuildOpponents(s32 a);
+void Team_BuildRandom(void);
 void func_003C1240(void);
 s32 func_003C12D0(s32 a, s32 b);
 void func_003C18B8(void);
@@ -273,7 +273,7 @@ void func_003C1EC0(void);
 s32 func_003C45B0(GameSetup *g);
 void func_003C4868(void);
 void func_003C4AE0(void);
-s32 func_003C5388(s32 a);
+s32 Results_DrawSurvival(s32 a);
 void func_003C9358(s32 a);
 void func_003CA418(s32 a);
 void func_003CD030(s32 n, s32 c0, s32 k0, s32 c1, s32 k1, s32 side, s32 time);
@@ -382,7 +382,7 @@ s32 func_00358A98(s8 *p) {
 }
 void func_00358B08(GameSetup *m) {
     if (m->unkF == 0) {
-        func_003C02D8(D_005F5CB0[0] == 0);
+        Arcade_BuildOpponents(D_005F5CB0[0] == 0);
         func_003C1240();
     }
 }
@@ -406,7 +406,7 @@ void func_00358BD8(GameSetup *s, s32 side) {
     s8 chr;
     s32 c;
     s32 k;
-    func_003AD9A8(D_0043B990, buf);
+    CharSet_Copy(D_0043B990, buf);
     for (i = 0; i < s->u.t.team[side].n; i++) {
         chr = func_00358A98(buf);
         func_003ADA18(chr, buf);
@@ -476,7 +476,7 @@ void func_00358F40(GameSetup *m) {
 }
 void func_00358F60(GameSetup *m) {
     if (m->unkF == 0) {
-        func_003C02D8(D_005F5CB0[0] == 0);
+        Arcade_BuildOpponents(D_005F5CB0[0] == 0);
     }
 }
 INCLUDE_RODATA("asm/nonmatchings/battle_mode", D_004FB9C0);
@@ -607,7 +607,7 @@ void func_003596D8(GameSetup *s) {
     s32 p0, p1;
 
     D_005F5CA8[cpu] = 1;
-    func_003AD9A8(D_0043B990, avail);
+    CharSet_Copy(D_0043B990, avail);
     if ((u32)s->unk24 < 3) {
         func_003ADA18(0xE, avail);
         func_003ADA18(0x14, avail);
@@ -967,7 +967,7 @@ void Mode_Battle(void) {
         i = 0;
         if (g->unk0 == 9) {
             func_003B7A58();
-            func_003C0CD0();
+            Team_BuildRandom();
             D_005F5CB2 = 1;
             gSubMode = sub = 1;
             D_005F6678 = 1;
@@ -1182,7 +1182,7 @@ void Mode_Battle(void) {
                 break;
             }
         }
-        if (D_0043B7F8.unk0 != 7) func_003B7B98();
+        if (D_0043B7F8.unk0 != 7) Pause_Update();
         if (r < 5) break;
         if (r == 6) {
             gSubMode = sub = 0x16;
@@ -1239,7 +1239,7 @@ void Mode_Battle(void) {
             func_003ADFA8();
             if (D_005F5CF0 != 0) {
                 s32 w = (s16)g->u.a.unk40;
-                func_003ABDA0(1, D_00440940[w][0].unk0 * 8 + D_00440940[w][0].unk4, D_00440940[w][1].unk0 * 8 + D_00440940[w][1].unk4);
+                Mode_EnterEnding(1, D_00440940[w][0].unk0 * 8 + D_00440940[w][0].unk4, D_00440940[w][1].unk0 * 8 + D_00440940[w][1].unk4);
             } else {
                 gSubMode = sub = 2;
             }
@@ -1388,7 +1388,7 @@ void Mode_Battle(void) {
         gFighters[1].unk127 = 0;
         func_003ADFB0();
         Battle_UpdateFrame();
-        if (func_003C5388(g->unk20) == 1) gSubMode = sub = 0xC;
+        if (Results_DrawSurvival(g->unk20) == 1) gSubMode = sub = 0xC;
         break;
     case 20:
         Bgm_Play(2);

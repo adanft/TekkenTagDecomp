@@ -86,7 +86,7 @@ void func_00357600(void);
 void func_003585E0(void);
 void func_003BAA90(void);
 void Bgm_Stop(void);
-void func_003BFBB0(void);
+void Unlock_ApplyAll(void);
 void func_0039C110(void);
 void func_0039BBF0(s32 w, s32 h);
 void func_00398540(s32 x);
@@ -109,7 +109,7 @@ void Mode_Change(s32 mode);
 void func_003B1478(void);
 void func_0035CE38(void);
 void func_003C8A38(void);
-void func_003B1488(void);
+void Options_Apply(void);
 void func_003B7AB8(void);
 void func_003F1F58(void);
 void Spr_Setup(s32 a, s32 b);
@@ -150,7 +150,7 @@ void Mode_Battle(void);
 void Mode_CharSelect(void);
 void func_003C8A50(void);
 void Mode_NameEntry(void);
-void func_003ABBD0(void);
+void Mode_Ending(void);
 void Mode_Options(void);
 void Mode_Results(void);
 void Mode_Loading(void);
@@ -284,7 +284,7 @@ void Sys_Init(void) {
     func_003585E0();
     func_003BAA90();
     Bgm_Stop();
-    func_003BFBB0();
+    Unlock_ApplyAll();
     func_0039C110();
     func_0039BBF0(0x100, 0xF0);
     D_005F5CD0 = 0x352;
@@ -320,7 +320,7 @@ void func_00357600(void) {
     func_003B1478();
     func_0035CE38();
     func_003C8A38();
-    func_003B1488();
+    Options_Apply();
     func_003B7AB8();
     func_003F1F58();
 }
@@ -454,7 +454,7 @@ void Mode_Dispatch(void) {
         Mode_NameEntry();
         break;
     case 8:
-        func_003ABBD0();
+        Mode_Ending();
         break;
     case 9:
         Mode_Options();

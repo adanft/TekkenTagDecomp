@@ -152,7 +152,7 @@ extern McMenuItem D_00416040[];
 extern s8 D_00439C60[];
 extern s32 D_005F6B40;
 void func_00360670(McMenu *m);
-void func_003B1488(void);
+void Options_Apply(void);
 s32 func_0035E898(void);
 s32 func_0035E8B8(void);
 
@@ -445,7 +445,7 @@ void func_00360F28(McMenu *m, s32 next) {
 
 /* The memory card menu (D_006173F8): the entry list (states 0-2; the entry's type in D_00416040 is the next state, type
  * 0x10 toggles the option byte D_00439C92), then four flows that ask YES / NO, check the card status (errors in 6 / 11),
- * start a request and show its result: 5-9 request 0x1A (then func_003B1488 and the option byte are reloaded), 10-15
+ * start a request and show its result: 5-9 request 0x1A (then Options_Apply and the option byte are reloaded), 10-15
  * request 0x12 (other messages when the card is unformatted), 17-20 request 0x10, 21-24 request 0x25. State 4 waits
  * `timer` frames, then goes to unk4; 26 / 27 leave the menu. Returns 0 once left, else 1. */
 s32 func_00360F40(s32 held, s32 pressed) {
@@ -554,7 +554,7 @@ s32 func_00360F40(s32 held, s32 pressed) {
         if (st == 0) {
             func_003B4D28(0);
             func_00360A30(m, 7);
-            func_003B1488();
+            Options_Apply();
             m->unk18 = D_00439C92[0];
         } else {
             func_00360A30(m, 8);
