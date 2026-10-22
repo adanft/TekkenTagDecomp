@@ -565,54 +565,51 @@ s32 func_0034D038(s32 id, Vu0Matrix m, Fighter *f, Obj3D *o, s32 arg4) {
     return r;
 }
 
-/* NON_MATCHING: 8 lines: r and o in swapped saved registers, r = 1 not in the compare's delay slot */
 /* Parts 0x78 / 0x7B and 0x7E / 0x81 of characters 0xF and 0x21 [V]: shown (scale 1) only while the fighter's unk28 is
  * 0x1A resp. 4, else the rotation is scaled to 0. Returns 1 when it handled the part. */
-#if 0
 s32 func_0034D108(s32 id, Vu0Matrix m, Fighter *f, Obj3D *o, Ang3 *a, s32 arg5) {
     s32 r = 0;
     f32 t = 0.0f;
     f32 s = t;
 
     if (f->unk2A == 0xF || f->unk2A == 0x21) {
-        switch (id) {
-        case 0x81:
-            if (f->unk28 == 4) {
-                s = 1.0f;
+        do { /* fake (decomp-permuter): the loop notes swap r / o into the original's saved registers */
+            switch (id) {
+            case 0x81:
+                if (f->unk28 == 4) {
+                    s = 1.0f;
+                }
+                r = 1;
+                break;
+            case 0x7E:
+                if (f->unk28 == 4) {
+                    s = 1.0f;
+                }
+                r = 1;
+                break;
+            case 0x78:
+            case 0x7B:
+                if (f->unk28 == 0x1A) {
+                    s = 1.0f;
+                }
+                r = 1;
+                break;
+            default:
+                return 0;
             }
-            r = 1;
-            break;
-        case 0x7E:
-            if (f->unk28 == 4) {
-                s = 1.0f;
+            if (s > 0.0f) {
+                t = 1.0f;
             }
-            r = 1;
-            break;
-        case 0x78:
-        case 0x7B:
-            if (f->unk28 == 0x1A) {
-                s = 1.0f;
-            }
-            r = 1;
-            break;
-        default:
-            return 0;
-        }
-        if (s > 0.0f) {
-            t = 1.0f;
-        }
-        func_00349D70(m, a);
-        sceVu0ScaleVector(m[0], m[0], s);
-        sceVu0ScaleVector(m[1], m[1], t);
-        sceVu0ScaleVector(m[2], m[2], t);
-        sceVu0MulMatrix(o->unk0, o->unkB0, m);
+            func_00349D70(m, a);
+            sceVu0ScaleVector(m[0], m[0], s);
+            sceVu0ScaleVector(m[1], m[1], t);
+            sceVu0ScaleVector(m[2], m[2], t);
+            sceVu0MulMatrix(o->unk0, o->unkB0, m);
+        } while (0);
         func_0034C4A0(o, arg5);
     }
     return r;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/scene3d", func_0034D108);
-#endif
 
 /* NON_MATCHING: about 610 lines: typed draft with the original control flow (880 instructions) */
 /* Places the n accessory parts of a slot [V] (matrices mtx[i], objects at base + 0x4980, 0xC0 apart): the handlers
@@ -1003,10 +1000,8 @@ s32 func_0034E5A8(void) {
     return r;
 }
 
-/* NON_MATCHING: 23 lines: the registers of the shared reset stores (a1 / a2 / a3 rotated) */
 /* Sets extra joint j (18+) of characters 0x11 and 0x14 up [V]: rest angles D_0043BC50 / D_0043BC68 and swing
  * parameters D_0043BC40 / D_0043BC30 for the slot, then clears the joint's smoothed tip and first-frame flag. */
-#if 0
 void func_0034E640(s32 j, Fighter *f) {
     s32 k = j - 18;
     s16 slot = f->unk20;
@@ -1018,11 +1013,5 @@ void func_0034E640(s32 j, Fighter *f) {
         D_01FAB710[slot] = &D_0043BC30;
         D_01FAB5E0[slot][k] = D_0043BC68[k];
     }
-    D_01FAB610[slot][k].vz = 0;
-    D_01FAB610[slot][k].vy = 0;
-    D_01FAB720[slot][k] = 0;
-    D_01FAB610[slot][k].vx = 0;
+    D_01FAB610[slot][k].vx = D_01FAB720[slot][k] = D_01FAB610[slot][k].vy = D_01FAB610[slot][k].vz = 0;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/scene3d", func_0034E640);
-#endif

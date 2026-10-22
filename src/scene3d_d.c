@@ -1071,23 +1071,25 @@ void Light_SetupStage(s32 n, LightDef *src) {
     }
 }
 
-/* NON_MATCHING: 26 lines: register allocation of the loop (the next-record pointer and the count) */
+/* fake (decomp-permuter): an inline helper keeps m + 6 apart from the qword count */
+static inline u32 Gs_RefEnd(u32 m, s32 hdr, u32 c) {
+    return m + hdr + (c & 0x7FFF);
+}
+
 /* Adds a chain of GS image records to the packet `pk`: each record's BITBLTBUF base pointer is moved to `base` +
  * its offset from the first one, and the records are sent by reference (VIF DIRECTHL, at most 0xFFFF quadwords per
  * reference). Returns the size of the uploaded area in 256-byte blocks. [V] */
-#if 0
 u32 func_00354120(void *pk, GsImageRec *rec, u32 base) {
+    s32 last;
     s64 delta;
     u32 n;
     u32 m;
     GsImageRec *start;
-    GsImageRec *p;
     GsImageRec *next;
     s64 dbp;
     s64 sh;
     u32 c;
     s32 q;
-    s32 last;
     u64 w;
     u32 u;
 
@@ -1096,20 +1098,20 @@ u32 func_00354120(void *pk, GsImageRec *rec, u32 base) {
     n = 0;
     next = rec;
     do {
-        p = next;
-        w = p->bitbltbuf;
-        c = p->qwc;
+        rec = next;
+        w = rec->bitbltbuf;
+        c = rec->qwc;
         m = n;
         dbp = ((w & 0x3FFF00000000) >> 32) + delta;
-        n = m + 6 + (c & 0x7FFF);
+        n = Gs_RefEnd(m, 6, c);
         q = (c & 0x7FFF) << 4;
-        next = (GsImageRec *)((u8 *)p + (q + 0x60));
-        p->bitbltbuf = (w & ~0x3FFF00000000) | ((dbp << 32) & 0x3FFF00000000);
+        next = (GsImageRec *)((u8 *)rec + (q + 0x60));
+        rec->bitbltbuf = (w & ~0x3FFF00000000) | ((dbp << 32) & 0x3FFF00000000);
         last = (c & 0x8000) >> 15;
         if (n > 0xFFFF) {
             sceGifPkRef(pk, start, m, 0x10000000, m | 0x51000000, 0);
             n -= m;
-            start = p;
+            start = rec;
         }
     } while (last == 0);
     sceGifPkRef(pk, start, n, 0x10000000, n | 0x51000000, 0);
@@ -1121,9 +1123,6 @@ u32 func_00354120(void *pk, GsImageRec *rec, u32 base) {
     u += 0x100;
     return u >> 8;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/scene3d_d", func_00354120);
-#endif
 
 /* The records, then a GS TEXFLUSH packet (D_00455E30). [V] */
 u32 func_00354290(void *pk, GsImageRec *rec, u32 base) {

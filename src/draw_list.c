@@ -48,7 +48,8 @@ s32 func_00356A70(void) {
     return D_005F7048;
 }
 
-/* NON_MATCHING: 129 lines (first draft); cannot become C in place anyway: its jump table jtbl_00522030 lies between other objects' .rodata (after Model_Render's jtbl_00522010) and draw_list has no .rodata subsegment */
+/* NON_MATCHING: 129 lines (first draft); its jump table jtbl_00522030 is draw_list's .rodata subsegment since T19 b2 (drop the
+ * RODATA_ALIGN16 / INCLUDE_RODATA in the #else once the C emits it) */
 #if 0
 s32 func_00356A78(u8 *p, s32 base, s32 kind) {
     s32 size[12];
@@ -153,6 +154,8 @@ s32 func_00356A78(u8 *p, s32 base, s32 kind) {
     }
 }
 #else
+RODATA_ALIGN16();
+INCLUDE_RODATA("asm/nonmatchings/draw_list", jtbl_00522030);
 INCLUDE_ASM("asm/nonmatchings/draw_list", func_00356A78);
 #endif
 

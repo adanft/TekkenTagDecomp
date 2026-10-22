@@ -1105,8 +1105,6 @@ INCLUDE_ASM("asm/nonmatchings/menu_common", func_003AF9D8);
 RODATA_ALIGN16();
 INCLUDE_RODATA("asm/nonmatchings/menu_common", D_0051DE50);
 
-/* NON_MATCHING: 7 lines, after the loop the switch value and the &unkB050 base take s0/s1 swapped */
-#if 0
 void func_003AFAA0(Fighter *f, s32 a) {
     McFighter *mf = (McFighter *)f;
     s16 *t = D_00439A80[f->unk2A];
@@ -1115,6 +1113,7 @@ void func_003AFAA0(Fighter *f, s32 a) {
     s32 k;
     s32 n;
     s32 s;
+    s16 chr; /* fake: the s16 copy keeps the switch value and the &unkB050 base in the original's registers */
     s32 par;
 
     if (f->unk2E == 0x6B) {
@@ -1148,7 +1147,8 @@ void func_003AFAA0(Fighter *f, s32 a) {
         mf->part[s].unk1C = t[s * 4 + 1];
         mf->part[s].unk20 = t[s * 4 + 2];
     }
-    s = f->unk2A;
+    chr = f->unk2A;
+    s = chr;
     switch (s) {
     case 0x11:
         if (gMode == 5) {
@@ -1174,9 +1174,6 @@ void func_003AFAA0(Fighter *f, s32 a) {
         break;
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/menu_common", func_003AFAA0);
-#endif
 
 void func_003AFDA8(s32 side, s32 slot, s32 b) {
     Fighter *f = &gFighters[side];

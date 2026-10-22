@@ -100,6 +100,12 @@ D_004FC080 = 0x004FC080; // size:0x10 force_not_migration:True
 D_004FC090 = 0x004FC090; // size:0x10 force_not_migration:True
 D_004FC0A0 = 0x004FC0A0; // size:0x10 force_not_migration:True
 D_004FC0B0 = 0x004FC0B0; // size:0x10 force_not_migration:True
+// Mc_Update's strings and jump table (T19 b2), included in place from src/memcard.c so that its C can emit the table.
+D_004FC108 = 0x004FC108; // size:0x18 force_not_migration:True
+D_004FC120 = 0x004FC120; // size:0x18 force_not_migration:True
+D_004FC138 = 0x004FC138; // size:0x18 force_not_migration:True
+D_004FC150 = 0x004FC150; // size:0x30 force_not_migration:True
+jtbl_004FC180 = 0x004FC180; // size:0x98 force_not_migration:True
 D_004FC220 = 0x004FC220; // size:0x10 force_not_migration:True
 D_004FC230 = 0x004FC230; // size:0x10 force_not_migration:True
 D_004FC240 = 0x004FC240; // size:0x10 force_not_migration:True
@@ -168,6 +174,8 @@ D_00521C10 = 0x00521C10; // size:0x10 force_not_migration:True
 D_00521C20 = 0x00521C20; // size:0x10 force_not_migration:True
 jtbl_00521C30 = 0x00521C30; // size:0x90 force_not_migration:True
 jtbl_00521CC0 = 0x00521CC0; // size:0x20 force_not_migration:True
+// .rodata of render_fighter_b (0x522010, Model_Render's jump table from C) and draw_list (0x522030, T19 b2).
+jtbl_00522030 = 0x00522030; // size:0x18 force_not_migration:True
 gSinTable = 0x004FCE88; // type:u16 size:0x2800 force_not_migration:True
 // .rodata of the sound object (0x500780-0x500D50): every table is included in place from src/sound.c.
 D_00500780 = 0x00500780; // size:0x30 force_not_migration:True
@@ -1039,8 +1047,7 @@ D_0051FF08 = 0x0051FF08; // size:0x40 force_not_migration:True
 D_0051FF48 = 0x0051FF48; // size:0x58 force_not_migration:True
 D_0051FFA0 = 0x0051FFA0; // size:0x60 force_not_migration:True
 D_00520000 = 0x00520000; // size:0x10 force_not_migration:True
-jtbl_00520010 = 0x00520010; // size:0x48 force_not_migration:True
-D_00520058 = 0x00520058; // size:0xE8 force_not_migration:True
+jtbl_00520010 = 0x00520010; // size:0x130 force_not_migration:True dont_allow_addend:True
 D_00520140 = 0x00520140; // size:0xD0 force_not_migration:True
 D_00520210 = 0x00520210; // size:0x10 force_not_migration:True
 D_00520220 = 0x00520220; // size:0x10 force_not_migration:True

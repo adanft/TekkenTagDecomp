@@ -170,8 +170,7 @@ INCLUDE_RODATA("asm/nonmatchings/sound", jtbl_005007B0);
 /* A voice for a sound effect of `category`: the categories 3-9 first take a voice already playing that category,
  * the others a free voice first. Returns -1 when none is left. */
 #if 0
-/* NON_MATCHING: the original keeps the four identical case bodies (3, 4, 5, 6-9) apart; the compiler cross-jumps them
- * into one. */
+/* NON_MATCHING: 13 lines: with `return voice` in the four identical bodies they stay apart (with break they are cross-jumped), but each copies voice to v0 before its jump where the original copies it once after the epilogue's ld ra */
 s32 Snd_AllocVoice(s32 category, s32 player) {
     s32 voice = 0;
 
@@ -188,7 +187,7 @@ s32 Snd_AllocVoice(s32 category, s32 player) {
                     voice = Snd_FindReusableVoice();
                 }
             }
-            break;
+            return voice;
         case 4:
             voice = Snd_FindCategoryVoice(category);
             if (voice < 0) {
@@ -197,7 +196,7 @@ s32 Snd_AllocVoice(s32 category, s32 player) {
                     voice = Snd_FindReusableVoice();
                 }
             }
-            break;
+            return voice;
         case 5:
             voice = Snd_FindCategoryVoice(category);
             if (voice < 0) {
@@ -206,7 +205,7 @@ s32 Snd_AllocVoice(s32 category, s32 player) {
                     voice = Snd_FindReusableVoice();
                 }
             }
-            break;
+            return voice;
         case 6:
         case 7:
         case 8:
@@ -218,7 +217,7 @@ s32 Snd_AllocVoice(s32 category, s32 player) {
                     voice = Snd_FindReusableVoice();
                 }
             }
-            break;
+            return voice;
         case 1:
         case 2:
         case 10:
@@ -345,31 +344,24 @@ SndSe *Snd_GetSe(s32 id) {
     return &def->se[se - def->first];
 }
 
-#if 0
-/* NON_MATCHING: branch layout: the original tests D_005F5C50 first with id == 0 in the delay slot. */
 s32 func_00374C00(s32 id) {
-    if (D_005F5C50 == 0 && D_005F5CBC != 0) {
+    if (D_005F5C50 == 0) {
+        if (D_005F5CBC != 0) {
+            return 1;
+        }
+    }
+    if (id == 0) {
         return 1;
     }
-    return id == 0;
+    return 0;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/sound", func_00374C00);
-#endif
 
-#if 0
-/* NON_MATCHING: the original keeps the result in  and tests 0x1F-0x20 as a range; the compiler uses . */
 s32 func_00374C28(s32 id) {
-    s32 r = 0;
-
-    if (D_005F5F38 != 0 && (id < 0x1F || id > 0x20) && id != 0x19) {
-        r = id != 0x1A;
+    if (D_005F5F38 != 0 && (id < 0x1F || id > 0x20) && id != 0x19 && id != 0x1A) {
+        return 1;
     }
-    return r;
+    return 0;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/sound", func_00374C28);
-#endif
 
 s32 func_00374C60(s32 id, s32 player) {
     id &= 0xFFF;

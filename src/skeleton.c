@@ -492,14 +492,15 @@ void func_0034FB48(Fighter *f) {
     Skel_ProjectJoints(f);
 }
 
-/* NON_MATCHING: about 20 lines: the original multiplies the joint index by 0x50 three times (copies of the index), this
- * C once. */
 /* Copies the bone offsets of joints 5, 6, 18, 19, 20 (D_004FC668) into the replacement matrices D_008791A0[side]. */
 #if 0
+/* NON_MATCHING: 23 lines: the three joint addresses are computed from copies of the index with a mult each in the original; ours shares one */
+extern SkelJoint D_00879C70[]; /* gFighters[0]'s joints (unk630), read by their own symbol */
+
 void func_0034FBA0(s32 side) {
     S32x5 idx = D_004FC668;
     GteMatrix *m = D_008791A0[side];
-    SkelJoint *j = SKEL(&gFighters[side])->unk630;
+    SkelJoint *j = (SkelJoint *)((u8 *)D_00879C70 + side * sizeof(Fighter));
     s32 i;
 
     for (i = 0; i < 5; i++, m++) {
@@ -547,19 +548,16 @@ void func_0034FD10(GteMatrix *cam, GteMatrix *m) {
     Gte_MulRotMatrix(m);
 }
 
-/* NON_MATCHING: 1 line: the original 8-aligns the loop head with a nop, as for a for loop, yet keeps only the table's
- * lui out of the loop; written as a for loop the whole table address is hoisted, this goto loop is not aligned. */
 /* Projects joints 11, 2, 14 and 17 with the camera matrix D_00436530 (when the joint order D_0051DE50 lists them):
  * joint 11 into unk624 (and the return value into unk626), the others' x into unk628 / unk62A / unk62C, which
  * Cmd_CheckSituation (kind 0x5C) reads. */
-#if 0
 void Skel_ProjectJoints(Fighter *f) {
     s16 xy[2];
     s32 i;
+    s32 k = 0; /* fake: dead work in the loop body keeps loop.c from hoisting the table's %lo */
 
-    i = 0;
-loop:
-    {
+    for (i = 0; i < 18; i++) {
+        k = k * 3 + i; /* fake */
         switch (D_0051DE50[i]) {
         case 11:
             func_0034FD10(&D_00436530, &SKEL(f)->unk630[11].unk24);
@@ -582,10 +580,4 @@ loop:
             break;
         }
     }
-    if (++i < 18) {
-        goto loop;
-    }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/skeleton", Skel_ProjectJoints);
-#endif

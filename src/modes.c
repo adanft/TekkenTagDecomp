@@ -161,7 +161,7 @@ void func_003CD288(void);
 void func_003BFA48(void);
 void func_003B02C8(s32 side);
 s32 func_003AFFB8(s32 i, s32 a);
-s32 Snd_PlaySe(s32 id, s32 player);
+void Snd_PlaySe(s32 id, s32 player);
 void func_003AE738(s32 a, s32 b);
 s32 Text_Printf(const char *fmt, ...);
 s32 Pad_IsMultitap(void);
@@ -907,15 +907,14 @@ s32 func_003BA450(s32 side) {
     s32 b = D_005F5C80[side] != 0;
     return (a << 1) | b;
 }
-/* NON_MATCHING: 14 lines, the result is built in a1 and moved to v0; the original keeps the base in a1 and the result in v0 */
-#if 0
-/* NON_MATCHING: 14 lines, register allocation of the result (a1 + move instead of v0) */
 s32 func_003BA480(void) {
-    return D_0043B7F8.unk1F != 3 && D_0043B7F8.unk1F != 0 && D_0043B7F8.unk20 == D_0043B7F8.unk1C;
+    s32 three = 3; /* fake (decomp-permuter): with the loop below, keeps the base in a1 and the result in v0 */
+    u8 k = D_0043B7F8.unk1F;
+
+    do { /* fake */
+        return k != three && k != 0 && D_0043B7F8.unk20 == D_0043B7F8.unk1C;
+    } while (0);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/modes", func_003BA480);
-#endif
 void func_003BA4B8(s32 side) {
     D_005F5CC0 = 0;
     D_005F5CBE = side;
@@ -1180,18 +1179,15 @@ void func_003BAC38(RumblePort *p) {
         }
     }
 }
-/* NON_MATCHING: 12 lines, the request id is read with lh; the original loads it with lhu and sign-extends with sll / sra before the test */
-#if 0
-/* NON_MATCHING: 12 lines, the request id is read with lh; the original loads it with lhu and sign-extends with sll / sra before the test */
 void func_003BAC88(u16 *req, RumblePort *p) {
     s32 i;
-    u16 id;
+    s16 id;
 
     for (i = 0; i < 4; i++, req++) {
-        id = *req;
-        if ((s16)id != 0) {
-            func_003BAB38(&p->small[i], D_0043BB20[(s16)id][0]);
-            func_003BAB38(&p->big[i], D_0043BB20[(s16)id][1]);
+        id = *(volatile u16 *)req; /* fake: lhu, then the sign extension */
+        if (id != 0) {
+            func_003BAB38(&p->small[i], D_0043BB20[id][0]);
+            func_003BAB38(&p->big[i], D_0043BB20[id][1]);
             *req = 0;
         }
     }
@@ -1202,9 +1198,6 @@ void func_003BAC88(u16 *req, RumblePort *p) {
     p->unk40 = func_003BAC08(p->small);
     p->unk42 = func_003BAC08(p->big);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/modes", func_003BAC88);
-#endif
 /* NON_MATCHING: 4 lines, the delay slot of the `b` holds the unk40 load in the original, the unk42 load here */
 #if 0
 /* NON_MATCHING: 4 lines, the delay slot of the `b` holds the unk40 load in the original, the unk42 load here */

@@ -171,7 +171,7 @@ LIT4_WORD(D_005F5840, 0x3FC90FDC);
 #if 0
 /* NON_MATCHING: rough m2c-based draft (target scope rings / grid of the bowl HUD), not tuned */
 #define M32(p, o) (*(s32 *)((u8 *)(p) + (o)))
-s32 Gfx_DrawTriangle(f32 *, s32);
+void Gfx_DrawTriangle(f32 *, s32);
 s32 sceVu0AddVector(f32 *, u8 *, f32 *, s32);
 s32 sceVu0ScaleVector(s32, f32 *, f32 *);
 extern u8 D_00522FC0[];
@@ -827,7 +827,7 @@ LIT4_WORD(D_005F588C, 0x3DCCCCCD);
 #if 0
 /* NON_MATCHING: rough m2c-based draft (scales, dial and wave of the bowl HUD), not tuned */
 #define M32(p, o) (*(s32 *)((u8 *)(p) + (o)))
-s32 func_003DFF30(f32, s32, s32, s32, s8);
+void func_003DFF30(f32, s32, s32, s32, s8);
 extern u8 D_01FC4A50[];
 extern u8 D_01FC4A6C[];
 void func_003E38F0(void) {

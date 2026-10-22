@@ -250,7 +250,7 @@ void func_00398938(void) {
 /* GS reset (interlaced NTSC, FRAME mode, 640x224 double buffer), Timer 0, VU memory, VU microcode, pads, then
  * the VBlank handler. */
 #if 0
-/* NON_MATCHING: store order and register allocation differ around the gGfx/D_008BD310 initialisation and the pmode/ALP writes. */
+/* NON_MATCHING: 10 lines: store order and register allocation differ around the gGfx/D_008BD310 initialisation and the pmode/ALP writes. */
 void Gfx_Init(void) {
     u128 *p;
 
@@ -278,12 +278,12 @@ void Gfx_Init(void) {
     gGfx.unk26F = 0;
     gGfx.unk26D = 0;
     func_0039C788();
-    D_008BD310.unk74 = 0x2800;
     D_008BD310.unk70 = 0x600;
     D_008BD310.unk40 = 0;
     D_008BD310.unk48 = 0;
     D_008BD310.unk50 = 0;
     D_008BD310.unk54 = 0;
+    D_008BD310.unk74 = 0x2800;
     Dma_SendChain(0x10008000, D_004F5F00);
     Dma_Wait(0x10008000);
     func_00342E38();
@@ -308,8 +308,8 @@ void Gfx_Init(void) {
     gGfx.dispfb[1] = gGfx.dbuff.disp[1].dispfb;
     gGfx.display[0] = gGfx.dbuff.disp[0].display;
     gGfx.display[1] = gGfx.dbuff.disp[1].display;
-    gGfx.dbuff.disp[1].pmode.ALP = 0x7F;
     gGfx.dbuff.disp[0].pmode.ALP = 0x7F;
+    gGfx.dbuff.disp[1].pmode.ALP = 0x7F;
     FlushCache(0);
     sceGsSwapDBuff(&gGfx.dbuff, 0);
     sceGsSwapDBuff(&gGfx.dbuff, 1);
@@ -358,22 +358,19 @@ void func_00398D20(void) {
 }
 
 /* Shows the buffer selected by the parity: display environment and DISPFB1 / DISPLAY1 / DISPLAY2. */
-#if 0
-/* NON_MATCHING: gGfx base and the buffer index are allocated to swapped saved registers. */
 void Gfx_ShowBuffer(void) {
-    s32 i = 1;
+    s32 i;
 
     if (gGfx.unk26E == 0) {
         i = gGfx.parity & 1;
+    } else {
+        i = 1;
     }
     Gfx_PutDispEnv(&gGfx.dbuff.disp[i]);
-    *(volatile u64 *)0x12000070 = gGfx.dispfb[i];
+    *(volatile u64 *)0x12000070 = *(u64 *)&gGfx.dispfb[i];
     *(volatile u64 *)0x12000080 = *(u64 *)&gGfx.display[i];
     *(volatile u64 *)0x120000A0 = *(u64 *)&gGfx.display[i];
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/gfx", Gfx_ShowBuffer);
-#endif
 
 /* Starts the frame's display DMA chain on `channel`. */
 void Gfx_KickDisplayChain(u32 channel) {

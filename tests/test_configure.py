@@ -174,6 +174,62 @@ class FixCompilerAsm(unittest.TestCase):
         lines = [".set\tnoreorder", "li.s\t$f0,1.00000000000000000000e0", ".set\treorder"]
         self.assertEqual(self.fix(*lines), ["\t" + l for l in lines])
 
+    def test_li_s_pool_word_moves_to_the_marked_lit4_subsection(self):
+        # LIT4_ORDER(2) (include/include_asm.h) in front of a function: its pool words go after the words of
+        # subsections 0 and 1 of the object's .lit4, through a local label and an explicit %gp_rel load
+        out = self.fix("#lit4_order 2", "li.s\t$f0,5.80000000000000000000e3", "s.s\t$f0,D_005F694C",
+                       "li.s\t$f1,1.10000002384185791016e0")
+        self.assertEqual(out, ["\t#lit4_order 2",
+                               "\t.pushsection\t.lit4,2", ".Llit4_0:", "\t.word\t0x45B54000", "\t.popsection",
+                               "\tlwc1\t$f0,%gp_rel(.Llit4_0)($gp)", "\ts.s\t$f0,D_005F694C",
+                               "\t.pushsection\t.lit4,2", ".Llit4_1:", "\t.word\t0x3F8CCCCD", "\t.popsection",
+                               "\tlwc1\t$f1,%gp_rel(.Llit4_1)($gp)"])
+
+    def test_li_s_pool_word_in_noreorder_moves_too(self):
+        out = self.fix("#lit4_order 1", ".set\tnoreorder", "bnez\t$2,$L3", "li.s\t$f0,5.80000000000000000000e3",
+                       ".set\treorder")
+        self.assertEqual(out[3:8], ["\t.pushsection\t.lit4,1", ".Llit4_0:", "\t.word\t0x45B54000", "\t.popsection",
+                                    "\tlwc1\t$f0,%gp_rel(.Llit4_0)($gp)"])
+
+    def test_lit4_order_zero_and_lui_values_unchanged(self):
+        lines = ["#lit4_order 1", "#lit4_order 0", "li.s\t$f0,1.10000002384185791016e0"]
+        self.assertEqual(self.fix(*lines), ["\t" + l for l in lines])
+        out = self.fix("#lit4_order 1", "li.s\t$f0,2.04800000000000000000e3", "li.s\t$f2,0.00000000000000000000e0")
+        self.assertEqual(out, ["\t#lit4_order 1", "\t.set\tnoat", "\tlui\t$1,0x4500", "\tmtc1\t$1,$f0", "\t.set\tat",
+                               "\tmtc1\t$0,$f2"])
+
+    def test_lit4_ref_loads_the_next_pool_word_from_a_named_word(self):
+        # LIT4_REF(D_005F570C): the word lies in another object's part of the pool (a split file defines it); the next
+        # pool load reads it there and the compiler's own word goes away. The load stays where the compiler put it
+        # (noreorder: the game's assembler did not move these into a delay slot, Model_Render)
+        out = self.fix("#lit4_ref D_005F570C", "li.s\t$f2,2.04800000000000000000e3",
+                       "li.s\t$f8,1.66666671633720397949e-1", "li.s\t$f9,1.66666671633720397949e-1")
+        self.assertEqual(out, ["\t#lit4_ref D_005F570C", "\t.set\tnoat", "\tlui\t$1,0x4500", "\tmtc1\t$1,$f2",
+                               "\t.set\tat", "\t.set\tnoreorder", "\tlwc1\t$f8,%gp_rel(D_005F570C)($gp)",
+                               "\t.set\treorder", "\tli.s\t$f9,1.66666671633720397949e-1"])
+        out = self.fix("#lit4_ref D_005F5708", ".set\tnoreorder", "jal\tfoo", "li.s\t$f12,3.05185094475746154785e-5",
+                       ".set\treorder")
+        self.assertEqual(out[3], "\tlwc1\t$f12,%gp_rel(D_005F5708)($gp)")
+        self.assertEqual(out[4], "\t.set\treorder")
+
+    def test_lit4_keep_holds_the_nth_pool_load_in_place(self):
+        # LIT4_KEEP(2): the second pool load from here on stays in front of the branch (noreorder), as the game's
+        # assembler left it (Bowl_PinHomePos case 6); other loads and the lui form are untouched
+        out = self.fix("#lit4_keep 2", "li.s\t$f0,2.04800000000000000000e3", "li.s\t$f0,1.10000002384185791016e0",
+                       "li.s\t$f1,5.80000000000000000000e3", "j\t$L9", "li.s\t$f2,5.80000000000000000000e3")
+        self.assertEqual(out, ["\t#lit4_keep 2", "\t.set\tnoat", "\tlui\t$1,0x4500", "\tmtc1\t$1,$f0", "\t.set\tat",
+                               "\tli.s\t$f0,1.10000002384185791016e0", "\t.set\tnoreorder",
+                               "\tli.s\t$f1,5.80000000000000000000e3", "\t.set\treorder", "\tj\t$L9",
+                               "\tli.s\t$f2,5.80000000000000000000e3"])
+
+    def test_mfc1_before_noreorder_reader_gets_the_hazard_nop(self):
+        # gcc left `mfc1 $5` to gas and the next block (noreorder) reads $5 first: the game's assembler put a nop
+        # there (func_003E92E0), the modern gas does not
+        out = self.fix("mfc1\t$5,$f1", ".set\tnoreorder", ".set\tnomacro", "bltz\t$5,$L3", "move\t$6,$0")
+        self.assertEqual(out[:2], ["\tmfc1\t$5,$f1", "\tnop"])
+        lines = ["mfc1\t$5,$f1", ".set\tnoreorder", "bltz\t$6,$L3", "move\t$7,$0"]
+        self.assertEqual(self.fix(*lines), ["\t" + l for l in lines])
+
     def test_compare_before_unfilled_fpu_branch_is_data(self):
         out = self.fix("c.lt.s\t$f0,$f1", "#nop", "bc1f\t$L4")
         self.assertTrue(out[0].startswith("\t.word\t0x46010034"), out[0])

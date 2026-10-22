@@ -94,22 +94,21 @@ void Model_Draw(ModelFile **files, ModelRef *o, Vu0Matrix *a, u32 kind) {
     }
 }
 
-/* NON_MATCHING: 16 lines: o and the model table swap s0 / s1 */
-#if 0
 void func_00341B70(ModelFile **files, ModelRef *o, void *a) {
     VifModel **models;
+    s32 m;
 
     if (files[1] != NULL) {
+        do { /* fake (decomp-permuter): o and the model table take the original saved registers */
+            m = o->model;
+        } while (0);
         models = files[1]->models;
-        if (models[o->model] != NULL) {
+        if (models[m] != NULL) {
             func_003421D8(a);
             Model_SendParts(models[o->model]);
         }
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/render_fighter_b", func_00341B70);
-#endif
 
 /* Sends the two matrices of a model through VIF1: a header copied to the scratchpad, then 0x48 words of matrices
  * (func_00342E78). */
@@ -159,10 +158,12 @@ void Model_SendParts(VifModel *m) {
     func_00343178((u32)pk.pBase, sceVif1PkSize(&pk));
 }
 
-/* NON_MATCHING: 4 lines: the original keeps the li.s load of 1 / 32767 before the last jal (nop in the slot), gas moves it into the slot */
-#if 0
 /* The model renderer (from Model_Draw): kinds 0-5 send the object's matrices first; kinds 0 and 4 also set the
- * fog / depth factor of func_00342FA8 for the fight (from the nearer fighter's depth) before and 1 / 32767 after. */
+ * fog / depth factor of func_00342FA8 for the fight (from the nearer fighter's depth) before and 1 / 32767 after. Its
+ * three .lit4 words lie in the generic part of the pool (0x5F5700-0x5F5708): LIT4_REF. */
+LIT4_REF(D_005F5700);
+LIT4_REF(D_005F5704);
+LIT4_REF(D_005F5708);
 void Model_Render(VifModel *m, Vu0Matrix *a, ModelRef *o, u32 kind) {
     f32 x0;
     f32 x1;
@@ -199,9 +200,6 @@ void Model_Render(VifModel *m, Vu0Matrix *a, ModelRef *o, u32 kind) {
     }
     Model_SendParts(m);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/render_fighter_b", Model_Render);
-#endif
 
 void func_00341F68(Vu0Matrix a, Vu0Matrix b) {
     Vu0Matrix m0;

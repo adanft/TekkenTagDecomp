@@ -119,7 +119,7 @@ void func_00376C78(s32 player) {
  * then its closest point to the centre is found in the x / z plane; the hit holds when that distance squared is at most
  * the sphere's radius squared. Integer only (64-bit products for the projection). */
 #if 0
-/* NON_MATCHING: x / z kept in t9 / t8 instead of s0 / s4, the dy copy and the order of the distance blocks differ (3 instructions short) */
+/* NON_MATCHING: 83 lines: x / z kept in t9 / t8 instead of s0 / s4, the dy copy and the order of the distance blocks differ (3 instructions short) */
 s32 func_00376CF8(AttackVol *v, BodySphere *s) {
     AttackVol c;
     s32 x, y, z, r;
@@ -143,8 +143,8 @@ s32 func_00376CF8(AttackVol *v, BodySphere *s) {
                 c.unk0 = v->unk0;
                 c.unk8 = v->unk8;
                 if (v->unk4 != v->unk10) {
-                    hi = y + r;
                     lo = y - r;
+                    hi = y + r;
                     if (v->unk10 < v->unk4) {
                         if (hi < v->unk4) {
                             k = ((hi - v->unk4) << 12) / dy;

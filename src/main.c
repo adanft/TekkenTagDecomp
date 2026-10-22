@@ -745,10 +745,10 @@ void Input_SetSide(s32 force, s32 side, s32 player) {
 
 /* Builds player `player`'s button mapping from its configuration bytes. */
 #if 0
-/* NON_MATCHING: the loads of the last two configuration bytes are scheduled above the second copy loop here. */
+/* NON_MATCHING: 38 lines: the loads of the last two configuration bytes are scheduled above the second copy loop here. */
 void Input_BuildMapping(s32 player) {
-    u32 *dst = D_00439B40[player];
     u8 *src = D_00439CA0[player];
+    u32 *dst = D_00439B40[player];
     s32 i;
 
     for (i = 0; i < 8; i++) {
@@ -758,16 +758,20 @@ void Input_BuildMapping(s32 player) {
         *dst++ = D_0051DF28[i];
     }
     D_00439B40[player][10] = 0x400;
-    D_00439B40[player][16] = D_0051DEF0[src[0]];
     D_00439B40[player][17] = D_0051DEF0[src[1]];
+    D_00439B40[player][16] = D_0051DEF0[src[0]];
 }
 #else
 INCLUDE_ASM("asm/nonmatchings/main", Input_BuildMapping);
 #endif
 
 /* Default button configuration for player `player`. */
-#if 0
-/* NON_MATCHING: one swapped operand order in the address of D_00439C60 + player. */
+/* The per-player bytes at D_00439C60 + 0x3C of the save block (McSave in menu_common.c) [V offset; I meaning]. */
+typedef struct {
+    u8 pad[0x3C];
+    u8 unk3C[2];
+} InputSaveFlags;
+
 void Input_ResetMapping(s32 player) {
     u8 *dst = D_00439CA0[player];
     s32 i;
@@ -775,12 +779,9 @@ void Input_ResetMapping(s32 player) {
     for (i = 0; i < 10; i++) {
         *dst++ = D_0051DF48[i];
     }
-    (&D_00439C60[player])[0x3C] = 0;
+    ((InputSaveFlags *)D_00439C60)->unk3C[player] = 0;
     Input_BuildMapping(player);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/main", Input_ResetMapping);
-#endif
 
 /* OR of every player's input words into D_005F5CD8..D_005F5CEC; opposite directions cancel. */
 #if 0
@@ -883,30 +884,29 @@ void func_003585E0(void) {
     }
 }
 
-/* Adds bits 16 / 17 to `buttons` when the left / right stick of `player` is pushed past 24. */
-#if 0
-/* NON_MATCHING: the original tests the first axis with a fall-through to the shared OR and keeps abs() in a copy (bgez / move / negu). */
+/* Adds bit 16 / 17 to `buttons` when either axis of the left / right stick of `player` is below 25 in magnitude. */
+s32 abs(s32 x);
+
 u32 Pad_AddStickBits(s32 player, u32 buttons) {
     s32 i;
     s32 v;
+    s32 q;
 
     player *= 4;
+    q = player + 1;
     for (i = 0; i < 2; i++) {
         v = gPlayerAnalog[i * 2 + player];
-        if ((v < 0 ? -v : v) >= 25) {
+        if (abs(v) < 25) {
+            goto set;
+        }
+        v = gPlayerAnalog[i * 2 + q];
+        if (abs(v) < 25) {
+        set:
             buttons |= 0x10000 << i;
-        } else {
-            v = gPlayerAnalog[i * 2 + player + 1];
-            if ((v < 0 ? -v : v) >= 25) {
-                buttons |= 0x10000 << i;
-            }
         }
     }
     return buttons;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/main", Pad_AddStickBits);
-#endif
 
 /* Extra buttons of a pad of kind 2 (bytes 5-7 of its data past 0x60). */
 u16 Pad_GetExtraButtons(s32 port, u8 *rdata) {

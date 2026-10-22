@@ -479,8 +479,6 @@ extern const SelSlotTbl D_0051F218;
 s32 func_003CBE88(SelSide *s);
 s32 func_003AF330(s32 a, s32 b);
 
-/* NON_MATCHING: 4 lines, registers: a1/a2 swapped between the 0xFF clamp and the screen-state byte */
-#if 0
 void func_003BECC0(void) {
     SelSlotTbl t = D_0051F218;
     s32 save = D_005F6730;
@@ -488,7 +486,6 @@ void func_003BECC0(void) {
     SelSide *e;
     s32 *pos;
 
-    D_005F6730 = 0xFFEF0;
     {
         s32 v = gSinTable[(D_005F6E54 * 32) & 0xFE0];
         a = (v < 0 ? -v : v) >> 4;
@@ -496,6 +493,7 @@ void func_003BECC0(void) {
     if (a >= 0x100) {
         a = 0xFF;
     }
+    D_005F6730 = 0xFFEF0;
     if (D_0043B7F8[0] == 2) {
         return;
     }
@@ -556,9 +554,6 @@ void func_003BECC0(void) {
     }
     D_005F6730 = save;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/select_results", func_003BECC0);
-#endif
 
 /* NON_MATCHING: 53 lines, colour store order and the u16 adds of the four quads */
 #if 0
@@ -1056,23 +1051,18 @@ void func_003BFF88(void) {
     func_003C6888();
 }
 
-/* NON_MATCHING: 14 lines, s0 / s1 swapped for side and member; loop increment placement */
-#if 0
 void func_003BFFB0(void) {
     s32 i;
     for (i = 0; i < 4; i++) {
         s32 side = i >> 1;
-        s32 m = i & 1;
-        if (gFighters[side].unk402 == 1 && m != func_003ADDD8(side)) {
-            D_00440940[side][m].unk8 = 0;
+
+        if (gFighters[side].unk402 == 1 && (i & 1) != func_003ADDD8(side)) {
+            D_00440940[side][i & 1].unk8 = 0;
         } else {
-            D_00440940[side][m].unk8 = 1;
+            D_00440940[side][i & 1].unk8 = 1;
         }
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/select_results", func_003BFFB0);
-#endif
 
 extern f32 D_00433440[];
 /* The original calls __fixunssfsi for a float to u32 conversion; this compiler emits fptoui (decomp_guide.md, T17 b4). */
@@ -1105,24 +1095,20 @@ s32 func_003C0108(s32 x, s32 y, s32 hide, s32 idx, s32 w) {
     return x;
 }
 
-/* NON_MATCHING: 17 lines, if-conversion to movz where the original branches */
-#if 0
+INCLUDE_RODATA("asm/nonmatchings/select_results", D_0051F2F0);
+
 s32 func_003C0210(s32 c, u32 kind) {
     s32 r = 0;
     switch (kind) {
     case 0:
         r = 2;
-        if (D_004FF690[c * 8 + 2] == -1) {
-            r = 1;
-        } else if (D_0043B9B8[c] == 0) {
+        if (D_004FF690[c * 8 + 2] == -1 || D_0043B9B8[c] == 0) {
             r = 1;
         }
         break;
     case 1:
         r = 3;
-        if (D_004FF690[c * 8 + 3] == -1) {
-            r = 0;
-        } else if (D_0043B9B8[c] == 0) {
+        if (D_004FF690[c * 8 + 3] == -1 || D_0043B9B8[c] == 0) {
             r = 0;
         }
         break;
@@ -1135,9 +1121,6 @@ s32 func_003C0210(s32 c, u32 kind) {
     }
     return r;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/select_results", func_003C0210);
-#endif
 
 typedef struct {
     s32 v[34][3];
@@ -1402,8 +1385,6 @@ void Team_BuildRandom(void) {
     }
 }
 
-INCLUDE_RODATA("asm/nonmatchings/select_results", D_0051F2F0);
-INCLUDE_RODATA("asm/nonmatchings/select_results", jtbl_0051F3B0);
 
 void func_003C0F48(s32 k, s32 skip) {
     s32 i;
@@ -1446,15 +1427,16 @@ s32 func_003C1030(s32 k, s32 n) {
 
 INCLUDE_RODATA("asm/nonmatchings/select_results", D_0051F570);
 
-/* NON_MATCHING: 12 lines, inner pair loop registers (partner index counting down) */
-#if 0
 void func_003C1078(s32 k, s32 v) {
-    s32 i, j, o, r = -1;
+    s32 i, j, o;
+    s32 p;
+    s32 r = -1;
     for (i = 0; i < 6; i++) {
         for (j = 0, o = 1; j < 2; j++, o--) {
             if (D_0051F570[i][j] == v) {
-                if (D_01FAC7C0[k][D_0051F570[i][o]] == 1) {
-                    r = D_0051F570[i][o];
+                p = D_0051F570[i][o];
+                if (D_01FAC7C0[k][p] == 1) {
+                    r = p;
                 }
             }
         }
@@ -1467,9 +1449,6 @@ void func_003C1078(s32 k, s32 v) {
         }
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/select_results", func_003C1078);
-#endif
 
 void func_003C1160(s32 k) {
     s32 i;
@@ -1523,23 +1502,16 @@ s32 func_003C12D0(s32 a) {
 INCLUDE_RODATA("asm/nonmatchings/select_results", D_0051F5A0);
 INCLUDE_RODATA("asm/nonmatchings/select_results", D_0051F5B0);
 INCLUDE_RODATA("asm/nonmatchings/select_results", D_0051F5C0);
-INCLUDE_RODATA("asm/nonmatchings/select_results", jtbl_0051F650);
 
-/* NON_MATCHING: 2 lines, one sll scheduled before the table address */
-#if 0
 s32 func_003C1350(s32 character, s32 side) {
     u8 *s = D_0043B7F8;
     s32 v = 0;
     switch (s[0]) {
     case 0: case 2: case 3: case 4: case 5: case 7: case 8:
-        {
-            s32 k;
-            if (s[0x1A] == 2) {
-                k = D_005F5C5E;
-            } else {
-                k = D_005F5C5C;
-            }
-            v = D_0051F5A0[k];
+        if (s[0x1A] == 2) {
+            v = D_0051F5A0[D_005F5C5E];
+        } else {
+            v = D_0051F5A0[D_005F5C5C];
         }
         break;
     case 1: case 6:
@@ -1555,9 +1527,6 @@ s32 func_003C1350(s32 character, s32 side) {
     }
     return v;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/select_results", func_003C1350);
-#endif
 
 
 /* Round start: a member that func_003AE420 marks (1) gets its maximum life from func_003C1350 (by character) and

@@ -370,7 +370,7 @@ extern s32 D_00436278[];
 
 s32 *func_003B8790(void);
 void exit(s32 status);
-void func_0035D238(s32 id, void *dst, s32 size);
+s32 func_0035D238(s32 id, void *dst, s32 size);
 void func_00393870(f32 a, f32 b, f32 c, f32 d, f32 e, f32 f);
 s32 func_003403B8(void);
 s32 func_003912C8(s32 a0, s32 a1, s32 a2, s32 a3, s32 a4, s32 a5, s32 a6);
@@ -396,7 +396,7 @@ extern s32 D_005F61B8;
 s32 func_003D7DA8(s32 *pos);
 s32 func_003985D8(s32 x);
 void func_0035B690(Unk8BC6C8 *c, s32 *out);
-s32 func_00395CD8(s32 a0, s32 a1, u32 a2);
+s32 func_00395CD8(s32 a0, s32 a1, s32 a2);
 s32 func_00395EE0(Fighter *a, Fighter *b, s32 kind);
 s32 func_00395D20(s32 a0, s32 a1, s32 a2);
 s32 func_00396320(Fighter *a, Fighter *b, s32 start);
@@ -494,31 +494,35 @@ s32 func_0038C048(s32 a0) {
     return a0;
 }
 
-/* NON_MATCHING: the loop matches as a chained store; the stores to D_005F6140, unkC0 and unkC4 are scheduled right after unk0 where the original keeps them in source order (8 lines) */
+/* NON_MATCHING: 4 lines: the D_005F6140 / unkC0 / unkC4 stores are scheduled earlier than in the original (D_00433334 is the unk4 array's own symbol) */
 #if 0
+extern s32 D_00433334[]; /* D_00433330.unk4, read by its own symbol */
+
 void Cam_Reset(void) {
     s32 i;
+    s32 *a = D_00433334;
+    s32 *b = a + 5;
 
     for (i = 0; i < 5; i++) {
-        D_00433330.unk4[i] = D_00433330.unk18[i] = 0;
+        a[i] = b[i] = 0;
     }
     D_00433330.unk4[0] = 0x1000;
     D_00433330.unkC8 = 4;
     D_00433330.unk0 = 1;
-    D_00433330.unkBC = -1;
-    D_005F6140 = 1;
     D_00433330.unk38 = -1;
     D_00433330.unk44 = -1;
     D_00433330.unk40 = -1;
     D_00433330.unk3C = -1;
     D_00433330.unk50 = -1;
     D_00433330.unk4C = -1;
+    D_00433330.unkC0 = -1;
+    D_00433330.unkBC = -1;
+    D_005F6140 = 1;
     D_00433330.unk2C = 0;
     D_00433330.unkB8 = 0;
-    D_00433330.unkC0 = -1;
     D_00433330.unk7C[1] = 0;
-    D_00433330.unk7C[0] = 0;
     D_00433330.unkC4 = 0;
+    D_00433330.unk7C[0] = 0;
 }
 #else
 INCLUDE_ASM("asm/nonmatchings/stage", Cam_Reset);
@@ -1441,7 +1445,7 @@ void func_0038DC58(s32 dist) {
     Cam_SetDistance(dist);
 }
 
-/* NON_MATCHING: same size; the loads of the key copy and of D_00433520 and the products are scheduled in another order (105 lines) */
+/* NON_MATCHING: 25 lines: same size; the loads of the key copy and of D_00433520 and the products are scheduled in another order */
 #if 0
 /* The point camera key c looks at: its position moved along its pitch and its yaw turned by a quarter (0x10000 of
  * 0x40000) by the mean distance from the key to the fighters' tracking points D_00433520; returns that distance
@@ -1460,23 +1464,23 @@ s32 func_0038DC68(Unk8B90B8 *c, s32 *out) {
     s32 r;
 
     k.unk0[4] += 0x10000;
-    dx0 = D_00433520[0][0] - k.unk0[0];
     dx1 = D_00433520[1][0] - k.unk0[0];
-    dy1 = D_00433520[1][1] - k.unk0[1];
     dy0 = D_00433520[0][1] - k.unk0[1];
-    dz1 = D_00433520[1][2] - k.unk0[2];
+    dy1 = D_00433520[1][1] - k.unk0[1];
     dz0 = D_00433520[0][2] - k.unk0[2];
+    dz1 = D_00433520[1][2] - k.unk0[2];
     pitch = (k.unk0[3] / 64) & 0xFFF;
     yaw = (k.unk0[4] / 64) & 0xFFF;
-    cp = gSinTable[pitch + 0x400];
+    dx0 = D_00433520[0][0] - k.unk0[0];
     d1 = dx1 * dx1 + dy1 * dy1 + dz1 * dz1;
     sp = gSinTable[pitch];
+    cp = gSinTable[pitch + 0x400];
     sy = gSinTable[yaw];
     cy = gSinTable[yaw + 0x400];
     r = (Math_Isqrt(dx0 * dx0 + dy0 * dy0 + dz0 * dz0) + Math_Isqrt(d1)) >> 1;
     out[0] = k.unk0[0] + (r * cy / 4096) * cp / 4096;
-    out[2] = k.unk0[2] + (r * sy / 4096) * cp / 4096;
     out[1] = k.unk0[1] + r * sp / 4096;
+    out[2] = k.unk0[2] + (r * sy / 4096) * cp / 4096;
     return r;
 }
 #else
@@ -1649,19 +1653,19 @@ s32 func_0038E2D0(Fighter *a, Fighter *b) {
     return r;
 }
 
-/* NON_MATCHING: the two positions are copied whole, then read back and subtracted in another order (one instruction short) */
+/* NON_MATCHING: 16 lines: the two positions are copied whole, then read back and subtracted in another order (one instruction short) */
 #if 0
 s32 func_0038E308(Unk8B90B8 *out, Vec4i *from, Vec4i *to, s32 roll, s32 dist) {
     Vec4i a = *from;
     Vec4i b = *to;
     s32 d[3];
 
-    out->unk0[0] = a.unk0[0];
     out->unk0[1] = a.unk0[1];
+    out->unk0[0] = a.unk0[0];
     out->unk0[2] = a.unk0[2];
-    d[0] = b.unk0[0] - a.unk0[0];
     d[1] = b.unk0[1] - a.unk0[1];
     d[2] = b.unk0[2] - a.unk0[2];
+    d[0] = b.unk0[0] - a.unk0[0];
     out->unk0[3] = func_00366108(Math_Isqrt(d[0] * d[0] + d[2] * d[2]), d[1]) << 6;
     out->unk0[4] = (func_00366108(d[0], d[2]) - 0x400) << 6;
     out->unk0[5] = roll;
@@ -2018,28 +2022,20 @@ s32 func_0038F6B0(void) {
     return r;
 }
 
-/* NON_MATCHING: the loop-invariant field addresses are hoisted into other temporaries (4 lines) */
-#if 0
 void func_0038F768(void) {
     s32 i;
 
     for (i = 0; i < 5; i++) {
-        D_008B9148[i].unk0 = 0;
-        D_008B9148[i].unk4 = 0;
-        D_008B9148[i].unk8 = 0;
+        D_008B9148[i].unk0 = D_008B9148[i].unk4 = D_008B9148[i].unk8 = 0;
         D_008B9148[i].unk18 = 0;
-        D_008B9148[i].unkC = 0;
-        D_008B9148[i].unk10 = 0;
+        D_008B9148[i].unkC = D_008B9148[i].unk10 = 0;
         D_008B9148[i].unk14 = 0;
         D_008B9148[i].unk1C = 0;
         D_008B9148[i].unk20 = 0;
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/stage", func_0038F768);
-#endif
 
-/* NON_MATCHING: same size (72 lines): a and b take each other's saved registers (s0 / s1), the pair loads before func_00366108 and the registers of the swing clamp and sine step differ */
+/* NON_MATCHING: same size (63 lines): a and b take each other's saved registers (s0 / s1), the pair loads before func_00366108 and the registers of the swing clamp and sine step differ */
 #if 0
 extern u32 D_005F5C28;
 s32 func_0037D898(void);
@@ -2077,8 +2073,8 @@ s32 func_0038F7F8(s32 a0, s32 a1, s32 *out, s32 reset, s32 slot) {
 
     swing = 0;
     sign = 0;
-    t.unk0 = (((a->unkC0->unk24 >> 20) & 3) == 2) ? &a->unk51C : D_00433520[0];
     t.unk4 = (((b->unkC0->unk24 >> 20) & 3) == 2) ? &b->unk51C : D_00433520[1];
+    t.unk0 = (((a->unkC0->unk24 >> 20) & 3) == 2) ? &a->unk51C : D_00433520[0];
     k = t;
     func_0038E408(&key, slot);
     func_0038E408(&key, 3);
@@ -2619,7 +2615,7 @@ s32 func_0038FD90(s32 a0, s32 a1, s32 pitch, s32 yaw, s32 roll, s32 reset, s32 d
 INCLUDE_ASM("asm/nonmatchings/stage", func_0038FD90);
 #endif
 
-/* NON_MATCHING: one store short (26 lines): the original frame has 0x30 bytes of other locals below the key c (it clears a word at sp+0x20 between the dist and x stores); the loop's two field addresses are swapped */
+/* NON_MATCHING: one store short (24 lines): the original frame has 0x30 bytes of other locals below the key c (it clears a word at sp+0x20 between the dist and x stores); the loop's two field addresses are swapped */
 #if 0
 s32 func_00390E08(Fighter *a, Fighter *b) {
     Unk8B90B8 c;
@@ -2635,12 +2631,12 @@ s32 func_00390E08(Fighter *a, Fighter *b) {
         D_008B9148[i].unk34 = 0;
         D_008B9148[i].unk38 = 0;
         D_008B9148[i].unk28 = 0;
-        D_008B9148[i].unk30 = 0;
         D_008B9148[i].unk2C = 0;
+        D_008B9148[i].unk30 = 0;
         D_008B9148[i].unk24 = 0;
     }
-    c.unk0[2] = -0x1F40;
     c.unk0[1] = -0x4B0;
+    c.unk0[2] = -0x1F40;
     c.unk0[6] = D_00433330.unkA4;
     D_005F6C18 = 0;
     D_005F6C1A = 0;
@@ -2670,14 +2666,16 @@ s32 func_00390F48(Fighter *f) {
 
 INCLUDE_RODATA("asm/nonmatchings/stage", D_00508120);
 
-/* NON_MATCHING: the argument copies around the first call are scheduled differently (one instruction short) */
+/* NON_MATCHING: 20 lines: argument shuffle through t1 and the D_005F6C1A sum's registers (D_008B9154 is read by its own symbol) */
 #if 0
+extern s32 D_008B9154[]; /* D_008B9154[0] by its own symbol */
+
 s32 func_00390FA8(s32 a0, s32 a1, s32 a2, s32 a3) {
     s32 v;
     s32 r = func_0038F7F8(a0, a1, &v, a2, 0);
 
     D_005F6C1A += D_00508120[D_005F6C18].unk2;
-    func_0038FD90(a0, a1, D_008B9148[0].unkC, v, 0, r, a3, 0);
+    func_0038FD90(a0, a1, D_008B9154[0], v, 0, r, a3, 0);
     return 0;
 }
 #else
@@ -3310,26 +3308,15 @@ s32 func_003927F0(Fighter *a, Fighter *b) {
     return 0;
 }
 
-/* NON_MATCHING: the result is built in v1 and copied to v0 at the end; the original keeps it in v0 and 0x9E in v1 */
-#if 0
 s32 func_00392888(s32 a, s32 b) {
-    s32 r;
-
     if (a < 0x68) {
         return 1;
     }
-    r = 0;
-    if (b == 0x9E) {
-        r = 2;
-        if (a == 0x9F) {
-            r = 0;
-        }
+    if (b == 0x9E && a != 0x9F) {
+        return 2;
     }
-    return r;
+    return 0;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/stage", func_00392888);
-#endif
 
 INCLUDE_RODATA("asm/nonmatchings/stage", jtbl_005088F0);
 
@@ -3449,12 +3436,9 @@ s32 func_00392B68(Fighter *f, Fighter *o) {
 INCLUDE_ASM("asm/nonmatchings/stage", func_00392B68);
 #endif
 
-/* NON_MATCHING: one instruction short (27 lines): the walk over the bank loads D_005F6C24 and steps the pointer in another order */
-#if 0
 void CamScript_Load(s32 id) {
     s32 *p = func_003B8790();
     s32 i;
-    s32 *q;
 
     if (p == NULL) {
         exit(1);
@@ -3471,21 +3455,16 @@ void CamScript_Load(s32 id) {
     func_00393870(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
     if (id == 0) {
         for (i = 0; i < D_005F6C24; i++) {
-            q = (s32 *)((u8 *)func_003B8790() + *p);
-            D_008BC4F8[i] = q + 1;
-            D_008BC578[i] = *q;
+            D_008BC4F8[i] = (s32 *)((u8 *)func_003B8790() + *p);
+            D_008BC578[i] = *D_008BC4F8[i]++;
             p++;
         }
     } else {
-        q = func_003B8790();
-        D_008BC4F8[0] = q + 1;
-        D_008BC578[0] = *q;
+        D_008BC4F8[0] = func_003B8790();
+        D_008BC578[0] = *D_008BC4F8[0]++;
     }
     D_005F6184 = id;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/stage", CamScript_Load);
-#endif
 
 /* NON_MATCHING: same size (14 lines): the original has gcc's unfilled `jal atan2f` with the sqrt.s in its delay slot
  * (configure.py fix_compiler_asm moves it there since T17 b4), but here gcc fills the slot with the `ty - ey`
@@ -3862,7 +3841,7 @@ s32 func_00393898(void) {
 INCLUDE_ASM("asm/nonmatchings/stage", func_00393898);
 #endif
 
-/* NON_MATCHING: 2 instructions long (31 lines): the threshold is loaded with lhu where the original has lh (an s16 field made it worse elsewhere) and the side select is placed otherwise */
+/* NON_MATCHING: 1 line: the side == 0 case of the unkA0 flag is movz v1, s1, s1 here, movz v1, zero, s1 in the original */
 #if 0
 /* Picks the camera reaction of a move kind (D_00434C78[kind], weighted list): random by rand() & 0xFFF, or by
  * func_003800D8 (the CPU's generator) with the list's own range on stages of camera style 1 / 2 (D_00433330.unkB4,
@@ -3873,6 +3852,7 @@ s32 Cam_PickReaction(u32 kind, s32 side, s32 *idx) {
     s32 i;
     s32 fl;
     s16 v;
+    s32 on;
 
     if (kind >= 0x134) {
         kind = 0;
@@ -3890,23 +3870,30 @@ s32 Cam_PickReaction(u32 kind, s32 side, s32 *idx) {
     }
     i = 0;
     e = D_00434C78[kind].unk0;
-    while (e->unk2 < r) {
+    while ((s16)e->unk2 < r) {
         e++;
         i++;
     }
     *idx = i;
-    fl = e->unk0 & 3;
     v = e->unk4[side != 0];
+    fl = e->unk0 & 3;
+    on = side;
+    if (on != 0) {
+        on = fl;
+    }
+    if (fl != 1) {
+        on = 0;
+    }
     D_005F6194 = kind;
     D_005F6190 = v;
-    D_00433330.unkA0 = fl != 1 ? 0 : (side != 0 ? fl : 0);
+    D_00433330.unkA0 = on;
     return v;
 }
 #else
 INCLUDE_ASM("asm/nonmatchings/stage", Cam_PickReaction);
 #endif
 
-/* NON_MATCHING: the selects of `on` and the loads of the entry come out in another order (21 lines) */
+/* NON_MATCHING: 8 lines: &D_00433330 and unk34 take t1 / t0 the other way round, and the unk34 == 0 select is movz v1, t0, t0 (zero in the original, as Cam_PickReaction) */
 #if 0
 s32 func_00393BF0(Fighter *f) {
     u32 k = f->unkC0->unk24 >> 23;
@@ -3921,9 +3908,9 @@ s32 func_00393BF0(Fighter *f) {
     e = &D_00434C78[k].unk0[D_00433330.unk5C];
     flags = e->unk0 & 3;
     r = e->unk4[D_00433330.unk34 != 0];
-    on = flags;
-    if (D_00433330.unk34 == 0) {
-        on = 0;
+    on = D_00433330.unk34;
+    if (on != 0) {
+        on = flags;
     }
     if (flags != 1) {
         on = 0;
@@ -4213,13 +4200,13 @@ s32 func_003941F0(void) {
 INCLUDE_ASM("asm/nonmatchings/stage", func_003941F0);
 #endif
 
-/* NON_MATCHING: the `& 0xFFF` of the random value is scheduled one instruction earlier */
-#if 0
 s32 func_00394300(s32 n, s32 k) {
     s32 r = rand() & 0xFFF;
-    Unk5095C0Entry *e = D_005095C0[n - 0x12C].unk0;
+    Unk5095C0Entry *e;
     s16 *p;
 
+    n -= 0x12C;
+    e = D_005095C0[n].unk0;
     while (e->unk2 < r) {
         e++;
         if (e->unk2 > 0x1000) {
@@ -4233,20 +4220,17 @@ s32 func_00394300(s32 n, s32 k) {
     D_005F6C28 = p;
     return 1;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/stage", func_00394300);
-#endif
 
 INCLUDE_RODATA("asm/nonmatchings/stage", D_00509700);
 INCLUDE_RODATA("asm/nonmatchings/stage", D_00509820);
 
-/* NON_MATCHING: one instruction long (93 lines): register allocation and the order of the prologue and argument copies */
+/* NON_MATCHING: one instruction long (61 lines): register allocation and the order of the prologue and argument copies */
 #if 0
 s32 func_003943A8(Fighter *a, Fighter *b) {
     Fighter *f = a;
     Fighter *o = b;
-    s32 kind = 0;
     const s32 *r = NULL;
+    s32 kind = 0;
     s32 side;
     s32 sel;
     u32 k;
@@ -4883,23 +4867,21 @@ void func_003959C8(Fighter *a, Fighter *b, s32 a2) {
 INCLUDE_ASM("asm/nonmatchings/stage", func_003959C8);
 #endif
 
-/* NON_MATCHING: the constant 0xC00 - unk1A / 16 + (D_005F6C58 - 0x400) is folded into D_005F6C58 + 0x800 (two instructions short) */
-#if 0
+extern s32 D_004333D4[]; /* D_004333D4[0] read by its own symbol */
+
 void func_00395BF0(Fighter *f) {
     s32 v[12];
+    s32 off = D_005F6C58 - 0x400;
 
     v[0] = 0x400;
     v[1] = 0xC00 - f->unk1A / 16;
-    v[1] += D_005F6C58 - 0x400;
+    v[1] += off;
     v[2] = 0;
     v[5] = f->unk51C;
-    v[6] = -(D_00433330.unkA4 * 8000 / 0x3BB) - D_005F6C54;
+    v[6] = -(D_004333D4[0] * 8000 / 0x3BB) - D_005F6C54;
     v[7] = f->unk524;
     func_0035B858(v);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/stage", func_00395BF0);
-#endif
 
 s32 func_00395C90(s32 a0, s32 a1, s32 a2) {
     a2 &= 1;
@@ -4916,8 +4898,8 @@ s32 func_00395C90(s32 a0, s32 a1, s32 a2) {
     return 0;
 }
 
-s32 func_00395CD8(s32 a0, s32 a1, u32 a2) {
-    func_00390FA8(a0, a1, a2 >> 31, D_00433330.unkA4 * 0x76C / 256);
+s32 func_00395CD8(s32 a0, s32 a1, s32 a2) {
+    func_00390FA8(a0, a1, (u32)a2 >> 31, D_00433330.unkA4 * 0x76C / 256);
     return 0;
 }
 
@@ -5045,23 +5027,18 @@ s32 func_00396320(Fighter *a, Fighter *b, s32 start) {
     return 0;
 }
 
-/* NON_MATCHING: the store to D_005F6C52 lands in the delay slot of the call, where the original has `move a1, a2` */
-#if 0
 s32 func_003963C0(u32 n, Fighter *a, Fighter *b) {
     u32 k = n % 5;
 
     D_005F6C50 = k;
-    D_005F6C52 = D_00509C10[k];
+    *(volatile u16 *)&D_005F6C52 = D_00509C10[k]; /* fake: keeps the store out of the call's delay slot */
     func_00390E08(a, b);
     return 0;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/stage", func_003963C0);
-#endif
 
 INCLUDE_RODATA("asm/nonmatchings/stage", jtbl_00509C30);
 
-/* NON_MATCHING: 10 instructions short (79 lines): 0xFFFF is built with lui / ori where the original has li -1 (a signed constant), and a branch to the shared tail is missing */
+/* NON_MATCHING: 5 lines: the D_005F6C52 increment after `start` loads into v0 where the original uses v1 (and keeps v0 for 720) */
 #if 0
 s32 func_00396418(s32 a0, s32 a1) {
     func_0038EC08((Fighter *)a0, (Fighter *)a1, 0);
@@ -5071,34 +5048,39 @@ s32 func_00396418(s32 a0, s32 a1) {
         goto start;
     case 0x1:
         func_00395CD8(a0, a1, 0);
-        goto step;
+        D_005F61B8--;
+        goto test;
     case 0xA:
         func_00395EE0(a0, a1, -1);
         goto start;
     case 0xB:
         func_00395EE0(a0, a1, 0);
-        goto step;
+        D_005F61B8--;
+        goto test;
     case 0x14:
         func_00395D20(a0, a1, -1);
         goto start;
     case 0x15:
         func_00395D20(a0, a1, 0);
-        goto step;
+        D_005F61B8--;
+        goto test;
     case 0x1E:
         func_00395EE0(a0, a1, -2);
         goto start;
     case 0x1F:
         func_00395EE0(a0, a1, 0);
-        goto step;
+        D_005F61B8--;
+        goto test;
     case 0x29:
         func_00396320((Fighter *)a0, (Fighter *)a1, 0);
-        goto step;
+        D_005F61B8--;
+        goto test;
     case 0x28:
     case 0x32:
         func_00396320((Fighter *)a0, (Fighter *)a1, -1);
     start:
         D_005F61B8 = 0x2D0;
-        D_005F6C52++;
+        *(volatile u16 *)&D_005F6C52 += 1; /* fake */
         break;
     case 0x33:
         func_00396620(a0, a1, 0);
@@ -5109,7 +5091,7 @@ s32 func_00396418(s32 a0, s32 a1) {
     test:
         if (D_005F61B8 < 0) {
             D_005F6C50++;
-            D_005F6C52 = D_00509C10[(u32)(s16)D_005F6C50 % 5];
+            *(volatile u16 *)&D_005F6C52 = D_00509C10[(u32)(s16)D_005F6C50 % 5]; /* fake */
         }
         break;
     default:
@@ -5189,25 +5171,26 @@ s32 func_00396930(void) {
     return func_00366108(D_00433520[1][0] - D_00433520[0][0], D_00433520[1][2] - D_00433520[0][2]) << 6;
 }
 
-/* NON_MATCHING: 2 instructions short (55 lines): a signed compare (slti) where this has sltiu on an unsigned load, and one test with the other branch sense */
 #if 0
+/* NON_MATCHING: 3 lines: the unk14 store is scheduled right after its sum, the original stores it after the unk1C loads */
 void func_00396970(Fighter *a, Fighter *b) {
     s32 d;
 
     if (D_005F61CC != 0) {
         func_003967E0();
-        if (D_008BC6E8.unk0 < 2 && D_008BC6E8.unk0 >= 0) {
+        if (D_008BC6E8.unk0 < 2) {
+        if (D_008BC6E8.unk0 >= 0) {
             func_0038FD90((s32)a, (s32)b, D_008BC6E8.unkC, D_008BC6E8.unk14 + D_008BC6E8.unk20, 0, D_008BC6E8.unk4,
                           D_008BC6E8.unk1C, 1);
             d = D_008BC6E8.unk18 - D_008BC6E8.unk14;
             D_008BC6E8.unk4 = 0;
-            if (d & 0x20000) {
-                d |= 0xFFFC0000;
+            if (!(d & 0x20000)) {
+                D_008BC6E8.unk14 += (d & 0x3FFFF) / 128;
             } else {
-                d &= 0x3FFFF;
+                D_008BC6E8.unk14 += (s32)(d | 0xFFFC0000) / 128;
             }
-            D_008BC6E8.unk14 += d / 128;
-            D_008BC6E8.unk1C += (D_00433330.unkA4 * 0x76C / 256 - D_008BC6E8.unk1C) * 6 / 256;
+            D_008BC6E8.unk1C += (D_004333D4[0] * 0x76C / 256 - D_008BC6E8.unk1C) * 6 / 256;
+        }
         }
         Cam_SetKey(1);
         D_005F6140 = 0;

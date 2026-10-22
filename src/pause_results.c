@@ -715,8 +715,6 @@ extern s16 D_0043B140[];
 void func_0034CB50(void);
 void func_003533E8(s32 a);
 
-/* NON_MATCHING: 2 lines, scheduling: the lh of the fighter's side goes one slot earlier */
-#if 0
 s32 func_003B5DB0(Fighter *a, Fighter *b, s32 mode) {
     Fighter *f;
     Fighter *g;
@@ -746,7 +744,9 @@ s32 func_003B5DB0(Fighter *a, Fighter *b, s32 mode) {
     other = (s16)(f->unk20 ^ 1);
     D_005F6DC4 = other;
     g = &gFighters[other];
-    mi = g->unk2;
+    do { /* fake: the loop notes move the lh of the side one slot later */
+        mi = g->unk2;
+    } while (0);
     if (g->unk402 != 0) {
         gFighters[side].unk127 = 0;
     }
@@ -819,9 +819,6 @@ s32 func_003B5DB0(Fighter *a, Fighter *b, s32 mode) {
     func_003533E8(1);
     return 1;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/pause_results", func_003B5DB0);
-#endif
 
 void func_003B60F0(Fighter *a, Fighter *b) {
     Fighter *g = &gFighters[D_005F6DC4];
@@ -986,18 +983,19 @@ void func_003B6620(PrResult *r, s32 *a, s32 *b) {
     }
 }
 
-/* NON_MATCHING: 2 lines, position of the x << 4 shift */
-#if 0
 void func_003B6808(s32 x, s32 y, s32 idx, s32 hl) {
     ResQuad q = D_0043FD10[idx];
-    q.v[0].x += x << 4;
-    q.v[1].x += x << 4;
-    q.v[2].x += x << 4;
-    q.v[3].x += x << 4;
-    q.v[0].y += y << 4;
-    q.v[1].y += y << 4;
-    q.v[2].y += y << 4;
-    q.v[3].y += y << 4;
+    s32 dy = y << 4;
+    s32 dx = x << 4;
+
+    q.v[0].x += dx;
+    q.v[1].x += dx;
+    q.v[2].x += dx;
+    q.v[3].x += dx;
+    q.v[0].y += dy;
+    q.v[1].y += dy;
+    q.v[2].y += dy;
+    q.v[3].y += dy;
     if (hl) {
         q.v[0].r = q.v[0].g = q.v[0].b = 0x20;
         q.v[1].r = q.v[1].g = q.v[1].b = 0x20;
@@ -1018,9 +1016,6 @@ void func_003B6808(s32 x, s32 y, s32 idx, s32 hl) {
     }
     func_003BB680(&q, 0xFFE00, 0);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/pause_results", func_003B6808);
-#endif
 
 void func_003B6968(s32 x, s32 y, s32 row, s32 col, s32 idx, s32 fl) {
     s32 a = 0x80;
@@ -1334,32 +1329,27 @@ s32 func_003B6C68(PrSetup *g) {
 INCLUDE_ASM("asm/nonmatchings/pause_results", func_003B6C68);
 #endif
 
-/* NON_MATCHING: 35 lines, store order of the camera and fighter resets */
-#if 0
 void func_003B77B8(void) {
     func_003DB578();
     func_0038DBC0();
     func_003A9510(0);
-    gFighters[0].unk127 = 0;
-    gFighters[1].unk127 = 0;
-    D_005F6DDE = 0xC00;
-    D_00415808.w[5] = gSinTable[0x1000] * 5000 / 4096;
-    D_00415808.w[6] = -0x578;
-    D_00415808.w[7] = gSinTable[0xC00] * 5000 / 4096;
-    D_00415808.w[0] = 0;
-    D_00415808.w[2] = 0;
     gFighters[0].unk51C = 0;
     gFighters[0].unk520 = 0;
     gFighters[0].unk524 = 0;
     gFighters[1].unk51C = 0;
+    gFighters[0].unk127 = 0;
     gFighters[1].unk520 = 0;
     gFighters[1].unk524 = 0;
+    gFighters[1].unk127 = 0;
+    D_005F6DDE = 0xC00;
+    D_00415808.w[5] = gSinTable[0x1000] * 5000 / 4096;
     D_00415808.w[1] = 0;
+    D_00415808.w[6] = -0x578;
+    D_00415808.w[7] = gSinTable[0xC00] * 5000 / 4096;
+    D_00415808.w[0] = 0;
+    D_00415808.w[2] = 0;
     D_005F5EE0 = 0;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/pause_results", func_003B77B8);
-#endif
 
 /* NON_MATCHING: 41 lines, registers of the camera pointer and the sine index */
 #if 0

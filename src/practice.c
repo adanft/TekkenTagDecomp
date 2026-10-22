@@ -181,7 +181,7 @@ s32 func_0035A670(void);
 CmdList *func_0037D460(s32 i);
 u16 func_003DFF20(void);
 u16 func_003DFF28(void);
-s32 func_0037BAB0(s32 arg0, s32 arg1);
+void func_0037BAB0(s32 arg0, s32 arg1);
 s32 func_0036BDD0(Fighter *f);
 void func_0037C1B8(void);
 void func_0037C0A8(void);
@@ -1270,12 +1270,10 @@ void func_0037AE88(Fighter *f, Fighter *o, s32 kind) {
     }
 }
 
-/* NON_MATCHING: 11 lines: the original copies f to a3 and loads the constant 1 twice (stores 0x420 / 0x12C) */
-#if 0
 void func_0037AF30(Fighter *f, Fighter *o, s32 kind) {
     if (kind == 11) {
-        f->unk420 = 1;
         f->unk12C = 1;
+        f->unk420 = 1;
     } else if (kind == 12) {
         f->unk12C = 0;
         f->unk420 = 2;
@@ -1285,9 +1283,6 @@ void func_0037AF30(Fighter *f, Fighter *o, s32 kind) {
         func_0037DC98(f, o, kind);
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/practice", func_0037AF30);
-#endif
 
 
 void func_0037AF80(PracMenu *m, Fighter *a, Fighter *b) {
@@ -1607,8 +1602,6 @@ void func_0037B870(Fighter *f, s32 flag) {
 
 
 
-/* NON_MATCHING: 1 line: the loop counter starts as a copy of the zero result register (move s4, s5), here move s4, zero */
-#if 0
 void func_0037B8D8(Fighter *f, s32 idx, s32 c) {
     s32 r = 0;
     s32 y = 100;
@@ -1620,7 +1613,8 @@ void func_0037B8D8(Fighter *f, s32 idx, s32 c) {
     u16 n;
     CmdListEntry *e;
 
-    if (func_0035A670() != 0) {
+    i = func_0035A670();
+    if (i != 0) {
         return;
     }
     side = f->unk1E;
@@ -1648,9 +1642,6 @@ void func_0037B8D8(Fighter *f, s32 idx, s32 c) {
     k = func_003DFF20();
     func_0037BAB0(c, k != 0 ? k : r);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/practice", func_0037B8D8);
-#endif
 
 void func_0037BA30(s32 side, s32 a, s32 b) {
     func_003DEC20();

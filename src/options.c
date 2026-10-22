@@ -498,8 +498,6 @@ extern s16 D_005F6DAA;
 s32 func_003CBFA0(s32 a);
 void Sprite_DrawScaled(s32 a, s32 b, s32 c, s32 x, s32 y, s32 w, s32 h);
 
-/* NON_MATCHING: 25 lines, the arrow flags test becomes movz, registers of the scroll clamp */
-#if 0
 void func_003B2090(s32 pad) {
     OptRecords *rec = &D_00440D50;
     s32 n;
@@ -508,14 +506,15 @@ void func_003B2090(s32 pad) {
     s32 y = 0x82;
 
     save = D_005F6730;
-    n = 6;
     col = 3;
+    n = 6;
     if (rec->n < 7) {
         n = rec->n;
     }
-    u = (pad >> 14) & 1;
+    u = pad >> 14;
     d = pad >> 12;
-    d &= 1; /* fake: the mask as its own statement */
+    u &= 1;
+    d &= 1;
     d = u - d;
     D_005F6DAA += d;
     if (D_005F6DAA < 0) {
@@ -528,7 +527,8 @@ void func_003B2090(s32 pad) {
     if (D_005F6DAA == 0) {
         col = 2;
     } else if (D_005F6DAA == rec->n - 6) {
-        col = 1;
+        col--; /* fake: two steps keep the store out of a movz */
+        col--;
     }
     Text_Printf(D_0051E1C8, 0xC0, 0x46, 10, 4, 0xE);
     func_003B1F10();
@@ -548,9 +548,6 @@ void func_003B2090(s32 pad) {
     }
     D_005F6730 = save;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/options", func_003B2090);
-#endif
 
 INCLUDE_RODATA("asm/nonmatchings/options", D_0051E238);
 INCLUDE_RODATA("asm/nonmatchings/options", D_0051E258);
@@ -558,8 +555,6 @@ INCLUDE_RODATA("asm/nonmatchings/options", D_0051E258);
 extern const char D_0051E238[];
 extern const char D_0051E258[];
 
-/* NON_MATCHING: 29 lines, the arrow flags test becomes xor/movz (original bnel/beql), registers of the scroll clamp */
-#if 0
 void func_003B2358(s32 pad) {
     OptRecords *rec = &D_00440D50;
     s32 n;
@@ -575,9 +570,10 @@ void func_003B2358(s32 pad) {
     if (rec->n < 7) {
         n = rec->n;
     }
-    u = (pad >> 14) & 1;
+    u = pad >> 14;
     d = pad >> 12;
-    d &= 1; /* fake: the mask as its own statement */
+    u &= 1;
+    d &= 1;
     d = u - d;
     D_005F6DAA += d;
     if (D_005F6DAA < 0) {
@@ -590,7 +586,8 @@ void func_003B2358(s32 pad) {
     if (D_005F6DAA == 0) {
         col = 2;
     } else if (D_005F6DAA == rec->n - 6) {
-        col = 1;
+        col--; /* fake: two steps keep the store out of a movz */
+        col--;
     }
     Text_Printf(D_0051E238, 0xAD, 0x46, 10, 4, 0xF);
     func_003B1F10();
@@ -614,9 +611,6 @@ void func_003B2358(s32 pad) {
     }
     D_005F6730 = save;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/options", func_003B2358);
-#endif
 
 INCLUDE_RODATA("asm/nonmatchings/options", D_0051E290);
 INCLUDE_RODATA("asm/nonmatchings/options", D_0051E2A8);
@@ -625,8 +619,6 @@ extern const char D_0051E290[];
 extern const char D_0051E2A8[];
 void Time_FramesToClock(s32 v, s32 *a, s32 *b, s32 *c);
 
-/* NON_MATCHING: 9 lines, the arrow flags test becomes xor/movz (original beql), same as func_003B2090 */
-#if 0
 void func_003B2670(s32 pad) {
     OptRecords *rec = &D_00440D50;
     s32 n;
@@ -643,9 +635,10 @@ void func_003B2670(s32 pad) {
     if (rec->n < 7) {
         n = rec->n;
     }
-    u = (pad >> 14) & 1;
+    u = pad >> 14;
     d = pad >> 12;
-    d &= 1; /* fake: the mask as its own statement */
+    u &= 1;
+    d &= 1;
     d = u - d;
     D_005F6DAA += d;
     if (D_005F6DAA < 0) {
@@ -659,7 +652,8 @@ void func_003B2670(s32 pad) {
     if (D_005F6DAA == 0) {
         col = 2;
     } else if (D_005F6DAA == rec->n - 6) {
-        col = 1;
+        col--; /* fake: two steps keep the store out of a movz */
+        col--;
     }
     func_003B1F10();
     func_003B1F78(2, col);
@@ -679,9 +673,6 @@ void func_003B2670(s32 pad) {
     }
     D_005F6730 = save;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/options", func_003B2670);
-#endif
 
 INCLUDE_RODATA("asm/nonmatchings/options", D_0051E2E0);
 
@@ -1323,7 +1314,7 @@ typedef struct {
     s16 unk3C;
     s16 unk3E;
 } OptEntry;
-s32 func_003E08D0(s32 n);
+void func_003E08D0(s32 n);
 
 /* NON_MATCHING: 62 lines, the pad deltas are if-converted to movn (original sltiu/negu + s16/s8 extend), u16 compares of the cursor, delay-slot fills in the item loop */
 #if 0

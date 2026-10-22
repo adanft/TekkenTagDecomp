@@ -465,3 +465,12 @@ Every function of the T18 files has C; the ones below are compiling drafts in `#
   (198), `func_003F25D8` (227), `func_003EDF88` (265), `func_003EFB00` (279), `func_003EBC98` (370), `func_003EE598` (408),
   `func_003F0008` (465), `func_003ED338` (518), `func_003EAF78` (707).
 - `src/select_results_b.c`: `func_003CA470` (1292, m2c draft; its C jump table replaces `jtbl_005204D0` when enabled).
+
+**T19 batch 2** (2026-10-22): matched `PracFont_StrWidth`, `func_003E06A0`, `func_003DD098`, `func_003E8FA0`,
+`func_003E92E0`, `func_003E9AE8`, `func_003E9C10`, `func_003E9FD8`, `func_003ECDE8`, `func_003ECF70`, `Bowl_PinHomePos`,
+`Pause_BowlTop5`, `func_003ADE18`, `func_003ACB08`, `func_003A96B8`, `func_003AFAA0`, `func_003BA480`, `func_003BAC88`,
+`func_003BB8B8`, `func_003BCFB8`, `func_003BD240`, `func_003B2090`, `func_003B2358`, `func_003B2670` (the three records
+lists), `func_003B5DB0`, `func_003B6808`, `func_003B77B8`, `func_003BECC0`, `func_003BFFB0`, `func_003C0210`,
+`func_003C1078`, `func_003C1350`, `func_003C3648`, `func_003C7428`, `func_003C8658`, `func_003C9778`, `func_003CC260`,
+`func_00359FB8`. `Text_Printf`'s jump table is one symbol again and `Mc_Update`'s strings and table are included in
+place, so both can emit them from C. The drafts left: [../t19_inventory.md](../t19_inventory.md).

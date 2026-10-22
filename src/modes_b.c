@@ -186,7 +186,7 @@ void func_003B0298(s32 a);
 void func_003B01D0(s32 a, s32 port, s32 b);
 void func_003B00A8(s32 a, s32 port, s32 side);
 void func_003B00D8(s32 port, s32 a);
-s32 func_003AFFE0(s32 a, s32 port);
+void func_003AFFE0(s32 a, s32 port);
 s32 func_003BFEB0(void);
 s32 func_003BFED8(void);
 s32 func_003BFEE8(void);
@@ -452,26 +452,23 @@ void func_003BB890(s32 which) {
 void func_003BB8B0(s32 v) {
     D_005F6528 = v;
 }
-/* NON_MATCHING: the over/under flag is if-converted to movz where the original branches (blez with slt in the delay slot) */
-#if 0
-/* NON_MATCHING: the over/under flag is if-converted to movz where the original branches (blez with slt in the delay slot) */
 s32 func_003BB8B8(s32 d, s32 lim) {
-    s32 over;
     s32 v;
 
-    D_005F6528 = v = D_005F6528 + d;
-    over = v < lim;
+    v = D_005F6528;
+    v += d;
+    D_005F6528 = v;
     if (d > 0) {
-        over = lim < v;
-    }
-    if (over) {
-        D_005F6528 = v = lim;
+        if (lim < v) {
+            D_005F6528 = v = lim;
+        }
+    } else {
+        if (v < lim) {
+            D_005F6528 = v = lim;
+        }
     }
     return v;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/modes_b", func_003BB8B8);
-#endif
 void func_003BB8E8(s32 i) {
     D_005F6E38[i] = 300;
 }
@@ -1127,9 +1124,6 @@ void Mode_Title(void) {
     }
     func_003BCBC8(D_005F65A8);
 }
-/* NON_MATCHING: the slot address of D_005F5CB0[j] is built in v1 instead of v0 (3 instructions) */
-#if 0
-/* NON_MATCHING: the slot address of D_005F5CB0[j] is built in v1 instead of v0 (3 instructions) */
 s16 func_003BCFB8(s32 id) {
     s32 r;
     s32 i;
@@ -1166,9 +1160,6 @@ s16 func_003BCFB8(s32 id) {
     }
     return r;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/modes_b", func_003BCFB8);
-#endif
 RODATA_ALIGN8();
 INCLUDE_RODATA("asm/nonmatchings/modes_b", D_0051EFE0);
 INCLUDE_RODATA("asm/nonmatchings/modes_b", D_0051F040);
@@ -1201,9 +1192,6 @@ void func_003BD130(s16 *ids, s16 *n) {
         }
     }
 }
-/* NON_MATCHING: the found-at-0 exit fills its delay slot with the store instead of ld ra (plus the loop alignment nop) */
-#if 0
-/* NON_MATCHING: the found-at-0 exit fills its delay slot with the store instead of ld ra (plus the loop alignment nop) */
 void func_003BD240(void) {
     s16 ids[16];
     s16 n;
@@ -1212,14 +1200,11 @@ void func_003BD240(void) {
     func_003BD130(ids, &n);
     for (i = 0; i < n; i++) {
         if (D_0051EFE0[ids[i]].id == 11) {
-            D_005F650E = i;
+            *(volatile s8 *)&D_005F650E = i; /* fake: keeps the store out of the exit's delay slot */
             break;
         }
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/modes_b", func_003BD240);
-#endif
 INCLUDE_RODATA("asm/nonmatchings/modes_b", D_0051F0B0);
 INCLUDE_RODATA("asm/nonmatchings/modes_b", D_0051F0C0);
 INCLUDE_RODATA("asm/nonmatchings/modes_b", jtbl_0051F0D0);

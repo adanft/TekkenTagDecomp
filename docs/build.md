@@ -48,11 +48,17 @@ Each C file is built in four steps, because the 1999 compiler driver cannot run 
    another `-G` for a path prefix, and the files in `NO_FAST_MATH` are built without `-ffast-math`, as their objects
    were: `effects.c`, `effects_draw.c`, `scene3d.c`, `model_anim.c`, `model_anim_b.c`, `loading_title.c`, `menu_bg.c`,
    `gallery_jpeg.c`, `tekken_bowl.c`);
-2. `configure.py --fix-asm` rewrites three things in the compiler's assembly where the game's assembler and the modern
-   gas differ and the difference depends on the neighbouring lines (`fix_compiler_asm`): a `li.s` that gas would build
-   with `lui $at / mtc1` is written out with the prelude's `mtc1`, an FPU compare right before a `bc1t` / `bc1f` that
-   gcc left to the assembler becomes a data word (no hazard nops either way, as in the original), and a `sqrt.s`
-   ending a noreorder block moves into the delay slot of a `jal` that follows it;
+2. `configure.py --fix-asm` rewrites four things (plus three on request) in the compiler's assembly where the game's
+   assembler and the modern gas differ and the difference depends on the neighbouring lines (`fix_compiler_asm`): a
+   `li.s` that gas would build with `lui $at / mtc1` is written out with the prelude's `mtc1`, an FPU compare right
+   before a `bc1t` / `bc1f` that gcc left to the assembler becomes a data word (no hazard nops either way, as in the
+   original), and a `sqrt.s` ending a noreorder block moves into the delay slot of a `jal` that follows it. Markers
+   that a C file sets with macros of `include/include_asm.h` steer the `.lit4` pool words of `li.s` (the pool of the
+   original is not always in text order): after `LIT4_ORDER(N)` (N > 0) the words go into subsection N of `.lit4`, after
+   the words of lower subsections (`LIT4_WORD_AT(N, ...)` puts a split word there too), and `LIT4_REF(NAME)` makes the
+   next pool load read the word `NAME` defined elsewhere (a split file) with `%gp_rel`, kept out of delay slots;
+   `LIT4_KEEP(N)` keeps the N-th pool load out of a branch's delay slot without changing its word. An `mfc1 $r` that
+   gcc left to gas right before a noreorder block whose first instruction reads `$r` gets the original's hazard `nop`;
 3. the project's `as` with `-mabi=o64`, reading `include/gcc_prelude.inc` first (instructions the game's
    assembler encoded differently);
 4. `configure.py --eabi64` sets the object's ABI tag to EABI64 like the split files, so the linker accepts both.

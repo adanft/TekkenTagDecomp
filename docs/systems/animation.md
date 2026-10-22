@@ -179,6 +179,9 @@ shapes: `Skel_Update`, `Skel_ComputeWorld`, `Skel_PlaceHitShapes`, `Skel_SetVolu
 nop), `Motion_DecodeFrame` (registers only), `Motion_CopyFrame`. The drafts follow the original control flow, so the
 behaviour above can be read from them. See [decomp_guide.md](../decomp_guide.md), "Lessons from T16 batch 1".
 
+**T19 batch 2** (2026-10-22): matched `Skel_ProjectJoints` (skeleton). The drafts left:
+[../t19_inventory.md](../t19_inventory.md).
+
 ## 7. Open
 
 - The meaning of the root channel 0 (an angle added to the facing `unk1A`) against `unk3C`, and of `unk11D`.

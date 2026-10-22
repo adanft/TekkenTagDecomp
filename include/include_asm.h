@@ -60,6 +60,40 @@
     )
 #endif
 
+/* In front of a C function whose .lit4 words the original pool holds after the words of later functions: the
+ * compiler's pool loads (`li.s` from the pool) from here on take their words from subsection N of .lit4 (configure.py
+ * --fix-asm), which the assembler places after subsections 0 .. N-1, i.e. after the LIT4_WORD lines and the words of
+ * every other function of the file. LIT4_ORDER(0) after the function returns to the normal order. */
+#ifndef LIT4_ORDER
+#define LIT4_ORDER(N) __asm__("#lit4_order " #N)
+#endif
+
+/* In front of a C function: its next float literal that the compiler loads from the .lit4 pool reads the word NAME
+ * instead (configure.py --fix-asm), for a word that lies in another part of the pool (defined by a split file). One
+ * LIT4_REF per literal, in the order of the loads. */
+#ifndef LIT4_REF
+#define LIT4_REF(NAME) __asm__("#lit4_ref " #NAME)
+#endif
+
+/* In front of a C function: the N-th float literal load from the .lit4 pool after this point stays where the compiler
+ * put it (configure.py --fix-asm), where the modern gas would move it into a following branch's delay slot and the
+ * game's assembler did not. */
+#ifndef LIT4_KEEP
+#define LIT4_KEEP(N) __asm__("#lit4_keep " #N)
+#endif
+
+/* LIT4_WORD in subsection N of .lit4: after every word of subsections 0 .. N-1 (LIT4_WORD lines, the compiler's
+ * words) whatever its place in the file, for words the original pool holds after those of a later C function. */
+#ifndef LIT4_WORD_AT
+#define LIT4_WORD_AT(N, NAME, HEX) \
+    __asm__( \
+        ".pushsection .lit4, " #N "\n" \
+        #NAME ":\n" \
+        "    .word " #HEX "\n" \
+        ".popsection" \
+    )
+#endif
+
 /* Around the C attempt of a function that stays INCLUDE_ASM when later functions of the file only match once the
  * compiler has seen its definition: the attempt is compiled but the assembler skips it (`.if 0`), the code comes
  * from the INCLUDE_ASM that follows. The attempt must not define function-local static data.
@@ -91,6 +125,18 @@ __asm__(".include \"macro.inc\"\n");
 #endif
 #ifndef LIT4_WORD
 #define LIT4_WORD(NAME, HEX)
+#endif
+#ifndef LIT4_ORDER
+#define LIT4_ORDER(N) extern int lit4_order_
+#endif
+#ifndef LIT4_WORD_AT
+#define LIT4_WORD_AT(N, NAME, HEX)
+#endif
+#ifndef LIT4_REF
+#define LIT4_REF(NAME) extern int lit4_ref_
+#endif
+#ifndef LIT4_KEEP
+#define LIT4_KEEP(N) extern int lit4_keep_
 #endif
 #ifndef ASM_STUB_BEGIN
 #define ASM_STUB_BEGIN() extern int asm_stub_begin_

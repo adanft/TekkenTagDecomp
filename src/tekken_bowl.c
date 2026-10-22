@@ -359,7 +359,7 @@ void func_003E97C8(s32 i, s32 port);
 s32 func_003F23F8(s32 i);
 extern s16 D_005F70D0;
 extern s16 D_005F70D2;
-s32 Snd_PlaySe(s32 id, s32 player);
+void Snd_PlaySe(s32 id, s32 player);
 extern Fighter gFighters[4];
 extern const char D_00523858[];
 extern const char D_00523A30[];
@@ -713,8 +713,6 @@ void func_003E8F58(s32 n) {
 void func_003E8F98(void) {
 }
 
-#if 0
-/* NON_MATCHING: 1 nop: modern gas puts a hazard nop between cfc2.ni and the beqz whose delay slot it fills with qmtc2.ni */
 /* VU0 sincos of x (cos in vf8x, sin in vf8y), the libvu0 _sceVu0ecossin series [I]. */
 void func_003E8FA0(f32 x) {
     f32 h = 1.5707964f;
@@ -748,7 +746,7 @@ void func_003E8FA0(f32 x) {
                      "vmsuby.y $vf9, $vf8, $vf8y\n"
                      ".word 0x4A8903BD\n" /* vsqrt $Q, $vf9y */
                      "vwaitq\n"
-                     "cfc2.ni $8, $vi22\n"
+                     ".word 0x4848B000\n" /* cfc2.ni $8, $vi22, as data: no gas hazard nop */
                      "qmtc2.ni $8, $vf9\n"
                      :
                      : "f"(x)
@@ -759,10 +757,6 @@ void func_003E8FA0(f32 x) {
         __asm__ volatile("vaddx.x $vf8, $vf0, $vf9x\n");
     }
 }
-#else
-LIT4_WORD(D_005F596C, 0x3FC90FDB);
-INCLUDE_ASM("asm/nonmatchings/tekken_bowl", func_003E8FA0);
-#endif
 
 /* Rotates matrix m about z, x then y by rot into d (VU0 macro code around the sincos helper func_003E8FA0). */
 void func_003E9038(BMat d, BMat m, f32 *rot) {
@@ -923,8 +917,6 @@ void func_003E92C0(f32 *d, f32 *a, f32 *b, f32 t) {
                      : "$8", "memory");
 }
 
-#if 0
-/* NON_MATCHING: 2 lines: the original has a hazard nop after the mfc1 of the f32-to-int conversion instead of the loop alignment nop */
 void func_003E92E0(s16 *p, s32 n) {
     s32 i;
     s32 j;
@@ -943,9 +935,6 @@ void func_003E92E0(s16 *p, s32 n) {
         p[k] = i;
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/tekken_bowl", func_003E92E0);
-#endif
 
 s32 func_003E93F8(void) {
     return D_005F70AC;
@@ -1144,9 +1133,8 @@ void func_003E9A90(void) {
     }
 }
 
-#if 0
-/* NON_MATCHING: 4 lines: the +0x58 / +0x5B row pointers are allocated to t3 / t2 swapped */
 void func_003E9AE8(void) {
+    BowlPlayer *q; /* fake (decomp-permuter): the second pointer gives the original row registers */
     BowlPlayer *p = D_01FC61E0;
     s32 i;
     s32 j;
@@ -1161,26 +1149,22 @@ void func_003E9AE8(void) {
         }
         p->unkD[1] = 0;
         p->unkD[0] = 0;
+        q = p;
         for (j = 2; j < 26; j++) {
-            p->unkD[j] = -1;
+            q->unkD[j] = -1;
         }
-        p->unk42[0] = 0;
+        q->unk42[0] = 0;
         for (j = 1; j < 11; j++) {
-            p->unk42[j] = -1;
+            q->unk42[j] = -1;
         }
         for (j = 0; j < 3; j++) {
-            p->unk5B[j] = 0;
-            p->unk58[j] = -1;
+            q->unk58[j] = -1;
+            q->unk5B[j] = 0;
         }
         p++;
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/tekken_bowl", func_003E9AE8);
-#endif
 
-#if 0
-/* NON_MATCHING: store order: the last zero store is scheduled 4 slots earlier */
 void func_003E9C10(void) {
     D_01FC51B0.unk0 = 0;
     D_01FC51B0.unk4 = -2300.0f;
@@ -1190,15 +1174,11 @@ void func_003E9C10(void) {
     D_01FC51B0.unk24 = 0;
     D_01FC51B0.unkC = 0;
     D_01FC51B0.unk14 = 0;
-    D_01FC51B0.unk18 = 0;
-    D_01FC51B0.unk1C = 0;
+    do { /* fake (decomp-permuter): the loop notes keep the last zero stores in source order */
+        D_01FC51B0.unk18 = 0;
+        D_01FC51B0.unk1C = 0;
+    } while (0);
 }
-#else
-LIT4_WORD(D_005F5978, 0xC50FC000);
-LIT4_WORD(D_005F597C, 0xC63B8000);
-LIT4_WORD(D_005F5980, 0xBE4CCCCD);
-INCLUDE_ASM("asm/nonmatchings/tekken_bowl", func_003E9C10);
-#endif
 
 #if 0
 /* NON_MATCHING: 198 lines (224 instructions, draft 210): m2c draft, only made to compile (stack copies as struct copies, VU0 and unknown instructions as inline asm) */
@@ -1307,27 +1287,21 @@ LIT4_WORD(D_005F5990, 0x3CF5C28F);
 INCLUDE_ASM("asm/nonmatchings/tekken_bowl", func_003E9C58);
 #endif
 
-#if 0
-/* NON_MATCHING: store order: the 0x64 / 0x70 stores are scheduled early */
 void func_003E9FD8(void) {
-    D_01FC51E0.unk60 = D_01FC51E0.unk0 = 0.0f;
-    D_01FC51E0.unk8 = -11000.0f;
-    D_01FC51E0.unk74 = 1;
     D_01FC51E0.unk78 = 0;
     D_01FC51E0.unk4 = D_01FC51E0.unkC = 0.0f;
     D_01FC51E0.unk10 = D_01FC51E0.unk14 = D_01FC51E0.unk18 = D_01FC51E0.unk1C = 0.0f;
     D_01FC51E0.unk20 = D_01FC51E0.unk24 = D_01FC51E0.unk28 = D_01FC51E0.unk2C = 0.0f;
     D_01FC51E0.unk50 = D_01FC51E0.unk54 = D_01FC51E0.unk58 = D_01FC51E0.unk5C = 0.0f;
     D_01FC51E0.unk64 = D_01FC51E0.unk68 = D_01FC51E0.unk6C = 0.0f;
+    D_01FC51E0.unk60 = D_01FC51E0.unk0 = 0.0f;
+    D_01FC51E0.unk74 = 1;
     D_01FC51E0.unk70 = 0;
+    D_01FC51E0.unk8 = -11000.0f;
 }
-#else
-LIT4_WORD(D_005F5994, 0xC62BE000);
-INCLUDE_ASM("asm/nonmatchings/tekken_bowl", func_003E9FD8);
-#endif
 
-#if 0
-/* NON_MATCHING: 3 lines: case 6 keeps its literal load in front of 'b' with an empty delay slot in the original */
+/* The 9th pool load (case 6) stays in front of its `b`: LIT4_KEEP. */
+LIT4_KEEP(9);
 void Bowl_PinHomePos(f32 *p, u32 i) {
     p[1] = -250.6579f;
     p[3] = 1.0f;
@@ -1376,23 +1350,7 @@ void Bowl_PinHomePos(f32 *p, u32 i) {
     p[0] += 0.0f;
     p[2] += 8000.0f;
 }
-#else
-LIT4_WORD(D_005F5998, 0xC37AA86C);
-LIT4_WORD(D_005F599C, 0xC4450552);
-LIT4_WORD(D_005F59A0, 0xC3638000);
-LIT4_WORD(D_005F59A4, 0xC3C50552);
-LIT4_WORD(D_005F59A8, 0x43638000);
-LIT4_WORD(D_005F59AC, 0xC3C50552);
-LIT4_WORD(D_005F59B0, 0xC3E38000);
-LIT4_WORD(D_005F59B4, 0x43E38000);
-LIT4_WORD(D_005F59B8, 0xC42AA000);
-LIT4_WORD(D_005F59BC, 0xC3638000);
-LIT4_WORD(D_005F59C0, 0x43638000);
-LIT4_WORD(D_005F59C4, 0x442AA000);
-LIT4_WORD(D_005F59C8, 0x43C50552);
-INCLUDE_RODATA("asm/nonmatchings/tekken_bowl", jtbl_00523830);
-INCLUDE_ASM("asm/nonmatchings/tekken_bowl", Bowl_PinHomePos);
-#endif
+LIT4_KEEP(0);
 
 #if 0
 /* NON_MATCHING: 21 lines: store order of the vector resets and register choice of the zero loops */
@@ -2554,13 +2512,15 @@ INCLUDE_ASM("asm/nonmatchings/tekken_bowl", func_003EBC98);
 #endif
 
 #if 0
-/* NON_MATCHING: 39 lines: the SE branches share 'sh a1 / jal' tails and the timer stays unextended in a1 */
+/* NON_MATCHING: 28 lines: one shared SE call site here (the original duplicates the last one) and the timer is sign-extended at the decrement where the original keeps it unextended in a1 */
 s32 func_003EC200(void) {
     BowlBody *p = D_01FC5260;
     s32 hit = 0;
     s32 sum = 0;
     s32 i;
     s16 t = D_005F70D0;
+    s32 id;
+    s32 n;
 
     if (t > 0) {
         t--;
@@ -2585,19 +2545,26 @@ s32 func_003EC200(void) {
     }
     if (hit && sum >= 5) {
         if (sum < 15) {
-            if (t <= 0) {
-                D_005F70D0 = 8;
-                return Snd_PlaySe(0x10AE, 0);
+            if (t > 0) {
+                return;
             }
+            id = 0x10AE;
+            n = 8;
         } else if (sum < 30) {
-            if (t < 7) {
-                D_005F70D0 = 14;
-                return Snd_PlaySe(0x10AD, 0);
+            if (t >= 7) {
+                return;
             }
-        } else if (t < 13) {
-            D_005F70D0 = 30;
-            return Snd_PlaySe(0x10AC, 0);
+            id = 0x10AD;
+            n = 14;
+        } else {
+            if (t >= 13) {
+                return;
+            }
+            id = 0x10AC;
+            n = 30;
         }
+        D_005F70D0 = n;
+        Snd_PlaySe(id, 0);
     }
 }
 #else
@@ -2883,8 +2850,6 @@ f32 func_003ECD00(BowlBody *b, s32 k, f32 t) {
     return d * SqrtS(s) + e;
 }
 
-#if 0
-/* NON_MATCHING: 13 lines: scheduling and registers of the cross product r x l added to the spin */
 void func_003ECDE8(BowlBody *b, f32 *n, f32 *pt) {
     FVec4 l;
     FVec4 r;
@@ -2909,21 +2874,14 @@ void func_003ECDE8(BowlBody *b, f32 *n, f32 *pt) {
     func_003E92C0(b->unk10.v, b->unk30.v, l, 0.2631579f);
     sceVu0SubVector(l, n, l);
     sceVu0ScaleVector(l, l, 6.258214e-06f);
-    cx = r[1] * l[2] - r[2] * l[1]; 
-    cy = r[2] * l[0] - r[0] * l[2]; 
-    cz = r[0] * l[1] - r[1] * l[0]; 
+    cx = r[1] * l[2] - r[2] * l[1];
+    cy = r[2] * l[0] - r[0] * l[2];
+    cz = r[0] * l[1] - r[1] * l[0];
     b->unk50.v[0] += cx;
-    b->unk50.v[2] += cz;
     b->unk50.v[1] += cy;
+    b->unk50.v[2] += cz;
 }
-#else
-LIT4_WORD(D_005F5A90, 0x3E86BCA2);
-LIT4_WORD(D_005F5A94, 0x36D1FDA6);
-INCLUDE_ASM("asm/nonmatchings/tekken_bowl", func_003ECDE8);
-#endif
 
-#if 0
-/* NON_MATCHING: 13 lines: f21 / f22 swapped between the lowest point and the 5000.0 constant */
 void func_003ECF70(BowlBody *b) {
     FVec4 v;
     f32 low = 0.0f;
@@ -2949,16 +2907,14 @@ void func_003ECF70(BowlBody *b) {
             low = y;
         }
     }
-    if (0.0f < low) {
-        b->unk10.v[1] = 0.0f;
-        b->unk0.v[1] -= low;
-        func_003ECAD8(b);
-    }
+    do { /* fake: the loop notes swap f21 / f22 into the original order */
+        if (0.0f < low) {
+            b->unk10.v[1] = 0.0f;
+            b->unk0.v[1] -= low;
+            func_003ECAD8(b);
+        }
+    } while (0);
 }
-#else
-LIT4_WORD(D_005F5A98, 0x459C4000);
-INCLUDE_ASM("asm/nonmatchings/tekken_bowl", func_003ECF70);
-#endif
 
 s32 func_003ED118(BowlBody *b, s32 k, f32 t) {
     BowlBody tmp = *b;
@@ -5689,8 +5645,6 @@ void func_003F3108(void) {
 
 INCLUDE_RODATA("asm/nonmatchings/tekken_bowl", D_00523F68);
 INCLUDE_RODATA("asm/nonmatchings/tekken_bowl", D_00523F88);
-#if 0
-/* NON_MATCHING: 6 lines: the % 5 of the cursor swaps v0 / v1 */
 s32 Pause_BowlTop5(s16 pad) {
     s32 save = D_005F6730;
     BowlScore *s;
@@ -5738,6 +5692,3 @@ s32 Pause_BowlTop5(s16 pad) {
     }
     return 0;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/tekken_bowl", Pause_BowlTop5);
-#endif

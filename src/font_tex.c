@@ -161,10 +161,11 @@ void func_003608B8(McMenu *m) {
     func_003604C8(&m->ask, 0x140, 0x138, 0, 0, 0);
 }
 
-/* NON_MATCHING: 13 lines: both window-call arms end in a branch to the join in the original (no fall-through), and the
- * prologue order differs */
+/* NON_MATCHING: 17 lines: prologue order (move s1 / sd s0) and the first func_003604F0 call's delay slot; the format string is D_004FC280 */
 #if 0
 /* Draws the YES / NO question window under the message window (sliding in or out when unk15 changes). */
+extern const char D_004FC280[]; /* "%H%V%F%S%cYES %cNO" */
+
 void func_003608E0(McMenu *m) {
     McWindow *ask = &m->ask;
     s32 y;
@@ -190,7 +191,7 @@ void func_003608E0(McMenu *m) {
             b = 0xB;
         }
         y = m->ask.y;
-        Text_Printf("%H%V%F%S%cYES %cNO", m->ask.x + 0xA, y + 0x1E, 0xA, 8, a, b);
+        Text_Printf(D_004FC280, m->ask.x + 0xA, y + 0x1E, 0xA, 8, a, b);
         func_003BB890(m->yes == 0, 0x140, y + 0x28, 5);
     }
     m->unk17 = 0;
@@ -244,8 +245,6 @@ void func_00360A30(McMenu *m, s32 msg) {
     func_003604F0(&m->win, 0x140 - (w >> 1), m->win.y, w, h, D_00416078[m->unk15].color);
 }
 
-/* NON_MATCHING: 6 lines: the y argument (window y + 8 + 18 per line) is computed with other registers */
-#if 0
 /* Draws the message window and, once it has opened, the lines of the current message centred. */
 void func_00360B90(McMenu *m) {
     McMsg *e;
@@ -267,14 +266,11 @@ void func_00360B90(McMenu *m) {
     if (m->unk24 == 0) {
         if (lines != 0) {
             for (i = 0; i < lines; i++) {
-                Text_DrawId(0x140 - (Text_Width(first + i) >> 1), m->win.y + i * 0x12 + 8, first + i, 0x60606080);
+                Text_DrawId(0x140 - (Text_Width(first + i) >> 1), m->win.y + 8 + i * 0x12, first + i, 0x60606080);
             }
         }
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/font_tex", func_00360B90);
-#endif
 
 void func_00360C98(McMenu *m, s32 yes) {
     m->yes = yes;

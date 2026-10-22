@@ -226,6 +226,8 @@ segments:
       - [0x1E2B80, .rodata, model_anim_b]
       - [0x1E2CE0, .rodata, theater_d]
       - [0x1E2E20, rodata]
+      - [0x1E3010, .rodata, render_fighter_b]
+      - [0x1E3030, .rodata, draw_list]
       - [0x1E3048, .rodata, theater_b]
       - [0x1E31C0, .rodata, theater_c]
       - [0x1E31E0, .rodata, theater]

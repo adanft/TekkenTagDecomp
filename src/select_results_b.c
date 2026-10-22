@@ -701,8 +701,6 @@ void func_003C3370(s32 tex, s32 clut, s32 x, s32 y, s32 w, s32 h, s32 bw, s32 bh
     func_003CE418(tex, clut, x, y, bw, bh, 0, 0, bw, bh, 0, 0, 0, c);
 }
 
-/* NON_MATCHING: 70 lines, the prologue's spills and reloads of the edge values are scheduled differently (same nine calls) */
-#if 0
 void func_003C3648(s32 tex, s32 clut, s32 x, s32 y, s32 w, s32 h, s32 bw, s32 bh) {
     s32 c = 0x80;
     s32 xb;
@@ -718,7 +716,6 @@ void func_003C3648(s32 tex, s32 clut, s32 x, s32 y, s32 w, s32 h, s32 bw, s32 bh
 
     wr = w - bw;
     xb = x + bw;
-    x += w;
     wm = wr - bw;
     hr = h - bh;
     hm = hr - bh;
@@ -727,6 +724,7 @@ void func_003C3648(s32 tex, s32 clut, s32 x, s32 y, s32 w, s32 h, s32 bw, s32 bh
     nw = bw - wr;
     nb = -bw;
     func_003CE418(tex, clut, xc, ym, nw, hm, bw, bh, wm, hm, c, c, c, c);
+    x += w;
     func_003CE418(tex, clut, xc, y, nw, bh, bw, 0, wm, bh, 0, 0, c, c);
     func_003CE418(tex, clut, x, y, nb, bh, 0, 0, bw, bh, 0, 0, 0, c);
     func_003CE418(tex, clut, x, ym, nb, hm, 0, bh, bw, hm, 0, c, 0, c);
@@ -737,9 +735,6 @@ void func_003C3648(s32 tex, s32 clut, s32 x, s32 y, s32 w, s32 h, s32 bw, s32 bh
     func_003CE418(tex, clut, xb, ym, nb, hm, wr, bh, bw, hm, c, 0, c, 0);
     func_003CE418(tex, clut, xb, y, nb, bh, wr, 0, bw, bh, 0, 0, c, 0);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/select_results_b", func_003C3648);
-#endif
 
 /* NON_MATCHING: 75 lines, the slot positions fold differently ((dy + 216) - n * 3 + off becomes dy - (n * 3 - 216)) and delay-slot fills */
 #if 0
@@ -2046,7 +2041,8 @@ extern s32 D_005F6E74;
 extern s32 D_005F6E78;
 
 /* NON_MATCHING: 257 lines, register allocation and block order of the format loop; as C the jump table is the whole
- * 0x49-entry table that splat split into jtbl_00520010 and the raw words of D_00520058 (data change needed); va_start
+ * 0x49-entry table jtbl_00520010 (one symbol since T19 b2: `dont_allow_addend` keeps two .data words 0x005200DA from
+ * splitting it; the C table needs RODATA_ALIGN16() after it); va_start
  * is spelled with __builtin_next_arg [I] */
 #if 0
 #define TP_ARG() (ap += 8, *(s32 *)(ap - 8))
@@ -2232,8 +2228,6 @@ INCLUDE_RODATA("asm/nonmatchings/select_results_b", jtbl_00520010);
 INCLUDE_ASM("asm/nonmatchings/select_results_b", Text_Printf);
 #endif
 
-INCLUDE_RODATA("asm/nonmatchings/select_results_b", D_00520058);
-
 s32 func_003C71F0(s32 i) {
     return D_0051FE98[i];
 }
@@ -2286,18 +2280,14 @@ void func_003C73A0(s32 t, s32 x, s32 y, s32 c, s32 w) {
     Text_Printf(D_005202E8, x, y, 10, w, c, h, m, s);
 }
 
-/* NON_MATCHING: 4 lines, y - 7 - 0x13 folded into one y - 26 (original keeps two adds) */
-#if 0
 void func_003C7428(s32 v, s32 y, s32 c) {
-    s32 y0 = y - 7;
-    s32 y1 = y0 - 0x13;
+    s32 y1;
 
-    if (v >= 100) Text_Printf(D_00520308, 0x113, y0, 10, 5, 11, y1, 10, v);
-    else Text_Printf(D_00520320, 0x113, y0, 10, 5, c, y1, 10, v);
+    y -= 7;
+    y1 = y - 0x13;
+    if (v >= 100) Text_Printf(D_00520308, 0x113, y, 10, 5, 11, y1, 10, v);
+    else Text_Printf(D_00520320, 0x113, y, 10, 5, c, y1, 10, v);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/select_results_b", func_003C7428);
-#endif
 
 void func_003C74A8(s32 v, s32 y) {
     y -= 0x18;
@@ -2652,18 +2642,17 @@ void func_003C84B8(Records *r) {
     r->unk1B8 = r->unk174[p[0].idx];
 }
 
-/* NON_MATCHING: 4 lines, the r->unk1B8 load is scheduled before the slt (original: after the mult) */
-#if 0
 void func_003C8658(Records *r) {
     s32 i;
+    u16 v;
+    s32 c;
 
     for (i = 0; i < r->unk124; i++) {
-        func_003C7F60(i, r->unk126[i], r->unk174[r->unk126[i]], r->unk1B8, i < r->unk170 ? 0 : r->unk122, 0, r->unk11A + D_005F6E8C * i, 0);
+        v = r->unk174[r->unk126[i]];
+        c = i < r->unk170 ? 0 : r->unk122;
+        func_003C7F60(i, r->unk126[i], v, r->unk1B8, c, 0, r->unk11A + D_005F6E8C * i, 0);
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/select_results_b", func_003C8658);
-#endif
 
 void func_003C8710(s32 i) {
     switch (i) {
@@ -3240,8 +3229,6 @@ INCLUDE_ASM("asm/nonmatchings/select_results_b", func_003C9518);
 
 INCLUDE_RODATA("asm/nonmatchings/select_results_b", D_00520460);
 
-/* NON_MATCHING: 2 lines, one byte store of the else block is scheduled first */
-#if 0
 void func_003C9778(SelState *unused) {
     Unk440A68 *e = D_00440A68;
     s32 i;
@@ -3260,17 +3247,14 @@ void func_003C9778(SelState *unused) {
         D_00440A68[34].unk1 = 0x13;
         D_00440A68[35].unk1 = 0x1A;
     } else {
-        D_00440A68[35].unk1 = 0x24;
         D_00440A68[35].unk5 = 0;
         D_00440A68[19].unk2 = 0x24;
         D_00440A68[26].unk2 = 0x24;
-        D_00440A68[34].unk5 = 0;
         D_00440A68[34].unk1 = 0x24;
+        D_00440A68[34].unk5 = 0;
+        D_00440A68[35].unk1 = 0x24;
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/select_results_b", func_003C9778);
-#endif
 
 void func_003C9888(SelState *s) {
     s->unkC = 0x3C;
@@ -3577,9 +3561,8 @@ void func_003CA418(void) {
 #if 0
 s32 func_003CA428(s32 b) {
     if (b & 0x1040F) b |= 4;
-    if ((b & 0x5000) == 0x5000) b &= 0xA9F4;
-    else b &= 0xF9F4;
-    if ((b & 0xA000) == 0xA000) b &= 0x59F4;
+    b = ((b & 0x5000) != 0x5000) ? b & 0xF9F4 : b & 0xA9F4;
+    if ((b & 0xA000) == 0xA000) return b & 0x59F4;
     return b;
 }
 #else
@@ -3595,14 +3578,14 @@ INCLUDE_RODATA("asm/nonmatchings/select_results_b", jtbl_005204D0);
 extern u16 D_005F5C80[2];
 extern s32 D_005F6EB8;
 extern Fighter gFighters[4];
-s32 func_003AE9D8();
-s32 func_003AEC58();
-s32 func_003AECA8();
-s32 func_003AEF88();
-s32 func_003AFF40();
-s32 func_003B0660();
-s32 func_003BF7F8();
-s32 func_003BF820();
+void func_003AE9D8();
+void func_003AEC58();
+void func_003AECA8();
+void func_003AEF88();
+void func_003AFF40();
+void func_003B0660();
+void func_003BF7F8();
+void func_003BF820();
 #define Snd_PlaySe ((s32 (*)())Snd_PlaySe)
 #define Text_Printf ((s32 (*)())Text_Printf)
 #define func_003ADBE8 ((s32 (*)())func_003ADBE8)
@@ -4629,8 +4612,6 @@ void func_003CC190(SelState *s) {
     }
 }
 
-/* NON_MATCHING: 18 lines, the x choice for member 1 becomes movn (original branches) and s4 / s5 swap */
-#if 0
 void func_003CC260(SelState *s, s32 side, s32 member, s32 chr, s32 cos) {
     s32 x, y, k, save;
 
@@ -4648,12 +4629,13 @@ void func_003CC260(SelState *s, s32 side, s32 member, s32 chr, s32 cos) {
             y = 0x108;
         }
     } else {
-        if (side != 0) {
-            x = 0x1DB;
-        } else {
+        if (side == 0) {
             x = 0x29;
+            y = 0xEE;
+        } else {
+            x = 0x1DB;
+            y = 0xEE;
         }
-        y = 0xEE;
     }
     k = func_003CF230(chr, cos);
     if (s->unk14[side] != 0 || member != 1 || func_003CBE88((SelState *)&D_00440D08[side]) != 0) {
@@ -4666,9 +4648,6 @@ void func_003CC260(SelState *s, s32 side, s32 member, s32 chr, s32 cos) {
         D_005F6730 = save;
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/select_results_b", func_003CC260);
-#endif
 
 INCLUDE_RODATA("asm/nonmatchings/select_results_b", D_005205C8);
 

@@ -58,45 +58,33 @@ s32 func_00399CF8(f32 *in, s32 *out, s32 clip);
 s32 func_00399DC8(f32 *in, s32 *out);
 void func_00399E50(u64 *p, s32 idx, s32 base);
 
-/* NON_MATCHING: 2 lines: the unk78 flag is loaded into v1 in the original, v0 here */
-#if 0
 u32 func_003994C0(void) {
     Unk8BD310 *d = &D_008BD310;
-    s32 i = d->unk50;
 
     if (d->unk78 == 0) {
-        printf(D_00518CD0, i);
+        printf(D_00518CD0, d->unk50);
         exit(1);
     }
-    if (d->unk60[i] != 0) {
-        printf(D_00518D08);
+    if (d->unk60[d->unk50] != 0) {
+        printf(D_00518D08, d->unk50);
         return 0;
     }
     return d->unk40;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/zsort", func_003994C0);
-#endif
 
-/* NON_MATCHING: 2 lines: the unk7C flag is loaded into v1 in the original, v0 here */
-#if 0
 u32 func_00399520(void) {
     Unk8BD310 *d = &D_008BD310;
-    s32 i = d->unk54;
 
     if (d->unk7C == 0) {
-        printf(D_00518CD0, i);
+        printf(D_00518CD0, d->unk54);
         exit(1);
     }
-    if (d->unk68[i] != 0) {
-        printf(D_00518D08);
+    if (d->unk68[d->unk54] != 0) {
+        printf(D_00518D08, d->unk54);
         return 0;
     }
     return d->unk48;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/zsort", func_00399520);
-#endif
 
 void func_00399580(u32 p) {
     Unk8BD310 *d = &D_008BD310;

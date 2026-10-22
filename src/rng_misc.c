@@ -212,10 +212,11 @@ u32 Math_Permille(u32 a, u32 b) {
 
 /* Sorts `n` {key, value} pairs by value, ascending (desc == 0) or descending. */
 #if 0
-/* NON_MATCHING: loop structure and registers of the swap differ (the original keeps the outer pointer in v1/t3). */
+/* NON_MATCHING: 13 lines: same layout; p / pv / qv take t1 / t2 / t0 where the original has t2 / t0 / t1 */
 s32 Sort_PairsByValue(u32 *a, s32 n, s32 desc) {
     u32 *p;
     u32 *q;
+    u32 *r;
     u32 tmp[2];
     u32 pv;
     u32 qv;
@@ -225,9 +226,9 @@ s32 Sort_PairsByValue(u32 *a, s32 n, s32 desc) {
         return 1;
     }
     n--;
-    for (i = 0; i < n; i++) {
-        p = &a[i * 2];
-        q = p + 2;
+    for (i = 0, r = a; i < n; i++, r += 2) {
+        p = r;
+        q = r + 2;
         do {
             pv = p[1];
             if (desc == 0) {

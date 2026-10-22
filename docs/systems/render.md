@@ -300,16 +300,23 @@ gas added (before an unfilled `bc1f` / `bc1t` after an FPU compare, between `li.
 (`configure.py` rewrites the compiler's output), and `effects.c`, `effects_draw.c`, `scene3d.c` and both `model_anim`
 objects are built without `-ffast-math`.
 
+**T19 batch 2** (2026-10-22): matched `Fx_AddQuad`, `func_003420C8` and `func_00342818` (`.lit4` order through
+`LIT4_ORDER`), `func_0034A570`, `func_003518B8` and `Model_Render` (words in another part of the pool: `LIT4_REF`; the
+`li.s` before `Model_Render`'s last `jal` stays out of its delay slot), `func_003403C8`, `func_00340B30`,
+`func_00341B70`, `func_003D43A8`, `func_003D8D38`, `func_003D4728`, `func_003CF608`, `func_003CE920`, `func_003CE770`,
+`Sprite_DrawCurrentGouraud`, `func_0034D108`, `func_0034E640`, `func_00354120`, `func_00360B90`. `draw_list` and
+`render_fighter_b` have `.rodata` subsegments (0x522030 / 0x522010), so `func_00356A78`'s jump table can come from C.
+The drafts left: [../t19_inventory.md](../t19_inventory.md).
+
 ## 10. Open
 
 - Not decompiled yet in the render paths: `zsort` (0x3994C0-0x399FC8), the effect pool itself (`func_003464F8` ..
   `func_00346830`, `geometry` range) and the dispatcher `func_0035BF10` (T19 or the module batches that own them).
 - How the original wrote the 64-bit to 128-bit move of the sword effect's TEX0 (`por`), which this compiler refuses.
 - The VU1 program the model parts run on (section 12) and the stage objects' VU1 program.
-- An assembler rule for the `li.s` load before a `jal` (`Model_Render`): the game's assembler left it out of the delay
-  slot there.
-- The `.lit4` pool of `vu1_packet` out of text order (`func_00342E38`'s words first): how the original produced it is
-  unknown; four drafts that match (or nearly) wait on it.
+- How the original produced `.lit4` pools out of text order (`vu1_packet`, `geometry_b`) and words in another part
+  of the pool (`Model_Render`, `func_003518B8`); the build reproduces them with `LIT4_ORDER` / `LIT4_REF` (T19 b2), the
+  mechanism is unknown.
 - How the original wrote the bare `sqrt.s` of the objects built without `-ffast-math` (`scene3d`, `effects_draw`, both
   `model_anim` objects) and of `sprite2d`'s `func_003CF408`: the C uses an inline-asm square root (marked fake), while
   `func_003A8D08` has the errno form of `sqrtf` with the libcalls `sqrt` and `__fixunssfsi` (decomp_guide.md, "Lessons

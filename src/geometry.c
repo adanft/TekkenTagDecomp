@@ -162,16 +162,15 @@ void func_003463B8(void) {
     }
 }
 
-/* NON_MATCHING: 2 lines: the store of D_005F6CCC = 0x200 is scheduled before D_008BF610.next (original: after it) */
-#if 0
 void func_00346430(void) {
     Obj *base = func_003639D0();
     Obj *p = base;
     Obj *nxt = base + 1;
     Obj *prev = base - 1;
     s32 i;
+    s32 n = 0x200;
 
-    for (i = 0; i < 0x200; i++) {
+    for (i = 0; i < n; i++) {
         p->next = prev;
         p->prev = nxt;
         p->update = 0;
@@ -188,8 +187,8 @@ void func_00346430(void) {
     base->next = &D_008BF770;
     D_008BF770.prev = base;
     D_008BF770.next = p;
-    D_005F6CCC = 0x200;
     D_008BF610.next = &D_008BF610;
+    D_005F6CCC = 0x200;
     D_008BF610.prev = &D_008BF610;
     D_005F6CC8 = 0;
     D_005F6CD0 = 0;
@@ -198,9 +197,6 @@ void func_00346430(void) {
     func_00346210();
     func_00345FC8();
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/geometry", func_00346430);
-#endif
 
 Obj *func_003464F8(void (*update)(Obj *o)) {
     Obj *head;

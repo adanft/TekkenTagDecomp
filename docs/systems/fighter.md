@@ -724,6 +724,11 @@ blend (`func_00373428`, `func_00373930`, `func_003736B8`, `func_00373D48`, `func
 `func_003865A0` and the CPU set-up `func_00380568`. The drafts compile and follow the original control flow, so the
 behaviour can be read from them; only byte identity is missing.
 
+**T19 batch 2** (2026-10-22): 29 more `fighter_core` functions (`Cpu_RejectCands`, `Prac_RecInput`, the CPU deciders
+and predicates around 0x37BAB0-0x38BEE0), 7 of `battle_flow` (`Cmd_CheckThrowCondition`, `func_0036C278` with its jump
+table from C, `func_0036C918`, `func_0036F010`, `func_00370E98`, `func_003730E8`, `func_00373D48`), `func_0037B8D8` and
+`func_0037AF30` (practice). The drafts left: [../t19_inventory.md](../t19_inventory.md).
+
 ## 6. Open
 
 - The meanings of most move kinds (`unk17A`, table in section 5.3), of the state codes `unk11E` / `unkD5` and of the

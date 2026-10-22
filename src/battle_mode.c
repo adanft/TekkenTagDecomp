@@ -181,7 +181,7 @@ int rand(void);
 u32 Math_Isqrt(u32 x);
 void Bgm_Stop(void);
 void Bgm_Play(s32 track);
-s32 Snd_PlaySe(s32 id, s32 player);
+void Snd_PlaySe(s32 id, s32 player);
 s32 Text_Printf(const char *fmt, ...);
 void Mode_Change(s32 mode);
 void Hud_Init(GameSetup *g);
@@ -761,9 +761,6 @@ void func_00359C40(GameSetup *s) {
         break;
     }
 }
-/* NON_MATCHING: register allocation: the type / winner bytes and the saturating counter land in a1/a3 instead of a0/a2 */
-#if 0
-/* NON_MATCHING: register allocation: the type / winner bytes and the saturating counter land in a1/a3 instead of a0/a2 */
 void func_00359FB8(GameSetup *v) {
     u8 kind = v->unk1F;
     u8 w = v->unk20;
@@ -774,7 +771,8 @@ void func_00359FB8(GameSetup *v) {
     switch (kind) {
     case 1:
     case 2:
-        n = v->u.v.rec[w].wins + 1;
+        n = v->u.v.rec[w].wins;
+        n = n + 1;
         if (n > 0xFFFF) n = 0xFFFF;
         v->u.v.rec[w].wins = n;
         func_0035CBC0(D_005F5C98[w][0], D_005F5C98[l][0]);
@@ -784,7 +782,8 @@ void func_00359FB8(GameSetup *v) {
         func_003BA4D8(v->unk20);
         break;
     case 3:
-        n = v->u.v.unk4C + 1;
+        n = v->u.v.unk4C;
+        n = n + 1;
         if (n > 0xFFFF) n = 0xFFFF;
         v->u.v.unk4C = n;
         func_0035CC68(D_005F5C98[0][0], D_005F5C98[1][0]);
@@ -806,9 +805,6 @@ void func_00359FB8(GameSetup *v) {
         func_003AE738(1, i);
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/battle_mode", func_00359FB8);
-#endif
 s32 func_0035A1E8(GameSetup *s) {
     s32 r = 0;
     s32 i, j, found, n;

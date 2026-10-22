@@ -65,7 +65,7 @@ extern s32 D_005F5CE0;
 s32 func_003B1378(void);
 void func_003992C8(s32 value);
 void Mode_Change(s32 mode);
-s32 Snd_PlaySe(s32 id, s32 player);
+void Snd_PlaySe(s32 id, s32 player);
 s32 func_003E5350(void);
 void func_003E52E8(s8 *st);
 void func_003DEB80(s32 a);
@@ -897,16 +897,14 @@ INCLUDE_ASM("asm/nonmatchings/gallery_jpeg", func_003E6DA0);
 #endif
 
 #if 0
-/* NON_MATCHING: 15 lines: the return-0 paths fill their branch slot with 'ld ra' instead of 'move v0, zero' */
 s32 func_003E7210(s32 a) {
-    s32 hi;
+    s32 hi = 0;
+
     switch (D_005F5CB6) {
-    case 2:
-    case 22:
-        hi = 0;
-        break;
     case 19:
         hi = 1;
+    case 2:
+    case 22:
         break;
     default:
         return 0;
@@ -930,10 +928,10 @@ s32 Dma_Wait();
 s32 FlushCache(s32, s32 *);
 s32 Spr_Setup(s32, s32);
 f32 cosf(f32);
-s32 func_00343178(s32, s32);
+void func_00343178(s32, s32);
 u8 *func_00343F08();
-s32 func_00344150();
-s32 func_003622F8();
+void func_00344150();
+void func_003622F8();
 s32 func_003678C8();
 s32 func_003A9698();
 s32 sceVif1PkInit(u8 *, s32);

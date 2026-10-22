@@ -326,12 +326,13 @@ static inline f32 Fs_AngleToRad(u32 a) {
     return a <= 0x7FFF ? ANGLE_RAD * (s32)a : ((s32)a - 0x10000) * ANGLE_RAD;
 }
 
-/* NON_MATCHING: 10 lines: a copy of the masked angle (s2) for the second test */
-#if 0
 void func_003625B0(s32 angle, f32 (*m)[4]) {
     u32 a = angle & 0xFFFF;
     f32 s = sinf(Fs_AngleToRad(a));
-    f32 c = cosf(Fs_AngleToRad(a));
+    f32 c;
+
+    a = angle & 0xFFFF;
+    c = cosf(Fs_AngleToRad(a));
 
     m[0][0] = c;
     m[1][0] = 0;
@@ -350,13 +351,6 @@ void func_003625B0(s32 angle, f32 (*m)[4]) {
     m[2][3] = 0;
     m[3][3] = 1.0f;
 }
-#else
-LIT4_WORD(D_005F5100, 0x38C90FDB);
-LIT4_WORD(D_005F5104, 0x38C90FDB);
-LIT4_WORD(D_005F5108, 0x38C90FDB);
-LIT4_WORD(D_005F510C, 0x38C90FDB);
-INCLUDE_ASM("asm/nonmatchings/fighter_setup", func_003625B0);
-#endif
 
 void func_003626B0(void) {
 }

@@ -1585,10 +1585,7 @@ void Fx_DrawQuads(void) {
     }
 }
 
-/* NON_MATCHING: 1 line, `addu a0,t1,a0` (quad + i * 16) comes out as `addu a0,a0,t1`; the `(FxPos *)` cast is
- * needed for the rest (a plain p->unk10[i][0] hoists p + 0x10 / 0x14 / 0x18 into three registers).
- * Queues a quad (at most 36): four screen positions, a colour, texture record a, frame b. */
-#if 0
+/* Queues a quad (at most 36): four screen positions, a colour, texture record a, frame b. */
 void Fx_AddQuad(FxPos *pos, Rgba5 *c, u16 a, u16 b) {
     Unk8D6AA0 *p;
     s32 i;
@@ -1598,16 +1595,14 @@ void Fx_AddQuad(FxPos *pos, Rgba5 *c, u16 a, u16 b) {
         p->unk0 = a;
         p->unk2 = b;
         for (i = 0; i < 4; i++) {
-            ((FxPos *)p->unk10)[i][0] = (pos)[i][0];
-            ((FxPos *)p->unk10)[i][1] = (pos)[i][1];
-            ((FxPos *)p->unk10)[i][2] = (pos)[i][2];
+            s32 *d = (s32 *)((u8 *)p + i * 16); /* fake: the row pointer gives addu a0,t1,a0 */
+            d[4] = pos[i][0];
+            d[5] = pos[i][1];
+            d[6] = pos[i][2];
         }
         *(Rgba5 *)p->unk50 = *c;
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/effects_draw", Fx_AddQuad);
-#endif
 
 /* Character 0x1D, when its special attack volume starts (func_00378150 / func_00378398, the fight's hit test):
  * restarts the flash counter, draws 18 random frame phases (rand() & 7) and starts a light flash at the fighter. */

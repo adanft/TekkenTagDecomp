@@ -1143,27 +1143,18 @@ void func_00366380(Fighter *f) {
     }
 }
 
-/* NON_MATCHING: 7 lines: the compiler peels the first loop step (i known to be 1); the original increments i from 0 at run time */
-#if 0
 void func_003663C0(Fighter *f, s32 id) {
-    s32 i = 0;
+    s32 i;
 
     f->unk26 = 0;
-    if (id != D_004FF690[0]) {
-        i++;
-        while (i < 0x110) {
-            if (id == D_004FF690[i]) {
-                f->unk26 = i;
-                break;
-            }
-            i++;
+    for (i = 0; i < 0x110; i++) {
+        if (id == D_004FF690[i]) {
+            f->unk26 = i;
+            break;
         }
     }
     func_00366380(f);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/fighter_setup_b", func_003663C0);
-#endif
 
 s16 func_00366410(s32 id) {
     s32 r = 0;
@@ -1610,14 +1601,18 @@ void func_00367488(Fighter *f, s32 flags) {
     }
 }
 
-/* NON_MATCHING: 11 lines: register allocation only: the loop index and the bank address swapped in s0 / s1 */
-#if 0
+/* D_004177E0[slot].unk0[k].unk8 read through its own symbol (the file id of each entry). */
+typedef struct {
+    s32 file;
+    s32 pad[2];
+} FsbFileSlot;
+extern FsbFileSlot D_004177E8[][3];
+
 void func_00367600(Fighter *f) {
     s32 slot = f->unk22;
     FsbModels *m = &D_008794C0[slot];
     s32 base;
     u32 i;
-    s32 k;
     s32 *p;
     s32 *q;
 
@@ -1661,16 +1656,13 @@ void func_00367600(Fighter *f) {
         func_003AF540(f, (s32)m->unk1C, (s32)m->unk18);
         Fx_LoadFighterTex(f);
     }
-    for (k = 0; k < 3; k++) {
-        if (D_004177E0[slot].unk0[k].unk8 >= 0) {
-            File_Release(D_004177E0[slot].unk0[k].unk8);
-            D_004177E0[slot].unk0[k].unk8 = -1;
+    for (i = 0; (s32)i < 3; i++) {
+        if (D_004177E8[slot][i].file >= 0) {
+            File_Release(D_004177E8[slot][i].file);
+            D_004177E8[slot][i].file = -1;
         }
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/fighter_setup_b", func_00367600);
-#endif
 
 s32 func_00367850(void) {
     return D_005F6BCC;

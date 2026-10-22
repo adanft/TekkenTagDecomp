@@ -141,6 +141,10 @@ def fix_split_asm(text):
 
 # R5900 FPU compares: the condition field of the four the CPU has (c.f.s, c.eq.s, c.lt.s, c.le.s).
 FPU_COMPARES = {"f": 0x30, "eq": 0x32, "lt": 0x34, "le": 0x36}
+# The marker LIT4_ORDER(N) leaves in the compiler's output (fix_compiler_asm).
+LIT4_ORDER = re.compile(r"^\s*#lit4_order\s+(\d+)\s*$")
+LIT4_REF = re.compile(r"^\s*#lit4_ref\s+(\w+)\s*$")
+LIT4_KEEP = re.compile(r"^\s*#lit4_keep\s+(\d+)\s*$")
 ASM_INSN = re.compile(r"^\t(\.?[a-z][\w.]*)(?:\t(.*))?$")
 
 
@@ -161,20 +165,66 @@ def fix_compiler_asm(text):
     - an FPU compare right before a bc1t / bc1f that gcc left to gas (reorder mode) becomes data, so gas adds no
       hazard nop between them (the original has none; the nop at a following `.set noreorder` stays);
     - a `sqrt.s` ending a noreorder block (`nop / nop / sqrt.s`) followed by `jal sym` goes into that jal's delay
-      slot, where the game's assembler put it (the prelude's data word could not move there)."""
+      slot, where the game's assembler put it (the prelude's data word could not move there);
+    - after a `#lit4_order N` line (LIT4_ORDER(N), include/include_asm.h) with N > 0, a `li.s` that gas would load
+      from the .lit4 pool gets its word in subsection N of .lit4 (a local label and an explicit `%gp_rel` lwc1, the
+      instruction gas builds for it), so the word lands after the words of lower subsections: the order of the
+      original pool where it differs from text order;
+    - after a `#lit4_ref NAME` line (LIT4_REF(NAME)), the next `li.s` that gas would load from the pool reads the word
+      NAME defined elsewhere (`%gp_rel(NAME)`), for a word that lies in another part of the pool; in reorder mode the
+      load is kept in place (noreorder), as the game's assembler kept these out of delay slots (Model_Render);
+    - after a `#lit4_keep N` line (LIT4_KEEP(N)), the N-th pool `li.s` from there on is kept in place the same way
+      (Bowl_PinHomePos); the other loads stay movable;
+    - an `mfc1 $r` that gcc left to gas (reorder mode) right before a `.set noreorder` block whose first instruction
+      reads $r gets the hazard nop the game's assembler put there (func_003E92E0); the modern gas adds none."""
     lines = text.split("\n")
     out = []
     reorder = True
+    lit4_order = 0
+    lit4_count = 0
+    lit4_refs = []
+    lit4_keep = 0
     i = 0
     while i < len(lines):
         line = lines[i]
         m = ASM_INSN.match(line)
         op, args = (m.group(1), m.group(2) or "") if m else (None, "")
+        order = LIT4_ORDER.match(line)
+        if order:
+            lit4_order = int(order.group(1))
+        ref = LIT4_REF.match(line)
+        if ref:
+            lit4_refs.append(ref.group(1))
+        keep = LIT4_KEEP.match(line)
+        if keep:
+            lit4_keep = int(keep.group(1))
         if op == ".set" and args.strip() in ("noreorder", "reorder"):
             reorder = args.strip() == "reorder"
-        if reorder and op == "li.s":
+        if op == "li.s" and (reorder or lit4_order or lit4_refs or lit4_keep):
             reg, value = (a.strip() for a in args.split(",", 1))
             bits = struct.unpack("<I", struct.pack("<f", float(value)))[0]
+            if lit4_refs and bits & 0xFFFF:
+                load = f"\tlwc1\t{reg},%gp_rel({lit4_refs.pop(0)})($gp)"
+                out += ["\t.set\tnoreorder", load, "\t.set\treorder"] if reorder else [load]
+                i += 1
+                continue
+            if lit4_order and bits & 0xFFFF:
+                label = f".Llit4_{lit4_count}"
+                lit4_count += 1
+                out += [f"\t.pushsection\t.lit4,{lit4_order}", f"{label}:", f"\t.word\t0x{bits:08X}", "\t.popsection",
+                        f"\tlwc1\t{reg},%gp_rel({label})($gp)"]
+                i += 1
+                continue
+            if not reorder:
+                out.append(line)
+                i += 1
+                continue
+            if lit4_keep and bits & 0xFFFF:
+                lit4_keep -= 1
+                if lit4_keep == 0:
+                    out += ["\t.set\tnoreorder", line, "\t.set\treorder"]
+                    i += 1
+                    continue
             if bits == 0:
                 out.append(f"\tmtc1\t$0,{reg}")
                 i += 1
@@ -197,6 +247,20 @@ def fix_compiler_asm(text):
                 out.append(f"\t.word\t0x{word:08X}\t# {op} {args.strip()}")
                 i += 1
                 continue
+        if reorder and op == "mfc1":
+            dst = args.split(",")[0].strip()
+            j = i + 1
+            while j < len(lines) and (not lines[j].strip() or lines[j].lstrip().startswith("#")):
+                j += 1
+            if j < len(lines) and lines[j] == "\t.set\tnoreorder":
+                k = j + 1
+                while k < len(lines) and not (ASM_INSN.match(lines[k]) and not lines[k].startswith("\t.")):
+                    k += 1
+                nxt = ASM_INSN.match(lines[k]) if k < len(lines) else None
+                if nxt and re.search(re.escape(dst) + r"\b", nxt.group(2) or ""):
+                    out += [line, "\tnop"]
+                    i += 1
+                    continue
         if not reorder and op == "sqrt.s" and i + 2 < len(lines) and lines[i + 1] == "\t.set\treorder":
             j = i + 2
             while j < len(lines) and (not lines[j].strip() or lines[j].lstrip().startswith("#")):

@@ -1621,69 +1621,155 @@ Not matched: 70 new drafts with one-line notes, `Mc_Update` among them. As C, it
 (`D_004FC108`-`jtbl_004FC180`, migrated into `Mc_Update.s`) need `force_not_migration` and `INCLUDE_RODATA` first.
 Every game function now has C (asm-only: 0).
 
+### Lessons from T19 batch 2 (2026-10-22)
+
+Build and data layout (each change checked with the clean rebuild and the SHA-1):
+
+- **Pool order from C** (`configure.py --fix-asm`, docs/build.md step 2; `tests/test_configure.py`, RED then GREEN).
+  The original `.lit4` pool is not always in text order, and some words sit in another object's part of the pool.
+  Three markers in front of a C function steer the compiler's pool loads (`li.s` that gas loads from `.lit4`):
+  - `LIT4_ORDER(N)`: the words go into subsection N of `.lit4`, after every word of lower subsections
+    (`LIT4_WORD_AT(N, ...)` puts a split word there). Two of `vu1_packet`'s four out-of-order functions matched
+    (`func_003420C8` in subsection 3, `func_00342818` in 1; `func_00342A38`'s word is `LIT4_WORD_AT(2, ...)`), and `geometry_b`'s
+    `func_0034A570` matched once the VU0 routines' words after it moved to subsection 1.
+  - `LIT4_REF(NAME)`: the next pool load reads the split word `NAME` with an explicit `%gp_rel` (the `lwc1` macro of
+    gas asserts on a symbol in `.lit4`: "Internal error in nopic_need_relax"; the explicit relocation does not). The
+    load is wrapped in `noreorder`: `Model_Render` (three words at 0x5F5700) and `func_003518B8` (0x5F570C) matched.
+  - `LIT4_KEEP(N)`: keeps the N-th pool load out of a branch delay slot (`Bowl_PinHomePos`, case 6). Keeping every
+    pool load out of delay slots was tried and changes many matched functions: the game's assembler did move them in
+    most places.
+- **Jump tables among other objects' data**: `render_fighter_b` and `draw_list` got `.rodata` subsegments
+  (0x522010, 0x522030; `jtbl_00522030` with `force_not_migration` and `RODATA_ALIGN16()` in front of it), so
+  `Model_Render`'s switch is C and `func_00356A78`'s table can be emitted once its draft matches.
+- **Split tables**: two `.data` words 0x005200DA were symbolized as `D_00520058 + 0x82` and split `Text_Printf`'s
+  0x49-entry table in two. `jtbl_00520010` is one symbol again (size 0x130, `dont_allow_addend:True`); the data words
+  stay raw.
+- **`Mc_Update`'s strings and jump table** are `force_not_migration` and `INCLUDE_RODATA` in place (the strings before
+  the draft, the table in its `#else`), the clean build byte-identical.
+- An exact float literal matters: fdiff's "different data through $gp" with one ulp off was the last difference of
+  `func_003ACB08` (`-0.34906587f` gave 0xBEB2B8C3, the word is 0xBEB2B8C2 = `-0.34906584f`).
+- **One more `--fix-asm` rule**: an `mfc1 $r` that gcc left to gas right before a `.set noreorder` block whose first
+  instruction reads `$r` gets the nop the game's assembler put there (`func_003E92E0`; the modern gas adds none). The
+  whole build stays byte-identical with it.
+- A gas hazard nop between `cfc2.ni` and a branch disappears when the `cfc2.ni` is written as a `.word` inside the
+  asm block (`func_003E8FA0`).
+- The 128-bit save of s2 in `scene3d_c` (`func_003517F0`, `func_00351860`): a stub giving s2 a TImode use
+  (`ASM_STUB_BEGIN`) makes both match, but the wide save then sticks to `func_00351978`, which the original saves
+  with `sd`. Not adopted; the mechanism is still open.
+
+Code shapes:
+
+- **Store order and statement order by search.** Exhaustive permutation of marked statement groups (up to 7 lines)
+  and a hill-climb that swaps or moves simple statements inside their run matched most of the store-order drafts of
+  this batch (`func_003403C8`, `func_003D43A8`, `func_00340B30`, `func_003C9778`, `func_003B77B8` (35 lines),
+  `func_003C3648` (70), `func_003CE770` (51), ...). A nonzero result of such a search can reorder a use before its
+  definition: only a zero result (then fdiff) is kept, improved nonzero drafts were put back.
+- Declaration order permutations and operand commutation (`a + b` / `b + a`) almost never changed the score.
+- **A volatile read** (marked fake) reproduced `lhu` + `sll` / `sra` where combine made `lh` (`func_003BAC88`) and a
+  load the original does after a copy loop (`func_003D4728`).
+- A row pointer `s32 *d = (s32 *)((u8 *)p + i * 16)` set the `addu` operand order (`Fx_AddQuad`); `s32 o = 0xB8A0;
+  g = (u8 *)gFighters + o` kept the address unfolded (`func_00342818`); a separate `u8 t` for an OR into a byte array
+  (`func_003ADE18`); `y -= 7; y1 = y - 0x13;` kept two adds (`func_003C7428`); a pointer to the element before
+  indexing at -0x20 (`func_003E06A0`); an if / else nest with the common case first (`PracFont_StrWidth`); case
+  blocks in the order of the original's code (`func_003ACB08`).
+
+More shapes from the helpers' passes:
+
+- An `s32` function that only uses a bare `return;` keeps v0 live at its exit and changes the delay-slot fills;
+  `void` fixes it. All conditions in one `if (...) return 1; return 0;` put the result straight in v0.
+- `x = 0; if (eq) x = 1;` (or an explicit if / else) flips the movz / movn polarity; a `goto` to a shared `return 1`
+  or fail block reproduces shared blocks; `do { ... } while (0)` around a switch and its return (marked fake) kept
+  the result out of the jump-table index register.
+- Polling loops on hardware registers match as a `goto` loop with plain reads at a constant address; inline asm
+  blocks count as one instruction each for gcc's short-loop nop padding (`func_0035D588`).
+- A field read through its own symbol (`D_004333D4`, `D_004177E8`), a callee prototype returning `s32` instead of
+  `void` (`CamScript_Load`), and an earlier assignment that stops constant propagation (`move rX, rY` of a zero)
+  fixed several register differences. `Pad_AddStickBits` had its logic inverted in the old draft.
+
+Tools:
+
+- A scratch comparator compiled one file with one draft enabled like the build and scored it against the
+  `INCLUDE_ASM` form in about 0.3 s; the permutation and hill-climb searches ran on it over every draft of 60 lines or
+  less (the parent's tools lived under `~/.cache` and were deleted at the end of the batch). Its object cache must be
+  keyed on `configure.py` too, or a `--fix-asm` change is not seen.
+- A shell loop `until [ "$(pgrep -fc NAME)" = 0 ]` never ends: `pgrep -f` matches the loop's own command line.
+
+Matched (123): `Fx_AddQuad`, `func_003ADE18`, `func_003C9778`, `PracFont_StrWidth`, `func_003C1350`, `func_003420C8`,
+`func_00342818`, `func_0034A570`, `func_003518B8`, `Model_Render`, `func_003ACB08`, `func_003403C8`, `func_003D43A8`,
+`func_00340B30`, `func_003E06A0`, `func_003CF608`, `func_003D8D38`, `func_003CE920`, `func_003E8FA0`, `func_003ECDE8`,
+`func_003C7428`, `func_003BAC88`, `func_003D4728`, `func_003A96B8`, `func_003CE770`, `func_003E9FD8`, `func_003B77B8`,
+`func_003C3648`, `Bowl_PinHomePos` (render / modes files, 29); 66 in the simulation and system files (`fighter_core`
+29, `battle_flow` 7, `dma_spr` 5, `stage` 6, `movie` 4, `zsort` 2, `practice` 2, `sound` 2, `main` 2, `fighter_setup`
+1, `fighter_setup_b` 2, `font_tex` 1, `geometry` 1, `gfx` 1, `skeleton` 1); 28 more in the render / modes files
+(`func_00359FB8`, `func_003DD098`, `func_003AFAA0`, `func_003BA480`, `func_003BB8B8`, `func_003BCFB8`, `func_003BD240`,
+`func_003B2090`, `func_003B2358`, `func_003B2670`, `func_003B5DB0`, `func_003B6808`, `func_00341B70`, `func_0034D108`,
+`func_0034E640`, `func_00354120`, `func_003BECC0`, `func_003BFFB0`, `func_003C0210`, `func_003C1078`, `func_003C8658`,
+`func_003CC260`, `Sprite_DrawCurrentGouraud`, `func_003E92E0`, `func_003E9AE8`, `func_003E9C10`, `func_003ECF70`,
+`Pause_BowlTop5`). Not matched: the 378 drafts of [t19_inventory.md](t19_inventory.md), each with a one-line note.
+
 ## Decompiled so far
 
 | File | Range | C / functions | Notes |
 |---|---|---:|---|
-| `src/render_fighter_a.c` | 0x340000-0x341B28 | 14 / 18 | the stage renderer (module `render_fighter_a`, formerly `src/340000.c`): stage scene, depth merge sort, level of detail, per-frame scene update `func_00341AE8`, the scene set-up and build, the screen cull, the stage draw `func_00340E28` ([systems/render.md](systems/render.md) section 12); `.lit4` 0x5F5378-0x5F539C |
-| `src/render_fighter_b.c` | 0x341B28-0x3420C8 | 4 / 6 | the VU1 model renderer: `Model_Draw`, `Model_Render`, `Model_SendMatrices`, `Model_SendParts` (section 12.3) |
-| `src/vu1_packet.c` | 0x3420C8-0x342E78 | 8 / 12 | fighter shadows and fixed VIF1 / DIRECT packets (section 12.1); `.lit4` 0x5F57EC-0x5F5804 out of text order |
+| `src/render_fighter_a.c` | 0x340000-0x341B28 | 16 / 18 | the stage renderer (module `render_fighter_a`, formerly `src/340000.c`): stage scene, depth merge sort, level of detail, per-frame scene update `func_00341AE8`, the scene set-up and build, the screen cull, the stage draw `func_00340E28` ([systems/render.md](systems/render.md) section 12); `.lit4` 0x5F5378-0x5F539C |
+| `src/render_fighter_b.c` | 0x341B28-0x3420C8 | 6 / 6 | the VU1 model renderer: `Model_Draw`, `Model_Render`, `Model_SendMatrices`, `Model_SendParts` (section 12.3) |
+| `src/vu1_packet.c` | 0x3420C8-0x342E78 | 10 / 12 | fighter shadows and fixed VIF1 / DIRECT packets (section 12.1); `.lit4` 0x5F57EC-0x5F5804 out of text order |
 | `src/draw_list.c` | 0x356A70-0x3572A0 | 12 / 15 | model bank relocation and GS image uploads (section 12.4); ends with the padding before crt0 |
-| `src/font_tex.c` | 0x3608B8-0x3621F8 | 26 / 30 | memory card screens and the GS image upload `Gfx_PkAddImage` (section 13); `.rodata` 0x4FC280-0x4FC610 |
-| `src/main.c` | 0x357358-0x358A38 | 34 / 40 | boot, main loop, frame phases, mode dispatch, input state |
+| `src/font_tex.c` | 0x3608B8-0x3621F8 | 27 / 30 | memory card screens and the GS image upload `Gfx_PkAddImage` (section 13); `.rodata` 0x4FC280-0x4FC610 |
+| `src/main.c` | 0x357358-0x358A38 | 36 / 40 | boot, main loop, frame phases, mode dispatch, input state |
 | `src/rng_misc.c` | 0x35C2B0-0x35D048 | 45 / 47 | RNG, string and table helpers, play counters |
 | `src/pad.c` | 0x396D00-0x397948 | 10 / 11 | libpad/libmtap set-up sequence, per-player input |
 | `src/file.c` | 0x397948-0x398510 | 29 / 29 | file requests, descrambling, IOP status |
-| `src/gfx.c` | 0x398510-0x3994C0 | 47 / 51 | GS set-up, VBlank handler, display packet, helpers |
+| `src/gfx.c` | 0x398510-0x3994C0 | 48 / 51 | GS set-up, VBlank handler, display packet, helpers |
 | `src/dma_gif.c` | 0x342E78-0x346398 | 43 / 52 | DMA kicks and waits, VU0 microcode upload, VU1 matrix packets, the fighter draw (`func_00343340`, `func_003439B0`, drafts) and its texture packets, side tables; the four hand-written VU0 routines are C around one asm block each (T19 b1) ([systems/render.md](systems/render.md) section 12.1) |
-| `src/dma_spr.c` | 0x35D048-0x35E808 | 53 / 63 | file loads by number, scratchpad buffers and DMA, DMAC helpers |
+| `src/dma_spr.c` | 0x35D048-0x35E808 | 58 / 63 | file loads by number, scratchpad buffers and DMA, DMAC helpers |
 | `src/memcard.c` | 0x35E808-0x3608B8 | 42 / 43 | memory card requests, libmc call steps, state flags |
-| `src/sound.c` | 0x3745E8-0x376C30 | 59 / 65 | SPU2 set-up, sound effect voices and banks, delayed effects, fighter voices |
+| `src/sound.c` | 0x3745E8-0x376C30 | 61 / 65 | SPU2 set-up, sound effect voices and banks, delayed effects, fighter voices |
 | `src/sound_if.c` | 0x399FC8-0x39A2B8 | 13 / 13 | sound byte-code queue (BGM, movie audio) |
 | `src/gte.c` | 0x39A2B8-0x39BBF0 | 19 / 19 | GTE-style fixed-point matrices and vectors |
-| `src/fighter_core.c` | 0x37BA88-0x38BF98 | 220 / 277 | practice mode recorder, command lists, hit markers and dummy actions, the CPU opponent (`Cpu_Think` and its deciders, commands, predicates and handlers, [systems/fighter.md](systems/fighter.md) section 4); `.rodata` 0x5064C0-0x507EE0 included in place (its 0x506528-0x506BF0 belongs to the practice object before) |
-| `src/battle_flow.c` | 0x3682F8-0x3745E8 | 120 / 148 | the fight simulation: per-frame update, input fetch and history, command matching and situation tests, move start and move events, hits and throws (`Battle_ResolveHits`, `Fighter_StartThrownMove`), launches, the round state machine (`Battle_UpdateRound`) and results ([systems/fighter.md](systems/fighter.md) section 5); includes the four functions of the former `src/374520.c`; `.rodata` 0x4FF8D0-0x500780 included in place; damage `Fighter_ApplyDamage` and its `.lit4` 0x5F5168 |
+| `src/fighter_core.c` | 0x37BA88-0x38BF98 | 249 / 277 | practice mode recorder, command lists, hit markers and dummy actions, the CPU opponent (`Cpu_Think` and its deciders, commands, predicates and handlers, [systems/fighter.md](systems/fighter.md) section 4); `.rodata` 0x5064C0-0x507EE0 included in place (its 0x506528-0x506BF0 belongs to the practice object before) |
+| `src/battle_flow.c` | 0x3682F8-0x3745E8 | 127 / 148 | the fight simulation: per-frame update, input fetch and history, command matching and situation tests, move start and move events, hits and throws (`Battle_ResolveHits`, `Fighter_StartThrownMove`), launches, the round state machine (`Battle_UpdateRound`) and results ([systems/fighter.md](systems/fighter.md) section 5); includes the four functions of the former `src/374520.c`; `.rodata` 0x4FF8D0-0x500780 included in place; damage `Fighter_ApplyDamage` and its `.lit4` 0x5F5168 |
 | `src/fight_misc.c` | 0x376C30-0x3790C8 | 26 / 29 | the hit test (attack volumes against body spheres), body sphere radii, push sphere radii, the special attack volume of character 0x1D ([systems/fighter.md](systems/fighter.md) section 5.5); `.rodata` 0x506150-0x506260, `.lit4` 0x5F5170 |
-| `src/select_results.c` | 0x3BDF60-0x3C1A78 | 60 / 72 | the select panels and menu quads, unlocks (`Unlock_*`), arcade opponents and random teams, member life by game type, team life at round start and its per-frame recovery ([systems/fighter.md](systems/fighter.md) section 5.6, [systems/modes.md](systems/modes.md) sections 7, 12); `.rodata` 0x51F150-0x51F678; ends at the `hud` cut |
+| `src/select_results.c` | 0x3BDF60-0x3C1A78 | 65 / 72 | the select panels and menu quads, unlocks (`Unlock_*`), arcade opponents and random teams, member life by game type, team life at round start and its per-frame recovery ([systems/fighter.md](systems/fighter.md) section 5.6, [systems/modes.md](systems/modes.md) sections 7, 12); `.rodata` 0x51F150-0x51F678; ends at the `hud` cut |
 | `src/model_anim.c` | 0x3D0660-0x3D3630 | 69 / 72 | round camera shots, the model hierarchy of the stage scenes (nodes, VU0 matrix stack `Model_*`, depth-sorted draw lists), the move log (`Fighter_LogMove`) and round-end bonus, the tag counters (`Tag_*`) and the tag swap ([systems/render.md](systems/render.md) section 11, [systems/fighter.md](systems/fighter.md) section 5.7); `.rodata` 0x520C40-0x521700, `.lit4` 0x5F5370-0x5F5378; the end is an object edge [V: data order], the start the module edge [I] |
-| `src/model_anim_b.c` | 0x3D3630-0x3DB758 | 82 / 101 | the stage wind (`Wind_*`, Lorenz generators and gusts), the animated stage scenes, GS images of model files, the stage objects (update / VU1 draw hooks, planar shadows) ([systems/render.md](systems/render.md) section 11); `.rodata` 0x521B80-0x521CE0, `.lit4` 0x5F539C-0x5F5614 |
-| `src/stage.c` | 0x38BF98-0x396D00 | 59 / 105 | the fight camera and its per-stage values (module `camera_stage`): the per-frame camera step `Cam_Update` on `gRoundPhase`, camera keys and blends, camera scripts, reaction cameras drawn at random, stage camera distances ([systems/stage.md](systems/stage.md)); `.rodata` 0x507EE0-0x509D00 included in place; `.lit4` 0x5F5174-0x5F519C (`LIT4_WORD` for the float functions still in assembly) |
-| `src/skeleton.c` | 0x34E748-0x34FF10 | 13 / 16 | the fighter skeleton (module `skeleton`): per-frame update `Skel_Update`, the root matrix that writes the position `unk51C`..`unk524`, joint world matrices, body / push spheres and attack volumes on joints, joint screen positions ([systems/animation.md](systems/animation.md)); `.lit4` 0x5F5114-0x5F5154 (`LIT4_WORD` for `Skel_SetRootMatrix`) |
+| `src/model_anim_b.c` | 0x3D3630-0x3DB758 | 85 / 101 | the stage wind (`Wind_*`, Lorenz generators and gusts), the animated stage scenes, GS images of model files, the stage objects (update / VU1 draw hooks, planar shadows) ([systems/render.md](systems/render.md) section 11); `.rodata` 0x521B80-0x521CE0, `.lit4` 0x5F539C-0x5F5614 |
+| `src/stage.c` | 0x38BF98-0x396D00 | 65 / 105 | the fight camera and its per-stage values (module `camera_stage`): the per-frame camera step `Cam_Update` on `gRoundPhase`, camera keys and blends, camera scripts, reaction cameras drawn at random, stage camera distances ([systems/stage.md](systems/stage.md)); `.rodata` 0x507EE0-0x509D00 included in place; `.lit4` 0x5F5174-0x5F519C (`LIT4_WORD` for the float functions still in assembly) |
+| `src/skeleton.c` | 0x34E748-0x34FF10 | 14 / 16 | the fighter skeleton (module `skeleton`): per-frame update `Skel_Update`, the root matrix that writes the position `unk51C`..`unk524`, joint world matrices, body / push spheres and attack volumes on joints, joint screen positions ([systems/animation.md](systems/animation.md)); `.lit4` 0x5F5114-0x5F5154 (`LIT4_WORD` for `Skel_SetRootMatrix`) |
 | `src/motion.c` | 0x3639F0-0x364448 | 17 / 19 | motion data (module `motion`): frame sampling, the delta / run-length frame decoder, motion banks and clips ([systems/animation.md](systems/animation.md)); `.rodata` 0x4FC610-0x4FC630 (the decoder's jump table) included in place |
 | `src/hud.c` | 0x3C1A78-0x3C3150 | 10 / 12 | the fight HUD (`Hud_Draw`: life bars with red life, damage trail, partner bar and tag slide, round markers, timer; K.O. percentages), [systems/render.md](systems/render.md) section 5; a cut inside the `select_results` range |
-| `src/sprite2d.c` | 0x3CD298-0x3D0660 | 46 / 59 | 2D sprites and text of the HUD and menus (`Sprite_*`), image banks, screen masks, record tables, name entry ([systems/render.md](systems/render.md) section 14); `.rodata` 0x520648-0x520C40, `.lit4` 0x5F5364-0x5F5370 |
+| `src/sprite2d.c` | 0x3CD298-0x3D0660 | 50 / 59 | 2D sprites and text of the HUD and menus (`Sprite_*`), image banks, screen masks, record tables, name entry ([systems/render.md](systems/render.md) section 14); `.rodata` 0x520648-0x520C40, `.lit4` 0x5F5364-0x5F5370 |
 | `src/model_draw.c` | 0x3DB758-0x3DC9C8 | 18 / 18 | 2D GS primitives (scissor, rectangles, gradient quad, menu window), stage-object draw hooks, text helpers ([systems/render.md](systems/render.md) section 6); no models |
-| `src/scene3d.c` | 0x34C508-0x34E748 | 8 / 15 | fighters' secondary motion: per-side wind, extra-joint pendulums, accessory parts ([systems/render.md](systems/render.md) section 4); `.rodata` 0x51EA60-0x51EB00, `.lit4` 0x5F5350-0x5F535C |
+| `src/scene3d.c` | 0x34C508-0x34E748 | 10 / 15 | fighters' secondary motion: per-side wind, extra-joint pendulums, accessory parts ([systems/render.md](systems/render.md) section 4); `.rodata` 0x51EA60-0x51EB00, `.lit4` 0x5F5350-0x5F535C |
 | `src/scene3d_b.c` | 0x34FF10-0x3504C0 | 6 / 6 | the sword effect's packet senders (scratchpad headers); the end is an object edge (128-bit save mode, Lessons from T17 batch 1) |
-| `src/scene3d_c.c` | 0x3504C0-0x351E98 | 9 / 15 | the sword trail and glow (`func_00350C40`), its history and spline, character 20's swing ([systems/render.md](systems/render.md) section 3); `.lit4` 0x5F5614-0x5F5668 out of text order |
-| `src/scene3d_d.c` | 0x351E98-0x3543F0 | 34 / 37 | look-at, fighter lights (`Light_*`), GS image upload ([systems/render.md](systems/render.md) section 4); `.lit4` 0x5F5668-0x5F5700 |
+| `src/scene3d_c.c` | 0x3504C0-0x351E98 | 10 / 15 | the sword trail and glow (`func_00350C40`), its history and spline, character 20's swing ([systems/render.md](systems/render.md) section 3); `.lit4` 0x5F5614-0x5F5668 out of text order |
+| `src/scene3d_d.c` | 0x351E98-0x3543F0 | 35 / 37 | look-at, fighter lights (`Light_*`), GS image upload ([systems/render.md](systems/render.md) section 4); `.lit4` 0x5F5668-0x5F5700 |
 | `src/effects.c` | 0x3A04B8-0x3A6460 | 55 / 58 | effect callbacks: bank sprites, stage ambient effects and lens flare, hit sparks, flashes and bursts, the hit log, body-part glows, move effects ([systems/render.md](systems/render.md) section 7); `.rodata` 0x5194E0-0x519940, `.lit4` 0x5F51A4-0x5F5300 |
-| `src/effects_draw.c` | 0x3A6460-0x3A9678 | 46 / 50 | screen fade, title logo, stage texture layers, fighter texture channels, quad queue, character 0x1D's volume, effect helpers; a cut of the same object; `.rodata` 0x519940-0x519B30, `.lit4` 0x5F5300-0x5F531C |
-| `src/battle_mode.c` | 0x358A38-0x35C2B0 | 63 / 67 | `Mode_Battle` (mode 4) and its per-game-type set-up and match-end handlers, arcade opponents, survival pairs, random teams, camera keys and hit-spark helpers ([systems/modes.md](systems/modes.md)); `.rodata` 0x4FB9C0-0x4FBB28 |
-| `src/modes.c` | 0x3B90C0-0x3BB310 | 39 / 46 | `Mode_Change`, `Mode_Transition`, `Mode_Boot`, `Game_Start` and the per-type set-ups, the continue countdown, win streaks, controller vibration; `.rodata` 0x51E970-0x51EA60 |
-| `src/modes_b.c` | 0x3BB310-0x3BDF60 | 34 / 40 | `Mode_Loading`, controller / multitap warnings, the fight's side status texts, `Mode_Title`, `Mode_MainMenu` and its unlock tests; `.rodata` 0x51EB00-0x51F150 |
-| `src/loading_title.c` | 0x3A9678-0x3ADFA8 | 74 / 83 | mode 8: the ending sequence and script player, ending effects, the credits roll, character sets ([systems/modes.md](systems/modes.md) section 13); `.rodata` 0x519B30-0x51DE30, `.lit4` 0x5F531C-0x5F5340; built without `-ffast-math` |
-| `src/menu_common.c` | 0x3ADFA8-0x3B1478 | 72 / 82 | menu camera, port assignment and join rules, select preview fighters, game-setup accessors; `.rodata` 0x51DE30-0x51DEF0, `.lit4` 0x5F5340-0x5F5350 |
-| `src/options.c` | 0x3B1478-0x3B4D50 | 27 / 38 | `Mode_Options` and its pages ([systems/modes.md](systems/modes.md) section 10); `.rodata` 0x51DEF0-0x51E580 |
-| `src/pause_results.c` | 0x3B4D50-0x3B90C0 | 65 / 74 | `Mode_Results`, `Pause_Update`, partner swaps between rounds, start positions (sections 8-9); `.rodata` 0x51E580-0x51E970 |
-| `src/select_results_b.c` | 0x3C3150-0x3CD298 | 82 / 117 | `Mode_CharSelect`, results screens, records block, `Text_Printf`, name entry (sections 7-8); `.rodata` 0x51F6C0-0x520648, `.lit4` 0x5F535C-0x5F5364 |
+| `src/effects_draw.c` | 0x3A6460-0x3A9678 | 47 / 50 | screen fade, title logo, stage texture layers, fighter texture channels, quad queue, character 0x1D's volume, effect helpers; a cut of the same object; `.rodata` 0x519940-0x519B30, `.lit4` 0x5F5300-0x5F531C |
+| `src/battle_mode.c` | 0x358A38-0x35C2B0 | 64 / 67 | `Mode_Battle` (mode 4) and its per-game-type set-up and match-end handlers, arcade opponents, survival pairs, random teams, camera keys and hit-spark helpers ([systems/modes.md](systems/modes.md)); `.rodata` 0x4FB9C0-0x4FBB28 |
+| `src/modes.c` | 0x3B90C0-0x3BB310 | 41 / 46 | `Mode_Change`, `Mode_Transition`, `Mode_Boot`, `Game_Start` and the per-type set-ups, the continue countdown, win streaks, controller vibration; `.rodata` 0x51E970-0x51EA60 |
+| `src/modes_b.c` | 0x3BB310-0x3BDF60 | 37 / 40 | `Mode_Loading`, controller / multitap warnings, the fight's side status texts, `Mode_Title`, `Mode_MainMenu` and its unlock tests; `.rodata` 0x51EB00-0x51F150 |
+| `src/loading_title.c` | 0x3A9678-0x3ADFA8 | 77 / 83 | mode 8: the ending sequence and script player, ending effects, the credits roll, character sets ([systems/modes.md](systems/modes.md) section 13); `.rodata` 0x519B30-0x51DE30, `.lit4` 0x5F531C-0x5F5340; built without `-ffast-math` |
+| `src/menu_common.c` | 0x3ADFA8-0x3B1478 | 73 / 82 | menu camera, port assignment and join rules, select preview fighters, game-setup accessors; `.rodata` 0x51DE30-0x51DEF0, `.lit4` 0x5F5340-0x5F5350 |
+| `src/options.c` | 0x3B1478-0x3B4D50 | 30 / 38 | `Mode_Options` and its pages ([systems/modes.md](systems/modes.md) section 10); `.rodata` 0x51DEF0-0x51E580 |
+| `src/pause_results.c` | 0x3B4D50-0x3B90C0 | 68 / 74 | `Mode_Results`, `Pause_Update`, partner swaps between rounds, start positions (sections 8-9); `.rodata` 0x51E580-0x51E970 |
+| `src/select_results_b.c` | 0x3C3150-0x3CD298 | 87 / 117 | `Mode_CharSelect`, results screens, records block, `Text_Printf`, name entry (sections 7-8); `.rodata` 0x51F6C0-0x520648, `.lit4` 0x5F535C-0x5F5364 |
 | `src/theater.c` | 0x3543F0-0x355D30 | 7 / 10 | mode 12 `Mode_EnterTheater` and mode 13 `Mode_Theater` (endings, movies, music player) ([systems/modes.md](systems/modes.md) section 15); `.rodata` 0x5221E0-0x522B90 |
 | `src/theater_b.c` | 0x355D30-0x3564C8 | 1 / 2 | modes 14-15, the music player; `.rodata` 0x522048-0x5221C0 |
 | `src/theater_c.c` | 0x3564C8-0x3567A8 | 5 / 5 | fighter skeleton matrices, `Mtx_Unit` / `Mtx_Zero` (inline asm), vector helpers; `.rodata` 0x5221C0-0x5221E0 |
 | `src/theater_d.c` | 0x3567A8-0x356A70 | 4 / 5 | GIF / VIF1 blocks through the scratchpad, DMA chain relocation, stage byte tables; `.rodata` 0x521CE0-0x521E20 |
-| `src/demo.c` | 0x3DC9C8-0x3E1C68 | 34 / 51 | the practice command list and move demonstration (not the attract demo), shared 2D line / rect / triangle helpers (section 16); `.rodata` 0x522B90-0x522DE0, `.lit4` 0x5F5710-0x5F573C |
+| `src/demo.c` | 0x3DC9C8-0x3E1C68 | 37 / 51 | the practice command list and move demonstration (not the attract demo), shared 2D line / rect / triangle helpers (section 16); `.rodata` 0x522B90-0x522DE0, `.lit4` 0x5F5710-0x5F573C |
 | `src/menu_bg.c` | 0x3E1C68-0x3E55C8 | 15 / 21 | the Tekken Bowl aiming HUD, text table helpers, screen fade, cursor bar (section 18); `.rodata` 0x522FC0-0x5233F0, `.lit4` 0x5F5804-0x5F58DC; built without `-ffast-math` |
 | `src/gallery_jpeg.c` | 0x3E55C8-0x3E8AD8 | 24 / 32 | `Mode_Gallery`, the baseline JPEG encoder / decoder (`Jpeg_*`), a stage particle effect (section 18); `.rodata` 0x5233F0-0x523570, `.lit4` 0x5F58DC-0x5F596C; built without `-ffast-math` |
-| `src/tekken_bowl.c` | 0x3E8AD8-0x3F3320 | 98 / 136 | Tekken Bowl (game type 8): pins, scoring, results texts, top 5, pause sub-screens, a bit stream, VU0 helpers (section 17); `.rodata` 0x523570-0x523FA0, `.lit4` 0x5F596C-0x5F5BCC; built without `-ffast-math` |
-| `src/geometry.c` | 0x346398-0x347760 | 21 / 23 | object lists and effect callbacks, the handler table `D_005193B8` (T19 b1); `.lit4` 0x5F51A0 |
-| `src/geometry_b.c` | 0x347760-0x34A7A8 | 9 / 26 | skeleton frames, weight blends, seven hand-written VU0 trig / rotation routines; `.rodata` 0x522DE0-0x522FC0, `.lit4` 0x5F573C-0x5F57EC |
+| `src/tekken_bowl.c` | 0x3E8AD8-0x3F3320 | 107 / 136 | Tekken Bowl (game type 8): pins, scoring, results texts, top 5, pause sub-screens, a bit stream, VU0 helpers (section 17); `.rodata` 0x523570-0x523FA0, `.lit4` 0x5F596C-0x5F5BCC; built without `-ffast-math` |
+| `src/geometry.c` | 0x346398-0x347760 | 22 / 23 | object lists and effect callbacks, the handler table `D_005193B8` (T19 b1); `.lit4` 0x5F51A0 |
+| `src/geometry_b.c` | 0x347760-0x34A7A8 | 10 / 26 | skeleton frames, weight blends, seven hand-written VU0 trig / rotation routines; `.rodata` 0x522DE0-0x522FC0, `.lit4` 0x5F573C-0x5F57EC |
 | `src/geometry_c.c` | 0x34B4E8-0x34C508 | 2 / 4 | camera collision against an elliptic cylinder and an ellipsoid; `.lit4` 0x5F5160-0x5F5168 |
-| `src/fighter_setup.c` | 0x3621F8-0x3639F0 | 28 / 33 | fighter matrices and set-up, replay recorder; `.lit4` 0x5F5100-0x5F5114 |
-| `src/fighter_setup_b.c` | 0x364448-0x3682F8 | 97 / 107 | `Lz_Decompress`, fighter accessors, init functions of `Sys_Init`, texture packets; `.rodata` 0x4FC630-0x4FF8D0 (with `skeleton`'s and `gte`'s tables), `.lit4` 0x5F5154-0x5F5160 |
-| `src/practice.c` | 0x3790C8-0x37BA88 | 38 / 44 | practice mode menus (`PracMenu`); `.rodata` 0x506260-0x5064C0 |
-| `src/zsort.c` | 0x3994C0-0x399FC8 | 10 / 13 | z-sorted draw lists ("(zs)list over" checks) |
+| `src/fighter_setup.c` | 0x3621F8-0x3639F0 | 29 / 33 | fighter matrices and set-up, replay recorder; `.lit4` 0x5F5100-0x5F5114 |
+| `src/fighter_setup_b.c` | 0x364448-0x3682F8 | 99 / 107 | `Lz_Decompress`, fighter accessors, init functions of `Sys_Init`, texture packets; `.rodata` 0x4FC630-0x4FF8D0 (with `skeleton`'s and `gte`'s tables), `.lit4` 0x5F5154-0x5F5160 |
+| `src/practice.c` | 0x3790C8-0x37BA88 | 40 / 44 | practice mode menus (`PracMenu`); `.rodata` 0x506260-0x5064C0 |
+| `src/zsort.c` | 0x3994C0-0x399FC8 | 12 / 13 | z-sorted draw lists ("(zs)list over" checks) |
 | `src/screenshot.c` | 0x39BBF0-0x39C7B8 | 19 / 20 | GTE-style screen helpers, `Scrn_Capture`, `func_0039C2C0`; `.rodata` 0x518E70-0x518EA8 |
-| `src/movie.c` | 0x39C7B8-0x3A04B8 | 88 / 111 | MPEG movie player (Sony libmpeg sample style): IPU, thread, VBlank handler, ring buffer |
+| `src/movie.c` | 0x39C7B8-0x3A04B8 | 92 / 111 | MPEG movie player (Sony libmpeg sample style): IPU, thread, VBlank handler, ring buffer |
 
 Functions left as `INCLUDE_ASM` carry their closest attempt above them in `#if 0` with a `NON_MATCHING:` note; in
 `fighter_core.c`, `battle_flow.c` and `fight_misc.c` every remaining function has one (T14 b9); in `stage.c` every

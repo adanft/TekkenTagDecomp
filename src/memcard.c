@@ -561,8 +561,14 @@ s32 func_0035F2D8(McState *mc) {
     return (flags & 2) ? 2 : 1;
 }
 
+/* Mc_Update's strings, in place since T19 b2 (force_not_migration), so that the C can emit its jump table. */
+INCLUDE_RODATA("asm/nonmatchings/memcard", D_004FC108);
+INCLUDE_RODATA("asm/nonmatchings/memcard", D_004FC120);
+INCLUDE_RODATA("asm/nonmatchings/memcard", D_004FC138);
+INCLUDE_RODATA("asm/nonmatchings/memcard", D_004FC150);
+
 /* NON_MATCHING: 1064 instructions, not compared: a structured draft of the request state machine (m2c-based); the
- * strings are D_004FC108-D_004FC150 and the 38-entry jump table jtbl_004FC180 of the split */
+ * strings are D_004FC108-D_004FC150 and the 38-entry jump table jtbl_004FC180 (included in the #else; drop it once the C emits it) */
 #if 0
 extern const char D_004FC108[];
 extern const char D_004FC120[];
@@ -952,6 +958,7 @@ fail:
     mc->op = 2;
 }
 #else
+INCLUDE_RODATA("asm/nonmatchings/memcard", jtbl_004FC180);
 INCLUDE_ASM("asm/nonmatchings/memcard", Mc_Update);
 #endif
 

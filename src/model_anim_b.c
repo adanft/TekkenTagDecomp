@@ -1163,25 +1163,24 @@ void func_003D4388(WindGust *g, s32 *p) {
     *p = 0;
 }
 
-#if 0
-/* NON_MATCHING: 8 f23/f24 swapped for the row/column spacings, one store order (register allocation) */
 /* Fills the wind grid of D_005F6780 (rows of 17 vectors) around pos: wind x scale, y = -|xz| - off [I]. */
 void func_003D43A8(f32 *pos, f32 scale, f32 off) {
     s16 nx = D_005F6780->unk6;
     s16 nz = D_005F6780->unk8;
-    f32 dz = D_005F6780->unk18;
-    f32 dx = D_005F6780->unk14;
-    f32 z0 = -dz * (nz * 0.5f);
-    f32 x0 = -dx * (nx * 0.5f);
+    f32 dz, dx, z0, x0;
     FVec4 w;
     FVec4 p;
     FVec4 *row;
     s32 i, j;
 
+    dx = D_005F6780->unk14;
+    dz = D_005F6780->unk18;
+    z0 = -dz * (nz * 0.5f);
+    x0 = -dx * (nx * 0.5f);
     memset(p, 0, 0x10);
     p[3] = 1.0f;
-    z0 -= dz * 0.5f;
     x0 -= dx * 0.5f;
+    z0 -= dz * 0.5f;
     for (j = 0; j <= nz; j++) {
         row = D_005F6780->unk2F0[j];
         for (i = 0; i <= nx; i++) {
@@ -1195,9 +1194,6 @@ void func_003D43A8(f32 *pos, f32 scale, f32 off) {
         }
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/model_anim_b", func_003D43A8);
-#endif
 
 /* Starts replaying the live gust ring from n frames back (slot 8). */
 void func_003D45A8(s32 n) {
@@ -1251,8 +1247,6 @@ void func_003D4718(void) {
     D_005F6F30 = 0;
 }
 
-#if 0
-/* NON_MATCHING: 10 the build hoists the D_005F6F38 load above the copy loop; the original loads it after (alias of the u128 stores) */
 /* Saves the live gust ring and its frame count into a slot (replays). */
 void func_003D4728(s32 slot) {
     s32 i, j;
@@ -1262,11 +1256,8 @@ void func_003D4728(s32 slot) {
             *(u128 *)D_01FB6EF0[slot][i][j] = *(u128 *)D_01FB6EF0[8][i][j];
         }
     }
-    D_01FBF5F0[slot] = D_005F6F38;
+    D_01FBF5F0[slot] = *(volatile s32 *)&D_005F6F38; /* fake: read after the copy loop */
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/model_anim_b", func_003D4728);
-#endif
 
 /* Uniform random value in [lo, hi). */
 f32 func_003D47A8(f32 lo, f32 hi) {
@@ -3158,16 +3149,14 @@ s32 func_003D8CD8(Unk3D8C98 *p, s8 a, s8 b, s32 c) {
     return c != 0 ? 0 : 6;
 }
 
-#if 0
-/* NON_MATCHING: 9 only t0/t1 swapped between &o->unk88 and its count byte; no declaration order tried changes it */
 /* Next step of an object chain [I]: from the repeat count of the current variant (or the definition), returns 0 / 6
  * (end), 1 / 5 (repeat), 2 / 4 or 1 / 3 (special counts) - the second value when there is no variant list - keeping
  * the counters in the object's list unk88 (func_003D8CD8). */
 s32 func_003D8D38(StageObjSetup *o) {
     Unk3D8C98 *l = &o->unk88;
-    StageObjVar *v = o->unk50;
-    s8 k = o->unk87;
     s8 n = l->unk6;
+    s8 k = o->unk87;
+    StageObjVar *v = o->unk50;
     s8 rep;
     s8 back;
     s8 cnt;
@@ -3201,9 +3190,6 @@ s32 func_003D8D38(StageObjSetup *o) {
     l->unk6--;
     return v != NULL ? 0 : 6;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/model_anim_b", func_003D8D38);
-#endif
 
 /* Advances an object of a chain by the step func_003D8D38 returns (next variant, step back, repeat, restart from the
  * definition) and copies the chain state to the twin [I]. */

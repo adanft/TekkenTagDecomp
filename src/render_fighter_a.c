@@ -266,20 +266,18 @@ s16 func_003403B8(void) {
     return D_005F6780->unk0;
 }
 
-/* NON_MATCHING: 8 lines: load and store order of the camera words */
-#if 0
 void func_003403C8(f32 *v) {
     Scene *s = D_005F6780;
-    f32 y = s->y;
+    f32 x, y, z;
 
-    v[3] = 1.0f;
-    v[0] = s->x;
-    v[1] = s->z;
+    x = s->x;
+    z = s->z;
+    y = s->y;
+    v[0] = x;
+    v[1] = z;
     v[2] = y;
+    v[3] = 1.0f;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/render_fighter_a", func_003403C8);
-#endif
 
 void func_003403F8(u128 *v) {
     *v = D_005F6780->unk40;
@@ -433,17 +431,12 @@ s32 func_00340AF0(f32 x0, f32 y0, f32 radius, f32 x1, f32 y1) {
     return sqrtf((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0)) <= radius;
 }
 
-/* NON_MATCHING: 12 lines: dir[0] / dir[1] take each other's registers and the 1.0f store moves */
-#if 0
 void func_00340B30(f32 *dir, f32 *p, f32 *out) {
-    out[1] = 0.0f;
-    out[3] = 1.0f;
     out[0] = p[0] + -p[1] * dir[0] / dir[1];
+    out[1] = 0.0f;
     out[2] = p[2] + -p[1] * dir[2] / dir[1];
+    out[3] = 1.0f;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/render_fighter_a", func_00340B30);
-#endif
 
 void func_00340BA0(void) {
     s32 i;

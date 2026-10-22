@@ -688,18 +688,17 @@ void Sprite_DrawCurrentRotated(s32 a) {
     Sprite_EndPacket(a, p + 14);
 }
 
-/* NON_MATCHING: the GIF tag stores p[0] / p[1] come out swapped; the r / gb locals (fake) keep the colour constants
- * 0x80 and 0x808000 apart as in the original, 2 lines */
-#if 0
 void Sprite_DrawCurrentGouraud(s32 a) {
     u64 *p = Sprite_BeginPacket(a);
     S2aSprite *s = &D_00440F20;
     u32 u0, v0, u1, v1;
     u32 x0, y0, x1, y1;
-    u64 r = 0x80;      /* fake */
+    u64 r = 0x80;      /* fake: keeps 0x80 and 0x808000 apart */
     u64 gb = 0x808000; /* fake */
+    s32 t;             /* fake (decomp-permuter): the index and x copies order the GIF tag stores */
 
-    p[0] = 0xE400000000008001;
+    t = 0;
+    p[t] = 0xE400000000008001;
     p[1] = 0x53153153153170;
     p[2] = 0x35C;
     p[3] = s->tex0;
@@ -717,7 +716,8 @@ void Sprite_DrawCurrentGouraud(s32 a) {
     p[14] = u1 | ((u64)v1 << 16);
     x0 = (s->x + 0x6C0) << 4;
     y0 = (s->y + 0x720) << 4;
-    x1 = (s->x + s->w + 0x6C0) << 4;
+    t = s->x;
+    x1 = (t + s->w + 0x6C0) << 4;
     y1 = (s->y + s->h + 0x720) << 4;
     p[6] = x0 | ((u64)y0 << 16) | ((u64)(D_005F6730 >> 4) << 32);
     p[9] = x1 | ((u64)y0 << 16) | ((u64)(D_005F6730 >> 4) << 32);
@@ -725,9 +725,6 @@ void Sprite_DrawCurrentGouraud(s32 a) {
     p[15] = x1 | ((u64)y1 << 16) | ((u64)(D_005F6730 >> 4) << 32);
     Sprite_EndPacket(a, p + 16);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/sprite2d", Sprite_DrawCurrentGouraud);
-#endif
 
 void Sprite_Draw(s32 a, s32 b, s32 c, s32 x, s32 y) {
     D_005F6748 = 0;
@@ -825,8 +822,6 @@ void func_003CE5D8(s32 x0, s32 y0, s32 x1, s32 y1, s32 x2, s32 y2, s32 x3, s32 y
 INCLUDE_ASM("asm/nonmatchings/sprite2d", func_003CE5D8);
 #endif
 
-/* NON_MATCHING: y0 / x2 swapped between s4 and s5 and the header stores scheduled earlier, 51 lines */
-#if 0
 void func_003CE770(u32 x0, u32 y0, u64 c0, u32 x1, u32 y1, u64 c1, u32 x2, u32 y2, u64 c2, u32 x3, u32 y3, u64 c3) {
     s32 z = D_005F6730 >> 4;
     u64 *p = Sprite_BeginPacket(1);
@@ -835,21 +830,16 @@ void func_003CE770(u32 x0, u32 y0, u64 c0, u32 x1, u32 y1, u64 c1, u32 x2, u32 y
     p[1] = 0x515151510;
     p[2] = 0x30C;
     p[3] = c0;
-    p[4] = (u64)((x0 + 0x6C0) << 4) | ((u64)((y0 + 0x720) << 4) << 16) | ((s64)z << 32);
     p[5] = c1;
-    p[6] = (u64)((x1 + 0x6C0) << 4) | ((u64)((y1 + 0x720) << 4) << 16) | ((s64)z << 32);
     p[7] = c2;
-    p[8] = (u64)((x2 + 0x6C0) << 4) | ((u64)((y2 + 0x720) << 4) << 16) | ((s64)z << 32);
     p[9] = c3;
+    p[4] = (u64)((x0 + 0x6C0) << 4) | ((u64)((y0 + 0x720) << 4) << 16) | ((s64)z << 32);
+    p[6] = (u64)((x1 + 0x6C0) << 4) | ((u64)((y1 + 0x720) << 4) << 16) | ((s64)z << 32);
+    p[8] = (u64)((x2 + 0x6C0) << 4) | ((u64)((y2 + 0x720) << 4) << 16) | ((s64)z << 32);
     p[10] = (u64)((x3 + 0x6C0) << 4) | ((u64)((y3 + 0x720) << 4) << 16) | ((s64)z << 32);
     Sprite_EndPacket(1, p + 12);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/sprite2d", func_003CE770);
-#endif
 
-/* NON_MATCHING: saved-register allocation of z / x0 / x1 (s5 / s6 / s4 in the original), every instruction otherwise in place, 22 lines */
-#if 0
 void func_003CE920(s32 x0, s32 y0, s32 x1, s32 y1, s32 x2, s32 y2, s32 alpha) {
     s32 z = D_005F6730 >> 4;
     u64 *p = Sprite_BeginPacket(1);
@@ -866,16 +856,13 @@ void func_003CE920(s32 x0, s32 y0, s32 x1, s32 y1, s32 x2, s32 y2, s32 alpha) {
     q[1] = 0x5151510;
     q[2] = 0x34B;
     q[3] = 0;
-    q[4] = (s64)(x0 * 16 + 0x6C00) | ((s64)(y0 * 16 + 0x7200) << 16) | ((s64)z << 32);
     q[5] = (s64)alpha << 24;
+    q[4] = (s64)(x0 * 16 + 0x6C00) | ((s64)(y0 * 16 + 0x7200) << 16) | ((s64)z << 32);
     q[6] = (s64)(x1 * 16 + 0x6C00) | ((s64)(y1 * 16 + 0x7200) << 16) | ((s64)z << 32);
     q[7] = 0;
     q[8] = (s64)(x2 * 16 + 0x6C00) | ((s64)(y2 * 16 + 0x7200) << 16) | ((s64)z << 32);
     Sprite_EndPacket(1, p + 16);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/sprite2d", func_003CE920);
-#endif
 
 /* s64 return [I]: an s32 return loses the original's `move v0, v1` after the shift. */
 s64 func_003CEA80(s32 n, u64 *dest, s32 size) {
@@ -1167,8 +1154,6 @@ INCLUDE_RODATA("asm/nonmatchings/sprite2d", D_00520B58);
 
 INCLUDE_RODATA("asm/nonmatchings/sprite2d", D_00520BB8);
 
-/* NON_MATCHING: t0 / t1 swapped for the copied table value and the cols address in the loop, 4 lines */
-#if 0
 void func_003CF608(s32 set) {
     S2bSetCols cols = D_00520B58;
     S2bSetPos pos = D_00520BB8;
@@ -1183,27 +1168,34 @@ void func_003CF608(s32 set) {
         D_00444310[i].unk4 = D_00520A70[i].unk0;
         D_00444310[i].unk8 = D_00520A70[i].unk4;
         D_00444310[i].unkC = 0x280;
-        D_00444310[i].unk10 = cols.v[set][j + 2];
         x += cols.v[set][j];
+        D_00444310[i].unk10 = cols.v[set][j + 2];
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/sprite2d", func_003CF608);
-#endif
 
 LIT4_WORD(D_005F5368, 0x3DD65B7B);
 
 /* NON_MATCHING: the radius copy (f20 / f22) is coalesced and the stack slots of z / i / px come out in another order, 31 lines */
 #if 0
 void func_003CF850(s32 cx, s32 cy, s32 r) {
-    s32 z = D_005F6730;
-    f32 a = 0.0f;
-    f32 fr = r;
-    f32 rr;
-    f32 step;
-    s32 px, py, nx, ny;
-    s32 x0p, y0p, x0m, y0m, x1p, y1p, x1m, y1m;
+    s32 px;
     s32 i;
+    s32 nx;
+    s32 z = D_005F6730;
+    s32 y0m;
+    f32 rr;
+    s32 ny;
+    s32 x0m;
+    s32 x1p;
+    s32 py;
+    s32 y1m;
+    s32 y0p;
+    f32 step;
+    f32 fr = r;
+    s32 x0p;
+    f32 a = 0.0f;
+    s32 y1p;
+    s32 x1m;
 
     D_005F6730 = 0xFFF00;
     rr = fr;
@@ -1376,7 +1368,7 @@ s32 NameEntry_Step(S2bName *p, s32 mode) {
     case 1:
         return func_003D0290(p);
     case 0:
-        held = (u16)D_00415738[p->pad1] | (u16)D_00415738[p->pad0];
+        held = (u16)D_00415738[p->pad0] | (u16)D_00415738[p->pad1];
         trig = (u16)D_00415728[p->pad1] | (u16)D_00415728[p->pad0];
         d = ((held >> 13) & 1) - (held >> 15) + ((held >> 14) & 1);
         if (held & 0x1000) {

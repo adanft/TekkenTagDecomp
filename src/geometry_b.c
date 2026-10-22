@@ -2,7 +2,7 @@
  * (func_003478F0 and its secondary joints func_00347E28), matrix blends towards a direction (func_00348988 family),
  * fixed / float matrix conversions, and hand-written VU0 rotation helpers (func_00349CF8 .. func_0034A184). The .lit4
  * pool (0x5F573C-0x5F57EC) has func_0034A570's words (0x5F57C0) in front of func_00349D70's although its code is
- * later, so func_0034A570 stays a draft and its words are emitted with LIT4_WORD where the pool has them. */
+ * later: the words of the VU0 routines after 0x5F57C8 are LIT4_WORD_AT(1, ...), after func_0034A570's C literals. */
 #include "common.h"
 #include "gte.h"
 
@@ -1028,12 +1028,9 @@ void func_00349D70(Vu0Matrix m, f32 *ang) {
     sceVu0RotMatrixZ(m, m, ang[2]);
 }
 #else
-LIT4_WORD(D_005F57C0, 0x40C90FDC);
-LIT4_WORD(D_005F57C4, 0x40490FDC);
-LIT4_WORD(D_005F57C8, 0xC0490FDC);
-LIT4_WORD(D_005F57CC, 0x3FC90FDB);
-LIT4_WORD(D_005F57D0, 0x3FC90FDB);
-LIT4_WORD(D_005F57D4, 0x3FC90FDB);
+LIT4_WORD_AT(1, D_005F57CC, 0x3FC90FDB);
+LIT4_WORD_AT(1, D_005F57D0, 0x3FC90FDB);
+LIT4_WORD_AT(1, D_005F57D4, 0x3FC90FDB);
 INCLUDE_ASM("asm/nonmatchings/geometry_b", func_00349D70);
 #endif
 
@@ -1046,9 +1043,9 @@ void func_00349EE0(Vu0Matrix m, f32 *ang) {
     sceVu0RotMatrixX(m, m, ang[0]);
 }
 #else
-LIT4_WORD(D_005F57D8, 0x3FC90FDB);
-LIT4_WORD(D_005F57DC, 0x3FC90FDB);
-LIT4_WORD(D_005F57E0, 0x3FC90FDB);
+LIT4_WORD_AT(1, D_005F57D8, 0x3FC90FDB);
+LIT4_WORD_AT(1, D_005F57DC, 0x3FC90FDB);
+LIT4_WORD_AT(1, D_005F57E0, 0x3FC90FDB);
 INCLUDE_ASM("asm/nonmatchings/geometry_b", func_00349EE0);
 #endif
 
@@ -1063,7 +1060,7 @@ void func_0034A050(Vu0Matrix m, f32 a) {
     m[2][2] = cosf(a);
 }
 #else
-LIT4_WORD(D_005F57E4, 0x3FC90FDB);
+LIT4_WORD_AT(1, D_005F57E4, 0x3FC90FDB);
 INCLUDE_ASM("asm/nonmatchings/geometry_b", func_0034A050);
 #endif
 
@@ -1084,7 +1081,7 @@ void func_0034A0D0(Vu0Matrix m, f32 a) {
     m[2][3] = 0.0f;
 }
 #else
-LIT4_WORD(D_005F57E8, 0x3FC90FDB);
+LIT4_WORD_AT(1, D_005F57E8, 0x3FC90FDB);
 INCLUDE_ASM("asm/nonmatchings/geometry_b", func_0034A0D0);
 #endif
 
@@ -1215,8 +1212,6 @@ void func_0034A488(GteMatrix *g, Vu0Matrix s) {
     g->t[2] = s[3][2];
 }
 
-/* NON_MATCHING: 0 instructions differ (comparator) but its .lit4 words 0x5F57C0-0x5F57C8 come before func_00349D70's in the pool: as C they would land after them */
-#if 0
 /* Wraps an angle into [-pi, pi]. */
 f32 func_0034A570(f32 a) {
     f32 turn = 6.283186f;
@@ -1230,9 +1225,6 @@ f32 func_0034A570(f32 a) {
     }
     return a;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/geometry_b", func_0034A570);
-#endif
 
 /* A rotation matrix whose third column is the direction v (normalised); the first column is horizontal when it
  * can be. */

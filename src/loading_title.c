@@ -319,8 +319,6 @@ void func_003A96B0(s32 n) {
     D_005F6D24 = n;
 }
 
-/* NON_MATCHING: 8 lines, the two constant 10s and the unk14 flag word take other argument registers (v0/a1/a2 permuted) */
-#if 0
 void func_003A96B8(LtFx *e) {
     LtDraw *d = &e->d;
     u8 *f = (u8 *)gFighters;
@@ -328,14 +326,14 @@ void func_003A96B8(LtFx *e) {
     if (e->unk18 == 0) {
         e->unk14 |= 2;
         d->unk1A = 10;
-        d->unk4C = 10;
         d->unk54 = 1.0f;
         d->unk40 = 1;
         d->unk44 = 64.0f;
         d->unk90 = 0x80;
         d->unk48 = 1200.0f;
-        d->unk96 = 0;
         d->unk58 = 0;
+        d->unk96 = 0;
+        d->unk4C = 10;
 
         e->unk18++;
         return;
@@ -350,9 +348,6 @@ void func_003A96B8(LtFx *e) {
         d->pos[2] = *(f32 *)(f + 0x1DA8) + 39.0f;
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/loading_title", func_003A96B8);
-#endif
 
 void func_003A97B0(void) {
     D_005F5CBC = 1;
@@ -2305,8 +2300,8 @@ void func_003AC558(LtFx *e) {
     }
 }
 
-/* NON_MATCHING: 28 lines, cases 1 and 3 share a longer tail than in the original (cross-jump) and the quad pointer register */
 #if 0
+/* NON_MATCHING: 7 lines: the case blocks now share the original's tail; the &D_0043FD10 / 0xFFF00 loads before the draw call are scheduled otherwise */
 void func_003AC5D0(LtFx *e) {
     LtDraw *d = &e->d;
     u16 a;
@@ -2318,13 +2313,13 @@ void func_003AC5D0(LtFx *e) {
         switch (e->unk1A) {
         case 0:
             d->unk44 = 128.0f;
-            d->unk1A = 9;
             d->unk48 = -(128.0f / e->unk1C);
+            d->unk1A = 9;
             break;
         case 1:
             d->unk44 = 0.0f;
-            d->unk1A = 9;
             d->unk48 = 128.0f / e->unk1C;
+            d->unk1A = 9;
             break;
         case 2:
             d->unk48 = -(d->unk44 / e->unk1C);
@@ -2332,8 +2327,8 @@ void func_003AC5D0(LtFx *e) {
             break;
         case 3:
             d->unk44 = 0.0f;
-            d->unk1A = 10;
             d->unk48 = 128.0f / e->unk1C;
+            d->unk1A = 10;
             break;
         default:
             func_003465C8(e);
@@ -2363,8 +2358,8 @@ void func_003AC5D0(LtFx *e) {
 INCLUDE_ASM("asm/nonmatchings/loading_title", func_003AC5D0);
 #endif
 
-/* NON_MATCHING: 10 lines, the draw pointer e+0x20 is allocated to a1 where the original uses a0 */
 #if 0
+/* NON_MATCHING: 1 line: the do-while fake fixes the e + 0x20 register but its loop notes 8-align the epilogue label (one nop) */
 void func_003AC7C0(LtFx *e) {
     LtDraw *d = &e->d;
     u16 a;
@@ -2389,12 +2384,14 @@ void func_003AC7C0(LtFx *e) {
     D_005F6730 = 0xFFF00;
     a = d->unk44;
     func_003BB4E8(&D_0043FD10[(u16)d->unk1A], &a, 1);
-    if (func_003AA5E8() == 0) {
-        if (--e->unk1C <= 0) {
-            D_005F6730 = D_005F6D58;
-            func_003465C8(e);
+    do { /* fake */
+        if (func_003AA5E8() == 0) {
+            if (--e->unk1C <= 0) {
+                D_005F6730 = D_005F6D58;
+                func_003465C8(e);
+            }
         }
-    }
+    } while (0);
 }
 #else
 INCLUDE_ASM("asm/nonmatchings/loading_title", func_003AC7C0);
@@ -2451,8 +2448,6 @@ void func_003ACAB0(LtFx *e) {
     }
 }
 
-/* NON_MATCHING: 25 lines, lit4: the C literals shift the .sdata $gp offsets; the case 5 / case 7 blocks are laid out differently */
-#if 0
 void func_003ACB08(LtFx *e) {
     LtDraw *d = &e->d;
     s32 id = e->unk1A & 0x3FFF;
@@ -2477,7 +2472,7 @@ void func_003ACB08(LtFx *e) {
                 f32 r[4] __attribute__((aligned(16)));
 
                 Mtx_Unit(D_008D7E00);
-                r[0] = -0.34906587f;
+                r[0] = -0.34906584f;
                 r[1] = 0.7853982f;
                 r[2] = 0.0f;
                 r[3] = 1.0f;
@@ -2488,12 +2483,6 @@ void func_003ACB08(LtFx *e) {
                 D_008D7E00[3][1] = 0.0f;
                 m = D_008D7E00;
             }
-            break;
-        case 5:
-            if (id != 0) {
-                goto kill;
-            }
-            m = base + 0x2A30;
             break;
         case 7:
             switch (id) {
@@ -2509,6 +2498,12 @@ void func_003ACB08(LtFx *e) {
             default:
                 goto kill;
             }
+            break;
+        case 5:
+            if (id != 0) {
+                goto kill;
+            }
+            m = base + 0x2A30;
             break;
         default:
         kill:
@@ -2526,12 +2521,6 @@ void func_003ACB08(LtFx *e) {
         func_003465C8(e);
     }
 }
-#else
-LIT4_WORD(D_005F5320, 0xBEB2B8C2);
-LIT4_WORD(D_005F5324, 0x3F490FDB);
-LIT4_WORD(D_005F5328, 0x44BB8000);
-INCLUDE_ASM("asm/nonmatchings/loading_title", func_003ACB08);
-#endif
 
 void func_003ACCD0(LtFx *e) {
     LtDraw *d = &e->d;
@@ -3005,14 +2994,13 @@ void func_003ADDE8(void) {
     }
 }
 
-/* NON_MATCHING: 2 lines, the final or takes its operands in the other order */
-#if 0
 void func_003ADE18(void) {
     s32 i;
 
     for (i = 0; i < 2; i++) {
         Fighter *fs = gFighters;
         Fighter *f;
+        u8 t;
 
         D_005F6D70[i] = 0;
         f = &fs[i];
@@ -3026,12 +3014,10 @@ void func_003ADE18(void) {
             continue;
         }
         D_005F6D70[i] = (D_005F5C40[i] >> 2) & 1;
-        D_005F6D70[i] |= (D_00415718[func_003AFFB8(i, f->unk0)] >> 10) & 1;
+        t = (D_00415718[func_003AFFB8(i, f->unk0)] >> 10) & 1;
+        D_005F6D70[i] |= t;
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/loading_title", func_003ADE18);
-#endif
 
 s32 func_003ADF30(s32 side) {
     if (D_0043B7F8[0] == 8) {

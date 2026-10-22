@@ -79,7 +79,52 @@ Drafts per module:
 | `battle_mode` | 4 | `screenshot` | 1 | `loading_title` | 9 |
 | | | `movie` | 23 | `menu_common` | 10 |
 
-## Per-cause notes for the next batches
+## After T19 batch 2 (2435 / 2813 in C)
+
+Batch 2 matched 123 drafts; 378 remain, all with C in `#if 0`. The causes come from the notes as before (a note that was
+rewritten in this batch counts under its new cause).
+
+| Draft cause (378) | Functions |
+|---|---:|
+| register allocation / scheduling | 206 |
+| m2c rough draft | 73 |
+| store order | 41 |
+| block layout / alignment | 35 |
+| data layout / `.lit4` pool | 8 |
+| hand-written assembly (VU0 routines of `geometry_b`) | 7 |
+| other | 7 |
+| gas hazard | 1 |
+
+Drafts per module:
+
+| Module (C file) | Drafts | Module | Drafts | Module | Drafts |
+|---|---:|---|---:|---|---:|
+| `render_fighter_a` | 2 | `rng_misc` | 2 | `loading_title` | 6 |
+| `render_fighter_b` | 0 | `dma_spr` | 5 | `menu_common` | 9 |
+| `vu1_packet` | 2 | `memcard` | 1 | `options` | 8 |
+| `dma_gif` | 9 | `font_tex` | 3 | `pause_results` | 6 |
+| `geometry` | 1 | `fighter_setup` | 4 | `modes` | 5 |
+| `geometry_b` | 16 | `motion` | 2 | `modes_b` | 3 |
+| `geometry_c` | 2 | `fighter_setup_b` | 8 | `select_results` | 7 |
+| `scene3d` | 5 | `battle_flow` | 21 | `hud` | 2 |
+| `skeleton` | 2 | `sound` | 4 | `select_results_b` | 30 |
+| `scene3d_c` | 5 | `fight_misc` | 3 | `sprite2d` | 9 |
+| `scene3d_d` | 2 | `practice` | 4 | `model_anim` | 3 |
+| `theater` | 3 | `fighter_core` | 28 | `model_anim_b` | 16 |
+| `theater_b` | 1 | `stage` | 40 | `demo` | 14 |
+| `theater_d` | 1 | `pad` | 1 | `menu_bg` | 6 |
+| `draw_list` | 3 | `gfx` | 3 | `gallery_jpeg` | 8 |
+| `main` | 4 | `zsort` | 1 | `tekken_bowl` | 29 |
+| `battle_mode` | 3 | `screenshot` | 1 | `effects` | 3 |
+| | | `movie` | 19 | `effects_draw` | 3 |
+
+The data-layout blockers named after batch 1 are gone: the `.lit4` pool order is steered from C (`LIT4_ORDER`,
+`LIT4_WORD_AT`, `LIT4_REF`, `LIT4_KEEP`, docs/build.md step 2), `draw_list` and `render_fighter_b` have `.rodata`
+subsegments for their jump tables, `Text_Printf`'s table is one symbol again and `Mc_Update`'s strings and table are
+included in place. What is left of that cause is code-side (`func_003AA8A8`, `func_003424A8`, `func_00342A38` and the
+other drafts are tens to hundreds of lines off).
+
+## Per-cause notes for the next batches (written after batch 1)
 
 - **Register allocation / scheduling** (295): most are a few lines off. They are candidates for decomp-permuter (one run
   at a time) and for sweeps over declaration and statement order.

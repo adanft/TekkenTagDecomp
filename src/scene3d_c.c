@@ -3,8 +3,8 @@
  * spline (cubic Lagrange weights), and the two-part swing of character 20. The start is an object edge (see
  * src/scene3d_b.c); the end is a cut [I]. Its .lit4 (0x5F5614-0x5F5668) is a subsegment: in the original pool the words
  * of func_00351AA0 come before those of func_00350C40, so both functions' LIT4_WORD lines sit in front of
- * func_00350C40; func_003518B8's word (0x5F570C) lies in another object's pool and stays in the generic chunk. Every
- * NON_MATCHING draft (#if 0) compiles when enabled. */
+ * func_00350C40; func_003518B8's word (0x5F570C) lies in another part of the pool and stays in the generic chunk (the C
+ * reads it with LIT4_REF). Every NON_MATCHING draft (#if 0) compiles when enabled. */
 #include "common.h"
 #include "fighter.h"
 
@@ -628,7 +628,8 @@ INCLUDE_ASM("asm/nonmatchings/scene3d_c", func_00350C40);
 
 /* NON_MATCHING: 2 lines: the original saves s2 with sq / lq. This compiler keeps the save mode of a callee-saved register
  * from earlier functions of the file (s2 holds a TImode value in func_00350C40), so it matches once func_00350C40 is C
- * with s2 in TImode. */
+ * with s2 in TImode. T19 b2: a stub giving s2 a TImode use (ASM_STUB) matches this function and func_00351860, but the
+ * save mode then sticks to func_00351978, which the original saves with sd: not that mechanism alone. */
 /* The three blade points v[0..2] through matrix m become the last rows of the three history matrices h[2], h[1],
  * h[0] (in that order) [V]. */
 #if 0
@@ -658,12 +659,11 @@ void func_00351860(Vu0Vector *out, Vu0Matrix m, Vu0Vector *v) {
 INCLUDE_ASM("asm/nonmatchings/scene3d_c", func_00351860);
 #endif
 
-/* NON_MATCHING: every instruction matches since T17 b4 (no more hazard nop after li.s); 1 line: its .lit4 word
- * (D_005F570C) lies after render_fighter_a's pool, outside this object's (0x5F5614-0x5F5668), and the C emits it in
- * scene3d_c's pool, which also moves .sdata by 16 (SHA-1). */
 /* Cubic Lagrange weights through four points at t = 1 .. 1 + n / (n - 1) (n + 1 entries): w[i] holds -t(t-1)(t-2)/6,
  * (t+1)(t-1)(t-2)/2, -(t+1)t(t-2)/2, (t+1)t(t-1)/6 [V]. */
-#if 0
+/* Its .lit4 word (1 / 6, D_005F570C) lies after render_fighter_b's words in the generic part of the pool, outside this
+ * object's (0x5F5614-0x5F5668): LIT4_REF. */
+LIT4_REF(D_005F570C);
 void func_003518B8(Vu0Vector *w, s32 n) {
     s32 i;
     f32 t;
@@ -683,9 +683,6 @@ void func_003518B8(Vu0Vector *w, s32 n) {
         t += step;
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/scene3d_c", func_003518B8);
-#endif
 
 /* out[i] = m (one history matrix: four control points) applied to the weights in[i], i = n-1 .. 0 [V]. */
 void func_00351978(void *out, Vu0Vector *in, s32 n, void *m) {

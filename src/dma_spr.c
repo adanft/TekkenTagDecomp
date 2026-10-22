@@ -165,20 +165,20 @@ s32 func_0035D218(u32 dest) {
 }
 
 #if 0
-/* NON_MATCHING: the original keeps n and n - 0x40 apart (the division rounds with n - 0x3D); the compiler reuses one
- * register. */
+/* NON_MATCHING: 7 lines: the quotient of the division takes a0 (computed after li -1) where the original builds it in a2 first */
 s32 func_0035D238(s32 n, u32 dest) {
-    s32 id;
+    s32 m;
 
     if (n == 0) {
-        id = 0x29;
+        n = 0x29;
     } else if (n < 0x40) {
-        id = n * 2 + 0x2B;
+        n *= 2;
+        n += 0x2B;
     } else {
-        n -= 0x40;
-        id = n / 4 * 7 + (n & 3) + 0xB7;
+        m = n - 0x40;
+        n = m / 4 * 7 + 0xB7 + (m & 3);
     }
-    return func_0035CE40(id, dest);
+    return func_0035CE40(n, dest);
 }
 #else
 INCLUDE_ASM("asm/nonmatchings/dma_spr", func_0035D238);
@@ -284,13 +284,11 @@ u32 Spr_Setup(u32 count, s32 reserved) {
 }
 
 /* Saves the scratchpad header (0x100 bytes) to D_00415E80 with interrupts off. */
-#if 0
-/* NON_MATCHING: the copy loop: the original increments the source before the destination and pads the branch, not the
- * loop head. */
 void func_0035D588(void) {
     u8 *src;
     u8 *dst;
     u32 status;
+    u8 *end;
 
     do {
         __asm__ volatile("di");
@@ -298,57 +296,66 @@ void func_0035D588(void) {
         __asm__ volatile("mfc0 %0, $12" : "=r"(status));
     } while (status & 0x10000);
     dst = (u8 *)&D_00415E80;
-    for (src = (u8 *)0x70000000; src != (u8 *)0x70000100; src += 0x20, dst += 0x20) {
-        __asm__ volatile(
-            "ld $6, 0(%0)\n"
-            "ld $7, 8(%0)\n"
-            "ld $8, 16(%0)\n"
-            "ld $9, 24(%0)\n"
-            "sd $6, 0(%1)\n"
-            "sd $7, 8(%1)\n"
-            "sd $8, 16(%1)\n"
-            "sd $9, 24(%1)\n"
-            : : "r"(src), "r"(dst) : "$6", "$7", "$8", "$9", "memory");
+    src = (u8 *)0x70000000;
+    end = (u8 *)0x70000100;
+loop:
+    __asm__ volatile(
+        "ld $6, 0(%0)\n"
+        "ld $7, 8(%0)\n"
+        "ld $8, 16(%0)\n"
+        "ld $9, 24(%0)\n"
+        : : "r"(src) : "$6", "$7", "$8", "$9", "memory");
+    __asm__ volatile(
+        "sd $6, 0(%0)\n"
+        "sd $7, 8(%0)\n"
+        "sd $8, 16(%0)\n"
+        "sd $9, 24(%0)\n"
+        : : "r"(dst) : "$6", "$7", "$8", "$9", "memory");
+    src += 0x20;
+    dst += 0x20;
+    if (src != end) {
+        goto loop;
     }
     D_00415E80.unk100 = 1;
     __asm__ volatile("ei");
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/dma_spr", func_0035D588);
-#endif
 
 /* Restores the scratchpad header from D_00415E80 with interrupts off. */
-#if 0
-/* NON_MATCHING: same copy loop as func_0035D588. */
 void func_0035D608(void) {
     u8 *src;
     u8 *dst;
     u32 status;
+    u8 *end;
 
     do {
         __asm__ volatile("di");
         __asm__ volatile("sync.p");
         __asm__ volatile("mfc0 %0, $12" : "=r"(status));
     } while (status & 0x10000);
+    src = (u8 *)&D_00415E80;
     dst = (u8 *)0x70000000;
-    for (src = (u8 *)&D_00415E80; src != (u8 *)&D_00415E80.unk100; src += 0x20, dst += 0x20) {
-        __asm__ volatile(
-            "ld $6, 0(%0)\n"
-            "ld $7, 8(%0)\n"
-            "ld $8, 16(%0)\n"
-            "ld $9, 24(%0)\n"
-            "sd $6, 0(%1)\n"
-            "sd $7, 8(%1)\n"
-            "sd $8, 16(%1)\n"
-            "sd $9, 24(%1)\n"
-            : : "r"(src), "r"(dst) : "$6", "$7", "$8", "$9", "memory");
+    end = (u8 *)&D_00415E80.unk100;
+loop:
+    __asm__ volatile(
+        "ld $6, 0(%0)\n"
+        "ld $7, 8(%0)\n"
+        "ld $8, 16(%0)\n"
+        "ld $9, 24(%0)\n"
+        : : "r"(src) : "$6", "$7", "$8", "$9", "memory");
+    __asm__ volatile(
+        "sd $6, 0(%0)\n"
+        "sd $7, 8(%0)\n"
+        "sd $8, 16(%0)\n"
+        "sd $9, 24(%0)\n"
+        : : "r"(dst) : "$6", "$7", "$8", "$9", "memory");
+    src += 0x20;
+    dst += 0x20;
+    if (src != end) {
+        goto loop;
     }
     D_00415E80.unk100 = 0;
     __asm__ volatile("ei");
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/dma_spr", func_0035D608);
-#endif
 
 void *func_0035D680(void) {
     return D_00415E80.unk100 == 0 ? (void *)0x70000000 : (void *)&D_00415E80;
@@ -429,9 +436,6 @@ void func_0035D790(s32 arg) {
 }
 
 /* Waits until the toSPR channel has passed the tag the fromSPR side (0x70000014) is reading. */
-#if 0
-/* NON_MATCHING: the loop reloads the pointer at 0x70000014 at its head; the compiler reuses the value it just compared
- * (one branch target differs). */
 void func_0035D8C8(void) {
     volatile u32 *chan = (volatile u32 *)0x1000D000;
     volatile SprDma *s;
@@ -442,18 +446,16 @@ void func_0035D8C8(void) {
     madr = chan[4];
     s = &gSprDma;
     for (;;) {
+        __asm__ volatile("" ::: "memory"); /* fake */
         cur = *(volatile u32 **)0x70000014;
         if (madr >= cur[12]) {
             break;
         }
-        if (s->pending == 0 && func_0035E600(cur) == 0 && cur == *(volatile u32 *volatile *)0x70000014) {
+        if (s->pending == 0 && func_0035E600(cur) == 0 && cur == *(volatile u32 **)0x70000014) {
             break;
         }
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/dma_spr", func_0035D8C8);
-#endif
 
 void func_0035D958(volatile u32 *chan, s32 state) {
     volatile SprDma *s = &gSprDma;
@@ -491,8 +493,7 @@ void func_0035DA70(void) {
 
 #if 0
 
-/* NON_MATCHING: the original reloads 0x1000D010 by absolute address after each store to gSprDma; the compiler
- * forwards the stored value (volatile instead builds the address in a register). */
+/* NON_MATCHING: 25 lines: the original reloads 0x1000D010 by absolute address after each store to gSprDma; the compiler forwards the stored value */
 void func_0035DA78(void) {
     volatile SprDma *s;
     u8 *ring;
@@ -516,9 +517,9 @@ void func_0035DA78(void) {
     *(volatile u32 *)0x1000E040 = 0x3FFF0;
     *(volatile u32 *)0x1000E000 = (*(volatile u32 *)0x1000E000 & 0xFFFFFFF3) | 8;
     *(u32 *)0x1000D010 = *(volatile u32 *)0x1000E050;
-    s->pending++;
     s->state = 1;
     s->unk8 = *(u32 *)0x1000D010;
+    s->pending++;
     *(u32 *)0x10009030 = *(u32 *)0x1000D010;
     func_0035DF68(s);
 }
@@ -556,8 +557,7 @@ void func_0035DC20(void) {
 }
 
 #if 0
-/* NON_MATCHING: the 0x1000D010 loads move in front of the gSprDma stores (see func_0035DDE0), and the registers of
- * the set-up differ. */
+/* NON_MATCHING: 13 lines: the 0x1000D010 loads move in front of the gSprDma stores (see func_0035DDE0) and registers differ */
 void func_0035DC58(void) {
     volatile SprDma *s = &gSprDma;
     SprHeader *spr = SPR;
@@ -569,8 +569,8 @@ void func_0035DC58(void) {
 
     func_0035DC20();
     size = s->unk20 != 0 ? 0x80000 : 0x100000;
-    spr->unk18 = 0x1000D000;
     ring = D_200000;
+    spr->unk18 = 0x1000D000;
     spr->unk14 = 0x1000A000;
     spr->unk10 = 0;
     for (i = 0; !((size >> i) & 1); i++) {
@@ -588,10 +588,10 @@ void func_0035DC58(void) {
         __asm__ volatile("sync.p");
         __asm__ volatile("mfc0 %0, $12" : "=r"(status));
     } while (status & 0x10000);
-    s->unk0 = 1;
     s->pending++;
     s->state = 3;
     s->unk10 = *(u32 *)0x1000D010;
+    s->unk0 = 1;
     *(u32 *)0x1000A030 = *(u32 *)0x1000D010;
     if (wait == 0 || s->unk2 >= 2) {
         func_0035DFF0(s);
@@ -813,8 +813,7 @@ void Spr_WaitChannel(void) {
 }
 
 #if 0
-/* NON_MATCHING: the stores are right; the scheduling of the scratchpad header stores between the gSprDma ones and
- * the registers differ. */
+/* NON_MATCHING: 46 lines: the stores are right; the scheduling of the scratchpad header stores between the gSprDma ones and the registers differ */
 void func_0035E400(void) {
     volatile u32 *chan = (volatile u32 *)0x1000D400;
     SprHeader *spr = SPR;
@@ -826,14 +825,14 @@ void func_0035E400(void) {
     gSprDma.state = 6;
     gSprDma.unkC = 0;
     gSprDma.unk10 = 0;
-    gSprDma.unk14 = 0;
-    spr->unk18 = (u32)chan;
     spr->unk14 = 0;
     spr->unk10 = 0;
     spr->unkF = 0;
+    spr->unk18 = (u32)chan;
     gSprDma.unk24 = 0;
     gSprDma.unk18 = 0;
     gSprDma.unk1C = 0;
+    gSprDma.unk14 = 0;
     gSprDma.unk20 = 0;
     *(volatile u32 *)0x1000E000 &= 0xFFFFFFFD;
     func_0035E3B0();
@@ -891,41 +890,42 @@ void func_0035E640(u32 sprAddr, void *addr, u32 qwc) {
     chan[0] = (chcr & ~0xC) | 0x101;
 }
 
-#if 0
-/* NON_MATCHING: the original reaches the DMA registers by absolute address and still reloads CHCR in the last wait
- * loop; volatile makes the compiler build the address in a register, non-volatile reuses the stored value. */
 void func_0035E6B8(void *tag) {
     u32 chcr;
+    u32 madr;
 
     func_0035DEF0();
-    do {
-        chcr = *(volatile u32 *)0x1000A000;
-    } while (chcr & 0x100);
-    *(volatile u32 *)0x1000A030 = ((u32)tag + 0x10000000) & 0x8FFFFFFF;
-    *(volatile u32 *)0x1000A020 = 0;
-    *(volatile u32 *)0x1000A000 = (chcr & ~0xC) | 0x105;
-    while (*(volatile u32 *)0x1000A000 & 0x100) {
+    madr = ((u32)tag + 0x10000000) & 0x8FFFFFFF;
+wait:
+    chcr = *(u32 *)0x1000A000;
+    if (chcr & 0x100) {
+        goto wait;
+    }
+    *(u32 *)0x1000A030 = madr;
+    *(u32 *)0x1000A020 = 0;
+    *(u32 *)0x1000A000 = (chcr & ~0xC) | 0x105;
+busy:
+    if (*(u32 *)0x1000A000 & 0x100) {
+        goto busy;
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/dma_spr", func_0035E6B8);
-#endif
 
-#if 0
-/* NON_MATCHING: same register access problem as func_0035E6B8. */
 void func_0035E758(void *addr, u32 qwc) {
     u32 chcr;
+    u32 madr;
 
     func_0035DEF0();
-    do {
-        chcr = *(volatile u32 *)0x1000A000;
-    } while (chcr & 0x100);
-    *(volatile u32 *)0x1000A010 = ((u32)addr + 0x10000000) & 0x8FFFFFFF;
-    *(volatile u32 *)0x1000A020 = qwc;
-    *(volatile u32 *)0x1000A000 = (chcr & ~0xC) | 0x101;
-    while (*(volatile u32 *)0x1000A000 & 0x100) {
+    madr = ((u32)addr + 0x10000000) & 0x8FFFFFFF;
+wait:
+    chcr = *(u32 *)0x1000A000;
+    if (chcr & 0x100) {
+        goto wait;
+    }
+    *(u32 *)0x1000A010 = madr;
+    *(u32 *)0x1000A020 = qwc;
+    *(u32 *)0x1000A000 = (chcr & ~0xC) | 0x101;
+busy:
+    if (*(u32 *)0x1000A000 & 0x100) {
+        goto busy;
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/dma_spr", func_0035E758);
-#endif

@@ -261,10 +261,10 @@ INCLUDE_RODATA("asm/nonmatchings/demo", D_00522B90);
 #define M2C_FIELD(expr, type, offset) (*(type)((u8 *)(expr) + (offset)))
 #define M2C_BITWISE(type, expr) ((type)(s32)(expr))
 extern u8 D_01FC4930[];
-s32 Snd_PlaySe(s32, s32);
+void Snd_PlaySe(s32, s32);
 s32 func_003DB9A0(u8 *);
-s32 func_003DBAA8(s32, s32, s32, s32);
-s32 func_003DC188(s32, s32, s32, s32);
+void func_003DBAA8(s32, s32, s32, s32);
+void func_003DC188(s32, s32, s32, s32);
 extern u8 D_00415718[];
 extern u8 D_00415728[];
 extern u8 D_00522B90;
@@ -538,26 +538,21 @@ INCLUDE_ASM("asm/nonmatchings/demo", func_003DC9C8);
 #endif
 
 /* Re-sends both sides' command lists after a load (func_003DE850, func_003DC9C8) [I]. */
-#if 0
-/* NON_MATCHING: 5 lines: i * 0xB8A0 in v1 (original v0), so the loop branch is bnez, not bnezl */
 void func_003DD098(void) {
     s32 i;
 
     i = 0;
     func_003DEC20();
     do {
-        Fighter *f = &gFighters[i];
-
         if (D_005F5CB0[i] != 0) {
+            Fighter *f = &gFighters[i];
+
             func_003DE850(i, gPracCmdText[f->unk22].unk4);
             func_003DC9C8(i, func_003AFFB8(i, f->unk0));
         }
         i++;
     } while (i < 2);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/demo", func_003DD098);
-#endif
 
 void func_003DD158(s32 side) {
     func_003DE850(side, gPracCmdText[gFighters[side].unk22].unk4);
@@ -713,7 +708,7 @@ void func_003DD8E8(void *m, void *r, f32 k) {
 #define M2C_FIELD(expr, type, offset) (*(type)((u8 *)(expr) + (offset)))
 #define M2C_BITWISE(type, expr) ((type)(s32)(expr))
 #define s128 u128
-s32 Mtx_Unit(void *);
+void Mtx_Unit(void *);
 void *func_00364298(void *);
 s32 func_003B87B0(s16);
 s32 func_003B87F8(s16);
@@ -1483,8 +1478,6 @@ s32 PracFont_GlyphWidth(s32 c) {
 }
 
 /* Width of a command string: 0xFC skips a byte, 0xFF 'n' ends the line. */
-#if 0
-/* NON_MATCHING: 7 lines: the 0xFC case is a bne + jump, the original a beql into the shared load */
 s32 PracFont_StrWidth(u8 *s) {
     s32 w = 0;
     u8 c;
@@ -1492,23 +1485,22 @@ s32 PracFont_StrWidth(u8 *s) {
     c = *s++;
     if (c != 0) {
         do {
-            if (c == 0xFC) {
-                s++;
-            } else if (c == 0xFF) {
-                if (*s++ == 'n') {
-                    break;
+            if (c != 0xFC) {
+                if (c == 0xFF) {
+                    if (*s++ == 'n') {
+                        break;
+                    }
+                } else {
+                    w += PracFont_GlyphWidth(c);
                 }
             } else {
-                w += PracFont_GlyphWidth(c);
+                s++;
             }
             c = *s++;
         } while (c != 0);
     }
     return w;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/demo", PracFont_StrWidth);
-#endif
 
 /* Measures a command string for justification within `width`: counts its spaces in *n and returns the space
  * width (at least 4). "\S" steps the variant counter (only variant D_005F6936 is measured), "\n" ends the line
@@ -2047,8 +2039,6 @@ INCLUDE_ASM("asm/nonmatchings/demo", func_003E0460);
 
 /* Prints a justified command string at the text position D_005F7064 (line start D_005F7060, colours D_005F7068)
  * and keeps the position; "\S" variant blocks, "\n" new line (+20). Returns the end of the string [I]. */
-#if 0
-/* NON_MATCHING: 2 lines: the glyph width table base is hoisted as D_004572E0 - 0x20, the original keeps D_004572E0 and loads at -0x20 */
 char *func_003E06A0(char *s, ...) {
     DemoTextPos t;
     s32 n;
@@ -2104,7 +2094,11 @@ char *func_003E06A0(char *s, ...) {
                 }
             } else {
                 PracFont_DrawGlyph(&t.g, c, k++);
-                t.g.x += (s8)*((u8 *)D_004572E0 + c - 0x20);
+                {
+                    u8 *w = (u8 *)D_004572E0 + c;
+
+                    t.g.x += (s8)w[-0x20];
+                }
             }
         }
     next:
@@ -2118,9 +2112,6 @@ char *func_003E06A0(char *s, ...) {
     func_003DED90();
     return s;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/demo", func_003E06A0);
-#endif
 
 void func_003E08D0(s16 v) {
     D_005F6936 = v;

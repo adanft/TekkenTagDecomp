@@ -106,9 +106,8 @@ void func_00342818(Unk3422C0 *f);
 void func_00342A38(Unk3422C0 *f);
 void func_00342F00(Vu0Matrix *a, Vu0Matrix *b, Vu0Matrix *c, Vu0Matrix *d, void *pkt);
 
-/* NON_MATCHING: every instruction matches, but its .lit4 word (5800.0f) lies last in the object's pool, after the
- * words of later functions, so the C literal would land first */
-#if 0
+/* Its .lit4 word (5800.0f) lies last in the object's pool, after the words of later functions: LIT4_ORDER(3). */
+LIT4_ORDER(3);
 void func_003420C8(s32 n) {
     s32 i = 0;
 
@@ -119,9 +118,7 @@ void func_003420C8(s32 n) {
         }
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/vu1_packet", func_003420C8);
-#endif
+LIT4_ORDER(0);
 
 void func_00342128(Unk3422C0 *f) {
     f32 v[4];
@@ -205,7 +202,7 @@ void func_00342400() {
     func_00343178((u32)pk.pBase, sceVif1PkSize(&pk));
 }
 
-/* NON_MATCHING: 104 lines (first draft); cannot match in place: its .lit4 word D_005F57F4 must follow func_00342E38's in the pool */
+/* NON_MATCHING: 104 lines (first draft); its .lit4 word D_005F57F4 follows func_00342E38's in the pool: as C, LIT4_ORDER(1) in front of it and drop its LIT4_WORD */
 #if 0
 void func_003424A8(Unk3422C0 *f, f32 (*off)[4]) {
     Vif1Packet pk;
@@ -285,18 +282,19 @@ void func_003424A8(Unk3422C0 *f, f32 (*off)[4]) {
 INCLUDE_ASM("asm/nonmatchings/vu1_packet", func_003424A8);
 #endif
 
-/* NON_MATCHING: 9 lines: the side passed to func_00342400 is loaded with lhu and sign-extended; its .lit4 word D_005F57F8 must also follow func_00342E38's in the pool */
-#if 0
+/* Its .lit4 word (D_005F57F8) follows func_00342E38's and func_003424A8's in the pool: LIT4_ORDER(1). */
+LIT4_ORDER(1);
 void func_00342818(Unk3422C0 *f) {
     f32 v[2][4];
     f32 l[4];
     Unk3422C0 *g;
+    s32 o;
 
     memset(v, 0, 0x10);
     func_00342390();
     func_003424A8(f, v);
     if (f->unk1E == 0) {
-        g = (Unk3422C0 *)&gFighters[1];
+        { s32 o = 0xB8A0; g = (Unk3422C0 *)((u8 *)gFighters + o); }
         if (g->unk127 != 0 && Tag_StepCounters(g->unk20, 0) == 0) {
             func_00353C88(f->unk1E, l);
             v[0][1] = g->pos[1] - f->pos[1];
@@ -312,9 +310,7 @@ void func_00342818(Unk3422C0 *f) {
     }
     func_00342400((s16)(u16)f->unk1E);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/vu1_packet", func_00342818);
-#endif
+LIT4_ORDER(0);
 
 void func_00342988(void) {
     Vif1Packet pk;
@@ -334,7 +330,7 @@ void func_00342988(void) {
     func_00343178((u32)pk.pBase, sceVif1PkSize(&pk));
 }
 
-/* NON_MATCHING: 82 lines (first draft): the fighter flattened onto a constant depth through the camera (a mirror image [I]); cannot match in place: its .lit4 word D_005F57FC must follow func_00342E38's in the pool */
+/* NON_MATCHING: 82 lines (first draft): the fighter flattened onto a constant depth through the camera (a mirror image [I]); its .lit4 word D_005F57FC follows func_00342818's in the pool: as C, LIT4_ORDER(1) (or 2) and drop its LIT4_WORD_AT; was: must follow func_00342E38's in the pool */
 #if 0
 void func_00342A38(Unk3422C0 *f) {
     Vif1Packet pk;
@@ -439,8 +435,7 @@ void func_00342E38(void) {
 
 /* The rest of the object's .lit4 pool (0x5F57EC-0x5F5804): in the original pool the two words of func_00342E38 come
  * first, then those of func_003424A8, func_00342818, func_00342A38 and func_003420C8, so the words of the functions
- * before func_00342E38 are emitted after it. */
+ * before func_00342E38 are emitted after it: func_003424A8's in subsection 0 after func_00342E38's literals, then
+ * subsections 1 (func_00342818, LIT4_ORDER), 2 (func_00342A38) and 3 (func_003420C8, LIT4_ORDER). */
 LIT4_WORD(D_005F57F4, 0xC0278D37);
-LIT4_WORD(D_005F57F8, 0x4A1A4D90);
-LIT4_WORD(D_005F57FC, 0xC0278D37);
-LIT4_WORD(D_005F5800, 0x45B54000);
+LIT4_WORD_AT(2, D_005F57FC, 0xC0278D37);
