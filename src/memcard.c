@@ -561,8 +561,399 @@ s32 func_0035F2D8(McState *mc) {
     return (flags & 2) ? 2 : 1;
 }
 
-/* Not written in C yet (T13 batch 3): 1064 instructions, the libmc call sequence of every request. */
+/* NON_MATCHING: 1064 instructions, not compared: a structured draft of the request state machine (m2c-based); the
+ * strings are D_004FC108-D_004FC150 and the 38-entry jump table jtbl_004FC180 of the split */
+#if 0
+extern const char D_004FC108[];
+extern const char D_004FC120[];
+extern const char D_004FC138[];
+extern const char D_004FC150[];
+extern const char *D_00416000[];
+extern const char *D_00416010[];
+extern u8 D_005F7300[];
+s32 strcmp(const char *a, const char *b);
+s32 func_0035CED8(s32 id);
+s32 File_Request(s32 id, u32 dest, s32 flags, s32 toIop);
+s32 File_CountQueued(void);
+s32 File_Release(s32 handle);
+
+/* One step of the memory card service: runs the libmc call sequence of the current request (mc->op). */
+void Mc_Update(void) {
+    McState *mc = &gMc;
+    s32 r;
+    s32 st;
+    u32 i;
+    u32 j;
+    s32 o;
+
+    r = func_0035F180(mc);
+    st = func_0035F2D8(mc);
+    switch (mc->op) {
+    case 0:
+        if (mc->request == 0) {
+            mc->op = 3;
+        } else {
+            mc->op = mc->request;
+            mc->unkCC = 1;
+            mc->request = 0;
+        }
+        return;
+    case 2:
+        mc->unk70 = 1;
+        mc->unkCC = 0;
+        mc->unkD0 = 0;
+        mc->op = 0;
+        func_0035ED68(mc);
+        return;
+    case 1:
+        mc->unk70 = 0;
+        mc->unkCC = 0;
+        mc->unkD0 = 0;
+        mc->op = 0;
+        func_0035ED68(mc);
+        return;
+    case 3:
+        if (r == -1) {
+            func_0035EDE8(mc);
+            return;
+        }
+        if (r == 1) {
+            if (mc->unk58 == -2 || mc->unk58 < -2) {
+                goto fail;
+            }
+            if (mc->unk58 > 0) {
+                mc->op = 2;
+            } else if (mc->unk14 == 0 && mc->unkD0 == 0) {
+                mc->op = r;
+            } else {
+                goto check;
+            }
+        }
+        break;
+    case 4:
+        if (r == -1) {
+            func_0035EF98(mc, (s32)D_004FC108, 0, 0x18, 0);
+            return;
+        }
+        if (r == 1) {
+            if (mc->unk58 >= 0) {
+                func_0035EB20(mc, (s32)D_004FC120, 0, 5);
+                return;
+            }
+            if (mc->unk58 >= -4 && mc->unk58 < -2) {
+                if (mc->free >= 0x169) {
+                    mc->op = r;
+                } else {
+                    mc->unk64 = r;
+                    mc->op = 2;
+                }
+            } else {
+                goto fail;
+            }
+        }
+        break;
+    case 5:
+        mc->unkC4 = 0;
+        for (i = 0; i < 4; i++) {
+            for (j = 0; j < (u32)mc->unk38; j++) {
+                if (strcmp(D_00416000[i], (char *)(mc->unk30 + (j << 6) + 0x20)) == 0) {
+                    mc->unkC4 |= 1 << i;
+                    break;
+                }
+            }
+        }
+        mc->op = 6;
+        break;
+    case 6:
+        if (mc->unkD0 != 0) {
+            mc->unkE4[0] = 0xFF;
+        }
+        for (i = 0; i < (u32)mc->unk38; i++) {
+            o = i << 6;
+            if (strcmp(D_004FC138, (char *)(mc->unk30 + o + 0x20)) == 0) {
+                func_0035C528(mc->unkD4, (u8 *)(mc->unk30 + o), 0x10);
+                mc->unk6C = 1;
+                if (mc->unkD0 != 0) {
+                    func_0035C528(mc->unkE4, mc->unkD4, 0x10);
+                }
+                if (*(s32 *)(o + mc->unk30 + 0x10) != 0x480) {
+                    mc->unk68 = 1;
+                }
+                break;
+            }
+        }
+        if (func_0035F148(mc->unkD4, mc->unkE4, 0x10) == 0) {
+            mc->unk60 = 0;
+        }
+        if (mc->unk6C != 0 && mc->unkC4 == 0xF && mc->unk68 == 0) {
+            mc->op = 7;
+        } else {
+            goto broken;
+        }
+        break;
+    case 7:
+        mc->unk78 = 0;
+        mc->unk7C = 0;
+        for (i = 0; i < 12; i++) {
+            mc->unk80[i] = 0;
+            for (j = 0; j < (u32)mc->unk38; j++) {
+                o = j << 6;
+                if (strcmp(D_00416010[i], (char *)(mc->unk30 + o + 0x20)) == 0) {
+                    mc->unk80[i] = *(s32 *)(o + mc->unk30 + 0x10);
+                    mc->unk7C |= 1 << i;
+                    mc->unk78++;
+                    break;
+                }
+            }
+        }
+        mc->unk14 = 0;
+        mc->op = 1;
+        break;
+    case 8:
+    case 11:
+        if (r == -1) {
+            func_0035EE38(mc);
+            return;
+        }
+        if (r == 1) {
+            mc->unk14 = r;
+            if (mc->unk58 >= 0) {
+                mc->op = mc->op == 8 ? 9 : 12;
+            } else {
+                goto fail;
+            }
+        }
+        break;
+    case 9:
+        if (r == -1) {
+            func_0035EEC0(mc);
+            return;
+        }
+        if (r == 1) {
+            if (mc->unk24 == mc->unk58) {
+                mc->op = 10;
+            } else {
+                goto fail;
+            }
+        }
+        break;
+    case 10:
+    case 13:
+        if (r == -1) {
+            func_0035EE80(mc);
+            return;
+        }
+        if (r == 1) {
+            mc->unk14 = r;
+            mc->op = 2;
+        }
+        break;
+    case 12:
+        if (r == -1) {
+            func_0035EF08(mc);
+            return;
+        }
+        if (r == 1) {
+            if (mc->unk24 == mc->unk58) {
+                mc->op = 13;
+            } else {
+                goto fail;
+            }
+        }
+        break;
+    case 14:
+        if (r == -1) {
+            func_0035EF50(mc);
+            return;
+        }
+        if (r == 1) {
+            mc->unk14 = r;
+            if (mc->unk58 < -6 || mc->unk58 < -3) {
+                goto fail;
+            }
+            if (mc->unk58 != 0) {
+                mc->op = 2;
+            } else {
+            next:
+                mc->op = mc->unk10;
+            }
+        }
+        break;
+    case 15:
+        if (r == -1) {
+            func_0035F0C8(mc);
+            return;
+        }
+        break;
+    case 16:
+        if (r == -1) {
+            func_0035F108(mc);
+            return;
+        }
+        break;
+    case 17:
+        if (r == -1) {
+            func_0035F080(mc);
+            return;
+        }
+        if (r == 1) {
+            if (mc->unk58 == 0) {
+                goto next;
+            }
+            mc->op = 2;
+        }
+        break;
+    case 18:
+        if (st == 4) {
+            mc->op = 0x13;
+        } else if (st >= 5) {
+            if (st != 7) {
+                mc->op = 2;
+            } else {
+                func_0035EB90(mc, 0x13);
+                return;
+            }
+        } else if (st < 3) {
+            if (st == 0) {
+                mc->op = 2;
+            } else {
+                func_0035EB20(mc, (s32)D_004FC120, 0, 0x18);
+                return;
+            }
+        } else {
+            goto fail;
+        }
+        break;
+    case 19:
+        if (r == -1) {
+            func_0035F028(mc, (s32)D_004FC120);
+            return;
+        }
+        if (r == 1) {
+            if (mc->unk58 < 0) {
+                goto fail;
+            }
+            if (mc->unk58 == 0) {
+                func_0035EB20(mc, (s32)D_004FC120, 0, 0x14);
+                return;
+            }
+            goto fail;
+        }
+        break;
+    case 20:
+        mc->unkC0 = 0;
+        mc->op = 0x15;
+        break;
+    case 21:
+        mc->unkBC = File_Request(mc->unkC0 + 0x89, (u32)D_005F7300, 0, 0);
+        mc->op = 0x16;
+        break;
+    case 22:
+        if (File_CountQueued() == 0) {
+            File_Release(mc->unkBC);
+            func_0035CED8(mc->unkC0 + 0x89);
+            func_0035EB58(mc, (s32)D_00416000[mc->unkC0], 0x203, (s32)D_005F7300, 0, 0);
+            return;
+        }
+        break;
+    case 23:
+        mc->unkC0++;
+        if (mc->unkC0 < 4) {
+            mc->op = 0x15;
+        } else {
+            mc->op = 0x18;
+        }
+        break;
+    case 24:
+        func_0035EBA0(D_005F7300);
+        func_0035EB58(mc, (s32)D_004FC138, 0x203, (s32)D_005F7300, 0, 0);
+        return;
+    case 25:
+    check:
+        mc->op = 4;
+        mc->unkD0 = 1;
+        break;
+    case 26:
+        if (st >= 3) {
+            goto fail;
+        }
+        if (st == 0) {
+            mc->op = 2;
+        } else {
+            func_0035EB20(mc, (s32)D_004FC120, 0, 0x1B);
+            return;
+        }
+        break;
+    case 27:
+        func_0035EB38(mc, (s32)D_004FC138, 1, (s32)D_005F7300, 0, 0);
+        return;
+    case 28:
+        if (func_0035EC98(D_005F7300) != 0) {
+            mc->op = 4;
+            mc->unkD0 = 1;
+        } else {
+        broken:
+            mc->op = 2;
+            mc->unk68 = 1;
+        }
+        break;
+    case 29:
+        if (st >= 3) {
+            goto fail;
+        }
+        if (st == 0) {
+            mc->op = 2;
+        } else {
+            if (!(mc->flags & 0x3000) && !((mc->unk7C >> mc->unkB0) & 1)) {
+                func_0035EB20(mc, (s32)D_004FC120, 0, 0x1E);
+                return;
+            }
+            goto fail;
+        }
+        break;
+    case 30:
+        func_0035C528(D_005F7300, (u8 *)mc->unkB8, mc->unkB4);
+        func_0035EB58(mc, (s32)D_00416010[mc->unkB0], 0x203, (s32)D_005F7300, 0, 0);
+        return;
+    case 31:
+        goto check;
+    case 32:
+    case 35:
+        if (st >= 3) {
+            goto fail;
+        }
+        if (st == 0) {
+            mc->op = 2;
+        } else {
+            if ((mc->unk7C >> mc->unkB0) & 1) {
+                func_0035EB20(mc, (s32)D_004FC120, 0, mc->op == 32 ? 0x21 : 0x24);
+                return;
+            }
+            goto fail;
+        }
+        break;
+    case 33:
+        func_0035EB38(mc, (s32)D_00416010[mc->unkB0], 1, (s32)D_005F7300, 0, 0);
+        return;
+    case 34:
+        func_0035C528((u8 *)mc->unkB8, D_005F7300, mc->unk80[mc->unkB0]);
+        mc->op = 4;
+        break;
+    case 36:
+        func_0035EB78(mc, (s32)D_00416010[mc->unkB0], 4);
+        return;
+    case 37:
+        mc->unk68 = 1;
+        func_0035EB78(mc, (s32)D_004FC150, 1);
+        return;
+    }
+    return;
+fail:
+    mc->op = 2;
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/memcard", Mc_Update);
+#endif
 
 void Mc_Init(void) {
     McState *state = &gMc;

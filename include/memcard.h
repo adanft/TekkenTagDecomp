@@ -36,11 +36,13 @@ typedef struct {
     /* 0x74 */ u32 flags;
     /* 0x78 */ s32 unk78;
     /* 0x7C */ s32 unk7C;
-    /* 0x80 */ u8 pad80[0x30];
+    /* 0x80 */ s32 unk80[12];  /* file sizes of the save files (Mc_Update) */
     /* 0xB0 */ s32 unkB0;
     /* 0xB4 */ s32 unkB4;
     /* 0xB8 */ s32 unkB8;
-    /* 0xBC */ u8 padBC[0xC];
+    /* 0xBC */ s32 unkBC;
+    /* 0xC0 */ u32 unkC0;
+    /* 0xC4 */ s32 unkC4;
     /* 0xC8 */ s32 request;
     /* 0xCC */ s32 unkCC;
     /* 0xD0 */ s32 unkD0;
