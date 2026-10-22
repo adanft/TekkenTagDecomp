@@ -597,8 +597,6 @@ INCLUDE_RODATA("asm/nonmatchings/demo", D_00522BE0);
 INCLUDE_RODATA("asm/nonmatchings/demo", D_00522BF0);
 /* The practice command-demo prompt of side `side`: "x=DEMO o=EXIT" bar (k < 4), the "DEMO" label (even k >= 4),
  * and the two flashing frames of the command window unless bit 1 of k is set [V strings]. */
-#if 0
-/* NON_MATCHING: 4 lines: (a + 0x60) & 0xFF goes through v0, the original adds in place in s3 */
 void Prac_DrawDemoPrompt(s32 side, s32 k) {
     s32 x;
     s32 a;
@@ -625,14 +623,11 @@ void Prac_DrawDemoPrompt(s32 side, s32 k) {
             a = 0x3F - a;
         }
         k = (k & 1) + 7;
-        a = (a + 0x60) & 0xFF;
-        func_003DBCF0(x - 5, 0x6D, 0x129, 0x12, 0xFFFF, D_004564F0[k].c0 | a);
-        func_003DBCF0(x - 5, 0x7F, 0x129, 0x36, 0xFFFF, D_004564F0[k].c1 | a);
+        a += 0x60;
+        func_003DBCF0(x - 5, 0x6D, 0x129, 0x12, 0xFFFF, D_004564F0[k].c0 | (a & 0xFF));
+        func_003DBCF0(x - 5, 0x7F, 0x129, 0x36, 0xFFFF, D_004564F0[k].c1 | (a & 0xFF));
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/demo", Prac_DrawDemoPrompt);
-#endif
 
 s32 func_003DD580(s32 slot) {
     return gPracCmdText[slot].unk8;

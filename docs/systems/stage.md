@@ -153,6 +153,9 @@ subsegment of `src/stage.c`; the three float functions still in assembly keep th
 **T19 batch 2** (2026-10-22): matched `CamScript_Load` (`func_0035D238` returns `s32`), `func_0038F768`,
 `func_00392888`, `func_00394300`, `func_00395BF0`, `func_003963C0`. The drafts left: [../t19_inventory.md](../t19_inventory.md).
 
+**T19 batch 3** (2026-10-22): no new match; `func_0038D290` got a smaller diff (one store left out of place) and
+`Cam_PickReaction`'s note names its `movz` form. The drafts left: [../t19_inventory.md](../t19_inventory.md).
+
 ## 5. What the simulation depends on (determinism)
 
 1. **The camera phase** `gRoundPhase` (0x5F5EF0): written by `Cam_Update` (and by `battle_flow`), read by

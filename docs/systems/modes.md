@@ -474,3 +474,6 @@ lists), `func_003B5DB0`, `func_003B6808`, `func_003B77B8`, `func_003BECC0`, `fun
 `func_003C1078`, `func_003C1350`, `func_003C3648`, `func_003C7428`, `func_003C8658`, `func_003C9778`, `func_003CC260`,
 `func_00359FB8`. `Text_Printf`'s jump table is one symbol again and `Mc_Update`'s strings and table are included in
 place, so both can emit them from C. The drafts left: [../t19_inventory.md](../t19_inventory.md).
+
+**T19 batch 3** (2026-10-22): matched `func_003BAD98` (`modes`), `Prac_DrawDemoPrompt` (`demo`), `Jpeg_RgbToYcc`
+(`gallery_jpeg`) and `func_003CB508` (`select_results_b`). The drafts left: [../t19_inventory.md](../t19_inventory.md).

@@ -1707,6 +1707,36 @@ Matched (123): `Fx_AddQuad`, `func_003ADE18`, `func_003C9778`, `PracFont_StrWidt
 `func_003CC260`, `Sprite_DrawCurrentGouraud`, `func_003E92E0`, `func_003E9AE8`, `func_003E9C10`, `func_003ECF70`,
 `Pause_BowlTop5`). Not matched: the 378 drafts of [t19_inventory.md](t19_inventory.md), each with a one-line note.
 
+### Lessons from T19 batch 3 (2026-10-22)
+
+Matched 4: `func_003BAD98` (load `a` before `b`, both set to 0 in the else branch), `Prac_DrawDemoPrompt`
+(`a += 0x60;` on its own, `& 0xFF` moved into each call argument), `Jpeg_RgbToYcc` (row loop as
+`i = 4; do { ...; i--; src += 0xEE8; } while (i > 0);`; its `LIT4_WORD` lines dropped, the compiler emits the same
+pool words), `func_003CB508` (`p++` in the `for` header, stores reordered).
+
+- **Small tables and `-G8`**: an extern declared with its size of 8 bytes or less (`u16 x[4]`) is read through `$gp`;
+  the original addresses `INCLUDE_RODATA` tables with `lui` / `addiu`, so such externs must be incomplete arrays `[]`
+  (`func_00381278`, `func_0038AFC0`).
+- An `.sdata` word inside a two-element array has its own symbol (`D_005F5C44`); an extern scalar for it reproduces
+  the relocation (`func_0037EB00`).
+- `on = fl; if (!side) on = 0;` becomes `side ? fl : 0` (`move zero` + `movn`); the original's in-place
+  `movz v1,zero,s1` after a copy is not reproduced yet.
+- Stack slots of values spilled by gcse follow the expression hash-table bucket order, which depends on pseudo
+  numbers; a variable declared inside a nested block gets a later pseudo, function-scope declaration order does not
+  change it.
+- A volatile `s16` compared with zero compiles to `lhu`, a volatile `s8` to `lbu` + shifts; a plain read gives
+  `lh` / `lb` but lands in a delay slot.
+- A fake empty `do {} while (0)` can give a later label `.p2align 3` (one alignment `nop`, `func_00353448`); an empty
+  `__asm__ volatile("")` instead changes the scheduling around it.
+
+Tools:
+
+- The comparator of batch 2 was rebuilt on `scripts/permute.py`'s work dirs: `compile.sh` on an edited `base.c` and
+  the decomp-permuter's `Scorer` on `target.o` (0.2 s per candidate). The `Scorer` asserts on `R_MIPS_PC16`
+  relocations (the jump-table `.L` labels of `target.o`); a fallback scored those 26 drafts from a normalized objdump
+  diff. Its score can be nonzero for identical code (call-target names, stack offsets): the check is a raw
+  encoding and relocation diff, then fdiff.
+
 ## Decompiled so far
 
 | File | Range | C / functions | Notes |
@@ -1746,20 +1776,20 @@ Matched (123): `Fx_AddQuad`, `func_003ADE18`, `func_003C9778`, `PracFont_StrWidt
 | `src/effects.c` | 0x3A04B8-0x3A6460 | 55 / 58 | effect callbacks: bank sprites, stage ambient effects and lens flare, hit sparks, flashes and bursts, the hit log, body-part glows, move effects ([systems/render.md](systems/render.md) section 7); `.rodata` 0x5194E0-0x519940, `.lit4` 0x5F51A4-0x5F5300 |
 | `src/effects_draw.c` | 0x3A6460-0x3A9678 | 47 / 50 | screen fade, title logo, stage texture layers, fighter texture channels, quad queue, character 0x1D's volume, effect helpers; a cut of the same object; `.rodata` 0x519940-0x519B30, `.lit4` 0x5F5300-0x5F531C |
 | `src/battle_mode.c` | 0x358A38-0x35C2B0 | 64 / 67 | `Mode_Battle` (mode 4) and its per-game-type set-up and match-end handlers, arcade opponents, survival pairs, random teams, camera keys and hit-spark helpers ([systems/modes.md](systems/modes.md)); `.rodata` 0x4FB9C0-0x4FBB28 |
-| `src/modes.c` | 0x3B90C0-0x3BB310 | 41 / 46 | `Mode_Change`, `Mode_Transition`, `Mode_Boot`, `Game_Start` and the per-type set-ups, the continue countdown, win streaks, controller vibration; `.rodata` 0x51E970-0x51EA60 |
+| `src/modes.c` | 0x3B90C0-0x3BB310 | 42 / 46 | `Mode_Change`, `Mode_Transition`, `Mode_Boot`, `Game_Start` and the per-type set-ups, the continue countdown, win streaks, controller vibration; `.rodata` 0x51E970-0x51EA60 |
 | `src/modes_b.c` | 0x3BB310-0x3BDF60 | 37 / 40 | `Mode_Loading`, controller / multitap warnings, the fight's side status texts, `Mode_Title`, `Mode_MainMenu` and its unlock tests; `.rodata` 0x51EB00-0x51F150 |
 | `src/loading_title.c` | 0x3A9678-0x3ADFA8 | 77 / 83 | mode 8: the ending sequence and script player, ending effects, the credits roll, character sets ([systems/modes.md](systems/modes.md) section 13); `.rodata` 0x519B30-0x51DE30, `.lit4` 0x5F531C-0x5F5340; built without `-ffast-math` |
 | `src/menu_common.c` | 0x3ADFA8-0x3B1478 | 73 / 82 | menu camera, port assignment and join rules, select preview fighters, game-setup accessors; `.rodata` 0x51DE30-0x51DEF0, `.lit4` 0x5F5340-0x5F5350 |
 | `src/options.c` | 0x3B1478-0x3B4D50 | 30 / 38 | `Mode_Options` and its pages ([systems/modes.md](systems/modes.md) section 10); `.rodata` 0x51DEF0-0x51E580 |
 | `src/pause_results.c` | 0x3B4D50-0x3B90C0 | 68 / 74 | `Mode_Results`, `Pause_Update`, partner swaps between rounds, start positions (sections 8-9); `.rodata` 0x51E580-0x51E970 |
-| `src/select_results_b.c` | 0x3C3150-0x3CD298 | 87 / 117 | `Mode_CharSelect`, results screens, records block, `Text_Printf`, name entry (sections 7-8); `.rodata` 0x51F6C0-0x520648, `.lit4` 0x5F535C-0x5F5364 |
+| `src/select_results_b.c` | 0x3C3150-0x3CD298 | 88 / 117 | `Mode_CharSelect`, results screens, records block, `Text_Printf`, name entry (sections 7-8); `.rodata` 0x51F6C0-0x520648, `.lit4` 0x5F535C-0x5F5364 |
 | `src/theater.c` | 0x3543F0-0x355D30 | 7 / 10 | mode 12 `Mode_EnterTheater` and mode 13 `Mode_Theater` (endings, movies, music player) ([systems/modes.md](systems/modes.md) section 15); `.rodata` 0x5221E0-0x522B90 |
 | `src/theater_b.c` | 0x355D30-0x3564C8 | 1 / 2 | modes 14-15, the music player; `.rodata` 0x522048-0x5221C0 |
 | `src/theater_c.c` | 0x3564C8-0x3567A8 | 5 / 5 | fighter skeleton matrices, `Mtx_Unit` / `Mtx_Zero` (inline asm), vector helpers; `.rodata` 0x5221C0-0x5221E0 |
 | `src/theater_d.c` | 0x3567A8-0x356A70 | 4 / 5 | GIF / VIF1 blocks through the scratchpad, DMA chain relocation, stage byte tables; `.rodata` 0x521CE0-0x521E20 |
-| `src/demo.c` | 0x3DC9C8-0x3E1C68 | 37 / 51 | the practice command list and move demonstration (not the attract demo), shared 2D line / rect / triangle helpers (section 16); `.rodata` 0x522B90-0x522DE0, `.lit4` 0x5F5710-0x5F573C |
+| `src/demo.c` | 0x3DC9C8-0x3E1C68 | 38 / 51 | the practice command list and move demonstration (not the attract demo), shared 2D line / rect / triangle helpers (section 16); `.rodata` 0x522B90-0x522DE0, `.lit4` 0x5F5710-0x5F573C |
 | `src/menu_bg.c` | 0x3E1C68-0x3E55C8 | 15 / 21 | the Tekken Bowl aiming HUD, text table helpers, screen fade, cursor bar (section 18); `.rodata` 0x522FC0-0x5233F0, `.lit4` 0x5F5804-0x5F58DC; built without `-ffast-math` |
-| `src/gallery_jpeg.c` | 0x3E55C8-0x3E8AD8 | 24 / 32 | `Mode_Gallery`, the baseline JPEG encoder / decoder (`Jpeg_*`), a stage particle effect (section 18); `.rodata` 0x5233F0-0x523570, `.lit4` 0x5F58DC-0x5F596C; built without `-ffast-math` |
+| `src/gallery_jpeg.c` | 0x3E55C8-0x3E8AD8 | 25 / 32 | `Mode_Gallery`, the baseline JPEG encoder / decoder (`Jpeg_*`), a stage particle effect (section 18); `.rodata` 0x5233F0-0x523570, `.lit4` 0x5F58DC-0x5F596C; built without `-ffast-math` |
 | `src/tekken_bowl.c` | 0x3E8AD8-0x3F3320 | 107 / 136 | Tekken Bowl (game type 8): pins, scoring, results texts, top 5, pause sub-screens, a bit stream, VU0 helpers (section 17); `.rodata` 0x523570-0x523FA0, `.lit4` 0x5F596C-0x5F5BCC; built without `-ffast-math` |
 | `src/geometry.c` | 0x346398-0x347760 | 22 / 23 | object lists and effect callbacks, the handler table `D_005193B8` (T19 b1); `.lit4` 0x5F51A0 |
 | `src/geometry_b.c` | 0x347760-0x34A7A8 | 10 / 26 | skeleton frames, weight blends, seven hand-written VU0 trig / rotation routines; `.rodata` 0x522DE0-0x522FC0, `.lit4` 0x5F573C-0x5F57EC |

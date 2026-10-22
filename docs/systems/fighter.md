@@ -729,6 +729,10 @@ and predicates around 0x37BAB0-0x38BEE0), 7 of `battle_flow` (`Cmd_CheckThrowCon
 table from C, `func_0036C918`, `func_0036F010`, `func_00370E98`, `func_003730E8`, `func_00373D48`), `func_0037B8D8` and
 `func_0037AF30` (practice). The drafts left: [../t19_inventory.md](../t19_inventory.md).
 
+**T19 batch 3** (2026-10-22): no new match; `func_0037EB00`, `func_00381278` and `func_0038AFC0` got smaller diffs
+(`.sdata` word through its own symbol, small `INCLUDE_RODATA` tables as `[]` externs). The drafts left:
+[../t19_inventory.md](../t19_inventory.md).
+
 ## 6. Open
 
 - The meanings of most move kinds (`unk17A`, table in section 5.3), of the state codes `unk11E` / `unkD5` and of the

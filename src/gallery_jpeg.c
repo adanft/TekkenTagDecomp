@@ -1088,8 +1088,6 @@ void Jpeg_WriteEoi(void) {
     func_003E8D80(0xD9);
 }
 
-#if 0
-/* NON_MATCHING: 2 lines: the copy of src + 0xEE8 and the i-- copy at the row loop end are swapped */
 void Jpeg_RgbToYcc(s32 mx, s32 my) {
     s32 b, c, off, i, j;
     u8 *src, *src2;
@@ -1125,7 +1123,8 @@ void Jpeg_RgbToYcc(s32 mx, s32 my) {
         cb = (f32 *)D_01FC4EA0 + c;
         cr = (f32 *)D_01FC4FA0 + c;
         src2 = src + 0x780;
-        for (i = 4; i > 0; i--) {
+        i = 4;
+        do {
             for (j = 8; j > 0; j--) {
                 r = *src++;
                 g = *src++;
@@ -1144,21 +1143,12 @@ void Jpeg_RgbToYcc(s32 mx, s32 my) {
                 bl = *src2++;
                 *y++ = r * 0.299f + g * 0.587f + bl * 0.114f - 128.0f;
             }
+            i--;
             src += 0xEE8;
             src2 += 0xEE8;
-        }
+        } while (i > 0);
     }
 }
-#else
-LIT4_WORD(D_005F5934, 0x3E991687);
-LIT4_WORD(D_005F5938, 0x3F1645A2);
-LIT4_WORD(D_005F593C, 0x3DE978D5);
-LIT4_WORD(D_005F5940, 0x3E2CBFB1);
-LIT4_WORD(D_005F5944, 0x3EA9A027);
-LIT4_WORD(D_005F5948, 0x3ED65FD9);
-LIT4_WORD(D_005F594C, 0x3DA6809D);
-INCLUDE_ASM("asm/nonmatchings/gallery_jpeg", Jpeg_RgbToYcc);
-#endif
 
 INCLUDE_RODATA("asm/nonmatchings/gallery_jpeg", D_005234F0);
 INCLUDE_RODATA("asm/nonmatchings/gallery_jpeg", D_00523518);

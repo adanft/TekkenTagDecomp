@@ -4240,8 +4240,6 @@ block_182:
 INCLUDE_ASM("asm/nonmatchings/select_results_b", func_003CA470);
 #endif
 
-/* NON_MATCHING: 8 lines, side + 1 and the side pointer swap s1 / s2 */
-#if 0
 void func_003CB508(s32 unused, SelState *s) {
     SelSide *p = s->side;
     s32 k = 2;
@@ -4250,20 +4248,16 @@ void func_003CB508(s32 unused, SelState *s) {
     func_003BF7F0();
     if ((u8)(D_0043B7F8.unk0 - 5) < 2) k = 1;
     func_003C9888(s);
-    for (side = 0; side < 2; side++) {
+    for (side = 0; side < 2; side++, p++) {
         for (j = 0; j < 8; j++) D_00440D40[side][j] = -1;
-        p->unk14 = 0;
         p->unk0 = 0;
+        p->unk14 = 0;
         D_005F6700[side] = k;
         func_003CA470(s, side);
-        p++;
     }
     D_005F66F8 = 0;
     D_005F6EB4 = 0;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/select_results_b", func_003CB508);
-#endif
 
 extern u16 D_005F5C80[2];
 extern s8 D_005F5C98[2][2];

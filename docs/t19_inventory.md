@@ -124,6 +124,40 @@ subsegments for their jump tables, `Text_Printf`'s table is one symbol again and
 included in place. What is left of that cause is code-side (`func_003AA8A8`, `func_003424A8`, `func_00342A38` and the
 other drafts are tens to hundreds of lines off).
 
+## After T19 batch 3 (2439 / 2813 in C)
+
+Batch 3 matched 4 drafts (`func_003BAD98` in `modes`, `Prac_DrawDemoPrompt` in `demo`, `Jpeg_RgbToYcc` in
+`gallery_jpeg`, `func_003CB508` in `select_results_b`); 374 remain. The run was cut at the two-hour wrap-up point:
+the hand passes over the closest register-allocation drafts (about 40 drafts of scores 15-550) and a statement-order
+hill-climb over the closest store-order and block-layout drafts gave no other match. Four drafts got smaller diffs
+(`func_0037EB00`, `func_00381278`, `func_0038AFC0`, `func_0038D290`) and several notes now name the mechanism.
+
+| Draft cause (374) | Functions |
+|---|---:|
+| register allocation / scheduling | 203 |
+| m2c rough draft | 72 |
+| store order | 42 |
+| block layout / alignment | 35 |
+| data layout / `.lit4` pool | 8 |
+| hand-written assembly (VU0 routines of `geometry_b`) | 7 |
+| other | 6 |
+| gas hazard | 1 |
+
+Drafts per module changed only in `modes` (4), `demo` (13), `gallery_jpeg` (7) and `select_results_b` (29); the
+other modules are as after batch 2. A rewritten note moved one draft from `other` to store order.
+
+What the closest drafts need (from this batch's attempts):
+
+- `Cam_PickReaction`, `func_00393BF0`: `move v1,a0; movz v1,zero,s1` in place after a copy; gcc turns every C form
+  tried into `move zero` + `movn`.
+- `func_003BE3E8`: stack slots of five spilled values follow gcse's hash-table order (pseudo numbers of `base` and
+  `n`); 20-29 dummy pseudos declared before them make it identical, not adopted.
+- `Movie_ReadChunk`, `func_003CBED8`: a signed `lh` / `lb` kept out of a delay slot; a volatile read keeps the
+  position but becomes `lhu` / `lbu` + shifts.
+- `func_0038D290`, `func_0038D3D0`: one `sw` out of place; all 120 orders of the five stores score the same.
+- `func_00353448`: one alignment `nop`: the fake empty `do {} while (0)` that keeps the sqrt order gives a later
+  label `.p2align 3`.
+
 ## Per-cause notes for the next batches (written after batch 1)
 
 - **Register allocation / scheduling** (295): most are a few lines off. They are candidates for decomp-permuter (one run

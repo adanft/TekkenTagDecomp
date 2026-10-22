@@ -315,7 +315,7 @@ extern const char D_0051F208[];
 s32 func_003AD900(s32 n, s32 k, s32 col, s32 d);
 void func_003BE118(s32 side, u8 *r, s32 unused, s32 *mode);
 
-/* NON_MATCHING: 10 lines, stack slots of the five spilled print coordinates */
+/* NON_MATCHING: stack slots, 10 lines: the spilled base + 0x44/0x4B/0x55/0x6C and n ^ 1 get slots in GCSE hash order, set by the pseudo numbers of base and n (base needs about 20 more pseudos before it) */
 #if 0
 void func_003BE3E8(u8 *r, s32 b) {
     char buf[32];

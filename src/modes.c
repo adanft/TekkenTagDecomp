@@ -1198,26 +1198,21 @@ void func_003BAC88(u16 *req, RumblePort *p) {
     p->unk40 = func_003BAC08(p->small);
     p->unk42 = func_003BAC08(p->big);
 }
-/* NON_MATCHING: 4 lines, the delay slot of the `b` holds the unk40 load in the original, the unk42 load here */
-#if 0
-/* NON_MATCHING: 4 lines, the delay slot of the `b` holds the unk40 load in the original, the unk42 load here */
 void func_003BAD98(s32 i) {
     s32 side = func_003B0078(1, i);
     s32 own = i == func_003AFFB8(side, gFighters[side].unk0);
-    s16 a = 0;
+    s16 a;
     s16 b;
 
     if (D_005F5CB0[side] != 0 && own) {
-        b = D_01FAB148[side].unk42;
         a = D_01FAB148[side].unk40;
+        b = D_01FAB148[side].unk42;
     } else {
+        a = 0;
         b = 0;
     }
     func_003BA888(i, a, b);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/modes", func_003BAD98);
-#endif
 void func_003BAE40(void) {
     s32 i;
 

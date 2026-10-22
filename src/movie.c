@@ -1864,7 +1864,7 @@ s32 func_003A00E8(MovieVoBuf *f) {
     return f->count == 0;
 }
 
-/* NON_MATCHING: 4 lines: the volatile count load is scheduled before the lui of 0x85740 here, after it in the original */
+/* NON_MATCHING: scheduling, 4 lines: the volatile count load goes before the write load here (rtl order is write, count); operand orders and a non-volatile count read do not change it */
 #if 0
 u8 *func_003A00F8(MovieVoBuf *f) {
     return func_003A00E8(f) ? NULL : f->tag + (f->write - f->count + f->size) % f->size * 0x85740;

@@ -2187,6 +2187,8 @@ extern s32 D_005F60AC;
 extern s16 D_005F62AC;
 extern s32 D_005F5C40[2];
 extern s32 D_005F5C48[2];
+extern s32 D_005F5C44; /* D_005F5C40[1] */
+extern s32 D_005F5C4C; /* D_005F5C48[1] */
 s32 Text_Printf(const char *fmt, ...);
 extern const char D_00506DD8[];
 void func_0037B8D8(Fighter *f, s32 a, s32 b);
@@ -2203,7 +2205,7 @@ INCLUDE_RODATA("asm/nonmatchings/fighter_core", jtbl_00506DF0);
  * (sounds 0x105A / 0x105B), 2 plays the record's moves one by one (func_0037EE18 checks each, sound 0x103D) and then
  * waits 180 frames in 3, where button 0x800 or, at the end, buttons 0xF0 stop it and holding 0x4003 for 1800 frames
  * calls func_0037BA88; 4 stops. Returns 0 once it stops. D_005F60A8 / D_005F60AC detect the first frame of a step. */
-/* NON_MATCHING: 4 lines: the d->unk4 increment uses v0 in the original, v1 here (plus D_005F5C44 / D_005F5C4C read by their own symbols) */
+/* NON_MATCHING: register allocation, 3 lines: the d->unk4 increment uses v0 in the original, v1 here */
 #if 0
 s32 func_0037EB00(u16 *pad, Fighter *f) {
     Unk8B8010 *d = &D_008B8010;
@@ -2267,8 +2269,8 @@ s32 func_0037EB00(u16 *pad, Fighter *f) {
         if (pad[2] & 0x800) {
             D_005F5C40[0] &= 0xFFFFF7FF;
             D_005F5C48[0] &= 0xFFFFF7FF;
-            D_005F5C40[1] &= 0xFFFFF7FF;
-            D_005F5C48[1] &= 0xFFFFF7FF;
+            D_005F5C44 &= 0xFFFFF7FF;
+            D_005F5C4C &= 0xFFFFF7FF;
             r = 0;
             d->unk0 = 0;
         }
@@ -3553,12 +3555,11 @@ INCLUDE_RODATA("asm/nonmatchings/fighter_core", D_00507428);
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", D_00507440);
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", D_00507448);
 
-/* NON_MATCHING: 13 lines differ: gCpu and the %hi of D_00507410 take t4 / t3 the other way round, and the two
- * ors of the button loop have their operands swapped. */
+/* NON_MATCHING: register allocation, 9 lines: gCpu and the %hi of D_00507410 take t4 / t3 the other way round, and the two ors of the button loop have their operands swapped */
 #if 0
 extern const u16 D_00507410[10];
 extern const u16 D_00507428[10];
-extern const u16 D_00507440[4];
+extern const u16 D_00507440[];
 extern const u16 D_00507448[];
 u16 *func_0036CF30(u16 code);
 
@@ -8165,7 +8166,7 @@ s32 func_0038AF28(void) {
 
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", D_00507A00);
 
-extern const u16 D_00507A00[4];
+extern const u16 D_00507A00[];
 
 /* A move handler (D_00507A80) against the opponent's moves 0x1458 / 0x1459 [V code; I meaning]: by the frame of the
  * opponent's move against its window (unk2C / unk2D), the own body angle unk40 and the round unk20 it holds 0x2000 /
@@ -8542,7 +8543,7 @@ s32 func_0038B818(void) {
 
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", D_00507A08);
 
-extern const u16 D_00507A08[4];
+extern const u16 D_00507A08[];
 
 /* func_0038AFC0 for the opponent's moves 0x1A6 / 0xBA9 (D_00507A08; holds 0x2000 where that one holds 0x6000 early
  * in 0x1A6) [V code; I meaning]. */

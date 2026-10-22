@@ -1132,7 +1132,7 @@ s32 func_0038D1B8(s32 side, Fighter *a1, Fighter *a2) {
     return 0;
 }
 
-/* NON_MATCHING: 2 lines: the store of r to unk3C is scheduled after the mode store (unk0 = 6) instead of before the unkB8 store (as func_0038D3D0); every other store matches */
+/* NON_MATCHING: 2 lines: the store of r to unk3C is scheduled after the unkB8 store instead of first (as func_0038D3D0); no order of the five stores and the else block's four fixes it */
 #if 0
 s32 func_0038D290(s32 side, Fighter *a1, Fighter *f) {
     s32 r;
@@ -1151,9 +1151,10 @@ s32 func_0038D290(s32 side, Fighter *a1, Fighter *f) {
         D_00433330.unkA0 = 0;
         D_00433330.unk84 = 0;
         func_00392B38(-D_00433330.unk58);
+        D_00433330.unk40 = r;
+        D_00433330.unk3C = r;
         D_00433330.unk38 = -1;
         D_00433330.unk0 = 6;
-        D_00433330.unk3C = D_00433330.unk40 = r;
         D_00433330.unkB8 = 1;
     } else {
         D_00433330.unk38 = 0x10;
@@ -3841,7 +3842,7 @@ s32 func_00393898(void) {
 INCLUDE_ASM("asm/nonmatchings/stage", func_00393898);
 #endif
 
-/* NON_MATCHING: 1 line: the side == 0 case of the unkA0 flag is movz v1, s1, s1 here, movz v1, zero, s1 in the original */
+/* NON_MATCHING: 1 line: the side == 0 case of the unkA0 flag is movz v1, s1, s1 here, movz v1, zero, s1 in the original (on = fl; if (!side) on = 0 gives move zero / movn; on = andi; fl = on gives the movz but swaps v1 / a0) */
 #if 0
 /* Picks the camera reaction of a move kind (D_00434C78[kind], weighted list): random by rand() & 0xFFF, or by
  * func_003800D8 (the CPU's generator) with the list's own range on stages of camera style 1 / 2 (D_00433330.unkB4,
