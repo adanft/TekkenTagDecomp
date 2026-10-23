@@ -1737,6 +1737,40 @@ Tools:
   diff. Its score can be nonzero for identical code (call-target names, stack offsets): the check is a raw
   encoding and relocation diff, then fdiff.
 
+### Lessons from T19 batch 4 (2026-10-22)
+
+Matched 2 drafts. Both had their register choice set by how a callee was declared, not by their own code:
+
+- `func_003D0E18` (`model_anim`) gets the counter `D_005F6F10` in v0 only when `func_003D1D98` is declared as
+  returning a value.
+- `func_003EFDB8` (`tekken_bowl`) gets its `i < 13` test in v1 only when `func_003EA4C8` is declared that way.
+
+Both callees are now `s32`, with no `return` and no use of the result. The callee's own code does not change
+(`func_003D1D98` still matches). A call to a function returning a value clobbers v0 in the RTL, and that changes the
+allocation around the call. When a draft is off by a v0/v1 swap next to a call, try the callee as `s32` before
+anything else. A sweep of one `void` callee at a time over all 203 register-allocation drafts found no other case.
+
+The permuter found the first match: its randomizer changes prototypes and return types of other functions, not only
+the target. When an output beats the base by more than the target's own diff, diff the whole `source.c`, not only
+the target function.
+
+Tools:
+
+- `scripts/permute.py` assembles `target.o` with `jlabel` redefined as a plain label. splat's global `.L` labels made
+  gas emit `R_MIPS_PC16` relocations for branches to them (encoded offset -1), and the `Scorer` asserted on them.
+  `tests/test_permute.py` assembles a synthetic jump-table function and checks that there are no relocations and the
+  offsets are resolved.
+- The permuter scores the target with every other definition of `base.c` turned into a prototype (`extract_fn`).
+  `func_003EFDB8` scores 10 alone and 15 in its file: `func_003EF818`, the C definition before it, changes its
+  registers. `scripts/permuter_main.py` keeps the definitions (runtime patch, forked workers).
+- The permuter's C parser drops `__asm__ volatile(...)` statements. In a file with inline asm, the full-file rewrite
+  compiles to other code (`dma_gif`: 24 becomes 4879). `permute.py` scores that rewrite at setup and runs the
+  permuter alone when it differs.
+- The permuter ignores branch targets by default (`--no-ignore-branch-targets` turns that off). A near miss whose
+  diff is a branch target scores 0 at once, so `--stop-on-zero` stops on the unchanged source.
+- `permute.py` prints the base score with branch targets counted. All 203 register-allocation drafts were ranked by it
+  (the inventory's "After T19 batch 4").
+
 ## Decompiled so far
 
 | File | Range | C / functions | Notes |

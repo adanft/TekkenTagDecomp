@@ -308,6 +308,10 @@ objects are built without `-ffast-math`.
 `render_fighter_b` have `.rodata` subsegments (0x522030 / 0x522010), so `func_00356A78`'s jump table can come from C.
 The drafts left: [../t19_inventory.md](../t19_inventory.md).
 
+**T19 batch 4** (2026-10-22): matched `func_003D0E18` (`model_anim`, builds the scene's node tree). Its callee
+`func_003D1D98` is declared `s32`, though it returns nothing: as `void`, the node counter lands in another register.
+The drafts left: [../t19_inventory.md](../t19_inventory.md).
+
 ## 10. Open
 
 - Not decompiled yet in the render paths: `zsort` (0x3994C0-0x399FC8), the effect pool itself (`func_003464F8` ..

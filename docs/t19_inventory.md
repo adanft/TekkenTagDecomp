@@ -158,6 +158,46 @@ What the closest drafts need (from this batch's attempts):
 - `func_00353448`: one alignment `nop`: the fake empty `do {} while (0)` that keeps the sqrt order gives a later
   label `.p2align 3`.
 
+## After T19 batch 4 (2441 / 2813 in C)
+
+Batch 4 fixed the permuter tooling and matched 2 register-allocation drafts: `func_003D0E18` in `model_anim` and
+`func_003EFDB8` in `tekken_bowl`. Both needed a callee declared with a return value (`s32 func_003D1D98`,
+`s32 func_003EA4C8`) in place of `void`; nothing is returned or used. 372 drafts remain.
+
+| Draft cause (372) | Functions |
+|---|---:|
+| register allocation / scheduling | 201 |
+| m2c rough draft | 72 |
+| store order | 42 |
+| block layout / alignment | 35 |
+| data layout / `.lit4` pool | 8 |
+| hand-written assembly (VU0 routines of `geometry_b`) | 7 |
+| other | 6 |
+| gas hazard | 1 |
+
+Drafts per module changed only in `model_anim` (one fewer) and `tekken_bowl` (one fewer).
+
+What was tried:
+
+- **Tooling** (`docs/build.md`, permuter notes): `target.o` keeps jump-table labels local, so the 26 drafts with
+  `R_MIPS_PC16` relocations no longer crash the `Scorer`. The setup prints a score with branch targets counted.
+  `--run` goes through `scripts/permuter_main.py`, which keeps the other definitions of the file. It falls back to the
+  permuter alone when the permuter's rewrite of the file changes the code, because its C parser drops `__asm__`
+  statements (`dma_gif`).
+- **Ranking**: all 203 register-allocation drafts were scored. The closest are `Cam_PickReaction`, `func_003BE3E8` and
+  `func_003EFDB8` (15), then `func_003A00F8` (22), `func_00343340` (24), `func_003D0E18` (39), and `func_0035C850`,
+  `func_0037EB00` and `func_00396418` (44). `func_003C68F0`'s `base.c` does not compile.
+- **Permuter runs** (5-9 minutes each, one at a time):
+  - `func_003D0E18` dropped from 39 to 9 by changing the callee's return type.
+  - `func_003EFDB8` dropped from 15 to 5 with a fake inline helper.
+  - `func_0035C850` dropped from 44 to 34 with a duplicated if/else, not adopted.
+  - `func_0038D3D0` dropped from 54 to 24 by moving the `unk3C` / `unk40` store before the `func_00392B38` call.
+    That changes the order around a call, so it was not adopted.
+  - `func_003A00F8`, `func_0037EB00` and `func_00396418` did not improve.
+  - `func_00343340` needs the run without the rest of its file (the `__asm__` fallback).
+- **Callee return-type sweep**: one `void` callee at a time was declared `s32` for every register-allocation draft
+  (804 compiles). No other draft came within reach. The best gain was 20 points on a draft above 3000.
+
 ## Per-cause notes for the next batches (written after batch 1)
 
 - **Register allocation / scheduling** (295): most are a few lines off. They are candidates for decomp-permuter (one run

@@ -152,6 +152,108 @@ class CompileScript(unittest.TestCase):
         self.assertNotIn("li.s", out)
 
 
+class TargetObject(unittest.TestCase):
+    """target.o of a function with a jump table: splat writes the table's labels as `jlabel .L...`, which macro.inc
+    makes global, so gas emitted R_MIPS_PC16 relocations (offset -1) for branches to them and the permuter's Scorer
+    asserted on them. assemble_target must give resolved branches and no PC16 relocation."""
+
+    ASM = """.align 3
+glabel func_00100000
+    /* 0 00100000 */  beqz       $a0, .L00100010
+    /* 4 00100004 */   nop
+    /* 8 00100008 */  b          .L00100010
+    /* C 0010000C */   nop
+  jlabel .L00100010
+    /* 10 00100010 */  jr         $ra
+    /* 14 00100014 */   nop
+"""
+
+    @unittest.skipUnless(permute.AS.exists() and permute.OBJDUMP.exists(), "binutils not set up (docs/setup.md)")
+    def test_branches_to_jump_table_labels_resolve(self):
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: subprocess.run(["rm", "-rf", str(tmp)]))
+        (tmp / "f.s").write_text(self.ASM)
+        permute.assemble_target(tmp, tmp / "f.s", "src/main.c")
+        r = subprocess.run([str(permute.OBJDUMP), "-drz", "-m", "mips:5900", str(tmp / "target.o")],
+                           capture_output=True, text=True, check=True)
+        self.assertNotIn("R_MIPS_PC16", r.stdout)
+        self.assertNotIn("<.L", r.stdout)
+        # resolved offsets (the `<sym+off>` text is objdump's nearest-symbol guess)
+        self.assertRegex(r.stdout, r"10800003 \tbeqz\ta0,10 ")
+        self.assertRegex(r.stdout, r"10000001 \tb\t10 ")
+
+    @unittest.skipUnless(permute.AS.exists() and permute.OBJDUMP.exists() and (permute.PERMUTER / "src").is_dir(),
+                         "binutils or decomp-permuter not set up (docs/setup.md)")
+    def test_scorer_accepts_the_target(self):
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: subprocess.run(["rm", "-rf", str(tmp)]))
+        (tmp / "f.s").write_text(self.ASM)
+        permute.assemble_target(tmp, tmp / "f.s", "src/main.c")
+        permute.write_script(tmp / "objdump.sh", permute.objdump_sh("func_00100000"))
+        self.assertEqual(permute.score(tmp, tmp / "target.o"), 0)
+
+
+class FullContext(unittest.TestCase):
+    """scripts/permuter_main.py runs the permuter with the other definitions of base.c kept as definitions: the
+    permuter's extract_fn turns them into prototypes, and a function can compile differently without the definitions
+    before it in the file (func_003EFDB8 of tekken_bowl.c: register choice), so candidates must compile as in the
+    build."""
+
+    SRC = "int g(int x) { return x + 1; }\nint f(int x) { return g(x) * 2; }\nint h(void) { return f(3); }\n"
+
+    def setUp(self):
+        if not (permute.PERMUTER / "src").is_dir():
+            self.skipTest("decomp-permuter not set up (docs/setup.md)")
+        spec = importlib.util.spec_from_file_location("permuter_main", ROOT / "scripts" / "permuter_main.py")
+        self.pm = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.pm)
+        self.ast_util = self.pm.permuter_module("src.ast_util")
+        original = self.ast_util.extract_fn
+        self.addCleanup(setattr, self.ast_util, "extract_fn", original)
+        self.c_ast = self.pm.permuter_module("perm_pycparser.c_ast")
+
+    def test_permuter_alone_drops_the_other_definitions(self):
+        ast = self.ast_util.parse_c(self.SRC)
+        fn, i = self.ast_util.extract_fn(ast, "f")
+        self.assertEqual(i, 1)
+        self.assertNotIsInstance(ast.ext[0], self.c_ast.FuncDef)
+
+    def test_keeps_the_other_definitions(self):
+        ast = self.ast_util.parse_c(self.SRC)
+        fn, i = self.pm.extract_fn_keep_context(ast, "f")
+        self.assertEqual((fn.decl.name, i), ("f", 1))
+        self.assertEqual([type(n) for n in ast.ext], [self.c_ast.FuncDef] * 3)
+
+    def test_missing_or_duplicate_function(self):
+        failure = self.pm.permuter_module("src.error").CandidateConstructionFailure
+        with self.assertRaises(failure):
+            self.pm.extract_fn_keep_context(self.ast_util.parse_c(self.SRC), "k")
+        with self.assertRaises(failure):
+            self.pm.extract_fn_keep_context(self.ast_util.parse_c(self.SRC + self.SRC.split("\n")[1]), "f")
+
+    def test_install_patches_the_permuter(self):
+        self.pm.install()
+        self.assertIs(self.ast_util.extract_fn, self.pm.extract_fn_keep_context)
+
+
+class RunnerChoice(unittest.TestCase):
+    """--run keeps the file context (scripts/permuter_main.py) only when the permuter's own rewrite of base.c (its C
+    parser drops `__asm__` statements) compiles to the same score as base.c; else it runs the permuter alone."""
+
+    def test_same_score_keeps_context(self):
+        cmd = permute.permuter_command("/w", "4", ["-x"], base_score=24, context_score=24)
+        self.assertEqual(cmd[1:], [str(permute.ROOT / "scripts" / "permuter_main.py"),
+                                   str(permute.PERMUTER / "permuter.py"), "/w", "-j4", "-x"])
+
+    def test_different_score_runs_alone(self):
+        cmd = permute.permuter_command("/w", "4", [], base_score=24, context_score=4879)
+        self.assertEqual(cmd[1:], [str(permute.PERMUTER / "permuter.py"), "/w", "-j4"])
+
+    def test_unknown_context_runs_alone(self):
+        cmd = permute.permuter_command("/w", "2", [], base_score=24, context_score=None)
+        self.assertEqual(cmd[1], str(permute.PERMUTER / "permuter.py"))
+
+
 class DefaultJobs(unittest.TestCase):
     """--run without -jN uses $COOL_JOBS (set by scripts/cool.sh), else every core."""
 

@@ -9,7 +9,8 @@ re-split or a clean rebuild does not take it away from a running permuter):
   base.c         the C file preprocessed with -DPERMUTER (INCLUDE_ASM expands to nothing), with the attempt of
                  <Func> enabled when it sits in an `#if 0` (the usual form of an attempt:
                  `#if 0` C `#else` INCLUDE_ASM(...) `#endif`);
-  target.o       the original function: asm/nonmatchings/<file>/<Func>.s assembled like the build does; for a
+  target.o       the original function: asm/nonmatchings/<file>/<Func>.s assembled like the build does (but with
+                 jump-table labels local, so branches to them are resolved, not R_MIPS_PC16 relocations); for a
                  function that is already C (no .s), the compiled C, once fdiff.py has confirmed it matches;
   compile.sh     `compile.sh in.c -o out.o` with the compiler, the file's own flags (configure.cc_flags: no
                  -ffast-math for the files in NO_FAST_MATH) and -G value, the `configure.py --fix-asm` rewrite of
@@ -17,8 +18,12 @@ re-split or a clean rebuild does not take it away from a running permuter):
   objdump.sh     the disassembly of <Func> alone (base.c may define other functions), through its jump-table
                  labels (splat's `.L` labels are symbols in target.o, the compiler's are not);
   settings.toml  func_name, compiler_type and objdump_command for the permuter.
+The setup prints the permuter's score of base.c against target.o with branch targets counted (the permuter ignores
+them unless given --no-ignore-branch-targets; pass that after `--` for near misses).
 
---run starts tools/decomp-permuter/permuter.py on the folder (Ctrl-C stops it); -jN or -j N sets its threads (default
+--run starts tools/decomp-permuter/permuter.py on the folder through scripts/permuter_main.py, which keeps the other
+function definitions of base.c (the permuter alone turns them into prototypes, and the definitions before a function
+can change its code) (Ctrl-C stops it); -jN or -j N sets its threads (default
 $COOL_JOBS when scripts/cool.sh set it, else every core; run it as `scripts/cool.sh .venv/bin/python scripts/permute.py
 ...`, one permuter at a time) and arguments after `--` go to it (e.g. `-- --stop-on-zero`). Results land in output-<score>-<n>/source.c. A score
 of 0 ignores some differences (stack offsets, branch targets): copy a candidate into the source and check it
@@ -154,17 +159,27 @@ def run(cmd):
         die(f"cannot run {cmd[0]}: missing tool (docs/setup.md)")
 
 
+def assemble_target(work, asm, src):
+    """Assembles asm (a splat .s, relative to the repository or absolute) into work/target.o like the build does,
+    except that jump-table labels stay local: macro.inc's `jlabel` makes them global, so gas leaves every branch to
+    one as an unresolved R_MIPS_PC16 relocation (offset -1), which the permuter's Scorer does not handle and which no
+    compiled candidate has. Redefined as a plain label, a `.L` name is a local temporary: the branch is resolved and
+    the label is not in the symbol table, the same as the compiler's output."""
+    wrapper = work / "target.s"
+    wrapper.write_text('.include "macro.inc"\n.purgem jlabel\n.macro jlabel label, visibility=global\n'
+                       '    "\\label":\n.endm\n'
+                       f'.section .text\n.set noat\n.set noreorder\n.include "{asm}"\n')
+    r = run([AS, *configure.CC_AS_FLAGS.split(), configure.g_flag(src), "-I.", "include/gcc_prelude.inc",
+             wrapper, "-o", work / "target.o"])
+    if r.returncode:
+        die(f"assembling {asm} failed:\n{r.stderr}")
+
+
 def make_target(work, src, func):
     """Writes target.o; returns where it came from."""
     asm = Path("asm/nonmatchings") / Path(src).relative_to("src").with_suffix("") / f"{func}.s"
     if (ROOT / asm).exists():
-        wrapper = work / "target.s"
-        wrapper.write_text(f'.include "macro.inc"\n.section .text\n.set noat\n.set noreorder\n'
-                           f'.include "{asm}"\n')
-        r = run([AS, *configure.CC_AS_FLAGS.split(), configure.g_flag(src), "-I.", "include/gcc_prelude.inc",
-                 wrapper, "-o", work / "target.o"])
-        if r.returncode:
-            die(f"assembling {asm} failed:\n{r.stderr}")
+        assemble_target(work, asm, src)
         return str(asm)
     r = run([sys.executable, ROOT / "scripts" / "fdiff.py", func])
     if r.returncode or not r.stdout.startswith("OK"):
@@ -178,6 +193,45 @@ def make_target(work, src, func):
 
 def dump(work, obj):
     return run(["bash", work / "objdump.sh", obj]).stdout.splitlines()[1:]
+
+
+def score(work, obj):
+    """The decomp-permuter's score of obj against work/target.o (difflib, no stack differences, branch targets
+    counted: the permuter's own default ignores them)."""
+    if str(PERMUTER) not in sys.path:
+        sys.path.insert(0, str(PERMUTER))
+    from src.scorer import Scorer  # the permuter's package `src`, not the repository's src/
+    scorer = Scorer(str(work / "target.o"), stack_differences=False, algorithm="difflib", debug_mode=False,
+                    ign_branch_targets=False, objdump_command=str(work / "objdump.sh"))
+    return scorer.score(str(obj))[0]
+
+
+def full_context_score(work, func):
+    """The score of base.c as the permuter rewrites it with every definition kept (scripts/permuter_main.py), or None
+    when it does not compile. Its C parser drops `__asm__` statements, so a file with inline asm can compile to other
+    code than base.c."""
+    import permuter_main
+    au = permuter_main.permuter_module("src.ast_util")
+    pre = permuter_main.permuter_module("src.preprocess").preprocess(str(work / "base.c"))
+    ast = au.parse_c(pre)
+    fn, _ = permuter_main.extract_fn_keep_context(ast, func)
+    au.normalize_ast(fn, ast)
+    c, o = work / "context.c", work / "context.o"
+    c.write_text(au.to_c(ast))
+    r = run(["bash", work / "compile.sh", c, "-o", o])
+    result = score(work, o) if r.returncode == 0 else None
+    c.unlink()
+    o.unlink(missing_ok=True)
+    return result
+
+
+def permuter_command(work, jobs, extra, *, base_score, context_score):
+    """The command line of --run: through scripts/permuter_main.py (the other definitions of base.c kept, as in the
+    build) when the permuter's rewrite of the whole file scores like base.c, else the permuter alone."""
+    tail = [str(PERMUTER / "permuter.py"), str(work), f"-j{jobs}", *extra]
+    if context_score is not None and context_score == base_score:
+        return [sys.executable, str(ROOT / "scripts" / "permuter_main.py"), *tail]
+    return [sys.executable, *tail]
 
 
 def parse_args(args, env=os.environ):
@@ -241,17 +295,22 @@ def main():
     r = run(["bash", work / "compile.sh", work / "base.c", "-o", work / "base.o"])
     if r.returncode:
         die(f"base.c does not compile:\n{r.stdout}{r.stderr}")
-    target, base = dump(work, work / "target.o"), dump(work, work / "base.o")
-    (work / "base.o").unlink()
+    target = dump(work, work / "target.o")
     if not target:
+        (work / "base.o").unlink()
         die(f"{func} is not in target.o")
-    differ = sum(a != b for a, b in zip(target, base)) + abs(len(target) - len(base))
+    base_score = score(work, work / "base.o")
+    (work / "base.o").unlink()
+    context_score = full_context_score(work, func)
     print(f"{func}: {work.relative_to(ROOT)}")
     print(f"  target: {origin} ({len(target)} lines of objdump)")
-    print(f"  base.c: {'identical to the target' if not differ else f'{differ} objdump lines differ'}")
+    print(f"  base.c: permuter score {base_score}{' (0 ignores some differences: check with fdiff.py)' if not base_score else ''}")
+    if context_score != base_score:
+        print(f"  the permuter's rewrite of base.c scores {context_score} (it drops `__asm__` statements): "
+              "--run scores the function without the rest of the file")
 
     if start:
-        cmd = [sys.executable, str(PERMUTER / "permuter.py"), str(work), f"-j{jobs}", *extra]
+        cmd = permuter_command(work, jobs, extra, base_score=base_score, context_score=context_score)
         print("  running:", " ".join(cmd), flush=True)
         os.execv(sys.executable, cmd)
 

@@ -477,3 +477,7 @@ place, so both can emit them from C. The drafts left: [../t19_inventory.md](../t
 
 **T19 batch 3** (2026-10-22): matched `func_003BAD98` (`modes`), `Prac_DrawDemoPrompt` (`demo`), `Jpeg_RgbToYcc`
 (`gallery_jpeg`) and `func_003CB508` (`select_results_b`). The drafts left: [../t19_inventory.md](../t19_inventory.md).
+
+**T19 batch 4** (2026-10-22): matched `func_003EFDB8` (`tekken_bowl`: finds the first of 25 objects within 300 units of `D_01FC51E0` in x/z). Its callee
+`func_003EA4C8` is declared `s32`, though it returns nothing: as `void`, the `i < 13` test lands in another register.
+The drafts left: [../t19_inventory.md](../t19_inventory.md).

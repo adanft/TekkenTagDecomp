@@ -71,6 +71,23 @@ own flags (`configure.cc_flags`, so no `-ffast-math` for the `NO_FAST_MATH` file
 (`tests/test_permute.py` runs the generated script with stand-ins for the compiler and the assembler). Step 4 does not
 change the code bytes the permuter scores.
 
+`target.o` is the splat `.s` assembled like the build, with one difference: `jlabel` (jump-table labels, global in
+`macro.inc`) is redefined as a plain label. A global `.L` label makes gas leave every branch to it as an unresolved
+`R_MIPS_PC16` relocation (encoded offset -1); the permuter's `Scorer` asserts on that relocation type, and no compiled
+candidate has it. As a plain label the `.L` name is a local temporary: the branch is resolved and the label is not in
+the symbol table, the same as the compiler's output. The setup prints the `Scorer`'s score of `base.c` (difflib, no
+stack differences) with branch targets counted, which also ranks drafts by distance.
+
+`--run` starts the permuter through `scripts/permuter_main.py`, which patches it at runtime (the vendored copy is not
+changed): the permuter's `extract_fn` turns every other function definition of `base.c` into a prototype, and with this
+compiler the definitions before a function can change its code (`func_003EFDB8` in `tekken_bowl.c` scores 10 alone and
+15 after `func_003EF818`). The wrapper keeps them, so candidates compile in the file context of the build, and forks
+its workers (Python 3.14 defaults to `forkserver`, which would re-import the permuter without the patch).
+
+The permuter ignores branch targets by default, so a near miss whose diff is a branch target scores 0 from the start
+and the run stops on an unchanged source. Pass `-- --no-ignore-branch-targets` for near misses. A score of 0 is still
+not a match (stack offsets are ignored): check every candidate with `fdiff.py` and the SHA-1 build.
+
 Why these choices: [decomp_guide.md](decomp_guide.md).
 
 ## Why the whole file is split

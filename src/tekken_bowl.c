@@ -354,7 +354,9 @@ void *memset(void *p, s32 c, s32 n);
 s32 func_003DB8A8(s32 i);
 void func_003DB808(s32 i, f32 *v);
 void func_003DB860(s32 i);
-void func_003EA4C8(BowlPlayer *p);
+/* Declared with a return value (none is returned or used): with `void`, func_003EFDB8's i < 13 test lands in v0
+ * instead of v1. */
+s32 func_003EA4C8(BowlPlayer *p);
 void func_003E97C8(s32 i, s32 port);
 s32 func_003F23F8(s32 i);
 extern s16 D_005F70D0;
@@ -1481,7 +1483,7 @@ s32 Bowl_IsSplit(void) {
 
 #if 0
 /* NON_MATCHING: 185 lines (231 instructions, draft 230): m2c draft, only made to compile (stack copies as struct copies, VU0 and unknown instructions as inline asm) */
-void func_003EA4C8(BowlPlayer *p) {
+s32 func_003EA4C8(BowlPlayer *p) {
     BowlBody *var_s0;
     BowlBody *var_t0;
     f32 *temp_v0_2;
@@ -4287,8 +4289,6 @@ LIT4_WORD(D_005F5BA8, 0x463B8000);
 INCLUDE_ASM("asm/nonmatchings/tekken_bowl", func_003EFB00);
 #endif
 
-#if 0
-/* NON_MATCHING: 2 lines: the i < 13 test lands in v0 instead of v1 */
 s32 func_003EFDB8(void) {
     FVec4 v;
     s32 i;
@@ -4310,10 +4310,6 @@ s32 func_003EFDB8(void) {
     }
     return 0;
 }
-#else
-LIT4_WORD(D_005F5BAC, 0x47AFC800);
-INCLUDE_ASM("asm/nonmatchings/tekken_bowl", func_003EFDB8);
-#endif
 
 INCLUDE_RODATA("asm/nonmatchings/tekken_bowl", D_00523A30);
 INCLUDE_RODATA("asm/nonmatchings/tekken_bowl", D_00523A40);

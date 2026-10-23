@@ -352,7 +352,9 @@ void func_003D1B48(ModelNode *n, FVec4 *trans);
 void func_003D1B60(ModelNode *n, void (*update)(ModelNode *));
 void func_003D1B68(ModelNode *dst, ModelNode *src);
 void func_003D1D90(void);
-void func_003D1D98(ModelNode *n, s32 max);
+/* Declared with a return value (none is returned or used): with `void`, func_003D0E18 gets the counter
+ * D_005F6F10 in v1 instead of v0. */
+s32 func_003D1D98(ModelNode *n, s32 max);
 void func_003D1DD8(void);
 s32 *func_003D1DE0(u32 size);
 void Model_ClearMatrixStack(void);
@@ -571,8 +573,6 @@ void func_003D0CC8(s32 scene) {
     }
 }
 
-#if 0
-/* NON_MATCHING: 5 register swap v0/v1 for the D_005F6F10++ counter in the node loop */
 /* Builds the node tree of the current scene from its definition: allocates the nodes, fills each from its def, links
  * parents and children, runs each node's init then the scene's init. */
 void func_003D0E18(void) {
@@ -630,9 +630,6 @@ void func_003D0E18(void) {
         D_00520FC0[D_005F6F0C].init(D_005F6F08);
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/model_anim", func_003D0E18);
-#endif
 
 /* Per frame: the two camera matrices (D_00433480 / D_00433440 times D_00433400), then the scene's draw callback. */
 void func_003D1040(void) {
@@ -989,8 +986,9 @@ void func_003D1D90(void) {
     D_005F6EF4 = 0;
 }
 
-/* Gives a node room for max children from the child pointer pool. */
-void func_003D1D98(ModelNode *n, s32 max) {
+/* Gives a node room for max children from the child pointer pool. Returns nothing: the s32 return type is the
+ * one the caller was compiled against (see the prototype). */
+s32 func_003D1D98(ModelNode *n, s32 max) {
     s32 i = D_005F6EF4;
 
     D_005F6EF4 += max;
