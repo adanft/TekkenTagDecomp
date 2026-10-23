@@ -39,4 +39,8 @@ typedef unsigned _BitInt(128) u128 __attribute__((aligned(16)));
 #define ASM_STUB_BEGIN() extern int asm_stub_begin_
 #define ASM_STUB_END() extern int asm_stub_end_
 
+/* Platform hooks the game sources call under `#ifdef PORT` (port/src/plat_hw.c). */
+int Port_BootSeed(int timer0); /* the seed Rng_Init takes: Timer 0 now, or TTT_SEED */
+int Port_MoviePlayable(void);  /* 0 until the movie player exists: func_0039C878 skips the movie */
+
 #endif

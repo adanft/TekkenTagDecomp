@@ -133,14 +133,14 @@ INCLUDE_ASM("asm/nonmatchings/theater_d", func_003568E0);
 #endif
 
 /* Stage tables of 23 bytes: D_00455D50[i], 0 past the end. */
-u8 func_00356A20(s32 i) {
+PORT_RET(u8) func_00356A20(s32 i) {
     if (i < 23) {
         return D_00455D50[i];
     }
     return 0;
 }
 
-u8 func_00356A48(s32 i) {
+PORT_RET(u8) func_00356A48(s32 i) {
     if (i < 23) {
         return D_00455D68[i];
     }

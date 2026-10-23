@@ -154,8 +154,8 @@ s32 func_00365D00(void);
 s32 func_00365D10(s32 slot, s32 *last);
 void func_00366090(void);
 s16 func_003660B8(s16 x);
-s16 func_00366108(s32 dx, s32 dz);
-s16 func_003662D8(s32 dx, s32 dz);
+PORT_RET(s16) func_00366108(s32 dx, s32 dz);
+PORT_RET(s16) func_003662D8(s32 dx, s32 dz);
 s32 func_00366360(s32 i);
 void func_00366380(Fighter *f);
 void func_003663C0(Fighter *f, s32 id);
@@ -409,7 +409,7 @@ void func_00367930(void);
 void func_00367938(s32 stage);
 void func_00367CA0(s16 *p);
 s32 func_00367CC8(void);
-u16 func_00367CD0(s32 i);
+PORT_RET(u16) func_00367CD0(s32 i);
 void *func_00367D00(s32 i);
 void func_00367D28(u16 *data, s16 *out, s32 frame, s32 n);
 void func_00367FE0(u16 *data, s16 *out, s32 frame);
@@ -419,7 +419,7 @@ void func_00368140(Fighter *a, Fighter *b);
 struct FighterMove **func_00368200(s32 side);
 struct FighterMove *func_00368218(Fighter *f, s16 move);
 struct FighterMove *func_00368248(s32 id);
-u16 func_00368260(s32 chr, s32 move);
+PORT_RET(u16) func_00368260(s32 chr, s32 move);
 s16 func_00368288(s16 n);
 s32 func_003682A8(s32 a, s16 b);
 void func_00366098(void);
@@ -1080,7 +1080,7 @@ s16 func_003660B8(s16 x) {
 }
 
 /* The angle (0-0xFFF) of the vector (dx, dz), from the arctangent table D_004FC680. */
-s16 func_00366108(s32 dx, s32 dz) {
+PORT_RET(s16) func_00366108(s32 dx, s32 dz) {
     s32 nz;
 
     if (dx == 0 && dz == 0) {
@@ -1112,7 +1112,7 @@ s16 func_00366108(s32 dx, s32 dz) {
     return 0xC00 - D_004FC680[(dx << 10) / dz];
 }
 
-s16 func_003662D8(s32 dx, s32 dz) {
+PORT_RET(s16) func_003662D8(s32 dx, s32 dz) {
     s32 ax = abs(dx);
     s32 az = abs(dz);
 
@@ -1815,7 +1815,7 @@ s32 func_00367CC8(void) {
     return D_005F5E80;
 }
 
-u16 func_00367CD0(s32 i) {
+PORT_RET(u16) func_00367CD0(s32 i) {
     s32 n = D_005F5E80 - 1;
     s32 *p = D_005F5E7C;
 
@@ -2036,7 +2036,7 @@ struct FighterMove *func_00368248(s32 id) {
     return &D_00531EA0[id];
 }
 
-u16 func_00368260(s32 chr, s32 move) {
+PORT_RET(u16) func_00368260(s32 chr, s32 move) {
     return D_0058F3D0[chr][move];
 }
 

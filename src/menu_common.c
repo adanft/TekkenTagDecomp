@@ -191,7 +191,7 @@ void func_003B01D0(s32 a, s32 port, s32 b);
 void func_003AE738(s32 a, s32 i);
 void func_003BA520(s32 side);
 void func_003AFFE0(s32 a, s32 port);
-s16 func_003B0078(s32 a, s32 port);
+PORT_RET(s16) func_003B0078(s32 a, s32 port);
 void func_003CB8E0(s32 a, s32 b);
 extern u32 D_00415718[];
 extern u32 D_00415728[];
@@ -1251,7 +1251,7 @@ void func_003AFFE0(s32 a, s32 port) {
     }
 }
 
-s16 func_003B0078(s32 a, s32 port) {
+PORT_RET(s16) func_003B0078(s32 a, s32 port) {
     return a != 0 ? D_008D7E68[port].unk0 : D_008D7E68[port].unk2;
 }
 

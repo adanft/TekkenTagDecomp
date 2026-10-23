@@ -8,9 +8,14 @@
 /* COP0 Status bit 16 (EIE): interrupts enabled. di / ei only change it; the game spins until a read shows it clear. */
 static uint32_t sStatus = 0x10000;
 
+void Port_HwDeliver(void); /* plat_hw.c: interrupts raised while they were off */
 void Port_Di(void) { sStatus &= ~0x10000u; }
-void Port_Ei(void) { sStatus |= 0x10000u; }
+void Port_Ei(void) {
+    sStatus |= 0x10000u;
+    Port_HwDeliver();
+}
 uint32_t Port_Mfc0Status(void) { return sStatus; }
+void Port_SetStatus(uint32_t s) { sStatus = s; }
 
 /* sqrt.s on the bits, rounded toward zero (the EE does not round to nearest); a negative operand uses its absolute
  * value and zero / denormals give zero, as on the EE. Checked against the EE model in T23. */

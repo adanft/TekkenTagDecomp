@@ -339,8 +339,8 @@ void func_0035B7A8(CamPos *c);
 void func_0035B858(CamPos *c);
 void func_0035B8B8(s32 *p);
 void func_0035B9A8(Fighter *a, Fighter *b);
-s16 func_0035B9E8(s16 i);
-s16 func_0035BA00(s16 i);
+PORT_RET(s16) func_0035B9E8(s16 i);
+PORT_RET(s16) func_0035BA00(s16 i);
 void func_0035BA18(s32 i);
 void func_0035BA58(Fighter *f, s32 unused, s32 *v, s32 *out);
 void func_0035BB58(Fighter *f, s32 arg);
@@ -1538,10 +1538,10 @@ void func_0035B9A8(Fighter *a, Fighter *b) {
     D_005F6B20[1] = b->unk624 >= a->unk624;
     __asm__ volatile(""); /* fake */
 }
-s16 func_0035B9E8(s16 i) {
+PORT_RET(s16) func_0035B9E8(s16 i) {
     return D_005F6B20[i];
 }
-s16 func_0035BA00(s16 i) {
+PORT_RET(s16) func_0035BA00(s16 i) {
     return D_005F6B28[i];
 }
 void func_0035BA18(s32 i) {

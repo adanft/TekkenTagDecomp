@@ -96,6 +96,11 @@ Single EE instructions in the C (`di`, `ei`, `sync`, `mfc0 Status`, `sqrt.s` wit
 written with the macros of `include/ee_asm.h`, which expand to the same `__asm__` statement for this build and to
 platform calls for the PC port. Use them for new code, so that the port needs no extra hook.
 
+Two more macros of `ee_asm.h` expand to nothing here and matter only to the port: `EE_HW_POLL()` goes inside every
+loop that waits on the hardware (a DMA channel's STR bit, Timer 0, a flag an interrupt handler clears), and
+`PORT_RET(t)` is the return type of an 8- or 16-bit function that some callers declare as `s32`. Add them when
+writing such a loop or function.
+
 ## PC port
 
 `python3 port/tools/build.py` builds the PC port from this tree into `build/port/` (its data comes from the split

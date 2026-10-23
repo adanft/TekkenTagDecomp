@@ -395,6 +395,7 @@ void func_0035D6E0(void) {
     if (!(*(volatile u32 *)0x1000F520 & 0x10000)) {
         do {
             *(volatile u32 *)0x1000F590 = 0x10000;
+            EE_HW_POLL();
         } while (!(*(volatile u32 *)0x1000F520 & 0x10000));
     }
 }
@@ -403,6 +404,7 @@ void func_0035D738(void) {
     if (*(volatile u32 *)0x1000F520 & 0x10000) {
         do {
             *(volatile u32 *)0x1000F590 = 0;
+            EE_HW_POLL();
         } while (*(volatile u32 *)0x1000F520 & 0x10000);
     }
 }
@@ -911,6 +913,7 @@ void func_0035E6B8(void *tag) {
     func_0035DEF0();
     madr = ((u32)tag + 0x10000000) & 0x8FFFFFFF;
 wait:
+    EE_HW_POLL();
     chcr = *(u32 *)0x1000A000;
     if (chcr & 0x100) {
         goto wait;
@@ -919,6 +922,7 @@ wait:
     *(u32 *)0x1000A020 = 0;
     *(u32 *)0x1000A000 = (chcr & ~0xC) | 0x105;
 busy:
+    EE_HW_POLL();
     if (*(u32 *)0x1000A000 & 0x100) {
         goto busy;
     }
@@ -931,6 +935,7 @@ void func_0035E758(void *addr, u32 qwc) {
     func_0035DEF0();
     madr = ((u32)addr + 0x10000000) & 0x8FFFFFFF;
 wait:
+    EE_HW_POLL();
     chcr = *(u32 *)0x1000A000;
     if (chcr & 0x100) {
         goto wait;
@@ -939,6 +944,7 @@ wait:
     *(u32 *)0x1000A020 = qwc;
     *(u32 *)0x1000A000 = (chcr & ~0xC) | 0x101;
 busy:
+    EE_HW_POLL();
     if (*(u32 *)0x1000A000 & 0x100) {
         goto busy;
     }

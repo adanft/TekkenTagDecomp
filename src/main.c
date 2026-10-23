@@ -418,6 +418,7 @@ void Frame_PreUpdate(void) {
     func_0035E370();
     gFrameCount++;
     while (*(volatile u32 *)0x10000000 < 0x724) {
+        EE_HW_POLL();
     }
     Pad_Update();
     Input_Update();

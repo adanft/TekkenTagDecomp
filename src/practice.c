@@ -237,7 +237,7 @@ void func_003795B8(void);
 s32 func_003795D8(void);
 s32 func_00379600(void);
 s32 func_00379628(void);
-u8 func_00379638(void);
+PORT_RET(u8) func_00379638(void);
 s32 func_00379648(void);
 void func_00379658(void);
 void func_00379670(void);
@@ -480,7 +480,7 @@ s32 func_00379628(void) {
     return D_0042F140[0].unk4;
 }
 
-u8 func_00379638(void) {
+PORT_RET(u8) func_00379638(void) {
     return D_0042F268.side;
 }
 

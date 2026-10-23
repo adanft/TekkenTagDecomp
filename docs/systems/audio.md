@@ -82,7 +82,7 @@ but no game call reaches them [V: no other command constant reaches `sceSdRemote
 | 0x205E | index 0-27, type/vol, 2 halves, sector, size word, loop sector | store BGM track `index` (IOP 0x3110, section 5.2) | 0 | 1 (x28) `File_RegisterIopFiles` | boot | V |
 | 0x2058 | sector of file 14 + n, movie n (0-2), 7, 0x80 | start the movie stream (IOP 0x2610, section 5.3) | 0, -1 | 1 `Movie_StartStream` | movie start | V |
 | 0x2059 | EE dest, 0x20 sectors | request the next movie chunk (IOP 0x2F58) | 0, -1 busy | 1 `Movie_ReadChunk` | movie, per chunk | V |
-| 0x205A | 0 or 1 | 0: stop the movie stream; 1: wait for the drive, then return to file mode (IOP 0x2728) | 0 | 2 | movie end | V code / I meaning |
+| 0x205A | 0 or 1 | 0: stop the movie stream; 1: wait for the drive, then return to file mode (IOP 0x2728) | 0; with 1, non-zero once back in file mode (`func_0039C878` repeats it with `sceGsSyncV` while it returns 0) | 2 | movie end | V code / I meaning |
 
 Read `flags` (4th word of 0x204E/0x2045) is stored at 0x11B6A0 and never read again [I: no load of it found].
 

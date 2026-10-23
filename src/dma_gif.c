@@ -225,6 +225,7 @@ void Dma_SendChain(volatile u32 *chan, void *tag) {
     u32 chcr;
 
     do {
+        EE_HW_POLL();
         chcr = chan[0];
     } while (chcr & 0x100);
     chan[12] = addr;
@@ -238,6 +239,7 @@ void Dma_SendNormal(volatile u32 *chan, void *addr, u32 qwc) {
     u32 chcr;
 
     do {
+        EE_HW_POLL();
         chcr = chan[0];
     } while (chcr & 0x100);
     chan[4] = madr;
@@ -287,6 +289,7 @@ void func_00343178(u32 spr, u32 qwc) {
     u32 end;
 
 wait:
+    EE_HW_POLL();
     if (*(u32 *)0x1000D000 & 0x100) {
         goto wait;
     }
@@ -319,6 +322,7 @@ u32 Dma_Wait(volatile u32 *chan) {
     u32 chcr;
 
     do {
+        EE_HW_POLL();
         chcr = chan[0];
     } while (chcr & 0x100);
     return chcr;
@@ -1840,8 +1844,15 @@ void func_003456B0(Unk3456B0 *p) {
 }
 
 /* Defined without a prototype: func_00346030 calls it with an argument it ignores. */
+#ifdef PORT
+/* On the EE the caller's first argument is still in $a0 when func_003464F8 is called: it is the new object's
+ * update callback (loading_title.c and effects.c pass one). The PC build passes it on explicitly. */
+void *func_00345780(void *update) {
+    void *p = func_003464F8(update);
+#else
 void *func_00345780() {
     void *p = func_003464F8();
+#endif
 
     if (p != NULL) {
         func_003456B0(p);
@@ -2337,6 +2348,6 @@ void func_00346358(s32 side) {
     D_008C2F90[side & 1].unkC04 = 0;
 }
 
-u16 func_00346378(s32 side) {
+PORT_RET(u16) func_00346378(s32 side) {
     return D_008C2F90[side & 1].unkC04;
 }

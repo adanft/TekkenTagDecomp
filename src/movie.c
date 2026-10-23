@@ -496,7 +496,12 @@ s32 func_0039C878(void) {
     D_00436568.unk1C = 0;
     func_0039D320(&D_00436598, 0x280, 0xE0);
     func_0039D9F0(&D_00436598, 0);
+#ifdef PORT
+    /* No movie player on PC yet (its decoder threads and the IPU): taken as the stream never going idle. */
+    if (Port_MoviePlayable() && Snd_WaitStreamIdle() == 0) {
+#else
     if (Snd_WaitStreamIdle() == 0) {
+#endif
         Movie_Open(D_005F6CC2);
         func_0039CAC8(&D_004365D0, D_005F6CA0);
         Movie_Close();

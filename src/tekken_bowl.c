@@ -695,7 +695,7 @@ s32 func_003E8EB0(void) {
     return v;
 }
 
-u8 func_003E8F20(void) {
+PORT_RET(u8) func_003E8F20(void) {
     u8 v;
 
     func_003E8CE0();

@@ -193,7 +193,7 @@ INCLUDE_RODATA("asm/nonmatchings/theater", D_005227B8);
 INCLUDE_RODATA("asm/nonmatchings/theater", D_005227C8);
 INCLUDE_RODATA("asm/nonmatchings/theater", D_005227D8);
 INCLUDE_RODATA("asm/nonmatchings/theater", D_005227E8);
-u8 func_003543F0(void) {
+PORT_RET(u8) func_003543F0(void) {
     return D_005F705B;
 }
 

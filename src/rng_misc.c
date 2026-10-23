@@ -132,6 +132,9 @@ void Rng_Reseed(void) {
 /* Boot: seeds rand with the Timer 0 count. */
 void Rng_Init(void) {
     s32 seed = *(volatile s32 *)0x10000000;
+#ifdef PORT
+    seed = Port_BootSeed(seed); /* Timer 0 brought up to date, or TTT_SEED (port/src/plat_hw.c) */
+#endif
 
     Rng_SetSeed(seed);
     srand(seed);
@@ -365,7 +368,7 @@ void func_0035C8D0(Fighter *o, s32 character, s32 costume) {
     func_00366380(o);
 }
 
-u8 func_0035C970(u32 i) {
+PORT_RET(u8) func_0035C970(u32 i) {
     if (i >= 0x110) {
         i = 0;
     }

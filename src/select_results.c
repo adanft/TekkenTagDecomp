@@ -60,7 +60,7 @@ extern s32 D_01FAC7C0[][23];
 void func_0035CAF8(void);
 void Unlock_ApplyAll(void);
 void Unlock_Step(void);
-u8 func_003BFEE8(void);
+PORT_RET(u8) func_003BFEE8(void);
 s32 func_003BFEA0(s32 m);
 s32 func_003BFA68(void);
 extern const s32 D_0051F2F0[][23];
@@ -970,7 +970,7 @@ void func_003BFD98(void) {
     }
 }
 
-u8 func_003BFDC8(void) {
+PORT_RET(u8) func_003BFDC8(void) {
     return D_00439C97[0];
 }
 
@@ -1004,7 +1004,7 @@ s32 func_003BFEA0(s32 m) {
     return D_00439C84[0] & m;
 }
 
-u8 func_003BFEB0(void) {
+PORT_RET(u8) func_003BFEB0(void) {
     return D_00439C82[0];
 }
 
@@ -1016,7 +1016,7 @@ s32 func_003BFED8(void) {
     return D_00439C70[0] != 0;
 }
 
-u8 func_003BFEE8(void) {
+PORT_RET(u8) func_003BFEE8(void) {
     return D_00439C83[0];
 }
 

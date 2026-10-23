@@ -258,11 +258,11 @@ void func_00340070(u32 id) {
 INCLUDE_ASM("asm/nonmatchings/render_fighter_a", func_00340070);
 #endif
 
-s16 func_00340398(s32 id) {
+PORT_RET(s16) func_00340398(s32 id) {
     return D_00521700[id].unk4;
 }
 
-s16 func_003403B8(void) {
+PORT_RET(s16) func_003403B8(void) {
     return D_005F6780->unk0;
 }
 

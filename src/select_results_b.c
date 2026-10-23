@@ -2045,12 +2045,19 @@ extern s32 D_005F6E78;
  * splitting it; the C table needs RODATA_ALIGN16() after it); va_start
  * is spelled with __builtin_next_arg [I] */
 #if 0
+#ifdef PORT
+/* i386 cdecl: the variadic arguments are 4-byte stack slots right after fmt. */
+#define TP_ARG() (ap += 4, *(s32 *)(ap - 4))
+#define TP_START(fmt) ((char *)__builtin_next_arg(fmt))
+#else
 #define TP_ARG() (ap += 8, *(s32 *)(ap - 8))
+#define TP_START(fmt) ((char *)__builtin_next_arg(fmt) - 7 * 8) /* fake: the EABI register save area */
+#endif
 
 s32 Text_Printf(const char *fmt, ...) {
     Digits16 digits;
     Font font;
-    char *ap = (char *)__builtin_next_arg(fmt) - 7 * 8; /* fake: the EABI register save area */
+    char *ap = TP_START(fmt);
     s32 state;
     s32 zero;
     s32 width;

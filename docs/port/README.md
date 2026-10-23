@@ -4,22 +4,25 @@ The PC port is built from the same C as the matching decompilation. Nothing of t
 takes the game's data from the split of **your own** `SLUS_200.01` (the one the matching build already uses) and
 writes everything under `build/port/`, which git ignores.
 
-## Status (T22, 2026-10-22)
+## Status (T24, 2026-10-22)
 
 - Every game C file the matching build links (59) compiles for 32-bit x86 Linux with the host gcc, with the
   NON_MATCHING drafts switched on: every game function comes from C, except the hand-written EE / VU0 routines
   listed under [Hand replacements](#hand-replacements).
-- The program links into `build/port/ttt` (32-bit ELF) with generated stubs and runs on the PS2's memory map
-  ([Memory map](#memory-map)): the game's data at its PS2 addresses, EE RAM with its uncached views, the hardware
-  registers and the scratchpad. It starts the game's `main` and stops at the first missing library function,
-  `sceSifInitRpc` (the first call of `Sys_Init`). With `TTT_STUB_RETURN=1` it goes on through `Sys_BootIop`,
-  `sceDmaReset`, `sceVpu0Reset`, `sceGsResetPath`, the register writes of `Sys_Init`, `func_0035D458`,
-  `func_0035E400` and into `Gfx_Init`, where `Dma_Wait` waits forever for the first VIF0 transfer: the registers
-  are plain memory and nothing runs the DMA yet. The EE float model and the PS2's libm (T23), the kernel / SIF / CD
-  layer and VBlank (T24) and the DMA / GS path (T28) come next.
-- Last clean build: 63 objects (59 game, 4 port), 1270 data objects, 22 names placed by address, 190 stubs
-  (102 Sony SDK `sce*`, 39 other library functions by address, 24 kernel calls, 13 libgcc soft-float helpers,
-  9 libm, 3 libmpeg internals).
+- The program links into `build/port/ttt` (32-bit ELF) and runs on the PS2's memory map ([Memory map](#memory-map))
+  with the platform layer of [Platform layer](#platform-layer): kernel, SIF / IOP, the disc, DMA, timers and
+  VBlank. Pointed at your disc (`TTT_DISC`, default `iso/`), it boots through `Sys_Init`, enters the main loop
+  with one update per VBlank and runs the boot mode, the title and the main menu (headless, nothing drawn):
+  `TTT_FRAMES=600` reports `modes: 0@1 2@168 1@172 3@177` (mode@VBlank: boot, title, transition, main menu) and
+  590 frames. Left alone, the menu returns to the title after about 480 frames and enters the attract cycle's
+  loading mode (11) at VBlank 699; at VBlank 1569 the attract demo reaches the VU0 placeholder `func_0034A180`
+  and stops (exit 3). No generated stub is reached before that.
+- Placeholders still reached on that path (listed at the end of a `TTT_FRAMES` run): `sceGsResetGraph`,
+  `sceGsSetDefDBuff`, `sceGsSetDefDispEnv`, `sceGsSwapDBuff`, `sceGsPutDispEnv` (GS path, T28), `scePadGetState`
+  (no pad), libmc (no card), the boot movie (skipped).
+- Floats are TEMPORARY host IEEE (`port/src/plat_float_tmp.c`, x87) until the EE float model (T23).
+- Last clean build: 71 objects (59 game, 12 port), 1270 data objects, 22 names placed by address, 43 stubs (none
+  reached on the path above).
 - `TTT_CC=clang` (game code through clang 23) is not there yet: 55 of 62 objects; the other 7 stop on an implicit
   declaration followed by a definition with another return type, which gcc accepts with `-fpermissive`.
 
@@ -92,12 +95,15 @@ Shared modules: `toolchain.py` (paths, compiler flags, `TTT_CC`), `portsrc.py` (
 - `TTT_STUB_RETURN=<n>` (a developer's switch): every stub prints its first call and returns `n` instead, to see how
   far the start gets past the missing functions; a stub called a million times (a retry loop such as
   `while (sceSifRebootIop(...) == 0)` with `n = 0`) stops the program.
-- `port/src/plat_stub.c` has the same helper (`Port_Missing`) for the port's own placeholders. Library functions
-  move out of the generated list as they get real implementations (T24 and later).
+- `port/src/plat_stub.c` has the same helper (`Port_Missing`) for the port's own placeholders; it also prints where
+  the run is (VBlank, frame, modes). Library functions move out of the generated list as they get real
+  implementations. `Port_Hit(name)` records a placeholder that answers without doing the real work (and the
+  generated stubs under `TTT_STUB_RETURN`); a `TTT_FRAMES` run lists them at its end.
 - No host libm is linked. Under `-msoft-float` the game expects float results in `eax`; the host's `sinf` /
   `cosf` / `sqrtf` return them on the x87 stack, so a link with `-lm` would give wrong values without any error.
-  They stay stubs until the PS2's newlib maths library is built in software float (T23). The host's i386 libgcc
-  has no soft-float helpers (`__addsf3`...), so they are stubs too until `softfloat_ps2` (T23).
+  The host's i386 libgcc has no soft-float helpers (`__addsf3`...) either. Until the EE float model and the PS2's
+  newlib maths library (T23), `port/src/plat_float_tmp.c` provides both with x87 instructions on the float words:
+  IEEE single precision, not the EE's results.
 - The host C library still provides the integer-only functions the game calls (`memcpy`, `memset`, `strlen`,
   `strcmp`, `strcat`, `sprintf`, `printf`, `abs`, `exit`) and, for now, `rand` / `srand`. The game's random numbers
   must come from the PS2's newlib `rand` (simulation state, `docs/known_bugs.md`): T23.
@@ -119,14 +125,13 @@ set up by a constructor in `port/src/plat_mem.c` before anything of the game run
 | `0x12000000` | 8 KB | GS privileged registers: plain memory. |
 | `0x70000000` | 16 KB | scratchpad. |
 
-- The registers read back what was last written (0 at start). Behaviour behind them (timer counts, DMA completion,
-  the GS CSR) belongs to T24 / T28; until then a loop on a register spins forever (`Dma_Wait` in `Gfx_Init`, Timer 0
-  in `Frame_PreUpdate`).
+- The registers read back what was last written (0 at start). The platform layer changes them only when the game
+  polls ([Platform layer](#platform-layer)): timer counts, DMA completion, GS CSR, D_ENABLER.
 - Not identity-mapped: the first 64 KB of EE RAM (Linux refuses addresses below `vm.mmap_min_addr`, 0x10000; they
   are reachable at `0x20000000 + addr`) and KSEG0 / KSEG1 (`0x80000000` / `0xA0000000`), which the game does not
-  use. The program's own code, the C library, the host heap and the host stack stay above `0x08000000`; the game's
-  functions run on the host stack (as in the reference port's 32-bit build), so a stack address the game stores is a
-  host one.
+  use. The program's own code, the C library and the host heap stay above `0x08000000`. The game runs on a stack in EE
+  RAM, below 0x02000000 as on the PS2 (`port/src/plat_main.c`, the link wraps `main`): the game hands addresses
+  of its locals to the DMA, whose address form (`addr + 0x10000000`, masked) only works below 0x10000000.
 - The mapping refuses to replace anything but the game image in EE RAM (it reads `/proc/self/maps` first) and
   refuses to map over anything at the other addresses (`MAP_FIXED_NOREPLACE`): a clash stops the program with
   `ttt: cannot map ...` (exit code 2).
@@ -140,6 +145,54 @@ set up by a constructor in `port/src/plat_mem.c` before anything of the game run
 address), and helpers for the port's own code: `Port_EePhys` (the physical EE RAM address of any view),
 `Port_IsEeRam`, and `Port_DmaPtr` (what a DMA address designates: the scratchpad when bit 31 is set, else EE RAM).
 The game's own code needs none of them: it uses its addresses as they are.
+
+## Platform layer
+
+The Sony libraries and the hardware the game talks to, in `port/src/`. Nothing runs beside the game: the game's own
+wait loops drive the hardware.
+
+| File | What |
+|---|---|
+| `plat_hw.c` | Bus-cycle clock, timers 0-3, VBlank (59.94 Hz, GS CSR FIELD / VSINT), INTC / DMAC handlers (`AddIntcHandler`, `AddDmacHandler`, `EnableIntc`...), DMA channels, MFIFO, `TTT_FRAMES` report, `TTT_SELFTEST=hw` |
+| `plat_sys.c` | Kernel (cache, threads, semaphores), SIF (IOP reboot, module loads, commands, `sceSifBindRpc` / `sceSifCallRpc` and the table of IOP servers), CD init, `TTT_SELFTEST=rpc` |
+| `plat_file.c` | The disc (`TTT_DISC`: a directory with `TEKKEN.BIN` or the `.iso`) and `sceSdRemote`: RSPU2DRV's file reads (0x204E / 0x2045), status (0x2030), harmless replies to the sound and movie commands |
+| `plat_lib.c` | libgraph waits (`sceGsSyncV` waits for the next VBlank), GS set-up placeholders, libpad / libmtap (no pad, no multitap), libmc (no card), movie skip, a cache call |
+| `plat_pkt.c` | libpkt: VIF1 and GIF packet builders |
+| `plat_vu0.c` | libvu0 in C (column-major matrices; `func_0034A868` is `sceVu0Normalize`) |
+| `plat_main.c` | Runs the game's `main` on the EE stack |
+| `plat_float_tmp.c` | Temporary host float (T23 replaces it) |
+
+- **Polling.** `EE_HW_POLL()` (`include/ee_asm.h`, nothing in the matching build) sits in every game loop that waits
+  on the hardware: `Dma_Wait` and the other CHCR loops of `dma_gif.c` / `dma_spr.c`, the D_ENABLER loops, Timer 0 in
+  `Frame_PreUpdate`, `Gfx_WaitVSync`. Each poll advances the clock and brings the hardware up to it. A new hang
+  in a register loop means a missing hook.
+- **Clock.** Headless (`TTT_HEADLESS=1`, implied by `TTT_FRAMES`): one poll is one Timer 0 tick (256 bus cycles),
+  nothing sleeps, a run repeats exactly (polls per frame, `gRngSpin`, the boot seed). Otherwise the clock is the
+  host's monotonic time: VBlanks at real 59.94 Hz, seed and spin generator vary per run as on the console; a poll
+  more than 1 ms from the next VBlank sleeps 0.2 ms.
+- **Interrupts.** VBlank start raises INTC cause 2 and a finished DMA its DMAC channel; handlers run inside the poll
+  if interrupts are on (`Port_Di` / `Port_Ei`), else at the next `ei`, with interrupts off while they run.
+- **DMA.** A channel with STR set is carried out at the next poll: normal, source chain (refe / cnt / next / ref /
+  refs / call / ret / end) and the scratchpad's destination chain. toSPR / fromSPR copy the data; VIF0 / VIF1 / GIF /
+  IPU / SIF only walk their lists (T28 renders them). In MFIFO mode (D_CTRL.MFD, `dma_spr.c` streams the display
+  lists through it) fromSPR writes into the ring and the drain channel stays busy while the ring is empty.
+- **IOP.** Reboot and module loads succeed. The game's remote calls all go through `sceSdRemote` (RSPU2DRV); the
+  server table of `plat_sys.c` also answers padman, mcserv and mtapman with zeros. A 0x204E read copies the
+  archive's sectors (size rounded up to 16 bytes [I]) into EE memory at once and shows status bit 0 for one poll;
+  0x2045 reads go into a 2 MB SPU2 RAM image. 0x2058 (movie start) is refused, 0x205A(1) reports file mode.
+- **Movies.** `func_0039C878` asks `Port_MoviePlayable()` (0 for now) and skips the movie as when the stream engine
+  never goes idle.
+
+Switches:
+
+| Variable | Effect |
+|---|---|
+| `TTT_DISC=<dir or .iso>` | The disc: a directory with `TEKKEN.BIN` (as `scripts/setup_disc.py` copies it to `iso/`) or the ISO 9660 image. Default: `iso/` of the repository (next to `build/port/ttt`). Read only. |
+| `TTT_FRAMES=<n>` | Stop after n VBlanks with a report: VBlanks and frames, `modes:` (mode@VBlank of each change), last mode and sub-state, `state:` (seed, `gRngSpin`, a hash of the first 4 KB of `.sbss`, cycles), placeholders hit. Exit code 0. Implies headless. |
+| `TTT_HEADLESS=0/1` | Force the real-time or the headless clock. |
+| `TTT_SEED=<n>` | Pin the boot seed `Rng_Init` takes from Timer 0 (`src/rng_misc.c`, `docs/known_bugs.md` section 8). With the headless clock the seed is already repeatable; this sets its value, and makes real-time runs start alike. |
+| `TTT_SELFTEST=hw / rpc / mem` | Check the DMA, timers, VBlank and interrupts / the SIF, RPC and disc reads / the memory map, and exit (`tests/test_port_platform.py`, `tests/test_port_mem.py`). |
+| `TTT_STUB_RETURN=<n>` | Generated stubs return n instead of stopping. |
 
 ## Hand replacements
 
@@ -166,6 +219,14 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
 - `modes.c`, `select_results.c`, `theater.c`, `effects_draw.c`: the `.set fptoui, __fixunssfsi` / `.set sqrtf, sqrt`
   aliases exist for the PS2 compiler's helper names and stay out of the host build.
 - `battle_flow.c`: a prototype of the variadic `Text_Printf` before its first caller.
+- `select_results_b.c` draft `Text_Printf`: reads its variadic arguments as 4-byte i386 stack slots (`TP_ARG`),
+  not from the EABI register save area.
+- `dma_gif.c` `func_00345780`: takes the update callback its callers pass and hands it to `func_003464F8` (on the
+  EE it is still in `$a0`).
+- `rng_misc.c` `Rng_Init`: the seed goes through `Port_BootSeed` (Timer 0 brought up to date, or `TTT_SEED`).
+- `movie.c` draft `func_0039C878`: `Port_MoviePlayable()` before the movie.
+- `PORT_RET(t)` on 21 functions returning `s8` / `u8` / `s16` / `u16` that some callers declare `s32`.
+- `EE_HW_POLL()` in the hardware wait loops (above).
 
 ## Porting gotchas found so far
 
@@ -191,7 +252,21 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
    it keeps the PS2 layout only because every item keeps its size and the file's `.align` lines are no stricter
    than its address. The `nm` check of `tests/test_port_mem.py` catches a file that drifts.
 
+9. **Narrow return values.** On the EE a function returning `s16` hands back the value sign-extended in `$v0`, so a
+   caller with an `s32` prototype gets -1; i386 gcc leaves the upper half of `eax` as it is (`func_003B0078`
+   returned 0xFFFF and indexed `gFighters[0xFFFF]`). `PORT_RET(t)` makes those definitions return `int` in the
+   port. 31 mismatched declarations of 21 functions were found by a scan of `src/`; new ones need the same.
+10. **Leftover argument registers, again.** `func_00345780()` is defined without parameters and calls
+    `func_003464F8()` without arguments: on the EE its caller's argument is still in `$a0` and becomes the new
+    object's update callback.
+11. **EABI varargs in drafts.** A draft that walks the EABI register save area (`__builtin_next_arg(fmt) - 7 * 8`,
+    8-byte slots) reads garbage on i386. The m2c draft `func_003DFA00` (demo.c) has the same shape and is not on the
+    path yet.
+12. **DMA from the stack.** The game sends quadwords from its stack to the scratchpad; the DMA address form only
+    works for addresses below 0x10000000, hence the EE stack.
+
 ## Next
 
-T23 EE float model, `softfloat_ps2`, newlib libm and `rand`; T24 kernel / SIF / CD replacements and VBlank (and the
-timer registers); the DMA / GS path (T28); then the placeholders above by hand.
+T23 EE float model, `softfloat_ps2`, newlib libm and `rand` (replacing `plat_float_tmp.c`); the DMA / GS path
+(T28: the GS set-up placeholders and the VIF1 / GIF lists the sink drops); the VU0 placeholders by hand
+(`func_0034A180` first: the attract demo stops on it); pads, memory cards, sound (RSPU2DRV) and movies.

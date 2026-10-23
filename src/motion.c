@@ -302,7 +302,7 @@ s32 func_00364160(void) {
     return D_005F5E44;
 }
 
-u16 func_00364168(s32 i) {
+PORT_RET(u16) func_00364168(s32 i) {
     return *(u16 *)func_00364528(i, (void *)D_005F5E40);
 }
 

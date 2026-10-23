@@ -206,7 +206,7 @@ void Options_Apply(void) {
 INCLUDE_ASM("asm/nonmatchings/options", Options_Apply);
 #endif
 
-u8 func_003B15D0(s32 i) {
+PORT_RET(u8) func_003B15D0(s32 i) {
     return ((SaveBlk *)D_00439C60)->unk3C[i];
 }
 
@@ -893,7 +893,7 @@ s32 Pad_GetPlayerMode(s32 player);
 void func_003BA770(s32 port, s32 *slot, s32 *portOut);
 s32 scePadInfoAct(s32 port, s32 slot, s32 actno, s32 term);
 void Input_ResetMapping(s32 player);
-u8 func_003B15D0(s32 i);
+PORT_RET(u8) func_003B15D0(s32 i);
 s32 func_003BA888(s32 i, s32 a, s32 b);
 void Sprite_Draw(s32 a, s32 b, s32 c, s32 x, s32 y);
 s32 func_003B1418(s32 i);

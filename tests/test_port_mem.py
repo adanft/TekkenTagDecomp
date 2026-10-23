@@ -39,11 +39,13 @@ class MemoryMapTest(unittest.TestCase):
         wrong = [s for s, a in labels if a != int(s[2:], 16)]
         self.assertEqual(wrong, [])
 
-    def test_boot_stops_at_a_stub_not_a_fault(self):
-        """The game starts on the mapped memory and runs until the first function the port does not provide."""
-        r = self.run_ttt()
-        self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
-        self.assertIn("ttt: not implemented yet: ", r.stdout)
+    @unittest.skipUnless((ROOT / "iso/TEKKEN.BIN").exists() or os.environ.get("TTT_DISC"), "no disc data")
+    def test_boot_runs_on_the_map_without_a_fault(self):
+        """The game starts on the mapped memory and runs its first frames headless (tests/test_port_platform.py
+        checks how far)."""
+        r = self.run_ttt(TTT_FRAMES="60", TTT_SEED="1")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("ttt: headless: 60 vblanks", r.stdout)
 
 
 if __name__ == "__main__":

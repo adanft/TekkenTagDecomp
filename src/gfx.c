@@ -349,6 +349,7 @@ void Gfx_SetFrameReady(void) {
 void Gfx_WaitVSync(void) {
     do {
         Rng_SpinNext();
+        EE_HW_POLL();
     } while (gFrameReady == 1);
     *(volatile u32 *)0x10000000 = 0;
 }
