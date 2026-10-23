@@ -17,8 +17,14 @@ void Gs_Report(void);                                  /* TTT_FRAMES report line
    data memory at 0x1100C000 (16 KB each). */
 void Gs_Vif1(const uint32_t *w, uint32_t count);
 void Gs_Vif1Reset(void);
-extern uint32_t gGsVu1Calls; /* MSCAL / MSCALF / MSCNT seen (VU1 programs are not run yet: T29) */
+extern uint32_t gGsVu1Calls; /* MSCAL / MSCALF / MSCNT seen */
 extern uint32_t gGsVu1Mpg;   /* MPG uploads */
+
+/* VU1 (gs_vu1.c): run the program at instruction `addr` (MSCAL / MSCALF), or where the last one stopped (addr < 0,
+   MSCNT), with TOP / ITOP as the VIF latched them; XGKICK feeds PATH1. */
+void Gs_Vu1Run(int addr, uint32_t top, uint32_t itop);
+void Gs_Vu1Reset(void);
+void Gs_Vu1Report(void);
 
 #define GS_PRIV(off) (*(volatile uint64_t *)(uintptr_t)(0x12000000u + (off)))
 #define GS_PMODE 0x0000u

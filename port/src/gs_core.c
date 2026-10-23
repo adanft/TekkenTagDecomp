@@ -1139,8 +1139,9 @@ void Gs_VBlank(uint32_t vblank) {
 
 void Gs_Report(void) {
     printf("ttt: gs: %u GIF tags, %u register writes, %u primitives, %u pixels, %u image qwords, %u local copies, "
-           "%u readbacks (not modelled); vu1: %u MPG, %u program calls (not run yet)\n",
-           sStat.tags, sStat.regs, sStat.prims, sStat.pixels, sStat.imageQw, sStat.localCopies, sStat.readbacks, gGsVu1Mpg, gGsVu1Calls);
+           "%u readbacks (not modelled)\n",
+           sStat.tags, sStat.regs, sStat.prims, sStat.pixels, sStat.imageQw, sStat.localCopies, sStat.readbacks);
+    Gs_Vu1Report();
 }
 
 /* ------------------------------------------------------------------------------------------------ self-test */

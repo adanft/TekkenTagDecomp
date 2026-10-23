@@ -113,14 +113,21 @@ open.
 | Restart [V] | programs end with `[E]` followed by `b <entry>`: an `MSCNT` runs the same program for the next batch |
 | Clipping [I] | xyz * vf31 - 1 against +-1 (the GS coordinate range); `fcand vi1, 0x3FFFF` over the last three vertices sets ADC |
 
-### PC port (T28)
+### PC port (T29)
 
 `port/src/gs_vif1.c` carries out the VIF1 side: UNPACK into VU1 data memory (0x1100C000) with STCYCL / STMASK /
 STROW / STCOL / STMOD and the BASE / OFFSET double buffer, MPG into micro memory (0x11008000), DIRECT to the GIF.
-`MSCAL` / `MSCALF` / `MSCNT` only latch TOP / ITOP and swap the buffer: no program runs, so nothing is kicked on PATH1
-and the models are missing from the picture. A headless run to the attract demo (1200 VBlanks) sees 16 MPG uploads
-and about 56,000 program calls (`ttt: gs:` line of the `TTT_FRAMES` report). The interpreter (T29) plugs in at
-`call()` and kicks with `Gs_Gif(1, ...)`.
+`MSCAL` / `MSCALF` / `MSCNT` latch TOP / ITOP, swap the buffer and run the program on the shared micro-mode
+interpreter (`port/src/vu_micro.c`, `gs_vu1.c`; docs/port/README.md "VU1"), whose XGKICKs go to the GS on PATH1.
+
+Runtime observations on the attract path (`TTT_FRAMES=1600 TTT_SEED=1 TTT_VU1_CALLS=1`) [V]:
+
+- Runs per entry up to VBlank 1600: 0x004 (init) once, 0x032 (object) 4482, 0x050 (mesh) 373317, 0x320 (skin2_flat)
+  570, 0x3A2 (projtex) 72, 0x55A (lights) 30; no other entry, no instruction outside the implemented set.
+- The mesh output matches the roles above: each kick is the copied header (an A+D / CLAMP_1 / TEX0_1 tag: ALPHA_1
+  0x44, PSMT4 textures with a 16-colour CLUT), then a strip tag with PRE (PRIM 0xFC: strip, Gouraud, textured, fog,
+  blended) and ST/Q, RGBA, XYZF2 per vertex; vertices outside the guard band carry ADC with fog 0xFF.
+- The loading scene of the attract path draws the stage (a temple courtyard at night) through program 0x050.
 
 ## Listing syntax
 
@@ -132,4 +139,4 @@ file. Every instruction the game uses has a mnemonic (no `raw` words); `vuasm.py
 
 - Callers of 0x3E8, 0x438 and 0x780.
 - What the many `MSCALF 0x0` codes in the disc's model data do (stub, or patched by the game).
-- Runtime confirmation of the inferred roles (PCSX2 VU1 debugger, T29).
+- Runtime confirmation of the remaining inferred roles (PCSX2 VU1 debugger): the env-map, lattice and strip variants.

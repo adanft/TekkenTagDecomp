@@ -224,8 +224,9 @@ but change the CPU's choices relative to the original (decision for T26) [I cons
   and alpha / test presets must be honoured.
 - **DMA / scratchpad / MFIFO**: the scratchpad as memory plus synchronous emulations of toSPR / fromSPR and of the
   ring drain into VIF1 / GIF; the waits (`Dma_Wait`, BC0F) become no-ops once transfers are synchronous (T22, T28).
-- **VU0 and VU1**: the VU0 skinning loops (`vcallms`, macro mode) and the VU1 program need an interpreter or native
-  replacements (T29, T31); the libvu0 calls (`sceVu0*`) used everywhere in `scene3d` are plain float math.
+- **VU0 and VU1**: the VU0 skinning loops (`vcallms`, macro mode) and the VU1 programs run on the port's micro-mode
+  interpreter (`port/src/vu_micro.c`, T23 / T29; native replacements: T31); the libvu0 calls (`sceVu0*`) used
+  everywhere in `scene3d` are plain float math.
 - **Display**: the VBlank handler's buffer flip and display chain map to presenting the 640 x 448 frame.
 - Float rendering code (springs, look-at, lights, the sword effect) affects only the picture; `func_0034E018` /
   `func_0034C508` run inside `Skel_Update` but write only drawing state [I: no simulation reader found].

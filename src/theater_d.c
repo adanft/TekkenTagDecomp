@@ -116,7 +116,7 @@ void func_003568E0(s32 id, u32 ofs) {
                 q = p + 12;
                 cnt = p[8] & 0x7FFF;
                 end = (p[8] & 0x8000) >> 15;
-                *(u64 *)(p + 4) = ((w + ((u64)ofs << 37)) & (0x3FFFUL << 37)) | ((w + ofs) & 0x3FFF) | (w & ~(0x3FFFUL | (0x3FFFUL << 37)));
+                *(u64 *)(p + 4) = ((w + ((u64)ofs << 37)) & (0x3FFFULL << 37)) | ((w + ofs) & 0x3FFF) | (w & ~(0x3FFFULL | (0x3FFFULL << 37)));
                 for (i = 0; i < cnt; i++) {
                     q = (u32 *)((u8 *)q + (((q[3] & 7) << 5) + 0x20));
                 }

@@ -1,5 +1,5 @@
-"""The PC build's GS path (port/src/gs_core.c, gs_vif1.c): DMA -> VIF1 -> GIF -> GS memory and the software reference
-rasteriser, checked on the built program build/port/ttt (made from your own SLUS_200.01 by port/tools/build.py).
+"""The PC build's GS path (port/src/gs_core.c, gs_vif1.c, gs_vu1.c on vu_micro.c): DMA -> VIF1 (-> VU1) -> GIF -> GS
+memory and the software reference rasteriser, checked on the built program build/port/ttt (made from your own SLUS_200.01 by port/tools/build.py).
 Skipped when the program has not been built; the frame dump runs are also skipped without disc data. The frames are
 written to a temporary directory and removed: they are pictures of the game and never belong in the repository."""
 
@@ -50,6 +50,19 @@ class GsSelfTest(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertNotIn("FAILED", r.stdout)
         self.assertIn("ttt: gs self-test OK", r.stdout)
+
+
+@unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
+class Vu1SelfTest(unittest.TestCase):
+    def test_vu1(self):
+        """VU1 micro mode (port/src/vu_micro.c, gs_vu1.c) on hand-assembled programs sent through VIF1 (MPG, MSCAL,
+        MSCNT): upper / lower pairing, branch and E-bit delay slots, Q and P latency, MAC and clipping flag delay,
+        integer and EFU instructions, XTOP / XITOP through the double buffer, XGKICK to the GS (also across the end of
+        VU memory), and no instruction left unimplemented."""
+        r = run_ttt(TTT_SELFTEST="vu1")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("FAILED", r.stdout)
+        self.assertIn("ttt: vu1 self-test OK", r.stdout)
 
 
 @unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")

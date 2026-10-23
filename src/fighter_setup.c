@@ -297,7 +297,7 @@ s32 func_003623B8(void *data, s32 vram, u8 **pk, s32 copy, u8 **end) {
         } else {
             ref = img;
         }
-        q->imgtag[0] = (n | 0x8000) | (0x8000UL << 44);
+        q->imgtag[0] = (n | 0x8000) | (0x8000ULL << 44);
         q->id2 = 0x3000;
         src = (FsImgSrc *)(img + n);
         q->addr2 = ref;

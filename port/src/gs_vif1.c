@@ -7,8 +7,8 @@
  *    STMASK, STROW / STCOL and STMOD offset / difference modes, and the double buffer (BASE / OFFSET / TOPS, FLG);
  *  - MPG (0x4A): microcode into VU1 micro memory (0x11008000, 16 KB);
  *  - DIRECT / DIRECTHL (0x50 / 0x51): GIF data on PATH2 (gs_core.c);
- *  - MSCAL / MSCALF / MSCNT (0x14 / 0x15 / 0x17): the program call is recorded and swaps the double buffer. The VU1
- *    programs themselves are not run yet (T29), so what they would kick to the GS (the 3D models) is missing;
+ *  - MSCAL / MSCALF / MSCNT (0x14 / 0x15 / 0x17): TOP / ITOP latch, the double buffer swaps and the VU1 program
+ *    runs to its end (gs_vu1.c), kicking its GIF packets on PATH1;
  *  - STCYCL, OFFSET, BASE, ITOP, STMOD, MSKPATH3, MARK, FLUSH*: state, or nothing to do here.
  *
  * A command's data may continue in the next transfer (the command word is often in a DMA tag and its data in the
@@ -132,9 +132,10 @@ static void mpg(uint32_t addr, const uint32_t *words, uint32_t count) {
     }
 }
 
-/* MSCAL / MSCALF / MSCNT: TOP and ITOP latch, the double buffer swaps; the program would run here (T29). */
+/* MSCAL / MSCALF / MSCNT: TOP and ITOP latch, the double buffer swaps, the program runs (gs_vu1.c). The VIF waits
+   for the previous program to end before it starts one, so running it here, to its end, keeps the order of the
+   UNPACKs, DIRECTs and kicks. */
 static void call(int addr) {
-    (void)addr;
     gGsVu1Calls++;
     vif.top = vif.tops;
     vif.itop = vif.itops;
@@ -145,6 +146,7 @@ static void call(int addr) {
         vif.tops = vif.base + vif.ofst;
         vif.dbf = 1;
     }
+    Gs_Vu1Run(addr, vif.top, vif.itop);
 }
 
 static void finish(uint32_t code, const uint32_t *b, uint32_t words) {
@@ -247,6 +249,8 @@ int Port_GsVifSelfTest(void) {
 
     Gs_Vif1Reset();
     memset(VU1_DATA, 0, 0x4000);
+    memset(VU1_MICRO, 0, 0x4000);
+    memcpy(VU1_MICRO, "\x3C\x03\x00\x80\xFF\x02\x00\x40", 8); /* the MSCALs below run nop | nop [E] */
     /* STCYCL 1,1; UNPACK V4-32, 2 vectors at 0 */
     s[0] = 0x01000101u;
     s[1] = 0x6C020000u;
