@@ -476,7 +476,7 @@ f32 sqrtf(f32 x);
 static inline f32 SqrtS(f32 x) {
     f32 r;
 
-    __asm__ volatile("nop\n\tnop\n\tsqrt.s %0, %1" : "=f"(r) : "f"(x));
+    EE_SQRT_S(r, x);
     return r;
 }
 f32 fabsf(f32 x);
@@ -765,7 +765,7 @@ f32 sqrtf(f32 x);
 static inline f32 Sqrt(f32 x) {
     f32 r;
 
-    __asm__ volatile("nop\n\tnop\n\tsqrt.s %0, %1" : "=f"(r) : "f"(x));
+    EE_SQRT_S(r, x);
     return r;
 }
 f32 fabsf(f32 x);
@@ -3740,6 +3740,10 @@ INCLUDE_ASM("asm/nonmatchings/model_anim_b", func_003D9BE8);
 /* NON_MATCHING: 337 draft; VU0 rotation as one inline __asm__ block (lqc2 / jal func_003E8FA0 / vmula / sqc2), stack layout and spills differ */
 /* Rotates the matrix m by the angles r[0] (x), r[1] (y), r[2] (z) on VU0 (the inlined body of the library rotations,
  * func_003E8FA0 being its sin / cos helper that leaves both in vf8). */
+#ifdef PORT
+void Port_Vu0RotMtxXYZ(Vu0Matrix m, f32 *r); /* port/src/vu0_pc.c */
+#define RotMtxXYZ Port_Vu0RotMtxXYZ
+#else
 static inline void RotMtxXYZ(Vu0Matrix m, f32 *r) {
     __asm__ volatile(
         ".set noreorder\n"
@@ -3796,6 +3800,7 @@ static inline void RotMtxXYZ(Vu0Matrix m, f32 *r) {
         : "$2", "$3", "$4", "$5", "$6", "$7", "$8", "$9", "$10", "$11", "$12", "$13", "$14", "$15", "$24", "$25", "$31",
           "$f0", "$f1", "$f2", "$f3", "$f12", "memory");
 }
+#endif
 
 /* Draw hook of the stage object lists (first variant): sorts the objects whose model or shadow is not clipped by
  * (animation, frame), then for each one (and once more with the shadow matrix when its shadow is visible) builds the

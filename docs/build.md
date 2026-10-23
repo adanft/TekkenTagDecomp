@@ -90,6 +90,17 @@ not a match (stack offsets are ignored): check every candidate with `fdiff.py` a
 
 Why these choices: [decomp_guide.md](decomp_guide.md).
 
+## Inline EE instructions
+
+Single EE instructions in the C (`di`, `ei`, `sync`, `mfc0 Status`, `sqrt.s` with its two nops, the BC0F wait) are
+written with the macros of `include/ee_asm.h`, which expand to the same `__asm__` statement for this build and to
+platform calls for the PC port. Use them for new code, so that the port needs no extra hook.
+
+## PC port
+
+`python3 port/tools/build.py` builds the PC port from this tree into `build/port/` (its data comes from the split
+above): [port/README.md](port/README.md).
+
 ## Why the whole file is split
 
 The executable keeps its section headers and some sections that are not loaded, so a plain link would not

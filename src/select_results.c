@@ -1066,7 +1066,9 @@ void func_003BFFB0(void) {
 
 extern f32 D_00433440[];
 /* The original calls __fixunssfsi for a float to u32 conversion; this compiler emits fptoui (decomp_guide.md, T17 b4). */
+#ifndef PORT
 __asm__(".set fptoui, __fixunssfsi"); /* fake */
+#endif
 
 u32 func_003C0098(void) {
     f32 d = gFighters[0].unk620;

@@ -92,7 +92,9 @@ void func_00354730(ThTile *t, ThEntry *e, u32 a);
 void Mode_Theater(void);
 
 /* The original calls __fixunssfsi for a float to u32 conversion; this compiler emits fptoui (decomp_guide.md, T17 b4). */
+#ifndef PORT
 __asm__(".set fptoui, __fixunssfsi"); /* fake */
+#endif
 
 INCLUDE_RODATA("asm/nonmatchings/theater", D_005221E0);
 INCLUDE_RODATA("asm/nonmatchings/theater", D_005221F8);

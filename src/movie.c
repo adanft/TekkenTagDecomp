@@ -646,13 +646,13 @@ s32 Movie_Open(s32 movie) {
     StartThread(D_005F6CB4, &D_004365D0);
     Movie_StartStream(movie);
     do {
-        __asm__ volatile("di");
-        __asm__ volatile("sync.p");
-        __asm__ volatile("mfc0 %0, $12" : "=r"(status));
+        EE_DI();
+        EE_SYNC_P();
+        EE_MFC0_STATUS(status);
     } while (status & 0x10000);
     D_004365D0.handlerId = AddIntcHandler(2, func_0039E268, 0);
     EnableIntc(2);
-    __asm__ volatile("ei");
+    EE_EI();
     return 0;
 }
 #else
@@ -669,13 +669,13 @@ void Movie_Close(void) {
     TerminateThread(D_005F6CB8);
     DeleteThread(D_005F6CB8);
     do {
-        __asm__ volatile("di");
-        __asm__ volatile("sync.p");
-        __asm__ volatile("mfc0 %0, $12" : "=r"(status));
+        EE_DI();
+        EE_SYNC_P();
+        EE_MFC0_STATUS(status);
     } while (status & 0x10000);
     DisableIntc(2);
     RemoveIntcHandler(2, D_004365D0.handlerId);
-    __asm__ volatile("ei");
+    EE_EI();
     func_0039E968(&D_004365D0);
     *(volatile u32 *)0x10002010 = 0x40000000;
 }
@@ -1058,8 +1058,8 @@ s32 func_0039E268(s32 cause) {
                     D_00436568.unk1C = D_00436568.unk20;
                 }
             }
-            __asm__ volatile("sync");
-            __asm__ volatile("ei");
+            EE_SYNC();
+            EE_EI();
             return 0;
         }
         if (D_005F6204 == 0 && *(s32 *)tag == 2) {
@@ -1087,8 +1087,8 @@ s32 func_0039E268(s32 cause) {
             }
         }
     }
-    __asm__ volatile("sync");
-    __asm__ volatile("ei");
+    EE_SYNC();
+    EE_EI();
     return 0;
 }
 #else
@@ -1416,28 +1416,28 @@ void func_0039F030(u32 chcr) {
     u32 status;
 
     do {
-        __asm__ volatile("di");
-        __asm__ volatile("sync.p");
-        __asm__ volatile("mfc0 %0, $12" : "=r"(status));
+        EE_DI();
+        EE_SYNC_P();
+        EE_MFC0_STATUS(status);
     } while (status & 0x10000);
     *(volatile u32 *)0x1000F590 = *(volatile u32 *)0x1000F520 | 0x10000;
     *(volatile u32 *)0x1000B000 = chcr;
     *(volatile u32 *)0x1000F590 = *(volatile u32 *)0x1000F520 & 0xFFFEFFFF;
-    __asm__ volatile("ei");
+    EE_EI();
 }
 
 void func_0039F0A0(u32 chcr) {
     u32 status;
 
     do {
-        __asm__ volatile("di");
-        __asm__ volatile("sync.p");
-        __asm__ volatile("mfc0 %0, $12" : "=r"(status));
+        EE_DI();
+        EE_SYNC_P();
+        EE_MFC0_STATUS(status);
     } while (status & 0x10000);
     *(volatile u32 *)0x1000F590 = *(volatile u32 *)0x1000F520 | 0x10000;
     *(volatile u32 *)0x1000B400 = chcr;
     *(volatile u32 *)0x1000F590 = *(volatile u32 *)0x1000F520 & 0xFFFEFFFF;
-    __asm__ volatile("ei");
+    EE_EI();
 }
 
 void func_0039F110(u64 *tag, u32 addr, u32 id, u32 qwc) {
@@ -1843,13 +1843,13 @@ void func_003A0020(MovieVoBuf *f) {
     u32 status;
 
     do {
-        __asm__ volatile("di");
-        __asm__ volatile("sync.p");
-        __asm__ volatile("mfc0 %0, $12" : "=r"(status) : : "memory");
+        EE_DI();
+        EE_SYNC_P();
+        EE_MFC0_STATUS_MEM(status);
     } while (status & 0x10000);
     *(s32 *)(tag + f->write * 0x85740) = 2;
     f->count++;
-    __asm__ volatile("ei");
+    EE_EI();
     f->write = (f->write + 1) % f->size;
 }
 #else

@@ -942,7 +942,7 @@ INCLUDE_RODATA("asm/nonmatchings/effects_draw", D_00519AB0);
 static inline f32 SqrtS(f32 x) {
     f32 r;
 
-    __asm__ volatile("nop\n\tnop\n\tsqrt.s %0, %1" : "=f"(r) : "f"(x));
+    EE_SQRT_S(r, x);
     return r;
 }
 
@@ -1622,7 +1622,7 @@ void func_003A8C50(s32 side) {
 
 /* fake: this compiler names the errno fallback of sqrtf and the float-to-unsigned conversion `sqrtf` and `fptoui`;
  * the original object calls `sqrt` (0x407818) and `__fixunssfsi` (0x40EBA0), so the assembler maps the two names. */
-#if !defined(M2CTX) && !defined(PERMUTER)
+#if !defined(M2CTX) && !defined(PERMUTER) && !defined(PORT)
 __asm__(".set sqrtf, sqrt\n.set fptoui, __fixunssfsi");
 #endif
 

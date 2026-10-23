@@ -1929,8 +1929,8 @@ void func_003C68F0(SelState *s, s32 kind) {
         s->unk8 = D_0051FFA0[kind - 10].unk8;
         s->unkC = D_0051FFA0[kind - 10].unkC;
         s->unk10 = D_0051FFA0[kind - 10].unk10;
-        s->unk14 = D_0051FFA0[kind - 10].unk14;
-        s->unk18 = D_0051FFA0[kind - 10].unk18;
+        s->unk14[0] = D_0051FFA0[kind - 10].unk14[0];
+        s->unk14[1] = D_0051FFA0[kind - 10].unk14[1];
         s->unk1C = D_0051FFA0[kind - 10].unk1C;
         break;
     default:
@@ -1939,8 +1939,8 @@ void func_003C68F0(SelState *s, s32 kind) {
         s->unk8 = D_0051FFA0[1].unk8;
         s->unkC = D_0051FFA0[1].unkC;
         s->unk10 = D_0051FFA0[1].unk10;
-        s->unk14 = D_0051FFA0[1].unk14;
-        s->unk18 = D_0051FFA0[1].unk18;
+        s->unk14[0] = D_0051FFA0[1].unk14[0];
+        s->unk14[1] = D_0051FFA0[1].unk14[1];
         s->unk1C = D_0051FFA0[1].unk1C;
         break;
     }

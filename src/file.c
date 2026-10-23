@@ -49,9 +49,9 @@ INCLUDE_RODATA("asm/nonmatchings/file", D_0050CD00);
 
 /* SIF command 0 from the IOP (movie chunk sent): nothing to do. */
 void File_SifCmd0Handler(void *packet, void *data) {
-    __asm__ volatile("sync.l");
-    __asm__ volatile("ei");
-    __asm__ volatile("ei");
+    EE_SYNC_L();
+    EE_EI();
+    EE_EI();
 }
 
 /* Answers a pending SIF command 1 of the IOP: sends it a part of the BGM held in EE memory. */
@@ -70,9 +70,9 @@ void File_SendSifCmd(void) {
 /* SIF command 1 from the IOP (stream data wanted from EE memory): flags it for File_SendSifCmd. */
 void File_SifCmdHandler(void *packet, void *data) {
     gSifCmdPending = 1;
-    __asm__ volatile("sync.l");
-    __asm__ volatile("ei");
-    __asm__ volatile("ei");
+    EE_SYNC_L();
+    EE_EI();
+    EE_EI();
 }
 
 /* Uncached address of the buffer the IOP writes its SIF command 1 arguments to. */
@@ -109,16 +109,16 @@ void File_Init(void) {
     gSifCmdPending = 0;
     sceSifInitRpc(0);
     do {
-        __asm__ volatile("di");
-        __asm__ volatile("sync.p");
-        __asm__ volatile("mfc0 %0, $12" : "=r"(status));
+        EE_DI();
+        EE_SYNC_P();
+        EE_MFC0_STATUS(status);
     } while (status & 0x10000);
     func_00401F58(D_008BCFF0, 0x10);
     sceSifAddCmdHandler(0, File_SifCmd0Handler, &D_005F6C68);
     sceSifAddCmdHandler(1, File_SifCmdHandler, &D_005F6C6C);
-    __asm__ volatile("sync.l");
-    __asm__ volatile("ei");
-    __asm__ volatile("ei");
+    EE_SYNC_L();
+    EE_EI();
+    EE_EI();
     for (i = 0; i < FILE_REQ_COUNT; i++) {
         req->handle = i;
         req->id = -1;

@@ -145,7 +145,7 @@ void Fighter_ClearLife(s32 side);
 static inline f32 S2bSqrtS(f32 x) {
     f32 r;
 
-    __asm__ volatile("nop\n\tnop\n\tsqrt.s %0, %1" : "=f"(r) : "f"(x));
+    EE_SQRT_S(r, x);
     return r;
 }
 

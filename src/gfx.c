@@ -224,7 +224,7 @@ void func_00398858(u32 addr, s32 a, s32 b) {
         p[4] = y;
         p[2] = x;
     }
-    __asm__ volatile("sync.l");
+    EE_SYNC_L();
 }
 
 /* GS address (in words / 64) of the frame buffer shown. */
@@ -420,8 +420,8 @@ s32 Gfx_VSyncHandler(s32 cause) {
     }
     gFrameReady = 0;
     gGfx.vsyncCount++;
-    __asm__ volatile("sync.l");
-    __asm__ volatile("ei");
+    EE_SYNC_L();
+    EE_EI();
     return 0;
 }
 #else
@@ -443,13 +443,13 @@ void Gfx_InstallVSyncHandler(s32 mode) {
         gGfx.unk26F = 2;
     }
     do {
-        __asm__ volatile("di");
-        __asm__ volatile("sync.p");
-        __asm__ volatile("mfc0 %0, $12" : "=r"(status));
+        EE_DI();
+        EE_SYNC_P();
+        EE_MFC0_STATUS(status);
     } while (status & 0x10000);
     gGfx.handlerId = AddIntcHandler(2, Gfx_VSyncHandler, 0);
     EnableIntc(2);
-    __asm__ volatile("ei");
+    EE_EI();
 }
 
 /* Removes the VBlank handler. */
@@ -457,13 +457,13 @@ void Gfx_RemoveVSyncHandler(void) {
     u32 status;
 
     do {
-        __asm__ volatile("di");
-        __asm__ volatile("sync.p");
-        __asm__ volatile("mfc0 %0, $12" : "=r"(status));
+        EE_DI();
+        EE_SYNC_P();
+        EE_MFC0_STATUS(status);
     } while (status & 0x10000);
     DisableIntc(2);
     RemoveIntcHandler(2, gGfx.handlerId);
-    __asm__ volatile("ei");
+    EE_EI();
 }
 
 /* Builds the frame's display packet in the scratchpad and sends it. */

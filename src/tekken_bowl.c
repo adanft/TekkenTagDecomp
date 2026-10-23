@@ -308,7 +308,7 @@ void func_00362E90(Fighter *f, s32 a, s32 b, u8 c);
 static inline f32 SqrtS(f32 x) {
     f32 r;
 
-    __asm__ volatile("nop\n\tnop\n\tsqrt.s %0, %1" : "=f"(r) : "f"(x));
+    EE_SQRT_S(r, x);
     return r;
 }
 extern u16 gFrameCount;
@@ -716,6 +716,7 @@ void func_003E8F98(void) {
 }
 
 /* VU0 sincos of x (cos in vf8x, sin in vf8y), the libvu0 _sceVu0ecossin series [I]. */
+#ifndef PORT /* hand-written EE / VU0 assembly: the PC build has its own (port/src/vu0_pc.c) */
 void func_003E8FA0(f32 x) {
     f32 h = 1.5707964f;
     s32 neg;
@@ -759,8 +760,10 @@ void func_003E8FA0(f32 x) {
         __asm__ volatile("vaddx.x $vf8, $vf0, $vf9x\n");
     }
 }
+#endif
 
 /* Rotates matrix m about z, x then y by rot into d (VU0 macro code around the sincos helper func_003E8FA0). */
+#ifndef PORT /* hand-written EE / VU0 assembly: the PC build has its own (port/src/vu0_pc.c) */
 void func_003E9038(BMat d, BMat m, f32 *rot) {
     __asm__ volatile("lqc2 $vf4, 0x0(%0)\n"
                      "lqc2 $vf5, 0x10(%0)\n"
@@ -812,9 +815,11 @@ void func_003E9038(BMat d, BMat m, f32 *rot) {
                      : "r"(d)
                      : "memory");
 }
+#endif
 
 /* Loads m into VU0 vf4-vf7, rotates it about x then y by rot and adds pos to the translation row; the result stays
  * in vf4-vf7 for the caller's inline code (func_003ECAD8). */
+#ifndef PORT /* hand-written EE / VU0 assembly: the PC build has its own (port/src/vu0_pc.c) */
 void func_003E9120(BMat m, f32 *rot, f32 *pos) {
     __asm__ volatile("lqc2 $vf4, 0x0(%0)\n"
                      "lqc2 $vf5, 0x10(%0)\n"
@@ -851,8 +856,10 @@ void func_003E9120(BMat m, f32 *rot, f32 *pos) {
                      :
                      : "r"(pos));
 }
+#endif
 
 /* Rotates m about y by -rot[3], x by rot[0] and y by -rot[1] into d. */
+#ifndef PORT /* hand-written EE / VU0 assembly: the PC build has its own (port/src/vu0_pc.c) */
 void func_003E91D0(BMat d, BMat m, f32 *rot) {
     __asm__ volatile("lqc2 $vf4, 0x0(%0)\n"
                      "lqc2 $vf5, 0x10(%0)\n"
@@ -904,8 +911,10 @@ void func_003E91D0(BMat d, BMat m, f32 *rot) {
                      : "r"(d)
                      : "memory");
 }
+#endif
 
 /* d = a + b * t (VU0 macro mode, inline asm as in the original's libvu0-style helpers [I]) */
+#ifndef PORT /* hand-written EE / VU0 assembly: the PC build has its own (port/src/vu0_pc.c) */
 void func_003E92C0(f32 *d, f32 *a, f32 *b, f32 t) {
     __asm__ volatile("lqc2 $vf12, 0x0(%1)\n"
                      "mfc1 $8, %3\n"
@@ -918,6 +927,7 @@ void func_003E92C0(f32 *d, f32 *a, f32 *b, f32 t) {
                      : "r"(d), "r"(a), "r"(b), "f"(t)
                      : "$8", "memory");
 }
+#endif
 
 void func_003E92E0(s16 *p, s32 n) {
     s32 i;

@@ -525,15 +525,15 @@ void Frame_Begin(void) {
 
     Vu0_LoadMicrocode();
     do {
-        __asm__ volatile("di");
-        __asm__ volatile("sync.p");
-        __asm__ volatile("mfc0 %0, $12" : "=r"(status));
+        EE_DI();
+        EE_SYNC_P();
+        EE_MFC0_STATUS(status);
     } while (status & 0x10000);
     Gfx_SetPhase(0);
     func_0035D790(D_005F5C00);
     D_005F5C00 = 0;
     Gfx_SetFrameReady();
-    __asm__ volatile("ei");
+    EE_EI();
     Gfx_WaitVSync();
 }
 

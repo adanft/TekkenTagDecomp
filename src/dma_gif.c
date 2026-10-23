@@ -250,7 +250,7 @@ void func_003430D8(u32 spr, void *tag) {
     volatile u32 *chan = (volatile u32 *)0x1000D400;
 
     spr &= 0x3FF0;
-    __asm__ volatile("1:\n\tnop\n\tnop\n\tnop\n\tnop\n\tnop\n\tbc0f 1b");
+    EE_WAIT_BC0F();
     *(volatile u32 *)0x1000E010 = 0x200;
     chan[12] = (u32)tag;
     chan[32] = spr;
@@ -265,7 +265,7 @@ void func_00343128(u32 spr, void *src, u32 qwc) {
     spr &= 0x3FF0;
     /* the wait and the register writes come from one macro (do { } while (0)) */
     do {
-        __asm__ volatile("1:\n\tnop\n\tnop\n\tnop\n\tnop\n\tnop\n\tbc0f 1b");
+        EE_WAIT_BC0F();
         *(volatile u32 *)0x1000E010 = 0x200;
         chan[4] = (u32)src;
         chan[32] = spr;
@@ -402,6 +402,9 @@ void func_00343340(Unk343340 *o, s32 side) {
     vu[0xFD] = D_00433400[1];
     vu[0xFE] = D_00433400[2];
     vu[0xFF] = D_00433400[3];
+#ifdef PORT
+    Port_Vu0LoadVf(8, &m[4], 4); /* VU0 vf8-vf11 for the skinning routines below */
+#else
     __asm__ volatile(
         "nop\n" /* [I] the original has a nop before the loads */
         "lqc2 $vf8, 0x0(%0)\n"
@@ -409,6 +412,7 @@ void func_00343340(Unk343340 *o, s32 side) {
         "lqc2 $vf10, 0x20(%0)\n"
         "lqc2 $vf11, 0x30(%0)\n"
         : : "r"(&m[4]));
+#endif
     if (side == 0) {
         for (i = 0; i < 2; i++) {
             if (D_005F67C0 == 1 && i == D_005F67C0) {
@@ -442,6 +446,7 @@ INCLUDE_ASM("asm/nonmatchings/dma_gif", func_00343340);
 /* func_003435C0, func_003436B8, func_003437B8 and func_003438B8 are handwritten VU0 macro-mode routines (lqc2,
  * ctc2, vcallms, jumps through $t4 into the middle of the unrolled body): each is one noreorder asm block (the
  * parameters are used in their argument registers), the compiler adds only the return of src ($a1). */
+#ifndef PORT /* hand-written EE / VU0 assembly: the PC build has its own (port/src/vu0_pc.c) */
 u128 *func_003435C0(u128 **dst, u128 *src, s32 n, u128 *hdr) {
     register u128 *p __asm__("$5") = src;
 
@@ -519,7 +524,9 @@ u128 *func_003435C0(u128 **dst, u128 *src, s32 n, u128 *hdr) {
                      : "$2", "$3", "$4", "$6", "$7", "$8", "$9", "$10", "$11", "$12", "$13", "$14", "memory");
     return p;
 }
+#endif
 
+#ifndef PORT /* hand-written EE / VU0 assembly: the PC build has its own (port/src/vu0_pc.c) */
 u128 *func_003436B8(u128 **dst, u128 *src, s32 n, s64 a) {
     register u128 *p __asm__("$5") = src;
 
@@ -599,7 +606,9 @@ u128 *func_003436B8(u128 **dst, u128 *src, s32 n, s64 a) {
                      : "$2", "$3", "$4", "$6", "$7", "$8", "$9", "$10", "$11", "$12", "$13", "$14", "memory");
     return p;
 }
+#endif
 
+#ifndef PORT /* hand-written EE / VU0 assembly: the PC build has its own (port/src/vu0_pc.c) */
 u128 *func_003437B8(u128 **dst, u128 *src, s32 n, s64 a) {
     register u128 *p __asm__("$5") = src;
 
@@ -679,7 +688,9 @@ u128 *func_003437B8(u128 **dst, u128 *src, s32 n, s64 a) {
                      : "$2", "$3", "$4", "$6", "$7", "$8", "$9", "$10", "$11", "$12", "$13", "$14", "memory");
     return p;
 }
+#endif
 
+#ifndef PORT /* hand-written EE / VU0 assembly: the PC build has its own (port/src/vu0_pc.c) */
 u128 *func_003438B8(u128 **dst, u128 *src, s32 n, u128 *hdr) {
     register u128 *p __asm__("$5") = src;
 
@@ -756,6 +767,7 @@ u128 *func_003438B8(u128 **dst, u128 *src, s32 n, u128 *hdr) {
                      : "$2", "$3", "$4", "$6", "$7", "$8", "$9", "$10", "$11", "$12", "$13", "$14", "memory");
     return p;
 }
+#endif
 
 /* NON_MATCHING: 167 lines: register allocation only (the frame and stack slots match; the original keeps `mats` in fp
  * and one more value in a callee-saved register, which renames every s register). */
@@ -764,6 +776,8 @@ u128 *func_003435C0(u128 **dst, u128 *src, s32 n, u128 *hdr);
 u128 *func_003436B8(u128 **dst, u128 *src, s32 n, s64 a);
 u128 *func_003437B8(u128 **dst, u128 *src, s32 n, s64 a);
 u128 *func_003438B8(u128 **dst, u128 *src, s32 n, u128 *hdr);
+u32 Spr_Setup(u32 count, s32 reserved);
+s32 *func_00343CA8(s32 *a, s32 *b, s32 *c);
 
 /* Streams the segments of part `id` through the scratchpad, expanding them into VU1 packets: type 1 records start a
  * block, type 2 records are expanded by the VU0 routines, type 0 uploads matrices (from `mats`) to VU0 memory. */

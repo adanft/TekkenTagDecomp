@@ -87,7 +87,7 @@ f32 fabsf(f32 x);
  * sqrtf has an errno fallback (as effects_draw.c's SqrtS) [I]. */
 static inline f32 SqrtS(f32 x) {
     f32 r;
-    __asm__ volatile("nop\n\tnop\n\tsqrt.s %0, %1" : "=f"(r) : "f"(x));
+    EE_SQRT_S(r, x);
     return r;
 }
 

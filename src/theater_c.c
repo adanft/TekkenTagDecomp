@@ -91,6 +91,7 @@ void func_003564C8(u8 *f, ThPose *p) {
 /* m = identity. The body is hand-written inline asm with its own return (a1 holds 1.0f, `sq $0` clears the rows);
  * the compiler's own `jr ra` / `nop` after it is what splat saw as func_00356738 [V: 0x356738 is that epilogue, the
  * next function starts 8-aligned]. */
+#ifndef PORT /* hand-written EE / VU0 assembly: the PC build has its own (port/src/vu0_pc.c) */
 void Mtx_Unit(u128 *m) {
     __asm__ volatile(".set noreorder\n\t"
                      "lui $5, 0x3F80\n\tsq $0, 0x0(%0)\n\tsq $0, 0x10(%0)\n\tsq $0, 0x20(%0)\n\tsq $0, 0x30(%0)\n\t"
@@ -98,14 +99,17 @@ void Mtx_Unit(u128 *m) {
                      ".set reorder"
                      : : "r"(m) : "$5", "memory");
 }
+#endif
 
 /* m = 0, the same way; splat's func_00356754 (not 8-aligned) is the compiler's epilogue after the asm. */
+#ifndef PORT /* hand-written EE / VU0 assembly: the PC build has its own (port/src/vu0_pc.c) */
 void Mtx_Zero(u128 *m) {
     __asm__ volatile(".set noreorder\n\t"
                      "sq $0, 0x0(%0)\n\tsq $0, 0x10(%0)\n\tsq $0, 0x20(%0)\n\tjr $31\n\tsq $0, 0x30(%0)\n\t"
                      ".set reorder"
                      : : "r"(m) : "memory");
 }
+#endif
 
 /* d.xyz = s.xyz */
 void func_00356760(f32 *d, f32 *s) {

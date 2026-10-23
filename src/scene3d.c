@@ -212,7 +212,7 @@ f32 sqrtf(f32 x);
 static inline f32 SqrtS(f32 x) {
     f32 r;
 
-    __asm__ volatile("nop\n\tnop\n\tsqrt.s %0, %1" : "=f"(r) : "f"(x));
+    EE_SQRT_S(r, x);
     return r;
 }
 s32 rand(void);

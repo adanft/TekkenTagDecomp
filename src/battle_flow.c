@@ -4076,6 +4076,10 @@ extern const char D_00500470[];
 extern const char D_00500488[];
 extern const char D_005004A0[];
 
+#ifdef PORT /* a variadic call needs its prototype on the host (defined further down) */
+s32 Text_Printf(const char *fmt, ...);
+#endif
+
 /* The round start texts by the round timer D_005F5EE8 (a longer window in round 1): "ROUND %d" (D_00500488), or
  * D_00500470 when D_005F5C72 is 1 and neither fighter has unk402, then "READY!" (D_005004A0) [V calls; I texts]. */
 void func_0036EDE0(void) {

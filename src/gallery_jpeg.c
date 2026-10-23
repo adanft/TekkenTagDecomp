@@ -600,8 +600,9 @@ LIT4_WORD(D_005F58E0, 0x461C4000);
 #define M32(p, o) (*(s32 *)((u8 *)(p) + (o)))
 f32 cosf(f32);
 f32 rand();
-u8 *func_003E6B10(f32 arg1, s32 arg0) {
+u32 *func_003E6B10(f32 arg1, u32 *arg0_) {
     u8 spbuf[0x400];
+    s32 arg0 = (s32)arg0_;
     f32 temp_f0;
     f32 temp_f1;
     f32 temp_f20;
@@ -684,7 +685,7 @@ LIT4_WORD(D_005F5918, 0x45BB8000);
 /* NON_MATCHING: rough m2c-based draft (VU1 particle packet set-up), not tuned */
 #define M32(p, o) (*(s32 *)((u8 *)(p) + (o)))
 u8 *func_00343F08();
-s32 *func_003E6B10(f32, s32 *);
+u32 *func_003E6B10(f32, u32 *);
 extern s32 D_005F706C;
 extern s32 D_005F7070;
 extern u8 *D_005F7074;
@@ -944,15 +945,16 @@ extern s32 D_005F5EE4;
 extern s32 D_005F5F10;
 extern s32 D_005F706C;
 extern s32 D_005F7070;
-extern s64 *D_005F7074;
+extern u8 *D_005F7074;
 extern u8 *D_005F7078;
-extern u8 *D_005F707C;
-extern s32 *D_005F7080;
+extern s32 *D_005F707C;
+extern u8 *D_005F7080;
 extern s32 *D_005F7084;
-extern s32 D_005F7088;
+extern u8 *D_005F7088;
 extern s16 gMode;
-void func_003E7270(s32 arg0) {
+void func_003E7270(void *arg0_) {
     u8 spbuf[0x400];
+    s32 arg0 = (s32)arg0_;
     f32 *temp_v1;
     f32 temp_f5;
     f32 var_f0;
@@ -970,12 +972,12 @@ void func_003E7270(s32 arg0) {
         func_00344150();
         func_003622F8();
         var_a0 = 0;
-        *D_005F7074 = M32(func_00343F08(6), 0x10);
+        *(s64 *)D_005F7074 = M32(func_00343F08(6), 0x10);
         do {
             temp_v0_2 = var_a0 * 4;
             temp_v1 = temp_v0_2 + arg0;
             var_a0 += 1;
-            *(s32 *)(temp_v0_2 + D_005F7088) = *temp_v1;
+            *(s32 *)(temp_v0_2 + (s32)D_005F7088) = *temp_v1;
         } while (var_a0 < 0x10);
         temp_s0 = (s32) M32(((u8 *)&D_00415808), 0x4) * -0x10;
         temp_a0 = temp_s0 & 0xFFFF;
@@ -996,7 +998,7 @@ void func_003E7270(s32 arg0) {
         M32(D_005F7078, 0x8) = (f32) (((f32) temp_f20 - (temp_f5 * 30000.0f)) - (f32) M32(((u8 *)&D_00415808), 0x1C));
         M32(D_005F707C, 0x0) = (f32) (0 + (0 * 6000.0f) + (f32) M32(((u8 *)&D_00415808), 0x14));
         M32(D_005F707C, 0x8) = (f32) ((0 - (temp_f5 * 6000.0f)) - (f32) M32(((u8 *)&D_00415808), 0x1C));
-        *D_005F7080 = D_005F706C;
+        *(s32 *)D_005F7080 = D_005F706C;
         *D_005F7084 = D_005F706C;
         FlushCache(0, D_005F7080);
         Spr_Setup(1, 0x200);

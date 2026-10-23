@@ -146,7 +146,9 @@ extern const u8 D_0051EA10[];
 extern const u8 D_0051EA30[];
 
 /* The original calls __fixunssfsi for a float to u32 conversion; this compiler emits fptoui (decomp_guide.md, T17 b4). */
+#ifndef PORT
 __asm__(".set fptoui, __fixunssfsi"); /* fake */
+#endif
 
 /* callees */
 void func_003992C8(s32 value);

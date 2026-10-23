@@ -291,14 +291,20 @@ void func_0035D588(void) {
     u8 *end;
 
     do {
-        __asm__ volatile("di");
-        __asm__ volatile("sync.p");
-        __asm__ volatile("mfc0 %0, $12" : "=r"(status));
+        EE_DI();
+        EE_SYNC_P();
+        EE_MFC0_STATUS(status);
     } while (status & 0x10000);
     dst = (u8 *)&D_00415E80;
     src = (u8 *)0x70000000;
     end = (u8 *)0x70000100;
 loop:
+#ifdef PORT
+    ((u64 *)dst)[0] = ((u64 *)src)[0];
+    ((u64 *)dst)[1] = ((u64 *)src)[1];
+    ((u64 *)dst)[2] = ((u64 *)src)[2];
+    ((u64 *)dst)[3] = ((u64 *)src)[3];
+#else
     __asm__ volatile(
         "ld $6, 0(%0)\n"
         "ld $7, 8(%0)\n"
@@ -311,13 +317,14 @@ loop:
         "sd $8, 16(%0)\n"
         "sd $9, 24(%0)\n"
         : : "r"(dst) : "$6", "$7", "$8", "$9", "memory");
+#endif
     src += 0x20;
     dst += 0x20;
     if (src != end) {
         goto loop;
     }
     D_00415E80.unk100 = 1;
-    __asm__ volatile("ei");
+    EE_EI();
 }
 
 /* Restores the scratchpad header from D_00415E80 with interrupts off. */
@@ -328,14 +335,20 @@ void func_0035D608(void) {
     u8 *end;
 
     do {
-        __asm__ volatile("di");
-        __asm__ volatile("sync.p");
-        __asm__ volatile("mfc0 %0, $12" : "=r"(status));
+        EE_DI();
+        EE_SYNC_P();
+        EE_MFC0_STATUS(status);
     } while (status & 0x10000);
     src = (u8 *)&D_00415E80;
     dst = (u8 *)0x70000000;
     end = (u8 *)&D_00415E80.unk100;
 loop:
+#ifdef PORT
+    ((u64 *)dst)[0] = ((u64 *)src)[0];
+    ((u64 *)dst)[1] = ((u64 *)src)[1];
+    ((u64 *)dst)[2] = ((u64 *)src)[2];
+    ((u64 *)dst)[3] = ((u64 *)src)[3];
+#else
     __asm__ volatile(
         "ld $6, 0(%0)\n"
         "ld $7, 8(%0)\n"
@@ -348,13 +361,14 @@ loop:
         "sd $8, 16(%0)\n"
         "sd $9, 24(%0)\n"
         : : "r"(dst) : "$6", "$7", "$8", "$9", "memory");
+#endif
     src += 0x20;
     dst += 0x20;
     if (src != end) {
         goto loop;
     }
     D_00415E80.unk100 = 0;
-    __asm__ volatile("ei");
+    EE_EI();
 }
 
 void *func_0035D680(void) {
@@ -419,11 +433,11 @@ void func_0035D790(s32 arg) {
     Dma_Wait((volatile u32 *)0x10009000);
     Dma_Wait((volatile u32 *)0x1000A000);
     *(volatile u32 *)0x1000E010 = 2;
-    __asm__ volatile("sync");
-    __asm__ volatile("sync.p");
+    EE_SYNC();
+    EE_SYNC_P();
     *(volatile u32 *)0x1000E010 = 4;
-    __asm__ volatile("sync");
-    __asm__ volatile("sync.p");
+    EE_SYNC();
+    EE_SYNC_P();
     gSprDma.unk2 = 0;
     gSprDma.unk3 = 0;
     gSprDma.pending = 0;
@@ -470,7 +484,7 @@ void func_0035D958(volatile u32 *chan, s32 state) {
     }
     func_0035D738();
     *(volatile u32 *)0x1000E000 &= ~0xC;
-    __asm__ volatile("sync");
+    EE_SYNC();
     if (running) {
         chan[0] |= 0x100;
     }
@@ -534,19 +548,19 @@ void func_0035DB90(void) {
     func_0035DA70();
     *(u32 *)0x70000018 = 0x1000D000;
     do {
-        __asm__ volatile("di");
+        EE_DI();
         s++; /* fake (decomp-permuter): s set more than once, so the scheduler keeps the 0x1000D010 */
         s--; /* load after the stores through it, as in the original */
-        __asm__ volatile("sync.p");
-        __asm__ volatile("mfc0 %0, $12" : "=r"(status));
+        EE_SYNC_P();
+        EE_MFC0_STATUS(status);
     } while (status & 0x10000);
     s->pending++;
     s->state = 2;
     s->unkC = *(u32 *)0x1000D010;
     func_0035DFA8(s);
-    __asm__ volatile("nop");
-    __asm__ volatile("sync.l");
-    __asm__ volatile("ei");
+    EE_NOP();
+    EE_SYNC_L();
+    EE_EI();
 }
 
 void func_0035DC20(void) {
@@ -584,9 +598,9 @@ void func_0035DC58(void) {
     *(u32 *)0x1000D010 = (u32)ring;
     wait = s->unk24;
     do {
-        __asm__ volatile("di");
-        __asm__ volatile("sync.p");
-        __asm__ volatile("mfc0 %0, $12" : "=r"(status));
+        EE_DI();
+        EE_SYNC_P();
+        EE_MFC0_STATUS(status);
     } while (status & 0x10000);
     s->pending++;
     s->state = 3;
@@ -596,9 +610,9 @@ void func_0035DC58(void) {
     if (wait == 0 || s->unk2 >= 2) {
         func_0035DFF0(s);
     }
-    __asm__ volatile("nop");
-    __asm__ volatile("sync.l");
-    __asm__ volatile("ei");
+    EE_NOP();
+    EE_SYNC_L();
+    EE_EI();
 }
 #else
 INCLUDE_ASM("asm/nonmatchings/dma_spr", func_0035DC58);
@@ -612,17 +626,17 @@ void func_0035DDE0(void) {
     s--; /* stores through it, as in the original */
     *(u32 *)0x70000018 = 0x1000D000;
     do {
-        __asm__ volatile("di");
-        __asm__ volatile("sync.p");
-        __asm__ volatile("mfc0 %0, $12" : "=r"(status));
+        EE_DI();
+        EE_SYNC_P();
+        EE_MFC0_STATUS(status);
     } while (status & 0x10000);
     s->pending++;
     s->state = 4;
     s->unk14 = *(u32 *)0x1000D010;
     func_0035E048(s);
-    __asm__ volatile("nop");
-    __asm__ volatile("sync.l");
-    __asm__ volatile("ei");
+    EE_NOP();
+    EE_SYNC_L();
+    EE_EI();
 }
 
 void func_0035DE68(void) {
@@ -633,17 +647,17 @@ void func_0035DE68(void) {
     s--; /* stores through it, as in the original */
     *(u32 *)0x70000018 = 0x1000D000;
     do {
-        __asm__ volatile("di");
-        __asm__ volatile("sync.p");
-        __asm__ volatile("mfc0 %0, $12" : "=r"(status));
+        EE_DI();
+        EE_SYNC_P();
+        EE_MFC0_STATUS(status);
     } while (status & 0x10000);
     s->pending++;
     s->state = 5;
     s->unk18 = *(u32 *)0x1000D010;
     func_0035E100(s);
-    __asm__ volatile("nop");
-    __asm__ volatile("sync.l");
-    __asm__ volatile("ei");
+    EE_NOP();
+    EE_SYNC_L();
+    EE_EI();
 }
 
 void func_0035DEF0(void) {
@@ -724,14 +738,14 @@ void func_0035E1C8(void) {
 
     if (gSprDma.unk20 == 0) {
         do {
-            __asm__ volatile("di");
-            __asm__ volatile("sync.p");
-            __asm__ volatile("mfc0 %0, $12" : "=r"(status));
+            EE_DI();
+            EE_SYNC_P();
+            EE_MFC0_STATUS(status);
         } while (status & 0x10000);
         func_0035DFF0(&gSprDma);
-        __asm__ volatile("nop");
-        __asm__ volatile("sync.l");
-        __asm__ volatile("ei");
+        EE_NOP();
+        EE_SYNC_L();
+        EE_EI();
     }
 }
 
@@ -754,8 +768,8 @@ s32 func_0035E228(s32 channel) {
             iDisableDmac(1);
             break;
         }
-        __asm__ volatile("sync.l");
-        __asm__ volatile("ei");
+        EE_SYNC_L();
+        EE_EI();
         return 0;
     }
     return 0;
@@ -778,8 +792,8 @@ s32 func_0035E2E8(s32 channel) {
             iDisableDmac(2);
             break;
         }
-        __asm__ volatile("sync.l");
-        __asm__ volatile("ei");
+        EE_SYNC_L();
+        EE_EI();
         return 0;
     }
     return 0;
