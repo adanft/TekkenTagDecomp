@@ -4,15 +4,20 @@ The PC port is built from the same C as the matching decompilation. Nothing of t
 takes the game's data from the split of **your own** `SLUS_200.01` (the one the matching build already uses) and
 writes everything under `build/port/`, which git ignores.
 
-## Status (T21, 2026-10-22)
+## Status (T22, 2026-10-22)
 
 - Every game C file the matching build links (59) compiles for 32-bit x86 Linux with the host gcc, with the
   NON_MATCHING drafts switched on: every game function comes from C, except the hand-written EE / VU0 routines
   listed under [Hand replacements](#hand-replacements).
-- The program links into `build/port/ttt` (32-bit ELF) with generated stubs. It is not expected to run yet: the
-  PS2 memory regions (T22), the EE float model and the PS2's libm (T23) and the kernel / SIF / CD layer (T24) come
-  next.
-- Last clean build: 62 objects (59 game, 3 port), 1270 data objects, 22 names placed by address, 190 stubs
+- The program links into `build/port/ttt` (32-bit ELF) with generated stubs and runs on the PS2's memory map
+  ([Memory map](#memory-map)): the game's data at its PS2 addresses, EE RAM with its uncached views, the hardware
+  registers and the scratchpad. It starts the game's `main` and stops at the first missing library function,
+  `sceSifInitRpc` (the first call of `Sys_Init`). With `TTT_STUB_RETURN=1` it goes on through `Sys_BootIop`,
+  `sceDmaReset`, `sceVpu0Reset`, `sceGsResetPath`, the register writes of `Sys_Init`, `func_0035D458`,
+  `func_0035E400` and into `Gfx_Init`, where `Dma_Wait` waits forever for the first VIF0 transfer: the registers
+  are plain memory and nothing runs the DMA yet. The EE float model and the PS2's libm (T23), the kernel / SIF / CD
+  layer and VBlank (T24) and the DMA / GS path (T28) come next.
+- Last clean build: 63 objects (59 game, 4 port), 1270 data objects, 22 names placed by address, 190 stubs
   (102 Sony SDK `sce*`, 39 other library functions by address, 24 kernel calls, 13 libgcc soft-float helpers,
   9 libm, 3 libmpeg internals).
 - `TTT_CC=clang` (game code through clang 23) is not there yet: 55 of 62 objects; the other 7 stop on an implicit
@@ -30,9 +35,9 @@ from the repository root. Heavy runs go through `scripts/cool.sh`.
 
 | Step | Tool | Writes |
 |---|---|---|
-| 1 | `port/tools/gen_data.py` | `build/port/gen/data/*.s` (host assembly of the game's data), `build/port/obj_data/*.o`, `build/port/gen/chunks.txt` |
+| 1 | `port/tools/gen_data.py` | `build/port/gen/data/*.s` (host assembly of the game's data), `build/port/obj_data/*.o`, `build/port/gen/chunks.txt`, `build/port/gen/image.txt` |
 | 2 | `port/tools/undefined.py [-v]` | `build/port/gen/src/*.c` (sources with the drafts on), `build/port/obj/*.o`, `build/port/undefined.txt` (what a link still needs, by kind), `build/port/objects.txt` |
-| 3 | `port/tools/link.py` | `build/port/gen/symbols.ld`, `build/port/gen/stubs.c`, `build/port/stubs.txt`, `build/port/ttt` and its map |
+| 3 | `port/tools/link.py` | `build/port/gen/image.ld`, `build/port/gen/symbols.ld`, `build/port/gen/stubs.c`, `build/port/stubs.txt`, `build/port/ttt` and its map |
 
 Shared modules: `toolchain.py` (paths, compiler flags, `TTT_CC`), `portsrc.py` (the list of game sources from
 `config/SLUS_200.01.yaml` and the switch that turns drafts on). Their pure helpers are tested by
@@ -66,8 +71,13 @@ Shared modules: `toolchain.py` (paths, compiler flags, `TTT_CC`), `portsrc.py` (
   every `asm/data/*.{data,rodata,lit4,sdata,sbss,bss}.s`, every table a C file takes with `INCLUDE_RODATA`, and
   the data blocks splat moved into the files of functions that are still drafts (strings and constants the draft
   C refers to by name). `.word` becomes `.long`, `.align N` becomes `.p2align N`, a word that points at a label
-  inside library assembly becomes 0, and each chunk starts at its PS2 offset modulo 16. Jump tables are left out:
-  the C makes its own. Everything goes into writable sections (the game patches some read-only tables).
+  inside library assembly becomes 0. Jump tables are left out: the C makes its own. Each file goes into a writable
+  section of its own, `.ttt.<file>` (the game patches some read-only tables), aligned only as far as its PS2 address
+  is, and `image.txt` lists each section with its PS2 address, size and kind.
+- `link.py` turns `image.txt` into `image.ld`, a linker script (`INSERT AFTER .bss`) that puts every one of those
+  sections at its PS2 address: the initialised ones in the output section `.ttt_data` (0x00415700 on), `.sbss` and
+  `.bss` in `.ttt_bss` (0x005F6B00 to 0x01FCDEF0). Overlapping files are refused. The game's code stays native
+  wherever the host linker puts it (0x08049000 on).
 - Each split chunk gets a label `__chunk_<file>`; `chunks.txt` records its PS2 address and its size.
 - `link.py` asks the linker what nobody defines, then places what it can by PS2 address in
   `build/port/gen/symbols.ld`: a name inside a split chunk becomes that chunk's label plus the offset (labels splat
@@ -79,6 +89,9 @@ Shared modules: `toolchain.py` (paths, compiler flags, `TTT_CC`), `portsrc.py` (
 
 - A generated stub (`build/port/gen/stubs.c`) prints `ttt: not implemented yet: <name>` and exits with code 3.
   `build/port/stubs.txt` is the to-do list of the platform layer.
+- `TTT_STUB_RETURN=<n>` (a developer's switch): every stub prints its first call and returns `n` instead, to see how
+  far the start gets past the missing functions; a stub called a million times (a retry loop such as
+  `while (sceSifRebootIop(...) == 0)` with `n = 0`) stops the program.
 - `port/src/plat_stub.c` has the same helper (`Port_Missing`) for the port's own placeholders. Library functions
   move out of the generated list as they get real implementations (T24 and later).
 - No host libm is linked. Under `-msoft-float` the game expects float results in `eax`; the host's `sinf` /
@@ -89,12 +102,44 @@ Shared modules: `toolchain.py` (paths, compiler flags, `TTT_CC`), `portsrc.py` (
   `strcmp`, `strcat`, `sprintf`, `printf`, `abs`, `exit`) and, for now, `rand` / `srand`. The game's random numbers
   must come from the PS2's newlib `rand` (simulation state, `docs/known_bugs.md`): T23.
 
+### Memory map
+
+The game keeps addresses in 4-byte fields, writes hardware registers by number (`0x10000000`, `0x12000000`), keeps
+fixed buffers in EE RAM outside its program (`D_100000`, `D_168A30`, the rings at `D_200000` / `D_300000`), and
+makes uncached views of its own variables (`(addr & 0x0FFFFFFF) | 0x20000000` in `file.c` and `movie.c`,
+`D_004362A0 | 0x30000000` in `gfx.c`). So the 32-bit build gives it the PS2's address space at the PS2's addresses,
+set up by a constructor in `port/src/plat_mem.c` before anything of the game runs:
+
+| PS2 address | Size | Here |
+|---|---|---|
+| `0x00010000`-`0x02000000` | 32 MB less 64 KB | EE RAM: one shared memory object (`memfd`) mapped over the range the loader filled with `.ttt_data` / `.ttt_bss`, after copying the data into it. Holds the game's data and bss at their addresses, the fixed buffers below the program, and the PS2 stack area above the bss. |
+| `0x20000000`, `0x30000000` | 32 MB each | the uncached and uncached-accelerated views: the same memory object mapped again, so a write through any view is seen through the others. |
+| `0x10000000` | 64 KB | EE hardware registers (timers, IPU, GIF, VIF, DMA, INTC, SIF): plain memory. |
+| `0x11000000` | 64 KB | VU0 / VU1 micro and data memory: plain memory. |
+| `0x12000000` | 8 KB | GS privileged registers: plain memory. |
+| `0x70000000` | 16 KB | scratchpad. |
+
+- The registers read back what was last written (0 at start). Behaviour behind them (timer counts, DMA completion,
+  the GS CSR) belongs to T24 / T28; until then a loop on a register spins forever (`Dma_Wait` in `Gfx_Init`, Timer 0
+  in `Frame_PreUpdate`).
+- Not identity-mapped: the first 64 KB of EE RAM (Linux refuses addresses below `vm.mmap_min_addr`, 0x10000; they
+  are reachable at `0x20000000 + addr`) and KSEG0 / KSEG1 (`0x80000000` / `0xA0000000`), which the game does not
+  use. The program's own code, the C library, the host heap and the host stack stay above `0x08000000`; the game's
+  functions run on the host stack (as in the reference port's 32-bit build), so a stack address the game stores is a
+  host one.
+- The mapping refuses to replace anything but the game image in EE RAM (it reads `/proc/self/maps` first) and
+  refuses to map over anything at the other addresses (`MAP_FIXED_NOREPLACE`): a clash stops the program with
+  `ttt: cannot map ...` (exit code 2).
+- `TTT_SELFTEST=mem build/port/ttt` checks the map on the running program (views, data copied, bss zero,
+  scratchpad, registers, the helpers below) and exits; `tests/test_port_mem.py` runs it and checks with `nm` that
+  every chunk label and every `D_XXXXXXXX` data label of the program sits at its PS2 address.
+
 ### Addresses
 
 `port/src/port_addr.h` has `Port_Ptr` / `Port_Addr`, plain casts in the 32-bit build (a game address is a host
-address). The game also uses PS2 addresses by number (scratchpad `0x70000000`, hardware registers `0x10000000`,
-VU0 memory `0x11000000`, the heap after `.bss`): they link as absolute addresses and fault when used until T22 maps
-those regions.
+address), and helpers for the port's own code: `Port_EePhys` (the physical EE RAM address of any view),
+`Port_IsEeRam`, and `Port_DmaPtr` (what a DMA address designates: the scratchpad when bit 31 is set, else EE RAM).
+The game's own code needs none of them: it uses its addresses as they are.
 
 ## Hand replacements
 
@@ -139,8 +184,14 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
    a fourth (`$a2`) that the callers leave from earlier code. The PC version must find which value that is.
 6. **Soft-float ABI.** Float results travel in `eax` under `-msoft-float` and on the x87 stack in host libraries:
    no host libm, and port code that the game calls is built with the game's float flags.
+7. **The ELF headers land in EE RAM.** With the game's data as the lowest segment, `ld` puts the program's headers
+   in front of it (`PHDR` at 0x00415034, inside the PS2's code range). The C library may still read them, so
+   `plat_mem.c` copies EE RAM from the start of that page, not from the first data byte.
+8. **Placing data at its address needs exact sizes.** Each data file is placed by its first item's PS2 address;
+   it keeps the PS2 layout only because every item keeps its size and the file's `.align` lines are no stricter
+   than its address. The `nm` check of `tests/test_port_mem.py` catches a file that drifts.
 
 ## Next
 
-T22 memory map (PS2 regions, heap at the PS2 addresses), T23 EE float model, `softfloat_ps2`, newlib libm and
-`rand`, T24 kernel / SIF / CD replacements and VBlank, then the placeholders above by hand.
+T23 EE float model, `softfloat_ps2`, newlib libm and `rand`; T24 kernel / SIF / CD replacements and VBlank (and the
+timer registers); the DMA / GS path (T28); then the placeholders above by hand.

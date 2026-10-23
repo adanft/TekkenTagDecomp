@@ -141,23 +141,23 @@ class ConvertTest(unittest.TestCase):
         out = gen_data.convert(DATA, "data")
         self.assertIn(".globl D_00415704\nD_00415704:", out)
 
-    def test_same_offset_modulo_16(self):
-        out = gen_data.convert(DATA, "data")
-        self.assertIn(".p2align 4\n.space 4\n", out)
+    def test_own_section_aligned_to_the_address(self):
+        out = gen_data.convert(DATA, "data", section="D6700_data")
+        self.assertTrue(out.startswith('.section .ttt.D6700_data, "aw", @progbits\n.p2align 2\n'))
+        self.assertNotIn(".space 4\n", out)  # placed at its PS2 address by the link: no padding in front
 
     def test_align_is_power_of_two(self):
         self.assertIn(".p2align 3", gen_data.convert(DATA, "data"))
 
     def test_bss_section(self):
-        out = gen_data.convert(BSS, "bss")
-        self.assertTrue(out.startswith(".section .bss"))
+        out = gen_data.convert(BSS, "bss", section="b")
+        self.assertTrue(out.startswith('.section .ttt.b, "aw", @nobits\n.p2align 3\n'))
         self.assertIn(".space 0x120", out)
 
     def test_rodata_is_writable_data(self):
-        out = gen_data.convert(RODATA, "rodata")
-        self.assertTrue(out.startswith(".section .data"))
+        out = gen_data.convert(RODATA, "rodata", section="r")
+        self.assertTrue(out.startswith('.section .ttt.r, "aw", @progbits\n.p2align 0\n'))
         self.assertIn('.asciz "cdrom:\\\\IRX"', out)
-        self.assertIn(".space 1\n", out)
 
     def test_unknown_directive_refused(self):
         with self.assertRaises(ValueError):
@@ -212,8 +212,9 @@ class FunctionDataTest(unittest.TestCase):
 class StubTest(unittest.TestCase):
     def test_one_stub_per_name(self):
         src = link.stub_source(["sceGsResetPath", "memcpy"])
-        self.assertIn('void sceGsResetPath(void) { missing("sceGsResetPath"); }', src)
-        self.assertIn('void memcpy(void) { missing("memcpy"); }', src)
+        self.assertIn('int sceGsResetPath(void) { static int n; return missing("sceGsResetPath", &n); }', src)
+        self.assertIn('int memcpy(void) { static int n; return missing("memcpy", &n); }', src)
+        self.assertIn('getenv("TTT_STUB_RETURN")', src)
 
     def test_names_inside_a_data_chunk_or_outside_the_image(self):
         chunks = [("__chunk_D6700", 0x415700, 0x100), ("__chunk_bss", 0x5F7180, 0x200)]
@@ -226,7 +227,7 @@ class StubTest(unittest.TestCase):
 
     def test_chunk_label_in_convert(self):
         out = gen_data.convert(DATA, "data", label="__chunk_x")
-        self.assertIn(".space 4\n.globl __chunk_x\n__chunk_x:\n", out)
+        self.assertIn(".p2align 2\n.globl __chunk_x\n__chunk_x:\n", out)
 
     def test_undefined_names_from_linker(self):
         err = "a.o: in function `f':\nx.c:(.text+0x1): undefined reference to `sceSifInitRpc'\n" \
@@ -256,3 +257,35 @@ class ClassifyTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ImageScriptTest(unittest.TestCase):
+    """The linker script that puts every data file at its PS2 address (one section each, see gen_data.convert)."""
+    ENTRIES = [("bss", 0x5F7180, 0x200, True), ("D6700_data", 0x415700, 0x100, False),
+               ("x_rodata", 0x415804, 4, False), ("sbss", 0x5F6B00, 0x680, True)]
+
+    def test_data_and_bss_at_their_addresses(self):
+        s = link.image_script(self.ENTRIES)
+        self.assertIn(".ttt_data 0x00415700 :", s)
+        self.assertIn(".ttt_bss 0x005F6B00 (NOLOAD) :", s)
+        self.assertLess(s.index("*(.ttt.D6700_data)"), s.index(". = 0x104;"))
+        self.assertLess(s.index(". = 0x104;"), s.index("*(.ttt.x_rodata)"))
+        self.assertIn(". = 0x680;\n    *(.ttt.bss)", s)
+        self.assertIn("INSERT AFTER .bss;", s)
+
+    def test_bounds_named(self):
+        s = link.image_script(self.ENTRIES)
+        for name in ("__ttt_data_start", "__ttt_data_end", "__ttt_bss_start", "__ttt_bss_end"):
+            self.assertIn(name + " = ", s)
+
+    def test_overlap_refused(self):
+        with self.assertRaises(ValueError):
+            link.image_script([("a", 0x415700, 0x10, False), ("b", 0x415708, 4, False)])
+
+    def test_data_after_bss_refused(self):
+        with self.assertRaises(ValueError):
+            link.image_script([("a", 0x415700, 0x10, True), ("b", 0x415800, 4, False)])
+
+    def test_section_name_of_a_file(self):
+        self.assertEqual(gen_data.section_name("1BBF70.data.s"), "1BBF70_data")
+        self.assertEqual(gen_data.section_name("fn_func_003608E0_0.rodata.s"), "fn_func_003608E0_0_rodata")

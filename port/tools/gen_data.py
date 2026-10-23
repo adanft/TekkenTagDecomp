@@ -6,11 +6,14 @@ include with INCLUDE_RODATA) from files that splat generates out of the user's o
 pointers symbolic (`.word SomeFunc`), which is what a PC build needs: the host linker fills in the PC addresses.
 This tool rewrites them for the host assembler: `.word` -> `.long` (a "word" is 2 bytes on x86), `.align N` ->
 `.p2align N`, a reference to a label inside an assembly function (a jump table of library code the PC build does
-not use) -> 0, and every chunk starts at the same offset modulo 16 as on the PS2, so data that must be 16-byte
-aligned stays aligned. Everything goes into writable sections (the game patches some of its read-only tables).
+not use) -> 0. Each file goes into a section of its own (`.ttt.<file>`) that link.py places at the file's PS2
+address (gen/image.txt lists them), so every game address is the same as on the PS2: the game's pointers, the
+uncached aliases it makes of them and its fixed buffers all work unchanged (docs/port/README.md, "Memory map").
+Everything is writable (the game patches some of its read-only tables).
 
 Usage: port/tools/gen_data.py          (needs the matching build's split: .venv/bin/python configure.py)
-Output: build/port/gen/data/*.s and build/port/obj_data/*.o: generated from the user's game, never committed."""
+Output: build/port/gen/data/*.s, build/port/obj_data/*.o, build/port/gen/chunks.txt and image.txt: generated from
+the user's game, never committed."""
 import re
 import subprocess
 import sys
@@ -19,7 +22,7 @@ from toolchain import ASM, DATA_OBJ, GEN, ROOT
 import portsrc
 
 KINDS = ("data", "rodata", "lit4", "sdata", "sbss", "bss")
-SECTION = {k: ".bss" if k in ("bss", "sbss") else ".data" for k in KINDS}
+NOBITS = ("bss", "sbss")
 PLAIN = (".byte", ".short", ".float", ".asciz", ".ascii", ".space", ".double")
 
 
@@ -34,14 +37,23 @@ def chunk_address(text):
     return int(m.group(1), 16) if m else 0
 
 
-def convert(text, kind, addr=None, label=None):
-    """Host assembly for one split data file of the given kind; `label` names its first byte (the PS2 address
-    `addr`), so that link.py can place names that point inside it."""
+def section_name(filename):
+    """Name of the section (after `.ttt.`) of a generated data file: `1BBF70.data.s` -> `1BBF70_data`."""
+    return filename[:-2].replace(".", "_") if filename.endswith(".s") else filename.replace(".", "_")
+
+
+def convert(text, kind, addr=None, label=None, section=None):
+    """Host assembly for one split data file of the given kind, in a section of its own (`.ttt.<section>`) that the
+    link puts at the PS2 address `addr`. The section is aligned only as far as that address is (16 at most), so the
+    file's own `.align` lines fall where they fell on the PS2. `label` names its first byte, so that link.py can
+    place names that point inside it."""
     if addr is None:
         addr = chunk_address(text)
-    out = [f".section {SECTION[kind]}", ".p2align 4"]
-    if addr & 15:
-        out.append(f".space {addr & 15}")
+    if section is None:
+        section = f"{addr:08X}"
+    flags = "@nobits" if kind in NOBITS else "@progbits"
+    align = min(4, (addr & -addr).bit_length() - 1) if addr else 4
+    out = [f'.section .ttt.{section}, "aw", {flags}', f".p2align {align}"]
     if label:
         out += [f".globl {label}", f"{label}:"]
     for l in text.splitlines():
@@ -60,6 +72,7 @@ def convert(text, kind, addr=None, label=None):
             out.append("    " + s)
         else:
             raise ValueError(f"unhandled line: {s}")
+    out.append(f"# ps2 0x{addr:08X}")  # where the link puts it (image.txt)
     return "\n".join(out) + "\n"
 
 
@@ -100,7 +113,7 @@ def main():
             continue  # the ELF header and trailer: not part of the program
         text = src.read_text()
         label = "__chunk_" + src.name[:-2].replace(".", "_")
-        (dst / src.name).write_text(convert(text, parts[1], label=label))
+        (dst / src.name).write_text(convert(text, parts[1], label=label, section=section_name(src.name)))
         chunks[label] = (chunk_address(text), DATA_OBJ / (src.name[:-2] + ".o"))
         n += 1
     m = 0
@@ -109,7 +122,8 @@ def main():
             src = ROOT / folder / f"{name}.s"
             if not src.exists():
                 sys.exit(f"missing {src.relative_to(ROOT)}: run `.venv/bin/python configure.py --split`")
-            (dst / f"inc_{name}.rodata.s").write_text(convert(src.read_text(), "rodata"))
+            out = f"inc_{name}.rodata.s"
+            (dst / out).write_text(convert(src.read_text(), "rodata", section=section_name(out)))
             m += 1
     k = 0
     for c in portsrc.sources():
@@ -117,7 +131,8 @@ def main():
             if name in portsrc.REPLACED:
                 continue
             for i, (kind, block) in enumerate(function_data((ROOT / folder / f"{name}.s").read_text())):
-                (dst / f"fn_{name}_{i}.{kind}.s").write_text(convert(block, kind))
+                out = f"fn_{name}_{i}.{kind}.s"
+                (dst / out).write_text(convert(block, kind, section=section_name(out)))
                 k += 1
     print(f"gen_data: {n} data chunks, {m} included tables and {k} function data blocks written to "
           f"{dst.relative_to(ROOT)}")
@@ -135,12 +150,20 @@ def main():
     for label, (addr, obj) in sorted(chunks.items(), key=lambda kv: kv[1][0]):
         lines.append(f"{label} 0x{addr:08X} 0x{section_size(obj):X}\n")
     (GEN / "chunks.txt").write_text("".join(lines))
+    # every file's section, PS2 address, size and kind: link.py places them (image_script)
+    image = []
+    for f in sorted(dst.glob("*.s")):
+        addr = int(re.search(r"^# ps2 0x([0-9A-F]{8})$", f.read_text(), re.M).group(1), 16)
+        kind = f.name.split(".")[-2]
+        image.append((addr, f"{section_name(f.name)} 0x{addr:08X} 0x{section_size(DATA_OBJ / (f.name[:-2] + '.o')):X} "
+                            f"{'nobits' if kind in NOBITS else 'progbits'}\n"))
+    (GEN / "image.txt").write_text("".join(l for _, l in sorted(image)))
 
 
 def section_size(obj):
-    """Size of the one data section (.data or .bss) of an assembled chunk."""
+    """Size of the one data section (.ttt.<file>) of an assembled data file."""
     out = subprocess.run(["size", "-A", str(obj)], capture_output=True, text=True, check=True).stdout
-    return sum(int(m.group(2)) for m in re.finditer(r"^(\.data|\.bss)\s+(\d+)", out, re.M))
+    return sum(int(m.group(1)) for m in re.finditer(r"^\.ttt\.\S+\s+(\d+)", out, re.M))
 
 
 if __name__ == "__main__":
