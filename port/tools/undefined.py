@@ -14,7 +14,7 @@ import re
 import subprocess
 import sys
 
-from toolchain import (BUILD, DATA_OBJ, NEWLIB, NEWLIB_CFLAGS, OBJ, PORT_CFLAGS, ROOT, VU_FILES, cc, game_cflags,
+from toolchain import (BUILD, DATA_OBJ, HOT_CFLAGS, HOT_FILES, NEWLIB, NEWLIB_CFLAGS, OBJ, PORT_CFLAGS, ROOT, VU_FILES, cc, game_cflags,
                        vu_redefine_args)
 import portsrc
 
@@ -78,7 +78,7 @@ def jobs():
             missing[f.name] = miss
         out.append((cc(), src, OBJ / f"{f.stem}.o", game_cflags() + [f"-I{ROOT / 'src'}"]))
     for f in sorted((ROOT / "port/src").glob("*.c")):
-        out.append(("gcc", f, OBJ / f"pc_{f.stem}.o", PORT_CFLAGS))
+        out.append(("gcc", f, OBJ / f"pc_{f.stem}.o", PORT_CFLAGS + (HOT_CFLAGS if f.name in HOT_FILES else [])))
     for f in sorted(NEWLIB.glob("*.c")):  # the PS2's maths library, on the EE float model
         out.append(("gcc", f, OBJ / f"nl_{f.stem}.o", NEWLIB_CFLAGS))
     return out, missing

@@ -451,6 +451,14 @@ void Port_HwPoll(void) {
     } else {
         uint64_t now = host_ns() - sHostStart, next = vblank_cycle(sVBlanks + 1);
         to = now * (BUSCLK / 1000000ull) / 1000ull;
+        if (to > vblank_cycle(sVBlanks + 2)) {
+            /* more than a VBlank behind (the host stalled): the lost time is dropped, at most one VBlank per poll.
+               A burst of VBlanks in one poll would run the game's VBlank handler again before the DMA it waits for
+               could finish (polls inside a handler return at once). */
+            uint64_t keep = next * 1000ull / (BUSCLK / 1000000ull);
+            sHostStart += now - keep;
+            to = next;
+        }
         if (next > to && next - to > BUSCLK / 1000ull) { /* more than 1 ms to the next VBlank: give the CPU back */
             struct timespec ts = { 0, 200000 };
             nanosleep(&ts, NULL);

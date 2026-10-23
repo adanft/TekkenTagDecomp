@@ -15,8 +15,11 @@
 #define PORT_EE_STACK_TOP 0x01FFFF00u
 
 int __real_main(int argc, char **argv);
+int Port_WindowOpen(void); /* plat_window.c */
 
 int __wrap_main(int argc, char **argv) {
+    /* the window first, on the host stack: SDL's start-up is neither for the EE stack nor for the game's clock */
+    Port_WindowOpen();
     __asm__ volatile("movl %0, %%esp\n\t"
                      "subl $8, %%esp\n\t" /* 16-byte aligned at the call */
                      "pushl %2\n\t"

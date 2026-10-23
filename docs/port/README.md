@@ -4,7 +4,7 @@ The PC port is built from the same C as the matching decompilation. Nothing of t
 takes the game's data from the split of **your own** `SLUS_200.01` (the one the matching build already uses) and
 writes everything under `build/port/`, which git ignores.
 
-## Status (T29, 2026-10-23)
+## Status (T30 batch 1, 2026-10-23)
 
 - Every game C file the matching build links (59) compiles for 32-bit x86 Linux with the host gcc, with the
   NON_MATCHING drafts switched on: every game function comes from C, except the hand-written EE / VU0 routines
@@ -36,6 +36,10 @@ writes everything under `build/port/`, which git ignores.
   `D_005F6DB0` / `D_005F6DB4` (zeros with the old placeholders), and new port code moves host addresses the game
   keeps in `.sbss`: the state hash of a given `TTT_FRAMES` / `TTT_SEED` differs from T23's. The GS itself writes no
   game memory: the same run with the VIF1 and GIF channels cut off from it gives the same hash.
+- Speed (T30 batch 1): the headless `TTT_FRAMES=2551 TTT_SEED=1 TTT_DUMP_EVERY=150` run takes 112 s instead of 386 s
+  (6.6 -> 22.8 VBlanks/s; 11.7 with `TTT_GS_THREADS=0`), with the same 17 frames, report and `sbss-hash 0x8dd3eebb`
+  ([Speed](#speed)). The title and menus run in real time; the demo fight does not yet (about 11 VBlanks/s).
+- A window (T30 batch 1): real-time runs show the picture in an SDL3 window ([Window](#window)).
 - Placeholders still reached on that path (listed at the end of a `TTT_FRAMES` run): `scePadGetState` (no pad),
   libmc (no card), the boot movie (skipped).
 - Floats are the EE's: every float operation of the game and of `port/src` goes through the EE float model
@@ -51,6 +55,8 @@ writes everything under `build/port/`, which git ignores.
 ```sh
 .venv/bin/python configure.py && ninja        # the matching build: splits your SLUS_200.01 into asm/
 python3 port/tools/build.py                   # -> build/port/ttt
+build/port/ttt                                # real time, in a window (needs the 32-bit SDL3, see Window)
+TTT_FRAMES=600 build/port/ttt                 # headless, 600 VBlanks, then a report
 ```
 
 `build.py` runs the three steps below in order and fails if any of them fails. Each can also be run on its own
@@ -180,7 +186,9 @@ wait loops drive the hardware.
 | `vu_micro.c` | The micro-mode interpreter shared by VU0 and VU1 |
 | `plat_pkt.c` | libpkt: VIF1 and GIF packet builders |
 | `plat_vu0.c` | libvu0 in C (column-major matrices; `func_0034A868` is `sceVu0Normalize`) |
-| `plat_main.c` | Runs the game's `main` on the EE stack |
+| `plat_main.c` | Opens the window (on the host stack), then runs the game's `main` on the EE stack |
+| `plat_window.c` | The SDL3 window: SDL loaded at run time, its own thread ([Window](#window)) |
+| `port_host.h` | Host library calls added since T30, declared `noplt` (gotcha 20) |
 | `softfloat_ps2.c` | The EE float model: `__addsf3`... for the FPU, `Port_Vu*` for the vector unit |
 | `plat_libc.c` | newlib's `rand` / `srand` (the executable's 0x40FBD0 / 0x40FBC0) on `_impure_ptr->_rand_next` |
 | `plat_floattest.c` | `TTT_DUMP=<dir>` | Write the displayed picture as `<dir>/frame_<vblank>.png` (8-bit RGB) every `TTT_DUMP_EVERY` VBlanks. Put it under `build/` (ignored by git): the pictures are the game's. |
@@ -197,7 +205,9 @@ wait loops drive the hardware.
 - **Clock.** Headless (`TTT_HEADLESS=1`, implied by `TTT_FRAMES`): one poll is one Timer 0 tick (256 bus cycles),
   nothing sleeps, a run repeats exactly (polls per frame, `gRngSpin`, the boot seed). Otherwise the clock is the
   host's monotonic time: VBlanks at real 59.94 Hz, seed and spin generator vary per run as on the console; a poll
-  more than 1 ms from the next VBlank sleeps 0.2 ms.
+  more than 1 ms from the next VBlank sleeps 0.2 ms. When the host falls more than a VBlank behind, the lost time is
+  dropped (at most one VBlank per poll): a burst of VBlanks in one poll ran the game's VBlank handler again before the
+  DMA it waits for could finish, and the game hung in `Dma_SendChain` (seen when SDL's start-up stalled a VBlank).
 - **Interrupts.** VBlank start raises INTC cause 2 and a finished DMA its DMAC channel; handlers run inside the poll
   if interrupts are on (`Port_Di` / `Port_Ei`), else at the next `ei`, with interrupts off while they run.
 - **DMA.** A channel with STR set is carried out at the next poll: normal, source chain (refe / cnt / next / ref /
@@ -233,6 +243,11 @@ Switches:
 | `TTT_DIFF=<vblank>[:<calls>]` | From that VBlank on, each `PORT_DIFF` hook runs its call twice, as the port's C and as the executable's code, and prints the differing words ([Draft divergence check](#draft-divergence-check)). `TTT_DIFF_ONLY=<name,...>` limits it; `TTT_DIFF_TRACE=1` also prints the calls each side makes (`c-call` / `ee-call`). |
 | `TTT_GS_TEXDUMP=<vblank>:<tex0 hex>:<x>:<y>:<w>:<h>` | With `TTT_DUMP`: writes that region of the texture TEX0 describes (through a CLUT loaded from it) as `tex_<vblank>.png`. |
 | `TTT_STUB_RETURN=<n>` | Generated stubs return n instead of stopping. |
+| `TTT_GS_THREADS=<n>` | Raster threads ([Speed](#speed)). Default: one per processor but one, at most 8; `0` draws on the game's thread. Same results either way. The GS traces force 0. |
+| `TTT_GS_STATS=1` | With raster threads: a `gs-stats:` line on stderr at the report (commands, serial ones, barriers, the game thread's CPU time and how much of it went waiting for the raster threads). |
+| `TTT_WINDOW=0/1` | The window ([Window](#window)): default on in real time, off headless and for self-tests. `1` with `TTT_FRAMES` shows a headless run as it goes. |
+| `TTT_VSYNC=0` | The window presents without the renderer's vsync. |
+| `TTT_SDL_LIB=<path>` | The SDL3 library to load (default `libSDL3.so.0`). |
 
 ## GS path
 
@@ -280,6 +295,67 @@ VU1 XGKICK (gs_vu1.c) ->  PATH1 ------------------------------------------------
   writer is the port's own (stored deflate blocks, no library).
 - **VU1.** See [VU1](#vu1).
 
+## Speed
+
+T30 batch 1 measured the headless run with `perf` and changed only how the results are computed, never the results:
+every step was checked against the frames, the report and the state hash of the 2551-VBlank run
+(`TTT_FRAMES=2551 TTT_SEED=1 TTT_DUMP_EVERY=150`: 17 frames, `sbss-hash 0x8dd3eebb`) and of a 1800-VBlank run.
+Times on a 24-thread x86-64 under `scripts/cool.sh` (the thermal governor's quota makes them vary by up to 2x):
+
+| Build | 2551 VBlanks | VBlanks/s |
+|---|---|---|
+| before (T29 batch 5) | 386 s | 6.6 |
+| T30, `TTT_GS_THREADS=0` | 218 s | 11.7 |
+| T30, 8 raster threads (default here) | 112 s | 22.8 |
+
+- **Profile before:** rasteriser about 75% (`vram_rw`, `draw_triangle`, `pixel`, `texel`, per-pixel 64-bit divisions in
+  `__divdi3`), VU1 interpreter about 15%. In the demo fight the GS writes about 2.2 million pixels per VBlank (1.8
+  million into the 640 x 448 frame alone).
+- **Rasteriser (`gs_core.c`).** The registers a primitive reads are decoded once per primitive (`Draw`) instead of per
+  pixel; a pixel's frame / depth word is addressed once for its read and write (`VLoc`); a triangle's rows are cut to
+  the span inside all three edges, exactly, and along a span the barycentric fractions are running quotients and the
+  attributes running sums (no division or 64-bit multiply per pixel); a sprite's U is a running quotient; an indexed
+  texture's CLUT is expanded once while CLUT, CPSM / CSA and TEXA stay; the level of detail is only computed when
+  MMAG and MMIN filter differently. `-O3` for `gs_core.c` and `vu_micro.c` (`toolchain.HOT_FILES`).
+- **Raster threads.** The front end (GIF, registers, the vertex queue: the game's thread) turns primitives and the
+  operations on GS memory into commands in a ring; each worker runs every command and draws only the rows of its
+  16-row bands (8- and 4-bit formats pack four rows into a word, inside one band). That is the serial result while,
+  since the last barrier, GS memory is written through one frame and one depth layout and nothing read (texture,
+  CLUT, the window's picture) is written: the front end tracks the 8 KB pages written and read since the last
+  barrier and puts a barrier in front of a command that breaks this, or runs it on one worker (serial) when it
+  breaks it alone (frame, depth and texture pages of one primitive overlapping). Uploads, local copies and the dump's
+  picture are serial; CLUT loads run on every worker, each into its own CLUT. In the 2551-VBlank run: 38 million
+  commands, 0.25% serial, 0.1% after a barrier. The register side effects the game polls (SIGNAL / FINISH / LABEL
+  in CSR) stay on the game's thread.
+- **VU.** The vector unit's add and multiply in 32-bit arithmetic (`sf_vadd` / `sf_vmul`: 7 guard bits and a sticky
+  unit instead of 64-bit mantissas and a normalisation loop; `TTT_SELFTEST=float` compares them with the model on 2
+  million pairs); the MAC flags are worked out only when an instruction reads them; `memcpy` is inlined in the hot
+  files (`-fno-builtin` sent every 4-byte instruction fetch through the PLT).
+- **Left:** the game's thread is the limit in the fight (VU1 about 70% of it: `mesh.vsm`, 1 million VU instructions
+  per VBlank); then the workers' per-pixel cost. A predecoded VU interpreter and a GPU back end (T30 batch 2+) are the
+  next steps.
+
+## Window
+
+`port/src/plat_window.c` shows the picture of each VBlank (both read circuits merged, as the dump) in an SDL3 window.
+
+- **SDL3 at run time.** `dlopen("libSDL3.so.0")` (or `TTT_SDL_LIB`) and a table of the 17 functions used: the program
+  does not link SDL, headless runs and the tests do not need it, and without it the run says
+  `ttt: window: cannot load ...: running headless` and goes on. The program is 32-bit, so it needs the 32-bit
+  library: on Arch `lib32-sdl3` from the multilib repository (`sudo pacman -S lib32-sdl3` with `[multilib]` enabled
+  in `/etc/pacman.conf`); on Debian / Ubuntu `libsdl3-0:i386` where packaged. Only pointer and integer arguments
+  cross into SDL (no `SDL_FRect`: the port has no host floating point).
+- **When.** Real-time runs (`build/port/ttt` without `TTT_FRAMES`) open it; `TTT_WINDOW=0` keeps them headless,
+  `TTT_WINDOW=1` opens it for a `TTT_FRAMES` run too. Closing it or Escape ends the program. No keyboard-to-pad
+  mapping yet (`scePadGetState` is still a placeholder; T34).
+- **Threads.** SDL runs on a thread of its own, started before the game (`plat_main.c`, on the host stack): the game's
+  thread runs on the PS2 stack in EE RAM, 200 KB that grow into the game's `.bss`. Each VBlank the raster workers
+  draw the picture into one of three slots (in order with the drawing); the newest finished one is copied to the
+  window thread, which uploads it as a texture (RGB24, linear scaling, letterboxed) and presents it with the
+  renderer's vsync (`TTT_VSYNC=0`: without). The game's pace is the clock's: 59.94 Hz in real time, as fast as it
+  goes headless (the window then skips pictures).
+- `TTT_FRAMES` runs with a window end with `ttt: window: N pictures handed over, M shown`.
+
 ## VU1
 
 `port/src/gs_vu1.c` on the micro-mode interpreter `port/src/vu_micro.c` (shared with VU0, `vu0_micro.c`). The game's
@@ -306,8 +382,7 @@ original VU1 programs (`src/vu1/*.vsm`, uploaded by the boot packet) run unchang
 - **XGKICK.** The GIF packet at the given quadword of VU1 memory, tag by tag up to EOP (read across the end of
   memory), goes to `Gs_Gif(1, ...)` at once.
 - **Cost.** About 1.35 million program runs and 2.8 billion VU instructions in 3000 VBlanks of the attract path
-  (`mesh.vsm`, entry 0x050, is almost all of it); a `TTT_FRAMES=3000` run took about 4.5 minutes instead of 1, and
-  about 8.5 since the bilinear filter (four texel reads per textured pixel).
+  (`mesh.vsm`, entry 0x050, is almost all of it). See [Speed](#speed) for the run times since T30.
 - The reference project's interpreter computes with the host's float unit, so its structure and decoding were
   reused, not its code.
 
@@ -471,6 +546,13 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
     `f + 0xB0D0` and handed four separate locals to `sceVu0MulVector` as one vector (bones 13 / 14: the odd scales of
     joints 11-14 seen in T29 batch 3), and bone 10 reads its translation at record + 0x0C, not 0x12. Rewritten after the
     asm (typed, `#if 0`); `TTT_DIFF` showed 75 differing words in that call before, none after.
+
+20. **The state hash covers host code addresses.** The game keeps function pointers in `.sbss` (callbacks), and the
+    `TTT_FRAMES` state hash covers that memory. A port change that adds a host library function to the PLT (T30: the
+    first `pthread_create`) moves every game function by 16 bytes per entry and changes the hash of an unchanged run.
+    Host functions new since T30 are declared `noplt` in `port/src/port_host.h` (called through the GOT); the PLT
+    stays the one of T29 and `tests/test_port_window.py` checks it. Changes to the port's own code do not move game
+    code (the game's objects are linked first).
 
 ## EE float model
 

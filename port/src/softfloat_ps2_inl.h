@@ -206,6 +206,83 @@ static inline uint32_t sf_sqrt_core(uint32_t a, int nearest) {
 }
 
 /*
+ * The vector unit's add (sf_add_core(a, b, 0)) in 32-bit arithmetic: the hot path of the VU interpreter on a 32-bit
+ * host. The mantissas get 7 guard bits; the smaller operand's bits shifted out below them count as one unit there
+ * (a sticky unit), subtracted for an effective subtraction, so the cut of the exact difference is kept: when bits are
+ * lost the exponents differ by 8 or more, the result needs at most one bit of normalisation, and floor(x - y) at the
+ * result's last place equals floor(x - ceil(y)) at a finer one. A sum is cut the same with or without them.
+ * TTT_SELFTEST=float compares it with sf_add_core.
+ */
+static inline uint32_t sf_vadd(uint32_t a, uint32_t b) {
+    uint32_t ma, mb, sign, lost, r;
+    int32_t e, d;
+
+    a = sf_in(a);
+    b = sf_in(b);
+    if (SF_EXP(b) == 0) {
+        return SF_EXP(a) == 0 ? a & b & SF_SIGN : a;
+    }
+    if (SF_EXP(a) == 0) {
+        return b;
+    }
+    if ((a & 0x7FFFFFFF) < (b & 0x7FFFFFFF)) {
+        uint32_t t = a;
+        a = b;
+        b = t;
+    }
+    sign = a & SF_SIGN;
+    e = (int32_t)SF_EXP(a);
+    d = e - (int32_t)SF_EXP(b);
+    ma = SF_MANT(a) << 7; /* bit 30 */
+    mb = SF_MANT(b) << 7;
+    if (d >= 31) {
+        lost = 1;
+        mb = 0;
+    } else {
+        lost = (mb & ((1u << d) - 1)) != 0;
+        mb >>= d;
+    }
+    if ((a ^ b) & SF_SIGN) {
+        r = ma - mb - lost;
+        if (r == 0) {
+            return 0; /* x - x is +0 */
+        }
+        d = __builtin_clz(r) - 1; /* left shifts back to bit 30 */
+        r <<= d;
+        e -= d;
+    } else {
+        r = ma + mb;
+        if (r & 0x80000000u) {
+            r >>= 1;
+            e++;
+        }
+    }
+    return sf_pack(sign, e, r >> 7);
+}
+
+/* The vector unit's multiply (sf_mul_core(a, b, 0)): the 48-bit product cut to 24 bits. */
+static inline uint32_t sf_vmul(uint32_t a, uint32_t b) {
+    uint32_t sign = (a ^ b) & SF_SIGN, hi;
+    uint64_t m;
+    int32_t e;
+
+    a = sf_in(a);
+    b = sf_in(b);
+    if (SF_EXP(a) == 0 || SF_EXP(b) == 0) {
+        return sign;
+    }
+    m = (uint64_t)SF_MANT(a) * SF_MANT(b);
+    e = (int32_t)SF_EXP(a) + (int32_t)SF_EXP(b) - 127;
+    if ((uint32_t)(m >> 32) & 0x8000u) { /* bit 47 */
+        e++;
+        hi = (uint32_t)(m >> 24);
+    } else {
+        hi = (uint32_t)(m >> 23);
+    }
+    return sf_pack(sign, e, hi);
+}
+
+/*
  * The FPU's add.s / sub.s. The PS2 adder keeps only ONE bit of the smaller operand below the larger operand's last
  * place and no sticky bits; PCSX2 reproduces this by clearing the smaller operand's low bits before an ordinary
  * truncating add: exponent difference d of 1..24 clears d - 1 bits, 25 or more leaves only the sign.

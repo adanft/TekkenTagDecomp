@@ -20,6 +20,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#define memcpy __builtin_memcpy /* -fno-builtin: inline the small copies of the hot paths */
 #include "port_addr.h"
 #include "gs.h"
 

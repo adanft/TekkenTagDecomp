@@ -93,5 +93,29 @@ class FrameDump(unittest.TestCase):
         self.assertEqual(state[0].group(0), state[1].group(0))
 
 
+@unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
+@unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
+class RasterThreads(unittest.TestCase):
+    FRAMES = 420
+    EVERY = 30
+
+    def test_raster_threads_draw_the_same_frames(self):
+        """TTT_GS_THREADS=n splits the drawing between n workers (gs_core.c): the frames, the report and the state
+        hash are the same as drawing on the game's thread alone (TTT_GS_THREADS=0)."""
+        runs = []
+        for n in ("0", "4"):
+            with tempfile.TemporaryDirectory(prefix="ttt-gs-") as tmp:
+                r = run_ttt(timeout=300, TTT_FRAMES=str(self.FRAMES), TTT_SEED="1", TTT_DUMP=tmp, TTT_DUMP_EVERY=str(self.EVERY),
+                            TTT_GS_THREADS=n)
+                self.assertEqual(r.returncode, 0, r.stdout[-3000:] + r.stderr[-3000:])
+                frames = {f.name: f.read_bytes() for f in sorted(Path(tmp).glob("frame_*.png"))}
+                runs.append((frames, [l for l in r.stdout.splitlines() if l.startswith("ttt: ")]))
+        self.assertEqual(len(runs[0][0]), self.FRAMES // self.EVERY)
+        self.assertEqual(sorted(runs[0][0]), sorted(runs[1][0]))
+        for name in runs[0][0]:
+            self.assertEqual(runs[0][0][name], runs[1][0][name], name)
+        self.assertEqual(runs[0][1], runs[1][1])
+
+
 if __name__ == "__main__":
     unittest.main()

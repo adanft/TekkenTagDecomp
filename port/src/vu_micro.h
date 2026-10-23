@@ -8,6 +8,11 @@ typedef struct VuFlagStep {
     uint32_t cycle, value;
 } VuFlagStep;
 
+/* An upper instruction's result on its way to the MAC flags: the flags are worked out from it only when read. */
+typedef struct VuMacStep {
+    uint32_t cycle, mask, res[4];
+} VuMacStep;
+
 typedef struct VuCore {
     /* registers: VU0's are shared with macro mode (plat_ee.c, vu0_micro.c), so they are reached through pointers */
     uint32_t (*vf)[4];
@@ -26,7 +31,10 @@ typedef struct VuCore {
     /* pipeline state */
     uint32_t cycle, qPending, qReady, pPending, pReady;
     uint32_t clip, clipLatest, mac;
-    VuFlagStep clipQueue[8], macQueue[8];
+    VuFlagStep clipQueue[8];
+    VuMacStep macQueue[8];
+    VuMacStep macNow; /* the result the MAC flags show now (macLazy: mac is not worked out yet) */
+    int macLazy;
     int clipHead, clipCount, macHead, macCount;
     int settle;  /* at the end of a program, finish Q / P / flags still in flight (time passes before the next) */
     uint32_t pc; /* where the last program stopped: MSCNT continues there */

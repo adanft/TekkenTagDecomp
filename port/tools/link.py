@@ -15,7 +15,7 @@ from undefined import symbol_addresses
 # return theirs on the x87 stack, so linking them would give wrong values silently. They stay stubs until the PS2's
 # own newlib maths library is built in software float (T23). The host C library still provides the integer-only
 # functions it shares with the game (memcpy, strlen, sprintf...); rand / srand go to the PS2's newlib version in T23.
-LIBS = []
+LIBS = ["-pthread"]  # the GS raster threads (TTT_GS_THREADS, gs_core.c)
 
 
 def undefined_names(stderr):

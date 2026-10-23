@@ -81,11 +81,11 @@ f32w __floatunsisf(uint32_t v) {
 }
 
 /* ---- the vector unit (VU0 macro mode): no add guard-bit step, divide and square root cut toward zero ---- */
-f32w Port_VuAdd(f32w a, f32w b) { return sf_add_core(a, b, 0); }
-f32w Port_VuSub(f32w a, f32w b) { return sf_add_core(a, b ^ SF_SIGN, 0); }
-f32w Port_VuMul(f32w a, f32w b) { return sf_mul_core(a, b, 0); }
+f32w Port_VuAdd(f32w a, f32w b) { return sf_vadd(a, b); }
+f32w Port_VuSub(f32w a, f32w b) { return sf_vadd(a, b ^ SF_SIGN); }
+f32w Port_VuMul(f32w a, f32w b) { return sf_vmul(a, b); }
 f32w Port_VuDiv(f32w a, f32w b) { return sf_div_core(a, b, 0); }
 f32w Port_VuSqrt(f32w a) { return sf_sqrt_core(a, 0); }
 /* vmadd / vmsub: ACC +/- fs * ft, the product formed first. */
-f32w Port_VuMadd(f32w acc, f32w s, f32w t) { return sf_add_core(acc, sf_mul_core(s, t, 0), 0); }
-f32w Port_VuMsub(f32w acc, f32w s, f32w t) { return sf_add_core(acc, sf_mul_core(s, t, 0) ^ SF_SIGN, 0); }
+f32w Port_VuMadd(f32w acc, f32w s, f32w t) { return sf_vadd(acc, sf_vmul(s, t)); }
+f32w Port_VuMsub(f32w acc, f32w s, f32w t) { return sf_vadd(acc, sf_vmul(s, t) ^ SF_SIGN); }

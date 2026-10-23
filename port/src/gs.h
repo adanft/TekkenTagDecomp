@@ -13,6 +13,14 @@ void Gs_Reset(void);                                   /* sceGsResetGraph: drawi
 void Gs_VBlank(uint32_t vblank);                       /* plat_hw.c, at each VBLANK_START: the frame dump */
 void Gs_Report(void);                                  /* TTT_FRAMES report line */
 
+/* The window (plat_window.c, SDL3 loaded at run time): Port_WindowOpen opens it when the run asks for one (TTT_WINDOW,
+   or real time) and says so (0: headless); Port_WindowPresent hands it a picture (RGB); Port_WindowClosed: the user
+   closed it. */
+int Port_WindowOpen(void);
+void Port_WindowPresent(const uint8_t *rgb, uint32_t w, uint32_t h);
+int Port_WindowClosed(void);
+void Port_WindowReport(void);
+
 /* VIF1 (gs_vif1.c): `count` words of a VIF1 transfer. VU1 memory is the EE's view of it: micro memory at 0x11008000,
    data memory at 0x1100C000 (16 KB each). */
 void Gs_Vif1(const uint32_t *w, uint32_t count);

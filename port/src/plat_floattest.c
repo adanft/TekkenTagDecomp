@@ -24,6 +24,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include "softfloat_ps2_inl.h"
 
 typedef uint32_t w32; /* a float's bits; every float function below is soft-float: bits in, bits out */
 
@@ -177,6 +178,32 @@ static void expect(const char *what, uint32_t got, uint32_t want) {
         printf("ttt: float: %s: %08x, expected %08x\n", what, got, want);
         sFailed = 1;
     }
+}
+
+/* The VU interpreter's 32-bit add and multiply (sf_vadd / sf_vmul) against the model's sf_add_core / sf_mul_core:
+   2 million pairs, half of them with close exponents and mantissas (cancellation), plus every exponent field. */
+static void group_vu_fast(void) {
+    uint32_t x = 2463534242u, n, bad = 0, e;
+
+    for (n = 0; n < 2000000u; n++) {
+        uint32_t a, b;
+        x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+        a = x;
+        x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+        b = x;
+        if (n & 1) {
+            b = ((a & 0xFF800000u) ^ ((b & 3) == 0 ? SF_SIGN : 0)) + (((b >> 2) % 64) - 32) * 0x800000u;
+            b |= (x >> 9) & ((n & 2) ? 0x7FFFFFu : 0x7Fu);
+        }
+        bad += sf_vadd(a, b) != sf_add_core(a, b, 0);
+        bad += sf_vmul(a, b) != sf_mul_core(a, b, 0);
+    }
+    for (e = 0; e < 256; e++) {
+        uint32_t a = e << 23 | 0x2AAAAAu, b = 0x3F800000u | 0x155555u;
+        bad += sf_vadd(a, b) != sf_add_core(a, b, 0) || sf_vadd(a, b ^ SF_SIGN) != sf_add_core(a, b ^ SF_SIGN, 0);
+        bad += sf_vmul(a, b) != sf_mul_core(a, b, 0);
+    }
+    expect("sf_vadd / sf_vmul agree with the model", bad, 0);
 }
 
 static void group_rules(void) {
@@ -453,6 +480,7 @@ static void group_libvu0(void) {
 void Port_FloatSelfTest(void) {
     group_pcsx2();
     group_rules();
+    group_vu_fast();
     group_libm();
     group_rand();
     group_libvu0();

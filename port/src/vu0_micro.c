@@ -9,6 +9,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#define memcpy __builtin_memcpy /* -fno-builtin: inline the small copies of the hot paths */
 #include "vu_micro.h"
 
 extern float gPortVu0Vf[32][4]; /* plat_ee.c */

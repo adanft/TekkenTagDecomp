@@ -17,14 +17,15 @@
  */
 #include <stdint.h>
 #include <string.h>
+#define memcpy __builtin_memcpy /* -fno-builtin: inline the small copies of the hot paths */
 #include "softfloat_ps2_inl.h"
 #include "vu_micro.h"
 
 /* ---------------------------------------------------------------------------------------------- arithmetic */
 
-static uint32_t vadd(uint32_t a, uint32_t b) { return sf_add_core(a, b, 0); }
-static uint32_t vsub(uint32_t a, uint32_t b) { return sf_add_core(a, b ^ SF_SIGN, 0); }
-static uint32_t vmul(uint32_t a, uint32_t b) { return sf_mul_core(a, b, 0); }
+static inline __attribute__((always_inline)) uint32_t vadd(uint32_t a, uint32_t b) { return sf_vadd(a, b); }
+static inline __attribute__((always_inline)) uint32_t vsub(uint32_t a, uint32_t b) { return sf_vadd(a, b ^ SF_SIGN); }
+static inline __attribute__((always_inline)) uint32_t vmul(uint32_t a, uint32_t b) { return sf_vmul(a, b); }
 static uint32_t vdiv(uint32_t a, uint32_t b) { return sf_div_core(a, b, 0); }
 static uint32_t vsqrt(uint32_t a) { return sf_sqrt_core(a, 0); }
 static uint32_t vmax(uint32_t a, uint32_t b) { return sf_key(a) >= sf_key(b) ? a : b; }
@@ -83,6 +84,21 @@ static uint32_t mac_bits(uint32_t r, int c) {
     return m;
 }
 
+/* The MAC flags now: worked out from the result they show the first time they are read. */
+static uint32_t mac_now(VuCore *u) {
+    if (u->macLazy) {
+        uint32_t m = 0, c;
+        for (c = 0; c < 4; c++) {
+            if ((u->macNow.mask >> (3 - c)) & 1) {
+                m |= mac_bits(u->macNow.res[c], (int)c);
+            }
+        }
+        u->mac = m;
+        u->macLazy = 0;
+    }
+    return u->mac;
+}
+
 static void queue(VuFlagStep *q, int *head, int *count, uint32_t cycle, uint32_t value) {
     int slot = (*head + *count) & 7;
 
@@ -110,9 +126,11 @@ static void settle(VuCore *u) {
         u->clipCount = 0;
     }
     if (u->macCount != 0) {
-        u->mac = u->macQueue[(u->macHead + u->macCount - 1) & 7].value;
+        u->macNow = u->macQueue[(u->macHead + u->macCount - 1) & 7];
+        u->macLazy = 1;
         u->macCount = 0;
     }
+    mac_now(u);
 }
 
 unsigned Vu_Unknown(const VuCore *u) {
@@ -169,7 +187,8 @@ int Vu_Run(VuCore *u, uint32_t start) {
             u->clipCount--;
         }
         while (u->macCount != 0 && u->macQueue[u->macHead].cycle <= u->cycle) {
-            u->mac = u->macQueue[u->macHead].value;
+            u->macNow = u->macQueue[u->macHead];
+            u->macLazy = 1;
             u->macHead = (u->macHead + 1) & 7;
             u->macCount--;
         }
@@ -283,14 +302,16 @@ int Vu_Run(VuCore *u, uint32_t start) {
             default: u->unknown[0][64 + (sp & 63)]++; break;
             }
         }
-        if (fmac) {
-            uint32_t m = 0;
-            for (c = 0; c < 4; c++) {
-                if ((wmask >> (3 - c)) & 1) {
-                    m |= mac_bits(res[c], (int)c);
-                }
+        if (fmac) { /* the MAC flags of this result, four instructions later (as queue()) */
+            VuMacStep *st = &u->macQueue[(u->macHead + u->macCount) & 7];
+            st->cycle = u->cycle + 4;
+            st->mask = wmask;
+            memcpy(st->res, res, 16);
+            if (u->macCount < 8) {
+                u->macCount++;
+            } else {
+                u->macHead = (u->macHead + 1) & 7;
             }
-            queue(u->macQueue, &u->macHead, &u->macCount, u->cycle, m);
         }
 upper_done:
         /* ---- lower instruction ---- */
@@ -327,9 +348,9 @@ upper_done:
             case 0x11: u->clip = u->clipLatest = lo & 0xFFFFFF; u->clipCount = 0; break; /* FCSET */
             case 0x12: SETVI(1, (u->clip & lo & 0xFFFFFF) != 0); break; /* FCAND */
             case 0x13: SETVI(1, ((u->clip | lo) & 0xFFFFFF) == 0xFFFFFF); break; /* FCOR */
-            case 0x18: SETVI(it, (u->mac & 0xFFFF) == (VI(is) & 0xFFFF)); break; /* FMEQ */
-            case 0x1A: SETVI(it, u->mac & VI(is)); break; /* FMAND */
-            case 0x1B: SETVI(it, u->mac | VI(is)); break; /* FMOR */
+            case 0x18: SETVI(it, (mac_now(u) & 0xFFFF) == (VI(is) & 0xFFFF)); break; /* FMEQ */
+            case 0x1A: SETVI(it, mac_now(u) & VI(is)); break; /* FMAND */
+            case 0x1B: SETVI(it, mac_now(u) | VI(is)); break; /* FMOR */
             case 0x1C: SETVI(it, u->clip & 0xFFF); break; /* FCGET */
             case 0x20: branch = 2; target = boff; break; /* B */
             case 0x21: SETVI(it, (pc + 2) & mm); branch = 2; target = boff; break; /* BAL */

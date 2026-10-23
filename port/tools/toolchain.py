@@ -29,6 +29,10 @@ PORT_CFLAGS = ["-m32", "-std=gnu99", "-O2", "-g", "-fno-pic", "-fno-strict-alias
                "-fno-builtin", "-msoft-float", "-mno-sse", "-mno-mmx", "-malign-double", "-Iinclude", "-Iport/include",
                "-Iport/src"]
 
+# The port's hot paths (the VU interpreter, the GS rasteriser) at -O3: integer code, the same results (T30).
+HOT_FILES = ("vu_micro.c", "gs_core.c")
+HOT_CFLAGS = ["-O3"]
+
 # newlib's float maths library (the PS2's own libm, third_party/newlib_libm): built like the port's code, in software
 # float on the EE model, with its shim header in front.
 NEWLIB = ROOT / "third_party/newlib_libm"

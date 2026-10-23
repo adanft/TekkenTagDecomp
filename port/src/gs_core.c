@@ -29,6 +29,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#define memcpy __builtin_memcpy /* -fno-builtin: inline the small copies of the hot paths */
+#include <time.h>
 #include "port_addr.h"
 #include "gs.h"
 
@@ -109,10 +111,17 @@ static int psm_bits(uint32_t psm) {
     }
 }
 
-/* Reads (write = 0) or writes the pixel (x, y) of the buffer at bp (blocks), width bw (64 pixels), format psm.
-   The depth formats (0x30..0x3A) are the colour formats with the blocks of a page in another order (XOR 0x18). */
-static uint32_t vram_rw(uint32_t bp, uint32_t bw, uint32_t psm, uint32_t x, uint32_t y, int write, uint32_t v) {
-    uint32_t a, *w, zx = 0;
+/* Where the pixel (x, y) of a buffer lives: a word of GS memory and the field of it (value = (*w >> shift) & mask). */
+typedef struct VLoc {
+    uint32_t *w;
+    uint32_t shift, mask;
+} VLoc;
+
+/* The pixel (x, y) of the buffer at bp (blocks), width bw (64 pixels), format psm. The depth formats (0x30..0x3A)
+   are the colour formats with the blocks of a page in another order (XOR 0x18). */
+static inline __attribute__((always_inline)) VLoc vram_loc(uint32_t bp, uint32_t bw, uint32_t psm, uint32_t x, uint32_t y) {
+    uint32_t a, zx = 0;
+    VLoc l;
 
     if (bw == 0) {
         bw = 1;
@@ -127,49 +136,53 @@ static uint32_t vram_rw(uint32_t bp, uint32_t bw, uint32_t psm, uint32_t x, uint
     case 0x02: case 0x0A: /* 16 bits */
         a = ((bp + ((y >> 1) & ~0x1Fu) * bw + ((x >> 1) & ~0x1Fu) + ((psm == 0x0A ? kBlock16S : kBlock16)[(y >> 3) & 7][(x >> 4) & 3] ^ zx)) << 7) +
             kCol16[y & 7][x & 15];
-        w = &sVram[(a >> 1) & 0xFFFFF];
-        if (write) {
-            *w = (*w & ~(0xFFFFu << ((a & 1) * 16))) | (v & 0xFFFF) << ((a & 1) * 16);
-            return 0;
-        }
-        return (*w >> ((a & 1) * 16)) & 0xFFFF;
+        l.w = &sVram[(a >> 1) & 0xFFFFF];
+        l.shift = (a & 1) * 16;
+        l.mask = 0xFFFF;
+        return l;
     case 0x13: /* 8 bits */
         a = ((bp + ((y >> 1) & ~0x1Fu) * (bw >> 1) + ((x >> 2) & ~0x1Fu) + kBlock32[(y >> 4) & 3][(x >> 4) & 7]) << 8) + sCol8[y & 15][x & 15];
-        w = &sVram[(a >> 2) & 0xFFFFF];
-        if (write) {
-            *w = (*w & ~(0xFFu << ((a & 3) * 8))) | (v & 0xFF) << ((a & 3) * 8);
-            return 0;
-        }
-        return (*w >> ((a & 3) * 8)) & 0xFF;
+        l.w = &sVram[(a >> 2) & 0xFFFFF];
+        l.shift = (a & 3) * 8;
+        l.mask = 0xFF;
+        return l;
     case 0x14: /* 4 bits */
         a = ((bp + ((y >> 2) & ~0x1Fu) * (bw >> 1) + ((x >> 2) & ~0x1Fu) + kBlock16[(y >> 4) & 7][(x >> 5) & 3]) << 9) + sCol4[y & 15][x & 31];
-        w = &sVram[(a >> 3) & 0xFFFFF];
-        if (write) {
-            *w = (*w & ~(0xFu << ((a & 7) * 4))) | (v & 0xF) << ((a & 7) * 4);
-            return 0;
-        }
-        return (*w >> ((a & 7) * 4)) & 0xF;
+        l.w = &sVram[(a >> 3) & 0xFFFFF];
+        l.shift = (a & 7) * 4;
+        l.mask = 0xF;
+        return l;
     default: /* 32 bits, and the formats that live inside a 32-bit pixel */
         a = ((bp + (y & ~0x1Fu) * bw + ((x >> 1) & ~0x1Fu) + (kBlock32[(y >> 3) & 3][(x >> 3) & 7] ^ zx)) << 6) + kCol32[y & 7][x & 7];
-        w = &sVram[a & 0xFFFFF];
+        l.w = &sVram[a & 0xFFFFF];
         switch (psm) {
-        case 0x01: if (write) { *w = (*w & 0xFF000000u) | (v & 0xFFFFFF); return 0; } return *w & 0xFFFFFF;
-        case 0x1B: if (write) { *w = (*w & 0x00FFFFFFu) | v << 24; return 0; } return *w >> 24;
-        case 0x24: if (write) { *w = (*w & 0xF0FFFFFFu) | (v & 15) << 24; return 0; } return (*w >> 24) & 15;
-        case 0x2C: if (write) { *w = (*w & 0x0FFFFFFFu) | (v & 15) << 28; return 0; } return *w >> 28;
-        default: if (write) { *w = v; return 0; } return *w;
+        case 0x01: l.shift = 0; l.mask = 0xFFFFFF; break;
+        case 0x1B: l.shift = 24; l.mask = 0xFF; break;
+        case 0x24: l.shift = 24; l.mask = 0xF; break;
+        case 0x2C: l.shift = 28; l.mask = 0xF; break;
+        default: l.shift = 0; l.mask = 0xFFFFFFFFu; break;
         }
+        return l;
     }
 }
 
-uint32_t Gs_VramRead(uint32_t bp, uint32_t bw, uint32_t psm, uint32_t x, uint32_t y) {
-    tables_init();
-    return vram_rw(bp, bw, psm, x, y, 0, 0);
+static inline uint32_t vloc_read(VLoc l) {
+    return (*l.w >> l.shift) & l.mask;
 }
 
-void Gs_VramWrite(uint32_t bp, uint32_t bw, uint32_t psm, uint32_t x, uint32_t y, uint32_t v) {
-    tables_init();
-    vram_rw(bp, bw, psm, x, y, 1, v);
+static inline void vloc_write(VLoc l, uint32_t v) {
+    *l.w = (*l.w & ~(l.mask << l.shift)) | (v & l.mask) << l.shift;
+}
+
+/* Reads (write = 0) or writes the pixel (x, y) of the buffer at bp, width bw, format psm. */
+static uint32_t vram_rw(uint32_t bp, uint32_t bw, uint32_t psm, uint32_t x, uint32_t y, int write, uint32_t v) {
+    VLoc l = vram_loc(bp, bw, psm, x, y);
+
+    if (write) {
+        vloc_write(l, v);
+        return 0;
+    }
+    return vloc_read(l);
 }
 
 /* ------------------------------------------------------------------------------------------------ state */
@@ -183,6 +196,7 @@ typedef struct Vtx {
     uint32_t f;          /* fog coefficient */
 } Vtx;
 
+/* The registers (the front end: GIF, register writes, the vertex queue; the calling thread). */
 static struct {
     uint64_t prim, primRaw, rgbaq, st, uv, texa, prmodecont, prmode, fogcol, colclamp, pabe, texclut;
     uint64_t tex0[2], tex1[2], clamp[2], xyoffset[2], scissor[2], alpha[2], test[2], frame[2], zbuf[2], fba[2];
@@ -193,8 +207,6 @@ static struct {
     /* host -> GS transfer in progress */
     int transfer;
     uint32_t tx, ty, tw, th, tpos;
-    /* the CLUT buffer: 512 halfwords; a 32-bit entry e keeps its low half at e and its high half at e + 256 */
-    uint16_t clut[512];
     uint32_t cbp[2], clutGen;
 } gs;
 
@@ -202,6 +214,7 @@ static struct {
 static int sTrace = -1;
 static struct { uint32_t px, prims; uint64_t tex0, frame, test, alpha; } sTr[512];
 static uint32_t sUploadGen; /* bumped by every write into GS memory through a transfer (CLD 4 / 5, below) */
+static uint32_t sClutVer = 1; /* bumped with every CLUT load: the primitives after it carry the new number */
 static struct { uint32_t tags, prims, pixels, imageQw, localCopies, readbacks, regs; } sStat;
 
 /* GIF tag state of each path (1 = VU1, 2 = VIF1, 3 = GIF channel) */
@@ -211,10 +224,28 @@ static int sTraceX = -1, sTraceY = -1;
 static uint32_t sPathTags[4], sTraceBad, sBlockQwc;
 static const uint8_t *sBlock;
 
+static void gs_sync(void);
+static void raster_reset(void);
+
+uint32_t Gs_VramRead(uint32_t bp, uint32_t bw, uint32_t psm, uint32_t x, uint32_t y) {
+    tables_init();
+    gs_sync();
+    return vram_rw(bp, bw, psm, x, y, 0, 0);
+}
+
+void Gs_VramWrite(uint32_t bp, uint32_t bw, uint32_t psm, uint32_t x, uint32_t y, uint32_t v) {
+    tables_init();
+    gs_sync();
+    vram_rw(bp, bw, psm, x, y, 1, v);
+}
+
 void Gs_Reset(void) {
     tables_init();
+    gs_sync();
     memset(&gs, 0, sizeof(gs));
+    raster_reset();
     memset(sPath, 0, sizeof(sPath));
+    sClutVer++;
     gs.prmodecont = 1; /* the attributes come from PRIM */
     gs.colclamp = 1;
     gs.q = 0x3F800000u;
@@ -223,8 +254,8 @@ void Gs_Reset(void) {
 /* ------------------------------------------------------------------------------------------------ textures */
 
 /* A stored colour of format psm as R | G << 8 | B << 16 | A << 24 (TEXA gives the alpha of 24 and 16 bits). */
-static uint32_t expand(uint32_t c, uint32_t psm) {
-    uint32_t ta0 = gs.texa & 0xFF, ta1 = (gs.texa >> 32) & 0xFF, aem = (gs.texa >> 15) & 1;
+static uint32_t expand(uint32_t c, uint32_t psm, uint64_t texa) {
+    uint32_t ta0 = texa & 0xFF, ta1 = (texa >> 32) & 0xFF, aem = (texa >> 15) & 1;
 
     switch (psm_bits(psm)) {
     case 32:
@@ -240,17 +271,17 @@ static uint32_t expand(uint32_t c, uint32_t psm) {
     }
 }
 
-/* Loads the CLUT buffer for TEX0 / TEX2 (only for the indexed formats, as the GS). CLD: 0 keep, 1 load, 2 load and
+/* Whether TEX0 / TEX2 loads the CLUT buffer (only for the indexed formats, as the GS). CLD: 0 keep, 1 load, 2 load and
    CBP0 = CBP, 3 load and CBP1 = CBP, 4 load if CBP != CBP0, then CBP0 = CBP, 5 the same with CBP1.
    [I] For 4 / 5 the buffer is also reloaded when GS memory was written since the last load (as PCSX2 does): a
-   palette uploaded again to the same address is seen. */
-static void clut_load(uint64_t t0) {
-    uint32_t psm = (t0 >> 20) & 0x3F, cbp = (t0 >> 37) & 0x3FFF, cpsm = (t0 >> 51) & 15, csm = (t0 >> 55) & 1;
-    uint32_t csa = (t0 >> 56) & 31, cld = (t0 >> 61) & 7, bits = (uint32_t)psm_bits(psm), n, i;
+   palette uploaded again to the same address is seen. The load itself (clut_fill) reads GS memory: it runs in the
+   back end, in order with the primitives. */
+static int clut_wanted(uint64_t t0) {
+    uint32_t psm = (t0 >> 20) & 0x3F, cbp = (t0 >> 37) & 0x3FFF, cld = (t0 >> 61) & 7;
     int load;
 
-    if (bits > 8) {
-        return;
+    if (psm_bits(psm) > 8) {
+        return 0;
     }
     switch (cld) {
     case 1: load = 1; break;
@@ -260,17 +291,24 @@ static void clut_load(uint64_t t0) {
     case 5: load = gs.cbp[1] != cbp || gs.clutGen != sUploadGen; gs.cbp[1] = cbp; break;
     default: load = 0; break;
     }
-    if (!load) {
-        return;
+    if (load) {
+        gs.clutGen = sUploadGen;
+        sClutVer++;
     }
-    gs.clutGen = sUploadGen;
+    return load;
+}
+
+static void clut_fill(uint16_t *clut, uint64_t t0, uint64_t texclut) {
+    uint32_t psm = (t0 >> 20) & 0x3F, cbp = (t0 >> 37) & 0x3FFF, cpsm = (t0 >> 51) & 15, csm = (t0 >> 55) & 1;
+    uint32_t csa = (t0 >> 56) & 31, bits = (uint32_t)psm_bits(psm), n, i;
+
     n = bits == 8 ? 256 : 16;
     for (i = 0; i < n; i++) {
         uint32_t x, y, c, bw = 1, e;
         if (csm) { /* CSM2: one row of TEXCLUT, 16-bit entries only */
-            bw = (uint32_t)(gs.texclut & 0x3F);
-            x = (uint32_t)((gs.texclut >> 6) & 0x3F) * 16 + i;
-            y = (uint32_t)((gs.texclut >> 12) & 0x3FF);
+            bw = (uint32_t)(texclut & 0x3F);
+            x = (uint32_t)((texclut >> 6) & 0x3F) * 16 + i;
+            y = (uint32_t)((texclut >> 12) & 0x3FF);
         } else if (n == 256) { /* 16 x 16, index bits 3 and 4 exchanged */
             uint32_t k = (i & 0xE7) | ((i & 8) << 1) | ((i & 0x10) >> 1);
             x = k & 15;
@@ -282,46 +320,222 @@ static void clut_load(uint64_t t0) {
         c = vram_rw(cbp, bw, cpsm == 0 || cpsm == 1 ? 0 : cpsm, x, y, 0, 0);
         e = (n == 256 ? i : csa * 16 + i);
         if (cpsm == 0 || cpsm == 1) {
-            gs.clut[e & 255] = (uint16_t)c;
-            gs.clut[(e & 255) + 256] = (uint16_t)(c >> 16);
+            clut[e & 255] = (uint16_t)c;
+            clut[(e & 255) + 256] = (uint16_t)(c >> 16);
         } else {
-            gs.clut[e & 511] = (uint16_t)c;
+            clut[e & 511] = (uint16_t)c;
         }
     }
 }
 
-static uint32_t clut_read(uint64_t t0, uint32_t index, int bits) {
+static uint32_t clut_read(const uint16_t *clut, uint64_t t0, uint32_t index, int bits, uint64_t texa) {
     uint32_t cpsm = (t0 >> 51) & 15, csa = (t0 >> 56) & 31, e = bits == 8 ? index : csa * 16 + index;
     if (cpsm == 0 || cpsm == 1) {
         e &= 255;
-        return expand(gs.clut[e] | (uint32_t)gs.clut[e + 256] << 16, 0);
+        return expand(clut[e] | (uint32_t)clut[e + 256] << 16, 0, texa);
     }
-    return expand(gs.clut[e & 511], cpsm);
+    return expand(clut[e & 511], cpsm, texa);
 }
 
-/* The texel at (u, v) (whole texels) of the context's texture, wrapped or clamped by CLAMP. */
-static uint32_t texel(int ctx, int u, int v) {
-    uint64_t t0 = gs.tex0[ctx], cl = gs.clamp[ctx];
-    uint32_t tbp = t0 & 0x3FFF, tbw = (t0 >> 14) & 0x3F, psm = (t0 >> 20) & 0x3F;
-    int tw = 1 << ((t0 >> 26) & 15), th = 1 << ((t0 >> 30) & 15), bits;
-    uint32_t wms = cl & 3, wmt = (cl >> 2) & 3, c;
-    int minu = (int)((cl >> 4) & 0x3FF), maxu = (int)((cl >> 14) & 0x3FF), minv = (int)((cl >> 24) & 0x3FF), maxv = (int)((cl >> 34) & 0x3FF);
+/* ------------------------------------------------------------------------------------------------ primitive state */
 
-    if (tw > 1024) { tw = 1024; }
-    if (th > 1024) { th = 1024; }
-    if (wms == 0) { u &= tw - 1; } else if (wms == 1) { u = u < 0 ? 0 : u >= tw ? tw - 1 : u; }
-    else if (wms == 2) { u = u < minu ? minu : u > maxu ? maxu : u; } else { u = (u & minu) | maxu; }
-    if (wmt == 0) { v &= th - 1; } else if (wmt == 1) { v = v < 0 ? 0 : v >= th ? th - 1 : v; }
-    else if (wmt == 2) { v = v < minv ? minv : v > maxv ? maxv : v; } else { v = (v & minv) | maxv; }
-    c = vram_rw(tbp, tbw, psm, (uint32_t)u, (uint32_t)v, 0, 0);
-    bits = psm_bits(psm);
-    return bits > 8 ? expand(c, psm) : clut_read(t0, c, bits);
+/* What the pixels of one primitive read from the registers, decoded once when the primitive is queued (the front end
+   may change the registers while the back end still draws it). The decoding is the one the per-pixel code did. */
+typedef struct Draw {
+    int ctx;
+    uint64_t prim, tex0, texa, fogcol, test, alpha, zbuf, frame;
+    uint32_t clutVer;
+    int scx0, scx1, scy0, scy1;                      /* SCISSOR, inclusive */
+    uint32_t fbp, fbw, fpsm, fbits, fbmsk;           /* FRAME */
+    uint32_t zbp, zpsm, zmax;                        /* ZBUF */
+    int zwrite, ztest;
+    uint32_t ztst;
+    int atest;                                       /* TEST: alpha test, destination alpha test */
+    uint32_t atst, aref, afail, datm;
+    int date;
+    int blend, pabe, colclamp, fba;                  /* ALPHA, PABE, COLCLAMP, FBA */
+    uint32_t asel, bsel, csel, dsel, afix;
+    int tex, fst, fog, gouraud;                      /* PRIM */
+    uint32_t tbp, tbw, tpsm, tbits, tfx, tcc;        /* TEX0 */
+    int tw, th, lw, lh;
+    uint32_t wms, wmt;                               /* CLAMP */
+    int minu, maxu, minv, maxv;
+    uint32_t ta0, ta1, aem;                          /* TEXA */
+    int filter;                                      /* 0 nearest, 1 linear, 2 by the level of detail (TEX1) */
+    int32_t lodk;
+    int lcm, lodl, mmagLinear, mminLinear;
+} Draw;
+
+static void draw_setup(Draw *d, int ctx) {
+    uint64_t test = gs.test[ctx], al = gs.alpha[ctx], zb = gs.zbuf[ctx], sc = gs.scissor[ctx], fr = gs.frame[ctx];
+    uint64_t t0 = gs.tex0[ctx], t1 = gs.tex1[ctx], cl = gs.clamp[ctx];
+    uint32_t mmin;
+
+    d->ctx = ctx;
+    d->prim = gs.prim;
+    d->tex0 = t0;
+    d->texa = gs.texa;
+    d->fogcol = gs.fogcol;
+    d->clutVer = sClutVer;
+    d->test = test;
+    d->alpha = al;
+    d->zbuf = zb;
+    d->frame = fr;
+    d->scx0 = (int)(sc & 0x7FF);
+    d->scx1 = (int)((sc >> 16) & 0x7FF);
+    d->scy0 = (int)((sc >> 32) & 0x7FF);
+    d->scy1 = (int)((sc >> 48) & 0x7FF);
+    d->fbp = (uint32_t)(fr & 0x1FF) << 5;
+    d->fbw = (fr >> 16) & 0x3F;
+    d->fpsm = (fr >> 24) & 0x3F;
+    d->fbits = (uint32_t)psm_bits(d->fpsm);
+    d->fbmsk = (uint32_t)(fr >> 32);
+    d->zbp = (uint32_t)(zb & 0x1FF) << 5;
+    d->zpsm = 0x30 | (uint32_t)((zb >> 24) & 15);
+    d->zmax = psm_bits(d->zpsm) == 32 ? 0xFFFFFFFFu : psm_bits(d->zpsm) == 24 ? 0xFFFFFFu : 0xFFFFu;
+    d->zwrite = !((zb >> 32) & 1);
+    d->ztest = (int)((test >> 16) & 1);
+    d->ztst = (test >> 17) & 3;
+    d->atest = (int)(test & 1);
+    d->atst = (test >> 1) & 7;
+    d->aref = (test >> 4) & 0xFF;
+    d->afail = (test >> 12) & 3;
+    d->date = (int)((test >> 14) & 1);
+    d->datm = (test >> 15) & 1;
+    d->blend = (int)((gs.prim >> 6) & 1);
+    d->pabe = (int)(gs.pabe & 1);
+    d->colclamp = (int)(gs.colclamp & 1);
+    d->fba = (int)(gs.fba[ctx] & 1);
+    d->asel = al & 3;
+    d->bsel = (al >> 2) & 3;
+    d->csel = (al >> 4) & 3;
+    d->dsel = (al >> 6) & 3;
+    d->afix = (al >> 32) & 0xFF;
+    d->tex = (int)((gs.prim >> 4) & 1);
+    d->fst = (int)((gs.prim >> 8) & 1);
+    d->fog = (int)((gs.prim >> 5) & 1);
+    d->gouraud = (int)((gs.prim >> 3) & 1);
+    d->lw = (int)((t0 >> 26) & 15);
+    d->lh = (int)((t0 >> 30) & 15);
+    if (!d->tex) {
+        return;
+    }
+    d->tbp = t0 & 0x3FFF;
+    d->tbw = (t0 >> 14) & 0x3F;
+    d->tpsm = (t0 >> 20) & 0x3F;
+    d->tbits = (uint32_t)psm_bits(d->tpsm);
+    d->tfx = (t0 >> 35) & 3;
+    d->tcc = (t0 >> 34) & 1;
+    d->tw = 1 << ((t0 >> 26) & 15);
+    d->th = 1 << ((t0 >> 30) & 15);
+    if (d->tw > 1024) { d->tw = 1024; }
+    if (d->th > 1024) { d->th = 1024; }
+    d->wms = cl & 3;
+    d->wmt = (cl >> 2) & 3;
+    d->minu = (int)((cl >> 4) & 0x3FF);
+    d->maxu = (int)((cl >> 14) & 0x3FF);
+    d->minv = (int)((cl >> 24) & 0x3FF);
+    d->maxv = (int)((cl >> 34) & 0x3FF);
+    d->ta0 = gs.texa & 0xFF;
+    d->ta1 = (gs.texa >> 32) & 0xFF;
+    d->aem = (gs.texa >> 15) & 1;
+    d->lodk = (int32_t)((t1 >> 32) & 0xFFF);
+    if (d->lodk & 0x800) {
+        d->lodk -= 0x1000;
+    }
+    d->lcm = (int)(t1 & 1);
+    d->lodl = (int)((t1 >> 19) & 3);
+    d->mmagLinear = (int)((t1 >> 5) & 1);
+    mmin = (uint32_t)(t1 >> 6) & 7;
+    d->mminLinear = mmin == 1 || mmin == 4 || mmin == 5; /* LINEAR, LINEAR_MIPMAP_NEAREST / _LINEAR: linear inside a level */
+    d->filter = d->mmagLinear == d->mminLinear ? d->mmagLinear : 2;
 }
 
-/* Q of the pixel being drawn as sPixQ / 2^sPixQSh (the level of detail of LCM 0 depends on it): set by the
-   rasteriser. */
-static int64_t sPixQ = (int64_t)1 << 20;
-static int sPixQSh = 20;
+/* ------------------------------------------------------------------------------------------------ back end */
+
+/* A raster worker. With GS threads (TTT_GS_THREADS, below) every worker runs every primitive and draws the rows of its
+   own 16-row bands ((y >> 4) % count == id); count 1 draws all of them. The 16-row bands keep every word of GS memory
+   that a buffer's pixels share (8- and 4-bit formats pack pixels of four rows) inside one band. */
+typedef struct Raster {
+    int id, count;
+    /* the CLUT buffer (each worker loads its own, in order with its primitives): 512 halfwords; a 32-bit entry e keeps
+       its low half at e and its high half at e + 256 */
+    uint16_t clut[512];
+    int64_t pixQ;  /* Q of the pixel being drawn as pixQ / 2^pixQSh (the level of detail of LCM 0 depends on it) */
+    int pixQSh;
+    uint32_t pixels;
+    const uint32_t *pal;
+    uint32_t palBuf[256];  /* the CLUT expanded for an indexed texture, kept while its inputs stay the same */
+    struct { uint32_t ver, cpsm, csa, bits; uint64_t texa; int valid; } palKey;
+} Raster;
+
+static inline int row_mine(const Raster *r, int y) {
+    return r->count == 1 || ((y >> 4) % r->count) == r->id;
+}
+
+/* Whether any of the rows y0..y1 - 1 is this worker's. */
+static int rows_any_mine(const Raster *r, int y0, int y1) {
+    int b;
+    if (r->count == 1) {
+        return y0 < y1;
+    }
+    for (b = y0 >> 4; b <= (y1 - 1) >> 4 && b < (y0 >> 4) + r->count; b++) {
+        if (b % r->count == r->id) {
+            return y0 < y1;
+        }
+    }
+    return 0;
+}
+
+static const uint32_t *palette(Raster *r, const Draw *d) {
+    uint64_t t0 = d->tex0;
+    uint32_t cpsm = (t0 >> 51) & 15, csa = (t0 >> 56) & 31, i, bits = d->tbits;
+
+    if (!r->palKey.valid || r->palKey.ver != d->clutVer || r->palKey.cpsm != cpsm || r->palKey.csa != csa || r->palKey.bits != bits ||
+        r->palKey.texa != d->texa) {
+        for (i = 0; i < (bits == 8 ? 256u : 16u); i++) {
+            r->palBuf[i] = clut_read(r->clut, t0, i, (int)bits, d->texa);
+        }
+        r->palKey.valid = 1;
+        r->palKey.ver = d->clutVer;
+        r->palKey.cpsm = cpsm;
+        r->palKey.csa = csa;
+        r->palKey.bits = bits;
+        r->palKey.texa = d->texa;
+    }
+    return r->palBuf;
+}
+
+/* ------------------------------------------------------------------------------------------------ texturing */
+
+/* A stored colour of the texture's format (32, 24 or 16 bits) as R | G << 8 | B << 16 | A << 24: expand() on the
+   decoded TEXA. */
+static inline uint32_t texel_expand(const Draw *d, uint32_t c) {
+    switch (d->tbits) {
+    case 32:
+        return c;
+    case 24:
+        c &= 0xFFFFFF;
+        return c | ((d->aem && c == 0) ? 0 : d->ta0) << 24;
+    default: {
+        uint32_t r = (c & 31) << 3, g = ((c >> 5) & 31) << 3, b = ((c >> 10) & 31) << 3;
+        uint32_t a = (c & 0x8000) ? d->ta1 : (d->aem && (c & 0x7FFF) == 0 ? 0 : d->ta0);
+        return r | g << 8 | b << 16 | a << 24;
+    }
+    }
+}
+
+/* The texel at (u, v) (whole texels) of the primitive's texture, wrapped or clamped by CLAMP. */
+static inline uint32_t texel(const Raster *r, const Draw *d, int u, int v) {
+    uint32_t c;
+
+    if (d->wms == 0) { u &= d->tw - 1; } else if (d->wms == 1) { u = u < 0 ? 0 : u >= d->tw ? d->tw - 1 : u; }
+    else if (d->wms == 2) { u = u < d->minu ? d->minu : u > d->maxu ? d->maxu : u; } else { u = (u & d->minu) | d->maxu; }
+    if (d->wmt == 0) { v &= d->th - 1; } else if (d->wmt == 1) { v = v < 0 ? 0 : v >= d->th ? d->th - 1 : v; }
+    else if (d->wmt == 2) { v = v < d->minv ? d->minv : v > d->maxv ? d->maxv : v; } else { v = (v & d->minv) | d->maxv; }
+    c = vloc_read(vram_loc(d->tbp, d->tbw, d->tpsm, (uint32_t)u, (uint32_t)v));
+    return d->tbits > 8 ? texel_expand(d, c) : r->pal[c];
+}
 
 /* log2(x) in 1/16 units for x > 0: the position of the highest bit, then the next four bits as the fraction
    [I: a linear fraction; the GS's own log2 of Q is not documented beyond "log2(1/|Q|)"]. */
@@ -336,31 +550,25 @@ static int32_t log2_16(int64_t x) {
 /* The texel colour at (u16, v16) (1/16 texel) with TEX1's filter: LOD = K (LCM 1) or (log2(1/|Q|) << L) + K (LCM 0),
    in 1/16; LOD <= 0 magnifies (MMAG), else minifies (MMIN). Linear (MMAG 1, MMIN 1 / 4 / 5) weighs the four texels
    around the point half a texel up and left with the coordinates' 4-bit fractions, colour and alpha alike. Only level
-   0 is read: no mip-maps (MXL), which the game does not use. */
-static uint32_t sample(int ctx, int32_t u16, int32_t v16) {
-    uint64_t t1 = gs.tex1[ctx];
-    int32_t k = (int32_t)((t1 >> 32) & 0xFFF), lod;
-    int linear;
+   0 is read: no mip-maps (MXL), which the game does not use. The level of detail is only computed when MMAG and MMIN
+   filter differently. */
+static inline uint32_t sample(const Raster *r, const Draw *d, int32_t u16, int32_t v16) {
     uint32_t c00, c10, c01, c11, out = 0;
     int32_t fu, fv, u0, v0, i;
+    int linear = d->filter;
 
-    if (k & 0x800) {
-        k -= 0x1000;
-    }
-    if (t1 & 1) {
-        lod = k;
-    } else {
-        int64_t q = sPixQ < 0 ? -sPixQ : sPixQ;
-        lod = ((sPixQSh * 16 - log2_16(q != 0 ? q : 1)) << ((t1 >> 19) & 3)) + k;
-    }
-    if (lod <= 0) {
-        linear = (int)((t1 >> 5) & 1);
-    } else {
-        uint32_t mmin = (uint32_t)(t1 >> 6) & 7;
-        linear = mmin == 1 || mmin == 4 || mmin == 5; /* LINEAR, LINEAR_MIPMAP_NEAREST / _LINEAR: linear inside a level */
+    if (linear == 2) {
+        int32_t lod;
+        if (d->lcm) {
+            lod = d->lodk;
+        } else {
+            int64_t q = r->pixQ < 0 ? -r->pixQ : r->pixQ;
+            lod = ((r->pixQSh * 16 - log2_16(q != 0 ? q : 1)) << d->lodl) + d->lodk;
+        }
+        linear = lod <= 0 ? d->mmagLinear : d->mminLinear;
     }
     if (!linear) {
-        return texel(ctx, u16 >> 4, v16 >> 4);
+        return texel(r, d, u16 >> 4, v16 >> 4);
     }
     u16 -= 8;
     v16 -= 8;
@@ -368,78 +576,87 @@ static uint32_t sample(int ctx, int32_t u16, int32_t v16) {
     v0 = v16 >> 4;
     fu = u16 & 15;
     fv = v16 & 15;
-    c00 = texel(ctx, u0, v0);
+    c00 = texel(r, d, u0, v0);
     if (fu == 0 && fv == 0) {
         return c00;
     }
-    c10 = texel(ctx, u0 + 1, v0);
-    c01 = texel(ctx, u0, v0 + 1);
-    c11 = texel(ctx, u0 + 1, v0 + 1);
-    for (i = 0; i < 32; i += 8) {
-        uint32_t a = (c00 >> i) & 0xFF, b = (c10 >> i) & 0xFF, c = (c01 >> i) & 0xFF, d = (c11 >> i) & 0xFF;
-        uint32_t v = (a * (uint32_t)(16 - fu) * (uint32_t)(16 - fv) + b * (uint32_t)fu * (uint32_t)(16 - fv) + c * (uint32_t)(16 - fu) * (uint32_t)fv +
-                      d * (uint32_t)fu * (uint32_t)fv) >> 8;
-        out |= v << i;
+    c10 = texel(r, d, u0 + 1, v0);
+    c01 = texel(r, d, u0, v0 + 1);
+    c11 = texel(r, d, u0 + 1, v0 + 1);
+    {
+        uint32_t w00 = (uint32_t)(16 - fu) * (uint32_t)(16 - fv), w10 = (uint32_t)fu * (uint32_t)(16 - fv);
+        uint32_t w01 = (uint32_t)(16 - fu) * (uint32_t)fv, w11 = (uint32_t)fu * (uint32_t)fv;
+        for (i = 0; i < 32; i += 8) {
+            uint32_t a = (c00 >> i) & 0xFF, b = (c10 >> i) & 0xFF, c = (c01 >> i) & 0xFF, e = (c11 >> i) & 0xFF;
+            out |= ((a * w00 + b * w10 + c * w01 + e * w11) >> 8) << i;
+        }
     }
     return out;
 }
 
 /* Texture function (TEX0.TFX, TCC) on a vertex colour; u16 / v16 are texel coordinates in 1/16 texel. */
-static uint32_t shade(int ctx, uint32_t vc, int32_t u16, int32_t v16) {
-    uint64_t t0 = gs.tex0[ctx];
-    uint32_t tc, out = 0, tfx = (t0 >> 35) & 3, tcc = (t0 >> 34) & 1, av = vc >> 24, at, a;
+static inline uint32_t shade(const Raster *r, const Draw *d, uint32_t vc, int32_t u16, int32_t v16) {
+    uint32_t tc, out = 0, tfx = d->tfx, tcc = d->tcc, av = vc >> 24, at, a;
     int i;
 
-    tc = sample(ctx, u16, v16);
+    tc = sample(r, d, u16, v16);
     at = tc >> 24;
     for (i = 0; i < 3; i++) {
         uint32_t cv = (vc >> (8 * i)) & 0xFF, ct = (tc >> (8 * i)) & 0xFF, c;
         c = tfx == 0 ? (ct * cv) >> 7 : tfx == 1 ? ct : ((ct * cv) >> 7) + av;
         out |= (c > 255 ? 255 : c) << (8 * i);
     }
-    a = !tcc ? av : tfx == 0 ? (at * av) >> 7 : tfx == 2 ? at + av : tfx == 3 ? at : at;
+    a = !tcc ? av : tfx == 0 ? (at * av) >> 7 : tfx == 2 ? at + av : at;
     if (tfx == 3 && !tcc) {
         a = av;
     }
     return out | (a > 255 ? 255 : a) << 24;
 }
 
-static uint32_t fogged(uint32_t c, uint32_t f) {
+static uint32_t fogged(uint32_t c, uint32_t f, uint64_t fogcol) {
     uint32_t out = c & 0xFF000000u;
     int i;
     for (i = 0; i < 3; i++) {
-        uint32_t cc = (c >> (8 * i)) & 0xFF, fc = (uint32_t)(gs.fogcol >> (8 * i)) & 0xFF;
+        uint32_t cc = (c >> (8 * i)) & 0xFF, fc = (uint32_t)(fogcol >> (8 * i)) & 0xFF;
         out |= ((cc * f + fc * (255 - f)) >> 8) << (8 * i);
     }
     return out;
 }
 
+/* The colour of a pixel from its interpolated colour, texture coordinates and fog. */
+static inline uint32_t colour(const Raster *r, const Draw *d, uint32_t c, int32_t u16, int32_t v16, uint32_t f) {
+    if (d->tex) {
+        c = shade(r, d, c, u16, v16);
+    }
+    if (d->fog) {
+        c = fogged(c, f, d->fogcol);
+    }
+    return c;
+}
+
 /* ------------------------------------------------------------------------------------------------ pixels */
 
-static int tex_on(void);
 /* TTT_GS_TRACE_PRIMS with TTT_GS_TRACE_PIXEL: why a pixel at the traced position was not written. */
 #define TRACE_REJECT(why)                                                                                              \
     do {                                                                                                               \
         if (sTracePrimVb != 0 && sCurVb == sTracePrimVb && x == sTraceX && y == sTraceY) {                             \
             printf("gs-reject %d,%d %s src %08X z %08X prim %03llX test %llX zbuf %llX\n", x, y, why, src, z,            \
-                   (unsigned long long)gs.prim, (unsigned long long)test, (unsigned long long)zb);                     \
+                   (unsigned long long)d->prim, (unsigned long long)d->test, (unsigned long long)d->zbuf);               \
         }                                                                                                              \
     } while (0)
-static void pixel(int ctx, int x, int y, uint32_t z, uint32_t src) {
-    uint64_t test = gs.test[ctx], al = gs.alpha[ctx], zb = gs.zbuf[ctx], pr = gs.prim, sc = gs.scissor[ctx], fr = gs.frame[ctx];
-    uint32_t fbp = (uint32_t)(fr & 0x1FF) << 5, fbw = (fr >> 16) & 0x3F, fpsm = (fr >> 24) & 0x3F;
-    uint32_t d, sa = src >> 24, out[3], zbp, zpsm, zmax, fbits = (uint32_t)psm_bits(fpsm);
-    int i, write_rgb = 1, write_a = 1, write_z = !((zb >> 32) & 1);
+static void pixel(Raster *r, const Draw *d, int x, int y, uint32_t z, uint32_t src) {
+    uint32_t dv, sa = src >> 24, out[3], fbits = d->fbits;
+    int i, write_rgb = 1, write_a = 1, write_z = d->zwrite;
+    VLoc fl, zl;
 
-    if (x < (int)(sc & 0x7FF) || x > (int)((sc >> 16) & 0x7FF) || y < (int)((sc >> 32) & 0x7FF) || y > (int)((sc >> 48) & 0x7FF) || x < 0 ||
-        y < 0) {
+    if (x < d->scx0 || x > d->scx1 || y < d->scy0 || y > d->scy1 || x < 0 || y < 0) {
         TRACE_REJECT("scissor");
         return;
     }
-    if (test & 1) { /* alpha test */
-        uint32_t ref = (test >> 4) & 0xFF;
+    if (d->atest) { /* alpha test */
+        uint32_t ref = d->aref;
         int pass;
-        switch ((test >> 1) & 7) {
+        switch (d->atst) {
         case 0: pass = 0; break;
         case 1: pass = 1; break;
         case 2: pass = sa < ref; break;
@@ -450,7 +667,7 @@ static void pixel(int ctx, int x, int y, uint32_t z, uint32_t src) {
         default: pass = sa != ref; break;
         }
         if (!pass) {
-            switch ((test >> 12) & 3) {
+            switch (d->afail) {
             case 0: TRACE_REJECT("alpha test"); return; /* KEEP */
             case 1: write_z = 0; break;              /* FB_ONLY */
             case 2: write_rgb = write_a = 0; break;  /* ZB_ONLY */
@@ -458,26 +675,27 @@ static void pixel(int ctx, int x, int y, uint32_t z, uint32_t src) {
             }
         }
     }
-    if ((test >> 14) & 1) { /* destination alpha test: the frame's alpha bit (7 of 32-bit, 15 of 16-bit) */
-        uint32_t dv = vram_rw(fbp, fbw, fpsm, (uint32_t)x, (uint32_t)y, 0, 0), bit;
+    fl = vram_loc(d->fbp, d->fbw, d->fpsm, (uint32_t)x, (uint32_t)y);
+    if (d->date) { /* destination alpha test: the frame's alpha bit (7 of 32-bit, 15 of 16-bit) */
+        uint32_t dw = vloc_read(fl), bit;
         if (fbits == 32 || fbits == 16) {
-            bit = fbits == 32 ? dv >> 31 : (dv >> 15) & 1;
-            if (bit != ((test >> 15) & 1)) {
+            bit = fbits == 32 ? dw >> 31 : (dw >> 15) & 1;
+            if (bit != d->datm) {
                 TRACE_REJECT("destination alpha test");
                 return;
             }
         }
     }
     /* the depth buffer lives in GS memory: ZBUF.ZBP, the frame's width, format 0x30 | ZBUF.PSM */
-    zbp = (uint32_t)(zb & 0x1FF) << 5;
-    zpsm = 0x30 | (uint32_t)((zb >> 24) & 15);
-    zmax = psm_bits(zpsm) == 32 ? 0xFFFFFFFFu : psm_bits(zpsm) == 24 ? 0xFFFFFFu : 0xFFFFu;
-    if (z > zmax) {
-        z = zmax;
+    if (z > d->zmax) {
+        z = d->zmax;
     }
-    if ((test >> 16) & 1) { /* depth test */
-        uint32_t zd = vram_rw(zbp, fbw, zpsm, (uint32_t)x, (uint32_t)y, 0, 0);
-        switch ((test >> 17) & 3) {
+    if (d->ztest || write_z) {
+        zl = vram_loc(d->zbp, d->fbw, d->zpsm, (uint32_t)x, (uint32_t)y);
+    }
+    if (d->ztest) { /* depth test */
+        uint32_t zd = vloc_read(zl);
+        switch (d->ztst) {
         case 0: TRACE_REJECT("depth test NEVER"); return;
         case 1: break;
         case 2: if (z < zd) { TRACE_REJECT("depth test GEQUAL"); return; } break;
@@ -485,30 +703,30 @@ static void pixel(int ctx, int x, int y, uint32_t z, uint32_t src) {
         }
     }
     if (write_rgb) {
-        uint32_t c, m = (uint32_t)(fr >> 32), old;
-        d = vram_rw(fbp, fbw, fpsm, (uint32_t)x, (uint32_t)y, 0, 0);
-        old = d;
+        uint32_t c, m = d->fbmsk, old;
+        dv = vloc_read(fl);
+        old = dv;
         if (fbits == 16) {
-            d = (d & 31) << 3 | ((d >> 5) & 31) << 11 | ((d >> 10) & 31) << 19 | ((d & 0x8000) ? 0x80000000u : 0);
+            dv = (dv & 31) << 3 | ((dv >> 5) & 31) << 11 | ((dv >> 10) & 31) << 19 | ((dv & 0x8000) ? 0x80000000u : 0);
         } else if (fbits == 24) {
-            d |= 0x80000000u;
+            dv |= 0x80000000u;
         }
         out[0] = src & 0xFF;
         out[1] = (src >> 8) & 0xFF;
         out[2] = (src >> 16) & 0xFF;
-        if (((pr >> 6) & 1) && (!(gs.pabe & 1) || (sa & 0x80))) { /* blending: ((A - B) * C >> 7) + D */
+        if (d->blend && (!d->pabe || (sa & 0x80))) { /* blending: ((A - B) * C >> 7) + D */
             uint32_t s[3] = {out[0], out[1], out[2]};
-            int cc = ((al >> 4) & 3) == 0 ? (int)sa : ((al >> 4) & 3) == 1 ? (int)(d >> 24) : (int)((al >> 32) & 0xFF);
+            int cc = d->csel == 0 ? (int)sa : d->csel == 1 ? (int)(dv >> 24) : (int)d->afix;
             for (i = 0; i < 3; i++) {
-                int dc = (int)((d >> (8 * i)) & 0xFF);
-                int a = (al & 3) == 0 ? (int)s[i] : (al & 3) == 1 ? dc : 0;
-                int b = ((al >> 2) & 3) == 0 ? (int)s[i] : ((al >> 2) & 3) == 1 ? dc : 0;
-                int dd = ((al >> 6) & 3) == 0 ? (int)s[i] : ((al >> 6) & 3) == 1 ? dc : 0;
+                int dc = (int)((dv >> (8 * i)) & 0xFF);
+                int a = d->asel == 0 ? (int)s[i] : d->asel == 1 ? dc : 0;
+                int b = d->bsel == 0 ? (int)s[i] : d->bsel == 1 ? dc : 0;
+                int dd = d->dsel == 0 ? (int)s[i] : d->dsel == 1 ? dc : 0;
                 int v = (((a - b) * cc) >> 7) + dd;
-                out[i] = (gs.colclamp & 1) ? (uint32_t)(v < 0 ? 0 : v > 255 ? 255 : v) : (uint32_t)v & 0xFF;
+                out[i] = d->colclamp ? (uint32_t)(v < 0 ? 0 : v > 255 ? 255 : v) : (uint32_t)v & 0xFF;
             }
         }
-        if (gs.fba[ctx] & 1) {
+        if (d->fba) {
             sa |= 0x80;
         }
         if (!write_a) {
@@ -523,22 +741,22 @@ static void pixel(int ctx, int x, int y, uint32_t z, uint32_t src) {
         if (m != 0) {
             c = (old & m) | (c & ~m);
         }
-        vram_rw(fbp, fbw, fpsm, (uint32_t)x, (uint32_t)y, 1, c);
-        sStat.pixels++;
+        vloc_write(fl, c);
+        r->pixels++;
         if (sTracePrimVb != 0 && sCurVb == sTracePrimVb && x == sTraceX && y == sTraceY) {
-            printf("gs-pixel %d,%d fbp %X src %08X old %08X new %08X prim %03llX tex0 %016llX alpha %llX test %llX\n", x, y, fbp, src, old, c,
-                   (unsigned long long)gs.prim, (unsigned long long)gs.tex0[ctx], (unsigned long long)al, (unsigned long long)test);
+            printf("gs-pixel %d,%d fbp %X src %08X old %08X new %08X prim %03llX tex0 %016llX alpha %llX test %llX\n", x, y, d->fbp, src, old, c,
+                   (unsigned long long)d->prim, (unsigned long long)d->tex0, (unsigned long long)d->alpha, (unsigned long long)d->test);
         }
         if (sTrace > 0) {
-            sTr[fbp >> 5].px++;
-            sTr[fbp >> 5].tex0 = tex_on() ? gs.tex0[ctx] : 0;
-            sTr[fbp >> 5].frame = fr;
-            sTr[fbp >> 5].test = test;
-            sTr[fbp >> 5].alpha = al;
+            sTr[d->fbp >> 5].px++;
+            sTr[d->fbp >> 5].tex0 = d->tex ? d->tex0 : 0;
+            sTr[d->fbp >> 5].frame = d->frame;
+            sTr[d->fbp >> 5].test = d->test;
+            sTr[d->fbp >> 5].alpha = d->alpha;
         }
     }
     if (write_z) {
-        vram_rw(zbp, fbw, zpsm, (uint32_t)x, (uint32_t)y, 1, z);
+        vloc_write(zl, z);
     }
 }
 
@@ -579,7 +797,7 @@ static int stq_shift(const uint32_t *bits, int n) {
 }
 
 /* S / Q times the texture's size, in 1/16 texel. */
-static int32_t stq_texel(int64_t s20, int64_t q20, int log2size) {
+static inline int32_t stq_texel(int64_t s20, int64_t q20, int log2size) {
     int64_t r;
     if (q20 == 0) {
         q20 = 1;
@@ -595,70 +813,89 @@ static int32_t stq_texel(int64_t s20, int64_t q20, int log2size) {
     return r > 0x3FFFFFFF ? 0x3FFFFFFF : r < -0x3FFFFFFF ? -0x3FFFFFFF : (int32_t)r;
 }
 
-static int ctx_of(void) { return (int)((gs.prim >> 9) & 1); }
-static int tex_on(void) { return (int)((gs.prim >> 4) & 1); }
-static int fst_on(void) { return (int)((gs.prim >> 8) & 1); }
-static int fog_on(void) { return (int)((gs.prim >> 5) & 1); }
-
-/* The colour of a pixel from its interpolated colour, texture coordinates and fog. */
-static uint32_t colour(int ctx, uint32_t c, int32_t u16, int32_t v16, uint32_t f) {
-    if (tex_on()) {
-        c = shade(ctx, c, u16, v16);
-    }
-    if (fog_on()) {
-        c = fogged(c, f);
-    }
-    return c;
-}
-
-/* Scissor rectangle of the context, as a pixel range [x0, x1) x [y0, y1). */
-static void scissor_box(int ctx, int *x0, int *x1, int *y0, int *y1) {
-    uint64_t sc = gs.scissor[ctx];
-    *x0 = (int)(sc & 0x7FF);
-    *x1 = (int)((sc >> 16) & 0x7FF) + 1;
-    *y0 = (int)((sc >> 32) & 0x7FF);
-    *y1 = (int)((sc >> 48) & 0x7FF) + 1;
-}
-
 static int ceil16(int32_t v) { return (int)((v + 15) >> 4); }
 
-static void draw_sprite(int ctx, const Vtx *a, const Vtx *b) {
+/* floor(n / d) for d > 0. */
+static int64_t floordiv(int64_t n, int64_t d) {
+    int64_t q = n / d;
+    return (n % d != 0 && n < 0) ? q - 1 : q;
+}
+
+/* An exact running quotient: q = floor(N / d), r = N - q * d, while N grows by a fixed step (d > 0). */
+typedef struct {
+    int64_t q, r, dq, dr, d;
+} Quot;
+
+static void quot_start(Quot *s, int64_t n, int64_t step, int64_t d) {
+    s->d = d;
+    s->q = floordiv(n, d);
+    s->r = n - s->q * d;
+    s->dq = floordiv(step, d);
+    s->dr = step - s->dq * d;
+}
+
+/* Whether the step carried a unit into q. */
+static inline int quot_step(Quot *s) {
+    s->q += s->dq;
+    s->r += s->dr;
+    if (s->r >= s->d) {
+        s->r -= s->d;
+        s->q++;
+        return 1;
+    }
+    return 0;
+}
+
+static void draw_sprite(Raster *r, const Draw *d, const Vtx *a, const Vtx *b) {
     int32_t X0 = a->x, X1 = b->x, Y0 = a->y, Y1 = b->y;
     int32_t U0, U1, V0, V1;
-    int xa, xb, ya, yb, x, y, sx0, sx1, sy0, sy1;
+    int xa, xb, ya, yb, x, y;
     uint32_t col = b->rgba;
 
-    if (fst_on()) {
+    if (d->fst) {
         U0 = a->u; U1 = b->u; V0 = a->v; V1 = b->v;
-        sPixQ = fix(b->q, 20);
-        sPixQSh = 20;
+        r->pixQ = fix(b->q, 20);
+        r->pixQSh = 20;
     } else {
-        uint64_t t0 = gs.tex0[ctx];
-        int lw = (int)((t0 >> 26) & 15), lh = (int)((t0 >> 30) & 15);
         uint32_t f[5];
         int sh;
         int64_t q;
         f[0] = a->s; f[1] = b->s; f[2] = a->t; f[3] = b->t; f[4] = b->q;
         sh = stq_shift(f, 5);
         q = fix(b->q, sh);
-        sPixQ = q;
-        sPixQSh = sh;
-        U0 = stq_texel(fix(a->s, sh), q, lw); U1 = stq_texel(fix(b->s, sh), q, lw);
-        V0 = stq_texel(fix(a->t, sh), q, lh); V1 = stq_texel(fix(b->t, sh), q, lh);
+        r->pixQ = q;
+        r->pixQSh = sh;
+        U0 = stq_texel(fix(a->s, sh), q, d->lw); U1 = stq_texel(fix(b->s, sh), q, d->lw);
+        V0 = stq_texel(fix(a->t, sh), q, d->lh); V1 = stq_texel(fix(b->t, sh), q, d->lh);
     }
     if (X0 > X1) { int32_t t = X0; X0 = X1; X1 = t; t = U0; U0 = U1; U1 = t; }
     if (Y0 > Y1) { int32_t t = Y0; Y0 = Y1; Y1 = t; t = V0; V0 = V1; V1 = t; }
     xa = ceil16(X0); xb = ceil16(X1); ya = ceil16(Y0); yb = ceil16(Y1);
-    scissor_box(ctx, &sx0, &sx1, &sy0, &sy1);
-    if (xa < sx0) { xa = sx0; }
-    if (xb > sx1) { xb = sx1; }
-    if (ya < sy0) { ya = sy0; }
-    if (yb > sy1) { yb = sy1; }
+    if (xa < d->scx0) { xa = d->scx0; }
+    if (xb > d->scx1 + 1) { xb = d->scx1 + 1; }
+    if (ya < d->scy0) { ya = d->scy0; }
+    if (yb > d->scy1 + 1) { yb = d->scy1 + 1; }
     for (y = ya; y < yb; y++) {
-        int32_t v16 = Y1 != Y0 ? V0 + (int32_t)((int64_t)(V1 - V0) * (y * 16 - Y0) / (Y1 - Y0)) : V0;
+        int32_t v16, du = U1 - U0, su = du < 0 ? -1 : 1;
+        Quot qu;
+
+        if (!row_mine(r, y)) {
+            continue;
+        }
+        v16 = Y1 != Y0 ? V0 + (int32_t)((int64_t)(V1 - V0) * (y * 16 - Y0) / (Y1 - Y0)) : V0;
+        /* u16 = U0 + (U1 - U0) * (x * 16 - X0) / (X1 - X0), cut toward zero: x * 16 >= X0 here, so the quotient is
+           |U1 - U0| * (x * 16 - X0) / (X1 - X0) with the sign of U1 - U0, kept as a running quotient */
+        if (xa < xb && d->tex && X1 != X0) {
+            int64_t m = (int64_t)du * su;
+            quot_start(&qu, m * ((int64_t)xa * 16 - X0), m * 16, (int64_t)X1 - X0);
+        }
         for (x = xa; x < xb; x++) {
-            int32_t u16 = X1 != X0 ? U0 + (int32_t)((int64_t)(U1 - U0) * (x * 16 - X0) / (X1 - X0)) : U0;
-            pixel(ctx, x, y, b->z, colour(ctx, col, u16, v16, b->f));
+            int32_t u16 = U0;
+            if (d->tex && X1 != X0) {
+                u16 = U0 + su * (int32_t)qu.q;
+                quot_step(&qu);
+            }
+            pixel(r, d, x, y, b->z, colour(r, d, col, u16, v16, b->f));
         }
     }
 }
@@ -675,20 +912,50 @@ static int top_left(const Vtx *a, const Vtx *b, int sign) {
     return A > 0 || (A == 0 && B > 0);
 }
 
-#define LERP(a0, a1, a2) ((a0) + (((int64_t)((a1) - (a0)) * lb + (int64_t)((a2) - (a0)) * lc) >> 24))
+/* An attribute interpolated over a triangle: a0 + ((a1 - a0) * lb + (a2 - a0) * lc) >> 24, with p the sum of the
+   products kept modulo 2^64 (as the products themselves wrap). */
+typedef struct {
+    int64_t a0;
+    uint64_t d1, d2, p, base;
+} Attr;
 
-static void draw_triangle(int ctx, const Vtx *a, const Vtx *b, const Vtx *c) {
+static void attr_add(Attr *at, int *n, int64_t a0, int64_t a1, int64_t a2) {
+    at[*n].a0 = a0;
+    at[*n].d1 = (uint64_t)(a1 - a0);
+    at[*n].d2 = (uint64_t)(a2 - a0);
+    (*n)++;
+}
+
+#define AT(i) (at[i].a0 + ((int64_t)at[i].p >> 24))
+
+/* Triangles by edge functions with the top-left rule. Per row the pixels inside all three edges form one span,
+   found exactly from the edge values at the row's first pixel and their step per pixel; along the span the
+   barycentric fractions lb = (w1 << 24) / area, lc = (w2 << 24) / area are running exact quotients and each attribute's
+   (a1 - a0) * lb + (a2 - a0) * lc a running sum: the same pixels and values as evaluating every pixel of the bounding
+   box. Attribute slots: z, then R G B A and fog (Gouraud), then U V (UV) or S T Q (STQ). */
+static void draw_triangle(Raster *r, const Draw *d, const Vtx *a, const Vtx *b, const Vtx *c) {
     int64_t area = edge(a, b, c->x, c->y);
-    int sign = area < 0 ? -1 : 1, gouraud = (int)((gs.prim >> 3) & 1), tex = tex_on(), fst = fst_on();
-    int bias0, bias1, bias2, x, y, x0, x1, y0, y1, sx0, sx1, sy0, sy1;
+    int sign = area < 0 ? -1 : 1, gouraud = d->gouraud, tex = d->tex, fst = d->fst;
+    int bias[3], x, y, x0, x1, y0, y1, k;
     int32_t minx, maxx, miny, maxy;
-    int64_t S[3] = {0, 0, 0}, T[3] = {0, 0, 0}, Q[3] = {0, 0, 0};
+    int64_t S[3] = {0, 0, 0}, T[3] = {0, 0, 0}, Q[3] = {0, 0, 0}, step[3];
     int qsh = 20;
-    int lw = (int)((gs.tex0[ctx] >> 26) & 15), lh = (int)((gs.tex0[ctx] >> 30) & 15);
     const Vtx *v[3];
+    Attr at[9];
+    int na, AZ = 0, AR = 1, AF = 5, AU, AV, AQ;
 
     if (area == 0) {
         return;
+    }
+    miny = a->y < b->y ? a->y : b->y;
+    miny = c->y < miny ? c->y : miny;
+    maxy = a->y > b->y ? a->y : b->y;
+    maxy = c->y > maxy ? c->y : maxy;
+    y0 = ceil16(miny); y1 = (int)(maxy >> 4) + 1;
+    if (y0 < d->scy0) { y0 = d->scy0; }
+    if (y1 > d->scy1 + 1) { y1 = d->scy1 + 1; }
+    if (!rows_any_mine(r, y0, y1)) {
+        return; /* only the rows of other workers (the per-pixel Q of LCM 0 is set again before it is read) */
     }
     area *= sign;
     v[0] = a; v[1] = b; v[2] = c;
@@ -707,12 +974,16 @@ static void draw_triangle(int ctx, const Vtx *a, const Vtx *b, const Vtx *c) {
         }
     }
     if (tex && fst) {
-        sPixQ = fix(c->q, 20);
-        sPixQSh = 20;
+        r->pixQ = fix(c->q, 20);
+        r->pixQSh = 20;
     }
-    bias0 = top_left(b, c, sign) ? 0 : 1;
-    bias1 = top_left(c, a, sign) ? 0 : 1;
-    bias2 = top_left(a, b, sign) ? 0 : 1;
+    bias[0] = top_left(b, c, sign) ? 0 : 1;
+    bias[1] = top_left(c, a, sign) ? 0 : 1;
+    bias[2] = top_left(a, b, sign) ? 0 : 1;
+    /* edge k's value grows by step[k] per pixel to the right: edge(p, q, x, y) changes by -(q.y - p.y) * 16 */
+    step[0] = -(int64_t)(c->y - b->y) * 16 * sign;
+    step[1] = -(int64_t)(a->y - c->y) * 16 * sign;
+    step[2] = -(int64_t)(b->y - a->y) * 16 * sign;
     minx = a->x; maxx = a->x; miny = a->y; maxy = a->y;
     for (x = 1; x < 3; x++) {
         if (v[x]->x < minx) { minx = v[x]->x; }
@@ -721,62 +992,587 @@ static void draw_triangle(int ctx, const Vtx *a, const Vtx *b, const Vtx *c) {
         if (v[x]->y > maxy) { maxy = v[x]->y; }
     }
     x0 = ceil16(minx); x1 = (int)(maxx >> 4) + 1; y0 = ceil16(miny); y1 = (int)(maxy >> 4) + 1;
-    scissor_box(ctx, &sx0, &sx1, &sy0, &sy1);
-    if (x0 < sx0) { x0 = sx0; }
-    if (x1 > sx1) { x1 = sx1; }
-    if (y0 < sy0) { y0 = sy0; }
-    if (y1 > sy1) { y1 = sy1; }
-    for (y = y0; y < y1; y++) {
-        for (x = x0; x < x1; x++) {
-            int32_t px = x * 16, py = y * 16, u16 = 0, v16 = 0;
-            int64_t w0 = edge(b, c, px, py) * sign, w1 = edge(c, a, px, py) * sign, w2 = edge(a, b, px, py) * sign, lb, lc;
-            uint32_t col, z, f;
+    if (x0 < d->scx0) { x0 = d->scx0; }
+    if (x1 > d->scx1 + 1) { x1 = d->scx1 + 1; }
+    if (y0 < d->scy0) { y0 = d->scy0; }
+    if (y1 > d->scy1 + 1) { y1 = d->scy1 + 1; }
+    AU = gouraud ? 6 : 1;
+    AV = AU + 1;
+    AQ = AU + 2;
+    na = 0;
+    attr_add(at, &na, (int64_t)a->z, (int64_t)b->z, (int64_t)c->z);
+    if (gouraud) {
+        for (k = 0; k < 32; k += 8) {
+            attr_add(at, &na, (int64_t)((a->rgba >> k) & 0xFF), (int64_t)((b->rgba >> k) & 0xFF), (int64_t)((c->rgba >> k) & 0xFF));
+        }
+        attr_add(at, &na, (int64_t)a->f, (int64_t)b->f, (int64_t)c->f);
+    }
+    if (tex && fst) {
+        attr_add(at, &na, (int64_t)a->u, (int64_t)b->u, (int64_t)c->u);
+        attr_add(at, &na, (int64_t)a->v, (int64_t)b->v, (int64_t)c->v);
+    } else if (tex) {
+        attr_add(at, &na, S[0], S[1], S[2]);
+        attr_add(at, &na, T[0], T[1], T[2]);
+        attr_add(at, &na, Q[0], Q[1], Q[2]);
+    }
+    for (y = y0; y < y1 && x0 < x1; y++) {
+        int32_t px = x0 * 16, py = y * 16;
+        int64_t w[3], lo = 0, hi = x1 - x0 - 1;
+        Quot qb, qc;
 
-            if (w0 < bias0 || w1 < bias1 || w2 < bias2) {
-                continue;
-            }
-            lb = (w1 << 24) / area;
-            lc = (w2 << 24) / area;
-            z = (uint32_t)LERP((int64_t)a->z, (int64_t)b->z, (int64_t)c->z);
-            if (gouraud) {
-                int k;
-                col = 0;
-                for (k = 0; k < 32; k += 8) {
-                    int64_t ch = LERP((int64_t)((a->rgba >> k) & 0xFF), (int64_t)((b->rgba >> k) & 0xFF), (int64_t)((c->rgba >> k) & 0xFF));
-                    col |= (uint32_t)(ch < 0 ? 0 : ch > 255 ? 255 : ch) << k;
+        if (!row_mine(r, y)) {
+            continue;
+        }
+        w[0] = edge(b, c, px, py) * sign;
+        w[1] = edge(c, a, px, py) * sign;
+        w[2] = edge(a, b, px, py) * sign;
+        /* the pixels n = 0.. of the row with w[k] + step[k] * n >= bias[k] for every edge */
+        for (k = 0; k < 3 && lo <= hi; k++) {
+            if (step[k] == 0) {
+                if (w[k] < bias[k]) {
+                    hi = -1;
                 }
-                f = (uint32_t)LERP((int64_t)a->f, (int64_t)b->f, (int64_t)c->f);
+            } else if (step[k] > 0) {
+                if (w[k] < bias[k]) {
+                    int64_t n = (bias[k] - w[k] + step[k] - 1) / step[k];
+                    if (n > lo) { lo = n; }
+                }
+            } else {
+                if (w[k] < bias[k]) {
+                    hi = -1;
+                } else {
+                    int64_t n = (w[k] - bias[k]) / -step[k];
+                    if (n < hi) { hi = n; }
+                }
+            }
+        }
+        if (lo > hi) {
+            continue;
+        }
+        quot_start(&qb, (w[1] + step[1] * lo) * ((int64_t)1 << 24), step[1] * ((int64_t)1 << 24), area);
+        quot_start(&qc, (w[2] + step[2] * lo) * ((int64_t)1 << 24), step[2] * ((int64_t)1 << 24), area);
+        for (k = 0; k < na; k++) {
+            at[k].p = at[k].d1 * (uint64_t)qb.q + at[k].d2 * (uint64_t)qc.q;
+            at[k].base = at[k].d1 * (uint64_t)qb.dq + at[k].d2 * (uint64_t)qc.dq;
+        }
+        for (x = x0 + (int)lo; x <= x0 + (int)hi; x++) {
+            int32_t u16 = 0, v16 = 0;
+            uint32_t col, z, f;
+            int cb, cc;
+
+            z = (uint32_t)AT(AZ);
+            if (gouraud) {
+                col = 0;
+                for (k = 0; k < 4; k++) {
+                    int64_t ch = AT(AR + k);
+                    col |= (uint32_t)(ch < 0 ? 0 : ch > 255 ? 255 : ch) << (8 * k);
+                }
+                f = (uint32_t)AT(AF);
             } else {
                 col = c->rgba;
                 f = c->f;
             }
             if (tex) {
                 if (fst) {
-                    u16 = (int32_t)LERP((int64_t)a->u, (int64_t)b->u, (int64_t)c->u);
-                    v16 = (int32_t)LERP((int64_t)a->v, (int64_t)b->v, (int64_t)c->v);
+                    u16 = (int32_t)AT(AU);
+                    v16 = (int32_t)AT(AV);
                 } else {
-                    int64_t q = LERP(Q[0], Q[1], Q[2]);
-                    sPixQ = q;
-                    sPixQSh = qsh;
-                    u16 = stq_texel(LERP(S[0], S[1], S[2]), q, lw);
-                    v16 = stq_texel(LERP(T[0], T[1], T[2]), q, lh);
+                    int64_t q = AT(AQ);
+                    r->pixQ = q;
+                    r->pixQSh = qsh;
+                    u16 = stq_texel(AT(AU), q, d->lw);
+                    v16 = stq_texel(AT(AV), q, d->lh);
                 }
             }
-            pixel(ctx, x, y, z, colour(ctx, col, u16, v16, f > 255 ? 255 : f));
+            pixel(r, d, x, y, z, colour(r, d, col, u16, v16, f > 255 ? 255 : f));
+            cb = quot_step(&qb);
+            cc = quot_step(&qc);
+            for (k = 0; k < na; k++) {
+                at[k].p += at[k].base + (cb ? at[k].d1 : 0) + (cc ? at[k].d2 : 0);
+            }
         }
     }
 }
 
-static void draw_line(int ctx, const Vtx *a, const Vtx *b) {
+static void draw_line(Raster *r, const Draw *d, const Vtx *a, const Vtx *b) {
     int32_t dx = b->x - a->x, dy = b->y - a->y;
     int32_t adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
     int n = (int)((adx > ady ? adx : ady) >> 4), i;
 
     for (i = 0; i <= n; i++) {
         int32_t x = a->x + (n ? (int32_t)((int64_t)dx * i / n) : 0), y = a->y + (n ? (int32_t)((int64_t)dy * i / n) : 0);
-        pixel(ctx, (int)(x >> 4), (int)(y >> 4), b->z, fog_on() ? fogged(b->rgba, b->f) : b->rgba);
+        if (row_mine(r, (int)(y >> 4))) {
+            pixel(r, d, (int)(x >> 4), (int)(y >> 4), b->z, d->fog ? fogged(b->rgba, b->f, d->fogcol) : b->rgba);
+        }
     }
 }
+
+/* ------------------------------------------------------------------------------------------------ commands */
+
+/* The front end turns primitives and the operations on GS memory into commands; the back end carries them out in
+   order. Without GS threads a command runs at once; with them it goes into a ring that the raster workers read. */
+enum { CMD_POINT, CMD_LINE, CMD_TRIANGLE, CMD_SPRITE, CMD_UPLOAD, CMD_COPY, CMD_CLUT, CMD_SHOW, CMD_BARRIER };
+
+/* The display registers at a VBlank (the picture the dump and the window show). */
+typedef struct DispRegs {
+    uint64_t pmode, smode2, bgcolor, dispfb[2], display[2];
+} DispRegs;
+
+typedef struct Cmd {
+    uint8_t type;
+    uint8_t serial;   /* worker 0 alone carries it out, the others wait (operations on GS memory) */
+    uint8_t barrier;  /* the workers first wait for each other (the command reads what an earlier one wrote) */
+    union {
+        struct { Draw d; Vtx v[3]; } prim;
+        struct { uint64_t bitbltbuf; uint32_t tx, ty, tw, th, tpos, bytes; uint8_t *data; } upload;
+        struct { uint64_t bitbltbuf, trxpos; uint32_t tx, ty, tw, th; } copy;
+        struct { uint64_t t0, texclut; } clut;
+        struct { DispRegs regs; uint32_t vblank; uint8_t *rgb; } show; /* rgb: the window's picture, else the dump */
+    } u;
+} Cmd;
+
+static void exec_upload(const Cmd *c);
+static void exec_copy(const Cmd *c);
+static void exec_show(const Cmd *c);
+static void exec_window(Raster *r, const Cmd *c);
+
+static void exec_cmd(Raster *r, const Cmd *c) {
+    const Draw *d = &c->u.prim.d;
+
+    switch (c->type) {
+    case CMD_POINT:
+    case CMD_LINE:
+    case CMD_TRIANGLE:
+    case CMD_SPRITE:
+        r->pal = d->tex && d->tbits <= 8 ? palette(r, d) : NULL;
+        if (c->type == CMD_TRIANGLE) {
+            draw_triangle(r, d, &c->u.prim.v[0], &c->u.prim.v[1], &c->u.prim.v[2]);
+        } else if (c->type == CMD_SPRITE) {
+            draw_sprite(r, d, &c->u.prim.v[0], &c->u.prim.v[1]);
+        } else if (c->type == CMD_LINE) {
+            draw_line(r, d, &c->u.prim.v[0], &c->u.prim.v[1]);
+        } else {
+            const Vtx *v = &c->u.prim.v[0];
+            if (row_mine(r, (int)(v->y >> 4))) {
+                pixel(r, d, (int)(v->x >> 4), (int)(v->y >> 4), v->z, d->fog ? fogged(v->rgba, v->f, d->fogcol) : v->rgba);
+            }
+        }
+        break;
+    case CMD_UPLOAD: exec_upload(c); break;
+    case CMD_COPY: exec_copy(c); break;
+    case CMD_CLUT: clut_fill(r->clut, c->u.clut.t0, c->u.clut.texclut); break;
+    case CMD_SHOW:
+        if (c->u.show.rgb != NULL) {
+            exec_window(r, c);
+        } else {
+            exec_show(c);
+        }
+        break;
+    default: break;
+    }
+}
+
+/* ---- GS threads: TTT_GS_THREADS=n raster workers (0: none, the calling thread draws) ---- */
+
+#include <unistd.h>
+#include "port_host.h"
+
+#define RING 8192u /* commands; a power of two */
+
+static int sThreads = -1;   /* raster workers; 0 until started */
+static Raster sSync = {0, 1};
+static Raster sWorker[16];
+static Cmd *sRing;
+static uint32_t sHead;          /* commands published by the front end */
+static uint32_t sTail[16];      /* per worker: commands finished (the next one to read) */
+static int sSleepWake, sSleepIdle; /* threads asleep on sWake (workers waiting for commands) / sIdle (for progress) */
+static pthread_mutex_t sLock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t sWake = PTHREAD_COND_INITIALIZER, sIdle = PTHREAD_COND_INITIALIZER;
+
+static uint32_t ld(const uint32_t *p) { return __atomic_load_n(p, __ATOMIC_ACQUIRE); }
+
+static uint32_t min_tail(void) {
+    uint32_t m = ld(&sTail[0]);
+    int k;
+    for (k = 1; k < sThreads; k++) {
+        uint32_t t = ld(&sTail[k]);
+        if ((int32_t)(t - m) < 0) {
+            m = t;
+        }
+    }
+    return m;
+}
+
+/* Waits until cond() holds: spins a little, then sleeps on cv (sWake: new commands, broadcast by the front end;
+   sIdle: a finished command, broadcast by the workers). */
+static void wait_until(int (*cond)(void *), void *arg, pthread_cond_t *cv) {
+    int spin, *sleepers = cv == &sWake ? &sSleepWake : &sSleepIdle;
+    for (spin = 0; spin < 4000; spin++) {
+        if (cond(arg)) {
+            return;
+        }
+        __builtin_ia32_pause();
+    }
+    pthread_mutex_lock(&sLock);
+    __atomic_add_fetch(sleepers, 1, __ATOMIC_SEQ_CST);
+    while (!cond(arg)) {
+        pthread_cond_wait(cv, &sLock);
+    }
+    __atomic_sub_fetch(sleepers, 1, __ATOMIC_SEQ_CST);
+    pthread_mutex_unlock(&sLock);
+}
+
+static void wake(pthread_cond_t *cv) {
+    int *sleepers = cv == &sWake ? &sSleepWake : &sSleepIdle;
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    if (__atomic_load_n(sleepers, __ATOMIC_SEQ_CST) != 0) {
+        pthread_mutex_lock(&sLock);
+        pthread_cond_broadcast(cv);
+        pthread_mutex_unlock(&sLock);
+    }
+}
+
+static int has_cmd(void *a) { return ld(&sHead) != *(const uint32_t *)a; }
+static int all_reached(void *a) { return (int32_t)(min_tail() - *(const uint32_t *)a) >= 0; }
+static int worker0_past(void *a) { return (int32_t)(ld(&sTail[0]) - *(const uint32_t *)a) > 0; }
+
+static void *worker_main(void *arg) {
+    Raster *r = arg;
+    uint32_t i = 0;
+
+    for (;;) {
+        const Cmd *c;
+        wait_until(has_cmd, &i, &sWake);
+        c = &sRing[i & (RING - 1)];
+        if (c->serial || c->barrier) {
+            /* everyone has finished the commands before this one */
+            wait_until(all_reached, &i, &sIdle);
+        }
+        if (c->serial) {
+            if (r->id == 0) {
+                r->count = 1; /* all rows */
+                exec_cmd(r, c);
+                r->count = sThreads;
+            } else {
+                wait_until(worker0_past, &i, &sIdle);
+            }
+        } else {
+            exec_cmd(r, c);
+        }
+        i++;
+        __atomic_store_n(&sTail[r->id], i, __ATOMIC_RELEASE);
+        wake(&sIdle);
+    }
+    return NULL;
+}
+
+static void threads_start(void) {
+    const char *e = getenv("TTT_GS_THREADS");
+    int n, k;
+
+    if (sThreads >= 0) {
+        return;
+    }
+    if (e != NULL) {
+        n = atoi(e);
+    } else { /* default: one per processor but the one the game runs on, up to 8 */
+        long cpus = sysconf(_SC_NPROCESSORS_ONLN);
+        n = cpus > 9 ? 8 : cpus > 1 ? (int)cpus - 1 : 0;
+    }
+    if (getenv("TTT_GS_TRACE") || getenv("TTT_GS_TRACE_PRIMS")) {
+        n = 0; /* the traces print from the pixels, in order */
+    }
+    if (n > 16) {
+        n = 16;
+    }
+    if (n > 0) {
+        sRing = calloc(RING, sizeof(Cmd));
+        if (sRing == NULL) {
+            n = 0;
+        }
+    }
+    for (k = 0; k < n; k++) {
+        pthread_t t;
+        sWorker[k].id = k;
+        sWorker[k].count = n;
+        if (pthread_create(&t, NULL, worker_main, &sWorker[k]) != 0) {
+            fprintf(stderr, "ttt: gs: cannot start raster thread %d: drawing on the main thread\n", k);
+            n = 0; /* none started yet past this one cannot be undone: only reached at the first start */
+            break;
+        }
+        pthread_detach(t);
+    }
+    sThreads = n;
+}
+
+static int all_done(void *a) { (void)a; return min_tail() == ld(&sHead); }
+
+/* Waits until the back end has carried out every command (GS memory is then up to date). */
+static void gs_sync(void) {
+    if (sThreads > 0) {
+        wake(&sWake);
+        wait_until(all_done, NULL, &sIdle);
+    }
+}
+
+static int has_room(void *a) { (void)a; return ld(&sHead) - min_tail() < RING; }
+
+static int64_t sWaitNs; /* the front end's CPU time spent waiting for room in the ring (TTT_GS_STATS) */
+
+static int64_t thread_ns(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+    return (int64_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
+}
+
+/* Hands a command to the back end: at once, or through the ring. */
+static uint32_t sCmdCount[3]; /* commands, serial ones, barriers (TTT_GS_THREADS report on stderr) */
+
+static void submit(const Cmd *c) {
+    sCmdCount[0]++;
+    sCmdCount[1] += c->serial;
+    sCmdCount[2] += c->barrier;
+    if (sThreads < 0) {
+        threads_start();
+    }
+    if (sThreads == 0) {
+        exec_cmd(&sSync, c);
+        return;
+    }
+    if (!has_room(NULL)) {
+        int64_t t0 = thread_ns();
+        wake(&sWake);
+        wait_until(has_room, NULL, &sIdle);
+        sWaitNs += thread_ns() - t0;
+    }
+    sRing[sHead & (RING - 1)] = *c;
+    __atomic_store_n(&sHead, sHead + 1, __ATOMIC_RELEASE);
+    /* sleeping workers are woken for a batch of commands; at once for one the others will wait for (a worker
+       waiting at a barrier is woken by the workers' progress) */
+    if (c->serial || c->barrier || (sHead & 15) == 0) {
+        wake(&sWake);
+    }
+}
+
+static void raster_reset(void) {
+    int k;
+    memset(sSync.clut, 0, sizeof sSync.clut);
+    for (k = 0; k < 16; k++) {
+        memset(sWorker[k].clut, 0, sizeof sWorker[k].clut);
+    }
+}
+
+static uint32_t gs_pixels(void) {
+    uint32_t n = sSync.pixels;
+    int k;
+    for (k = 0; k < sThreads; k++) {
+        n += sWorker[k].pixels;
+    }
+    return n;
+}
+
+/* ---- hazards: when the workers' row split is not enough ----
+   Workers run apart from each other between barriers: each draws its rows of every primitive. That is the serial
+   result as long as, since the last barrier, a word of GS memory is only ever written through one buffer layout (it
+   is then always the same worker's) and nothing is read by a worker that another may write: a texture or a CLUT load
+   must not read pages the primitives since the last barrier wrote, and a primitive must not write pages they read.
+   The front end tracks the 8 KB pages written since the last barrier (frame and depth apart), the pages read, and the
+   frame / depth layouts:
+   - a primitive whose frame, depth and texture pages overlap each other is serial (worker 0 alone);
+   - a primitive with another frame or depth layout, or whose pages meet the others' as above, starts after a barrier;
+   - a CLUT load whose pages were written starts after a barrier.
+   Uploads, local copies and the VBlank picture are serial. */
+static struct {
+    int open, fset, zset;
+    uint32_t fbp, fbw, fpsm, zbp, zpsm;
+    uint32_t fpages[16], zpages[16], rpages[16];
+} sEpoch;
+
+/* The pages (8 KB, 512 of them) of the pixels x0..x1, y0..y1 of a buffer (as vram_loc addresses them). */
+static void pages_of(uint32_t *set, uint32_t bp, uint32_t bw, uint32_t psm, uint32_t x0, uint32_t x1, uint32_t y0, uint32_t y1) {
+    uint32_t bits = (uint32_t)psm_bits(psm), pw = bits >= 16 ? 64 : 128, ph = bits == 32 || bits == 24 ? 32 : bits == 4 ? 128 : 64;
+    uint32_t bwp, lo, hi, p;
+
+    if (bw == 0) {
+        bw = 1;
+    }
+    bwp = bits >= 16 ? bw : bw >> 1;
+    x0 &= 0x7FF; x1 &= 0x7FF; y0 &= 0x7FF; y1 &= 0x7FF;
+    if (x1 < x0 || y1 < y0) {
+        x0 = 0; x1 = 0x7FF; y0 = 0; y1 = 0x7FF;
+    }
+    lo = bp + (y0 / ph) * bwp * 32 + (x0 / pw) * 32;
+    hi = bp + (y1 / ph) * bwp * 32 + (x1 / pw) * 32 + 32; /* blocks, exclusive */
+    if (hi > 16384) { /* wraps around GS memory */
+        memset(set, 0xFF, 64);
+        return;
+    }
+    for (p = lo >> 5; p <= (hi - 1) >> 5;) { /* pages lo / 32 .. (hi - 1) / 32, a word of the set at a time */
+        uint32_t last = (hi - 1) >> 5, end = (p | 31) < last ? (p | 31) : last, n = end - (p & ~31u) + 1;
+        set[p >> 5] |= (n >= 32 ? 0xFFFFFFFFu : (1u << n) - 1) & (0xFFFFFFFFu << (p & 31));
+        p = end + 1;
+    }
+}
+
+static int pages_cross(const uint32_t *a, const uint32_t *b) {
+    int i;
+    for (i = 0; i < 16; i++) {
+        if (a[i] & b[i]) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* The texel coordinates a wrap mode can give (texel(): REPEAT / CLAMP within the size, REGION_CLAMP between MIN and
+   MAX, REGION_REPEAT (u & MSK) | FIX). */
+static void tex_range(uint32_t wm, int size, int mn, int mx, uint32_t *lo, uint32_t *hi) {
+    if (wm <= 1) {
+        *lo = 0;
+        *hi = (uint32_t)size - 1;
+    } else if (wm == 2) {
+        *lo = (uint32_t)(mn < mx ? mn : mx);
+        *hi = (uint32_t)(mn < mx ? mx : mn);
+    } else {
+        *lo = (uint32_t)mx;
+        *hi = (uint32_t)(mn | mx);
+    }
+}
+
+static void epoch_open(void) {
+    if (!sEpoch.open) {
+        memset(&sEpoch, 0, sizeof sEpoch);
+        sEpoch.open = 1;
+    }
+}
+
+static void epoch_add(uint32_t *set, const uint32_t *pages) {
+    int k;
+    for (k = 0; k < 16; k++) {
+        set[k] |= pages[k];
+    }
+}
+
+/* A CLUT load reads GS memory: after a barrier when the primitives since the last one wrote its pages. */
+static void classify_clut(Cmd *c) {
+    uint64_t t0 = c->u.clut.t0, tc = c->u.clut.texclut;
+    uint32_t cp[16] = {0}, cbp = (t0 >> 37) & 0x3FFF, cpsm = (t0 >> 51) & 15, csm = (t0 >> 55) & 1;
+
+    if (sThreads <= 0) {
+        return;
+    }
+    if (csm) {
+        pages_of(cp, cbp, (uint32_t)(tc & 0x3F), cpsm, 0, 0x7FF, (uint32_t)((tc >> 12) & 0x3FF), (uint32_t)((tc >> 12) & 0x3FF));
+    } else {
+        pages_of(cp, cbp, 1, cpsm, 0, 15, 0, 15);
+    }
+    if (sEpoch.open && (pages_cross(cp, sEpoch.fpages) || pages_cross(cp, sEpoch.zpages))) {
+        c->barrier = 1;
+        sEpoch.open = 0;
+    }
+    epoch_open();
+    epoch_add(sEpoch.rpages, cp);
+}
+
+static void classify(Cmd *c) {
+    const Draw *d = &c->u.prim.d;
+    uint32_t fp[16] = {0}, zp[16] = {0}, tp[16] = {0};
+    /* depth is read by the GEQUAL / GREATER tests only, written unless ZMSK */
+    int zused = (d->ztest && d->ztst >= 2) || d->zwrite;
+    int x0 = d->scx0, x1 = d->scx1, y0 = d->scy0, y1 = d->scy1;
+
+    if (sThreads <= 0) {
+        return;
+    }
+    if (c->type == CMD_SPRITE) { /* a sprite's pixels lie inside its rectangle */
+        const Vtx *a = &c->u.prim.v[0], *b = &c->u.prim.v[1];
+        int bx0 = (a->x < b->x ? a->x : b->x) >> 4, bx1 = ((a->x > b->x ? a->x : b->x) >> 4) + 1;
+        int by0 = (a->y < b->y ? a->y : b->y) >> 4, by1 = ((a->y > b->y ? a->y : b->y) >> 4) + 1;
+        if (bx0 > x0) { x0 = bx0; }
+        if (bx1 < x1) { x1 = bx1; }
+        if (by0 > y0) { y0 = by0; }
+        if (by1 < y1) { y1 = by1; }
+        if (x1 < x0 || y1 < y0) { /* nothing drawn */
+            x1 = x0;
+            y1 = y0;
+        }
+    }
+    pages_of(fp, d->fbp, d->fbw, d->fpsm, (uint32_t)x0, (uint32_t)x1, (uint32_t)y0, (uint32_t)y1);
+    if (zused) {
+        pages_of(zp, d->zbp, d->fbw, d->zpsm, (uint32_t)x0, (uint32_t)x1, (uint32_t)y0, (uint32_t)y1);
+    }
+    if (d->tex) {
+        uint32_t u0, u1, v0, v1;
+        tex_range(d->wms, d->tw, d->minu, d->maxu, &u0, &u1);
+        tex_range(d->wmt, d->th, d->minv, d->maxv, &v0, &v1);
+        if (c->type == CMD_SPRITE && d->fst) { /* UV sprites: the texels between the corners' UV (one more each side
+                                                  for the bilinear filter), when the wrap mode does not move them */
+            const Vtx *a = &c->u.prim.v[0], *b = &c->u.prim.v[1];
+            int ua = ((a->u < b->u ? a->u : b->u) >> 4) - 1, ub = ((a->u > b->u ? a->u : b->u) >> 4) + 1;
+            int va = ((a->v < b->v ? a->v : b->v) >> 4) - 1, vb = ((a->v > b->v ? a->v : b->v) >> 4) + 1;
+            if (d->wms <= 1 && ua >= 0 && ub <= d->tw - 1) { u0 = (uint32_t)ua; u1 = (uint32_t)ub; }
+            if (d->wmt <= 1 && va >= 0 && vb <= d->th - 1) { v0 = (uint32_t)va; v1 = (uint32_t)vb; }
+        }
+        pages_of(tp, d->tbp, d->tbw, d->tpsm, u0, u1, v0, v1);
+    }
+    if (pages_cross(fp, zp) || pages_cross(tp, fp) || pages_cross(tp, zp)) {
+        c->serial = 1;
+        sEpoch.open = 0;
+        return;
+    }
+    if (sEpoch.open && ((sEpoch.fset && (sEpoch.fbp != d->fbp || sEpoch.fbw != d->fbw || sEpoch.fpsm != d->fpsm)) ||
+                        (zused && sEpoch.zset && (sEpoch.zbp != d->zbp || sEpoch.zpsm != d->zpsm || sEpoch.fbw != d->fbw)) ||
+                        pages_cross(tp, sEpoch.fpages) || pages_cross(tp, sEpoch.zpages) || pages_cross(fp, sEpoch.zpages) ||
+                        pages_cross(fp, sEpoch.rpages) || pages_cross(zp, sEpoch.fpages) || pages_cross(zp, sEpoch.rpages))) {
+        sEpoch.open = 0;
+        c->barrier = 1;
+    }
+    epoch_open();
+    if (!sEpoch.fset) {
+        sEpoch.fset = 1;
+        sEpoch.fbp = d->fbp;
+        sEpoch.fbw = d->fbw;
+        sEpoch.fpsm = d->fpsm;
+    }
+    if (zused && !sEpoch.zset) {
+        sEpoch.zset = 1;
+        sEpoch.zbp = d->zbp;
+        sEpoch.zpsm = d->zpsm;
+    }
+    epoch_add(sEpoch.fpages, fp);
+    epoch_add(sEpoch.zpages, zp);
+    epoch_add(sEpoch.rpages, tp);
+}
+
+/* An operation on GS memory: worker 0 alone, after every earlier command; the next epoch starts after it. */
+static void submit_serial(Cmd *c) {
+    c->serial = 1;
+    c->barrier = 0;
+    sEpoch.open = 0;
+    submit(c);
+}
+
+static void submit_prim(int type, int ctx, const Vtx *a, const Vtx *b, const Vtx *c3) {
+    Cmd c;
+
+    c.type = (uint8_t)type;
+    c.serial = 0;
+    c.barrier = 0;
+    draw_setup(&c.u.prim.d, ctx);
+    c.u.prim.v[0] = *a;
+    if (b != NULL) {
+        c.u.prim.v[1] = *b;
+    }
+    if (c3 != NULL) {
+        c.u.prim.v[2] = *c3;
+    }
+    classify(&c);
+    submit(&c);
+}
+
+/* ------------------------------------------------------------------------------------------------ vertices */
+
+static int ctx_of(void) { return (int)((gs.prim >> 9) & 1); }
 
 /* A vertex arrives: XYZ2 / XYZF2 kick (draw when the primitive is complete), XYZ3 / XYZF3 only queue. */
 static void vertex(uint32_t x, uint32_t y, uint32_t z, uint32_t f, int kick) {
@@ -810,7 +1606,7 @@ static void vertex(uint32_t x, uint32_t y, uint32_t z, uint32_t f, int kick) {
     case 0:
         if (kick) {
             sStat.prims++;
-            pixel(ctx, (int)(v.x >> 4), (int)(v.y >> 4), v.z, fog_on() ? fogged(v.rgba, v.f) : v.rgba);
+            submit_prim(CMD_POINT, ctx, &v, NULL, NULL);
         }
         gs.vcount = 0;
         break;
@@ -819,7 +1615,7 @@ static void vertex(uint32_t x, uint32_t y, uint32_t z, uint32_t f, int kick) {
         if (gs.vcount == 2) {
             if (kick) {
                 sStat.prims++;
-                draw_line(ctx, &gs.vtx[0], &gs.vtx[1]);
+                submit_prim(CMD_LINE, ctx, &gs.vtx[0], &gs.vtx[1], NULL);
             }
             if (type == 2) {
                 gs.vtx[0] = gs.vtx[1];
@@ -833,7 +1629,7 @@ static void vertex(uint32_t x, uint32_t y, uint32_t z, uint32_t f, int kick) {
         if (gs.vcount == 3) {
             if (kick) {
                 sStat.prims++;
-                draw_triangle(ctx, &gs.vtx[0], &gs.vtx[1], &gs.vtx[2]);
+                submit_prim(CMD_TRIANGLE, ctx, &gs.vtx[0], &gs.vtx[1], &gs.vtx[2]);
             }
             gs.vcount = 0;
         }
@@ -841,14 +1637,14 @@ static void vertex(uint32_t x, uint32_t y, uint32_t z, uint32_t f, int kick) {
     case 4: /* strip: the queue keeps sliding */
         if (gs.vcount == 3 && kick) {
             sStat.prims++;
-            draw_triangle(ctx, &gs.vtx[0], &gs.vtx[1], &gs.vtx[2]);
+            submit_prim(CMD_TRIANGLE, ctx, &gs.vtx[0], &gs.vtx[1], &gs.vtx[2]);
         }
         break;
     case 5: /* fan: the first vertex stays */
         if (gs.vcount == 3) {
             if (kick) {
                 sStat.prims++;
-                draw_triangle(ctx, &gs.vtx[0], &gs.vtx[1], &gs.vtx[2]);
+                submit_prim(CMD_TRIANGLE, ctx, &gs.vtx[0], &gs.vtx[1], &gs.vtx[2]);
             }
             gs.vtx[1] = gs.vtx[2];
             gs.vcount = 2;
@@ -858,7 +1654,7 @@ static void vertex(uint32_t x, uint32_t y, uint32_t z, uint32_t f, int kick) {
         if (gs.vcount == 2) {
             if (kick) {
                 sStat.prims++;
-                draw_sprite(ctx, &gs.vtx[0], &gs.vtx[1]);
+                submit_prim(CMD_SPRITE, ctx, &gs.vtx[0], &gs.vtx[1], NULL);
             }
             gs.vcount = 0;
         }
@@ -886,37 +1682,88 @@ static void transfer_begin(void) {
     if (dir == 1) {
         sStat.readbacks++; /* GS -> host: not modelled */
     } else if (dir == 2) { /* local -> local, at once */
-        uint32_t sbp = gs.bitbltbuf & 0x3FFF, sbw = (gs.bitbltbuf >> 16) & 0x3F, spsm = (gs.bitbltbuf >> 24) & 0x3F;
-        uint32_t dbp = (gs.bitbltbuf >> 32) & 0x3FFF, dbw = (gs.bitbltbuf >> 48) & 0x3F, dpsm = (gs.bitbltbuf >> 56) & 0x3F;
-        uint32_t sx = gs.trxpos & 0x7FF, sy = (gs.trxpos >> 16) & 0x7FF, x, y;
-        for (y = 0; y < gs.th; y++) {
-            for (x = 0; x < gs.tw; x++) {
-                vram_rw(dbp, dbw, dpsm, gs.tx + x, gs.ty + y, 1, vram_rw(sbp, sbw, spsm, sx + x, sy + y, 0, 0));
-            }
-        }
+        Cmd c;
+        c.type = CMD_COPY;
+        c.u.copy.bitbltbuf = gs.bitbltbuf;
+        c.u.copy.trxpos = gs.trxpos;
+        c.u.copy.tx = gs.tx;
+        c.u.copy.ty = gs.ty;
+        c.u.copy.tw = gs.tw;
+        c.u.copy.th = gs.th;
+        submit_serial(&c);
         sStat.localCopies++;
         sUploadGen++;
     }
 }
 
-/* Image data of a host -> GS transfer: whole pixels in the destination format, row after row. */
-static void transfer_data(const uint8_t *p, uint32_t bytes) {
-    uint32_t dbp = (gs.bitbltbuf >> 32) & 0x3FFF, dbw = (gs.bitbltbuf >> 48) & 0x3F, dpsm = (gs.bitbltbuf >> 56) & 0x3F;
-    uint32_t bits, total, i = 0;
+static void exec_copy(const Cmd *c) {
+    uint64_t bb = c->u.copy.bitbltbuf, tp = c->u.copy.trxpos;
+    uint32_t sbp = bb & 0x3FFF, sbw = (bb >> 16) & 0x3F, spsm = (bb >> 24) & 0x3F;
+    uint32_t dbp = (bb >> 32) & 0x3FFF, dbw = (bb >> 48) & 0x3F, dpsm = (bb >> 56) & 0x3F;
+    uint32_t sx = tp & 0x7FF, sy = (tp >> 16) & 0x7FF, x, y;
+    for (y = 0; y < c->u.copy.th; y++) {
+        for (x = 0; x < c->u.copy.tw; x++) {
+            vram_rw(dbp, dbw, dpsm, c->u.copy.tx + x, c->u.copy.ty + y, 1, vram_rw(sbp, sbw, spsm, sx + x, sy + y, 0, 0));
+        }
+    }
+}
 
+/* Image data of a host -> GS transfer: whole pixels in the destination format, row after row. The front end keeps
+   the position (tpos); the back end writes the pixels from a copy of the data. */
+static void transfer_data(const uint8_t *p, uint32_t bytes) {
+    uint32_t dpsm = (gs.bitbltbuf >> 56) & 0x3F, bits, total, n;
+    Cmd c;
+
+    if (sThreads < 0) {
+        threads_start();
+    }
     if (!gs.transfer || gs.tw == 0) {
         return;
     }
     sUploadGen++;
     bits = (uint32_t)psm_bits(dpsm);
     total = gs.tw * gs.th;
+    c.type = CMD_UPLOAD;
+    c.u.upload.bitbltbuf = gs.bitbltbuf;
+    c.u.upload.tx = gs.tx;
+    c.u.upload.ty = gs.ty;
+    c.u.upload.tw = gs.tw;
+    c.u.upload.th = gs.th;
+    c.u.upload.tpos = gs.tpos;
+    c.u.upload.bytes = bytes;
+    c.u.upload.data = NULL;
+    n = bytes * 8 / bits; /* whole pixels in the data */
+    gs.tpos = gs.tpos >= total ? gs.tpos : total - gs.tpos < n ? total : gs.tpos + n;
+    if (sThreads > 0) {
+        c.u.upload.data = malloc(bytes ? bytes : 1);
+        if (c.u.upload.data == NULL) {
+            fprintf(stderr, "ttt: gs: out of memory for an upload\n");
+            exit(2);
+        }
+        memcpy(c.u.upload.data, p, bytes);
+        submit_serial(&c);
+    } else {
+        c.u.upload.data = (uint8_t *)p;
+        exec_upload(&c);
+    }
+}
+
+static void exec_upload(const Cmd *c) {
+    uint64_t bb = c->u.upload.bitbltbuf;
+    uint32_t dbp = (bb >> 32) & 0x3FFF, dbw = (bb >> 48) & 0x3F, dpsm = (bb >> 56) & 0x3F;
+    uint32_t tx = c->u.upload.tx, ty = c->u.upload.ty, tw = c->u.upload.tw, th = c->u.upload.th, tpos = c->u.upload.tpos;
+    uint32_t bytes = c->u.upload.bytes, bits, total, i = 0;
+    const uint8_t *p = c->u.upload.data;
+
+    bits = (uint32_t)psm_bits(dpsm);
+    total = tw * th;
     /* the usual formats a row at a time through the page tables (the same writes as vram_rw) */
     if (dpsm == 0x00 || dpsm == 0x02 || dpsm == 0x0A || dpsm == 0x13 || dpsm == 0x14) {
         uint32_t bw = dbw ? dbw : 1, count = bytes * 8 / bits;
         uint8_t *vram8 = (uint8_t *)sVram;
         uint16_t *vram16 = (uint16_t *)sVram;
-        while (i < count && gs.tpos < total) {
-            uint32_t col = gs.tpos % gs.tw, y = (gs.ty + gs.tpos / gs.tw) & 0x7FF, x = gs.tx + col, run = gs.tw - col, j;
+        while (i < count && tpos < total) {
+            uint32_t col = tpos % tw, y = (ty + tpos / tw) & 0x7FF, x = tx + col, run = tw - col, j;
             if (run > count - i) {
                 run = count - i;
             }
@@ -932,8 +1779,8 @@ static void transfer_data(const uint8_t *p, uint32_t bytes) {
                 for (j = 0; j < run; j++, x++) {
                     uint32_t a = base + (((x & 0x7FF) >> 7) << 14) + in[x & 127], k = i + j;
                     uint8_t *b = &vram8[(a >> 1) & 0x3FFFFF];
-                    uint32_t c = (p[k >> 1] >> ((k & 1) * 4)) & 15;
-                    *b = (a & 1) ? (uint8_t)((*b & 0x0F) | c << 4) : (uint8_t)((*b & 0xF0) | c);
+                    uint32_t cc = (p[k >> 1] >> ((k & 1) * 4)) & 15;
+                    *b = (a & 1) ? (uint8_t)((*b & 0x0F) | cc << 4) : (uint8_t)((*b & 0xF0) | cc);
                 }
             } else if (dpsm == 0x00) {
                 const uint16_t *in = sIn32[y & 31];
@@ -949,20 +1796,23 @@ static void transfer_data(const uint8_t *p, uint32_t bytes) {
                 }
             }
             i += run;
-            gs.tpos += run;
+            tpos += run;
         }
-        return;
+    } else {
+        for (; (i + 1) * bits <= bytes * 8 && tpos < total; tpos++, i++) {
+            uint32_t x = tx + tpos % tw, y = ty + tpos / tw, cc;
+            switch (bits) {
+            case 32: cc = p[i * 4] | p[i * 4 + 1] << 8 | p[i * 4 + 2] << 16 | (uint32_t)p[i * 4 + 3] << 24; break;
+            case 24: cc = p[i * 3] | p[i * 3 + 1] << 8 | (uint32_t)p[i * 3 + 2] << 16; break;
+            case 16: cc = p[i * 2] | (uint32_t)p[i * 2 + 1] << 8; break;
+            case 8: cc = p[i]; break;
+            default: cc = (p[i / 2] >> ((i & 1) * 4)) & 15; break;
+            }
+            vram_rw(dbp, dbw, dpsm, x, y, 1, cc);
+        }
     }
-    for (; (i + 1) * bits <= bytes * 8 && gs.tpos < total; gs.tpos++, i++) {
-        uint32_t x = gs.tx + gs.tpos % gs.tw, y = gs.ty + gs.tpos / gs.tw, c;
-        switch (bits) {
-        case 32: c = p[i * 4] | p[i * 4 + 1] << 8 | p[i * 4 + 2] << 16 | (uint32_t)p[i * 4 + 3] << 24; break;
-        case 24: c = p[i * 3] | p[i * 3 + 1] << 8 | (uint32_t)p[i * 3 + 2] << 16; break;
-        case 16: c = p[i * 2] | (uint32_t)p[i * 2 + 1] << 8; break;
-        case 8: c = p[i]; break;
-        default: c = (p[i / 2] >> ((i & 1) * 4)) & 15; break;
-        }
-        vram_rw(dbp, dbw, dpsm, x, y, 1, c);
+    if (sThreads > 0) {
+        free(c->u.upload.data);
     }
 }
 
@@ -971,6 +1821,20 @@ static void transfer_data(const uint8_t *p, uint32_t bytes) {
 /* PRMODECONT.AC = 1: the attributes are PRIM's own; AC = 0: PRMODE's, with PRIM's type. */
 static void prim_update(void) {
     gs.prim = (gs.prmodecont & 1) ? gs.primRaw : (gs.primRaw & 7) | (gs.prmode & 0x7F8);
+}
+
+/* TEX0 / TEX2: the CLUT load, when CLD asks for one. */
+static void clut_load(uint64_t t0) {
+    if (clut_wanted(t0)) {
+        Cmd c;
+        c.type = CMD_CLUT;
+        c.serial = 0;
+        c.barrier = 0;
+        c.u.clut.t0 = t0;
+        c.u.clut.texclut = gs.texclut;
+        classify_clut(&c);
+        submit(&c);
+    }
 }
 
 static void reg_write(uint32_t addr, uint64_t d) {
@@ -1217,8 +2081,8 @@ typedef struct {
     uint32_t fbp, fbw, psm, dbx, dby, x0, y0, width, lines;
 } Circuit;
 
-static void circuit(int k, Circuit *c) {
-    uint64_t fb = PRIV(k ? GS_DISPFB2 : GS_DISPFB1), disp = PRIV(k ? GS_DISPLAY2 : GS_DISPLAY1);
+static void circuit(const DispRegs *regs, int k, Circuit *c) {
+    uint64_t fb = regs->dispfb[k], disp = regs->display[k];
     uint32_t magh = (uint32_t)(disp >> 23) & 15, magv = (uint32_t)(disp >> 27) & 3;
 
     c->fbp = (uint32_t)(fb & 0x1FF) << 5;
@@ -1266,22 +2130,23 @@ static uint32_t circuit_pixel(const Circuit *c, int32_t x, int32_t r, uint32_t d
    PCRTC's rounding]. The picture has the size and position of the first enabled circuit; each circuit sits at its own
    DISPLAY.DX / DY. Interlaced frame mode (SMODE2 INT and FFMD) shows each buffer line in both fields: doubled.
    *w / *h: the size. */
-static uint8_t *displayed(uint32_t *w, uint32_t *h) {
-    uint64_t pmode = PRIV(GS_PMODE), smode2 = PRIV(GS_SMODE2), bg = PRIV(GS_BGCOLOR);
+/* The picture: its size (*w, *h), and with rgb its pixels (the rows of worker rs, or all of them with rs NULL). */
+static void display_into(const DispRegs *regs, uint8_t *rgb, uint32_t *w, uint32_t *h, const Raster *rs) {
+    uint64_t pmode = regs->pmode, smode2 = regs->smode2, bg = regs->bgcolor;
     int en1 = (int)(pmode & 1), en2 = (int)(pmode >> 1) & 1, mmod = (int)(pmode >> 5) & 1, slbg = (int)(pmode >> 7) & 1;
     uint32_t alp = (uint32_t)(pmode >> 8) & 0xFF, dbl = (smode2 & 3) == 3 ? 2 : 1, x, r;
     Circuit c[2];
     const Circuit *main;
-    uint8_t *rgb;
 
-    circuit(0, &c[0]);
-    circuit(1, &c[1]);
+    circuit(regs, 0, &c[0]);
+    circuit(regs, 1, &c[1]);
     main = !en1 && en2 ? &c[1] : &c[0];
-    rgb = calloc((size_t)main->width * main->lines, 3);
-    if (rgb == NULL) {
-        return NULL;
-    }
-    for (r = 0; r < main->lines; r++) {
+    *w = main->width;
+    *h = main->lines;
+    for (r = 0; rgb != NULL && r < main->lines; r++) {
+        if (rs != NULL && !row_mine(rs, (int)r)) {
+            continue;
+        }
         for (x = 0; x < main->width; x++) {
             int32_t ax = (int32_t)(x + main->x0), ar = (int32_t)(r + main->y0);
             uint32_t base = (uint32_t)bg & 0xFFFFFF, out, k;
@@ -1309,26 +2174,125 @@ static uint8_t *displayed(uint32_t *w, uint32_t *h) {
             rgb[((size_t)r * main->width + x) * 3 + 2] = (uint8_t)(out >> 16);
         }
     }
-    *w = main->width;
-    *h = main->lines;
+}
+
+static uint8_t *displayed(const DispRegs *regs, uint32_t *w, uint32_t *h) {
+    uint8_t *rgb;
+
+    display_into(regs, NULL, w, h, NULL);
+    rgb = calloc((size_t)*w * *h, 3);
+    if (rgb != NULL) {
+        display_into(regs, rgb, w, h, NULL);
+    }
     return rgb;
+}
+
+/* The display registers now. */
+static void disp_regs(DispRegs *r) {
+    r->pmode = PRIV(GS_PMODE);
+    r->smode2 = PRIV(GS_SMODE2);
+    r->bgcolor = PRIV(GS_BGCOLOR);
+    r->dispfb[0] = PRIV(GS_DISPFB1);
+    r->dispfb[1] = PRIV(GS_DISPFB2);
+    r->display[0] = PRIV(GS_DISPLAY1);
+    r->display[1] = PRIV(GS_DISPLAY2);
+}
+
+static const char *sDumpDir;
+static uint32_t sDumpEvery;
+
+/* The picture of a VBlank, in order with the drawing: the dump's PNG. */
+static void exec_show(const Cmd *c) {
+    char name[4096];
+    uint32_t w, h;
+    uint8_t *rgb = displayed(&c->u.show.regs, &w, &h);
+
+    if (rgb == NULL) {
+        return;
+    }
+    snprintf(name, sizeof name, "%s/frame_%05u.png", sDumpDir, (unsigned)c->u.show.vblank);
+    if (!write_png(name, w, h, rgb)) {
+        fprintf(stderr, "ttt: cannot write %s\n", name);
+    }
+    free(rgb);
+}
+
+/* The window's pictures: each VBlank the workers draw the picture into a free slot (each its rows, after everything
+   queued before it); the newest finished one goes to the window. Three slots: the window lags the front end by up
+   to two pictures and skips one when the back end is further behind. */
+static struct { uint8_t *rgb; uint32_t w, h, idx; int busy; } sWin[3];
+
+static void exec_window(Raster *r, const Cmd *c) {
+    uint32_t w, h;
+    display_into(&c->u.show.regs, c->u.show.rgb, &w, &h, r);
+}
+
+static int cmd_done(uint32_t idx) {
+    return sThreads <= 0 || (int32_t)(min_tail() - (idx + 1)) >= 0;
+}
+
+static void window_frames(void) {
+    int k, newest = -1;
+    Cmd c;
+
+    if (Port_WindowClosed()) {
+        printf("ttt: window closed\n");
+        fflush(stdout);
+        exit(0);
+    }
+    for (k = 0; k < 3; k++) {
+        if (sWin[k].busy && cmd_done(sWin[k].idx) && (newest < 0 || (int32_t)(sWin[k].idx - sWin[newest].idx) > 0)) {
+            newest = k;
+        }
+    }
+    if (newest >= 0) {
+        Port_WindowPresent(sWin[newest].rgb, sWin[newest].w, sWin[newest].h);
+        for (k = 0; k < 3; k++) {
+            if (sWin[k].busy && (int32_t)(sWin[k].idx - sWin[newest].idx) <= 0) {
+                sWin[k].busy = 0; /* shown, or older than the one shown */
+            }
+        }
+    }
+    for (k = 0; k < 3 && sWin[k].busy; k++) {
+    }
+    if (k == 3) {
+        return; /* the back end is three pictures behind: this one is skipped */
+    }
+    if (sWin[k].rgb == NULL) {
+        sWin[k].rgb = malloc(1024 * 1024 * 3);
+        if (sWin[k].rgb == NULL) {
+            return;
+        }
+    }
+    tables_init();
+    c.type = CMD_SHOW;
+    c.serial = 0;
+    c.barrier = 0;
+    disp_regs(&c.u.show.regs);
+    c.u.show.vblank = 0;
+    c.u.show.rgb = sWin[k].rgb;
+    display_into(&c.u.show.regs, NULL, &sWin[k].w, &sWin[k].h, NULL);
+    if (sThreads > 0) { /* it reads what everything before it drew, and nothing after it may draw there before it read */
+        c.barrier = 1;
+        sEpoch.open = 0;
+        epoch_open();
+        memset(sEpoch.rpages, 0xFF, sizeof sEpoch.rpages);
+    }
+    sWin[k].idx = sHead;
+    sWin[k].busy = 1;
+    submit(&c);
 }
 
 void Gs_VBlank(uint32_t vblank) {
     static int init;
-    static const char *dir;
-    static uint32_t every;
-    char name[4096];
-    uint32_t w, h;
-    uint8_t *rgb;
 
     if (!init) {
         const char *e = getenv("TTT_DUMP_EVERY");
         init = 1;
-        dir = getenv("TTT_DUMP");
-        every = e != NULL ? (uint32_t)strtoul(e, NULL, 0) : 60;
-        if (every == 0) {
-            every = 60;
+        sDumpDir = getenv("TTT_DUMP");
+        sDumpEvery = e != NULL ? (uint32_t)strtoul(e, NULL, 0) : 60;
+        if (sDumpEvery == 0) {
+            sDumpEvery = 60;
         }
     }
     sCurVb = vblank + 1;
@@ -1366,12 +2330,13 @@ void Gs_VBlank(uint32_t vblank) {
     }
     { /* TTT_GS_TEXDUMP=<vblank>:<tex0>:<x>:<y>:<w>:<h> writes that texture region (through a CLUT loaded from TEX0) */
         const char *td = getenv("TTT_GS_TEXDUMP");
-        if (td != NULL && dir != NULL && strtoul(td, NULL, 0) == vblank) {
-            char *e;
+        if (td != NULL && sDumpDir != NULL && strtoul(td, NULL, 0) == vblank) {
+            char *e, name[4096];
             unsigned long long t0;
             uint32_t x0, y0, tw, th, xx, yy;
             uint8_t *img;
             uint16_t saved[512];
+            Raster *cur = sThreads > 0 ? &sWorker[0] : &sSync; /* every worker's CLUT is the same once they are idle */
             strtoul(td, &e, 0);
             t0 = strtoull(e + 1, &e, 16);
             x0 = (uint32_t)strtoul(e + 1, &e, 0);
@@ -1379,42 +2344,61 @@ void Gs_VBlank(uint32_t vblank) {
             tw = (uint32_t)strtoul(e + 1, &e, 0);
             th = (uint32_t)strtoul(e + 1, &e, 0);
             img = calloc((size_t)tw * th, 3);
-            memcpy(saved, gs.clut, sizeof saved);
-            clut_load((t0 & ~(7ull << 61)) | (1ull << 61));
+            gs_sync();
+            memcpy(saved, cur->clut, sizeof saved);
+            {
+                uint64_t lt0 = (t0 & ~(7ull << 61)) | (1ull << 61);
+                if (clut_wanted(lt0)) {
+                    clut_fill(cur->clut, lt0, gs.texclut);
+                }
+            }
             for (yy = 0; yy < th; yy++) {
                 for (xx = 0; xx < tw; xx++) {
                     uint32_t psm = (uint32_t)(t0 >> 20) & 0x3F, c = vram_rw((uint32_t)t0 & 0x3FFF, (uint32_t)(t0 >> 14) & 0x3F, psm, x0 + xx, y0 + yy, 0, 0);
                     uint8_t *o = &img[(yy * tw + xx) * 3];
-                    c = psm_bits(psm) > 8 ? expand(c, psm) : clut_read(t0, c, psm_bits(psm));
+                    c = psm_bits(psm) > 8 ? expand(c, psm, gs.texa) : clut_read(cur->clut, t0, c, psm_bits(psm), gs.texa);
                     o[0] = (uint8_t)c; o[1] = (uint8_t)(c >> 8); o[2] = (uint8_t)(c >> 16);
                 }
             }
-            memcpy(gs.clut, saved, sizeof saved);
-            snprintf(name, sizeof name, "%s/tex_%05u.png", dir, (unsigned)vblank);
+            memcpy(cur->clut, saved, sizeof saved);
+            sClutVer++;
+            snprintf(name, sizeof name, "%s/tex_%05u.png", sDumpDir, (unsigned)vblank);
             write_png(name, tw, th, img);
             free(img);
         }
     }
-    if (dir == NULL || *dir == 0 || vblank % every != 0) {
+    if (Port_WindowOpen()) {
+        window_frames();
+    }
+    if (sDumpDir == NULL || *sDumpDir == 0 || vblank % sDumpEvery != 0) {
         return;
     }
     tables_init();
-    rgb = displayed(&w, &h);
-    if (rgb == NULL) {
-        return;
+    {
+        Cmd c;
+        c.type = CMD_SHOW;
+        disp_regs(&c.u.show.regs);
+        c.u.show.vblank = vblank;
+        c.u.show.rgb = NULL;
+        submit_serial(&c);
     }
-    snprintf(name, sizeof name, "%s/frame_%05u.png", dir, (unsigned)vblank);
-    if (!write_png(name, w, h, rgb)) {
-        fprintf(stderr, "ttt: cannot write %s\n", name);
-    }
-    free(rgb);
 }
 
 void Gs_Report(void) {
+    gs_sync();
+    if (sThreads > 0 && getenv("TTT_GS_STATS") != NULL) {
+        struct timespec ts;
+        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+        fprintf(stderr, "gs-stats: %d raster threads; %u commands, %u serial, %u after a barrier; main thread %ld.%03ld s CPU, %ld ms of it "
+                "waiting for the raster threads\n", sThreads, sCmdCount[0], sCmdCount[1], sCmdCount[2], (long)ts.tv_sec, ts.tv_nsec / 1000000,
+                (long)(sWaitNs / 1000000));
+    }
+    sStat.pixels = gs_pixels();
     printf("ttt: gs: %u GIF tags, %u register writes, %u primitives, %u pixels, %u image qwords, %u local copies, "
            "%u readbacks (not modelled)\n",
            sStat.tags, sStat.regs, sStat.prims, sStat.pixels, sStat.imageQw, sStat.localCopies, sStat.readbacks);
     Gs_Vu1Report();
+    Port_WindowReport();
 }
 
 /* ------------------------------------------------------------------------------------------------ self-test */
@@ -1729,6 +2713,7 @@ static void selftest_draw(void) {
 static void selftest_display(void) {
     uint32_t x, y, w, h;
     uint8_t *rgb;
+    DispRegs dregs;
     uint64_t disp = 63ull << 32 | 31ull << 44; /* DW 63, DH 31, MAGH / MAGV 0 */
 
     for (y = 0; y < 32; y++) {
@@ -1745,7 +2730,8 @@ static void selftest_display(void) {
     PRIV(GS_BGCOLOR) = 0x00320000u;        /* blue 50 */
     /* both circuits, MMOD 1 (ALP 0x7F), SLBG 0: c1 * 127/255 + c2 * 128/255 */
     PRIV(GS_PMODE) = 3 | 1u << 5 | 0x7Fu << 8;
-    rgb = displayed(&w, &h);
+    disp_regs(&dregs);
+    rgb = displayed(&dregs, &w, &h);
     expect(rgb != NULL && w == 64 && h == 32, "display: circuit 1's size");
     if (rgb != NULL) {
         expect(rgb[(1 * 64 + 0) * 3 + 0] == (200 * 127 + 127) / 255 && rgb[(1 * 64 + 0) * 3 + 1] == (100 * 128 + 127) / 255,
@@ -1757,7 +2743,8 @@ static void selftest_display(void) {
     }
     /* MMOD 0: circuit 1's own alpha (0x40 = 0.5, 0x80 = 1.0) */
     PRIV(GS_PMODE) = 3;
-    rgb = displayed(&w, &h);
+    disp_regs(&dregs);
+    rgb = displayed(&dregs, &w, &h);
     if (rgb != NULL) {
         expect(rgb[(1 * 64 + 0) * 3 + 0] == (200 * 128 + 127) / 255 && rgb[(1 * 64 + 0) * 3 + 1] == (100 * 127 + 127) / 255,
                "display: MMOD 0 takes circuit 1's alpha");
@@ -1765,7 +2752,8 @@ static void selftest_display(void) {
     }
     /* SLBG 1: the background colour instead of circuit 2 */
     PRIV(GS_PMODE) = 3 | 1u << 5 | 1u << 7 | 0x80u << 8;
-    rgb = displayed(&w, &h);
+    disp_regs(&dregs);
+    rgb = displayed(&dregs, &w, &h);
     if (rgb != NULL) {
         expect(rgb[(5 * 64 + 0) * 3 + 1] == 0 && rgb[(5 * 64 + 0) * 3 + 2] == (50 * 127 + 127) / 255,
                "display: SLBG 1 blends with BGCOLOR");
@@ -1773,7 +2761,8 @@ static void selftest_display(void) {
     }
     /* circuit 2 alone: its own picture */
     PRIV(GS_PMODE) = 2;
-    rgb = displayed(&w, &h);
+    disp_regs(&dregs);
+    rgb = displayed(&dregs, &w, &h);
     if (rgb != NULL) {
         expect(rgb[(5 * 64 + 3) * 3 + 0] == 0 && rgb[(5 * 64 + 3) * 3 + 1] == 100, "display: circuit 2 alone");
         free(rgb);
@@ -1784,6 +2773,9 @@ static void selftest_display(void) {
 int Port_GsVifSelfTest(void); /* gs_vif1.c */
 
 void Port_GsSelfTest(void) {
+    if (sThreads < 0) {
+        sThreads = 0; /* the checks read GS memory right after drawing */
+    }
     tables_init();
     selftest_swizzle();
     selftest_draw();
