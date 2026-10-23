@@ -771,7 +771,7 @@ void Port_GsSelfTest(void);    /* gs_core.c */
 void Port_FloatSelfTest(void); /* plat_floattest.c */
 int Port_Vu1SelfTest(void);    /* gs_vu1.c */
 
-/* TTT_SELFTEST=hw | rpc | float | gs | vu1: run after the memory map (plat_mem.c, constructor 101), print and exit. */
+/* TTT_SELFTEST=hw | rpc | float | gs | vu1 | ee: run after the memory map (plat_mem.c, constructor 101), print and exit. */
 __attribute__((constructor(102))) static void Port_HwSelfTestEntry(void) {
     const char *t = getenv("TTT_SELFTEST");
     if (t != NULL && strcmp(t, "hw") == 0) {
@@ -786,6 +786,10 @@ __attribute__((constructor(102))) static void Port_HwSelfTestEntry(void) {
     if (t != NULL && strcmp(t, "gs") == 0) {
         sHeadless = 1;
         Port_GsSelfTest();
+    }
+    if (t != NULL && strcmp(t, "ee") == 0) {
+        int Port_EeSelfTest(void);
+        exit(Port_EeSelfTest() != 0);
     }
     if (t != NULL && strcmp(t, "vu1") == 0) {
         int fails;

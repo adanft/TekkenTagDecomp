@@ -107,6 +107,12 @@ frames x groups x 3 s16}` stored raw. Bank 0 replaces the per-move motion while 
   `func_003A02C0` with `unkB630[j]` while `unkB5DC` is set (not for joint 0), and is kept in `unkB390[j]`; then world =
   parent world x local (`Gte_CompMatrix`). With `unkB130` bit 0, `func_003626B8` may give a replacement local matrix
   whose rotation is also copied to `D_008791A0[slot]`. Joints 18 and up follow the same way after `func_0034C508` [V].
+- `func_003478F0` (float skeleton) first poses bones 7-0x1C with `func_003DD918` (demo.c): without a record from
+  `func_00364298` each bone takes the model's offset and angles; with one, each bone is blended (weight `f + 0xB090`)
+  towards the record's rotation (s16 angles, `func_003DD788`), scale (`func_003DD800`) and / or translation
+  (`func_003DD890`, x the size `f + 0x500` / 40960); bones 13 / 14 also take a blended scale vector (kept at
+  `f + 0xB0D0` / `0xB110`, their matrices at `0xB0A0` / `0xB0E0`) [V: asm, and equal to the original code under
+  `TTT_DIFF`, docs/port/README.md].
 - `Skel_RotMatrixFromAngles` (0x34ED90): `func_003986D8` (fixed point) or the float Euler matrix of the negated
   angles [V].
 

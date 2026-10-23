@@ -19,7 +19,7 @@ writes everything under `build/port/`, which git ignores.
   (`func_0034A180`) and the VU0 skinning programs: `TTT_FRAMES=3000 TTT_SEED=1` ends at VBlank 3000 (2606 frames)
   with no stop, and two runs with the same seed end in the same state (`sbss-hash 0x82bb5654` in T29 batch 2, where the fighter packets are sent with their real size; the joint
   matrices of batch 3 change it again: `TTT_FRAMES=2551 TTT_SEED=1` ends with `0x27e2f897`; batch 4, with the libvu0 / libpkt / VU0 rotation fixes, with
-  `0x577e0d2f`).
+  `0x577e0d2f`; batch 5, with the bone pose of `func_003DD918`, with `0x8dd3eebb`).
 - The GS path draws ([GS path](#gs-path)): the display lists go DMA -> VIF1 -> GIF -> GS memory and the software
   reference rasteriser; `TTT_DUMP=<dir>` writes the displayed picture as PNG. The title and the main menu come out
   complete (logo, menu text, highlight bar). Since T29 the game's VU1 programs run ([VU1](#vu1)): the attract path's
@@ -29,7 +29,9 @@ writes everything under `build/port/`, which git ignores.
   into the scratchpad, gotcha 15), the title's header text (the same cause), and the blocky stage textures (bilinear
   filtering, and the precision of S / Q for far vertices: [GS path](#gs-path)). T29 batch 3 fixed the fighters' heads
   and hair, which came out as long spikes (gotcha 16: `sceVu0Normalize` kept a w the library clears), and the dump
-  merges both read circuits as PMODE asks.
+  merges both read circuits as PMODE asks. T29 batch 4 brought the heads back (gotcha 18) and batch 5 removed their last
+  spikes (gotcha 19: the m2c draft of `func_003DD918`, the per-frame pose of bones 7-0x1C, read a garbage
+  translation), found with the [draft divergence check](#draft-divergence-check).
 - With the real libgraph set-up (T28) the game reads the display position DX 636 / DY 50 back into `options.c`'s
   `D_005F6DB0` / `D_005F6DB4` (zeros with the old placeholders), and new port code moves host addresses the game
   keeps in `.sbss`: the state hash of a given `TTT_FRAMES` / `TTT_SEED` differs from T23's. The GS itself writes no
@@ -186,6 +188,7 @@ wait loops drive the hardware.
 | `TTT_SELFTEST=gs` | GS memory layout of every format, the upload paths, a GIF PACKED packet on the GIF channel (flat, CLUT-textured, blended, depth-tested, scissored sprites, a triangle), the read circuits' merge (ALP / circuit 1 alpha, SLBG, DISPLAY position), VIF1 UNPACK modes / STCYCL / masks / double buffer / MPG, DIRECT and FINISH (`tests/test_port_gs.py`). |
 | `TTT_SELFTEST=float` |
 | `vu0_micro.c` | VIF0 (MPG uploads) and the VU0 program start (vcallms) on `vu_micro.c` |
+| `ee_diff.c` | The draft divergence check: an EE interpreter for the executable's code, `PORT_DIFF`, `TTT_DIFF`, `TTT_SELFTEST=ee` |
 
 - **Polling.** `EE_HW_POLL()` (`include/ee_asm.h`, nothing in the matching build) sits in every game loop that waits
   on the hardware: `Dma_Wait` and the other CHCR loops of `dma_gif.c` / `dma_spr.c`, the D_ENABLER loops, Timer 0 in
@@ -226,6 +229,8 @@ Switches:
 | `TTT_VU1_CALLS=1` | With `TTT_FRAMES`: the report also lists the VU1 runs per entry address. |
 | `TTT_GS_TRACE=1` | Per VBlank: pixels written per frame buffer (FBP) with the last FRAME / TEX0 / TEST / ALPHA, each GIF path's tag count and tag state, DISPFB1 / 2, PMODE, DISPLAY1 / 2 and BGCOLOR, every transfer (BITBLTBUF / TRXPOS / TRXREG / TRXDIR), and the first GIF tags with reserved bits set (`bad tag`, with the DMA block they came in). |
 | `TTT_GS_TRACE_PRIMS=<vblank>` | Every vertex kick drawn before that VBlank (type, context, coordinates, UV / STQ, colour, TEX0 / TEX1 / CLAMP / FRAME / TEST / ALPHA). Vertices that only queue (XYZ3 / ADC) print as `gs-adc`. With `TTT_GS_TRACE_PIXEL=<x>,<y>`: every write to that pixel then, with its source and result, and every rejected one (`gs-reject`: scissor, alpha, destination alpha or depth test). |
+| `TTT_SELFTEST=ee` | The EE interpreter of the draft divergence check against port code known to agree with the executable (libvu0, matched C, libm, the VU0 rotation builders) on fixed and 4000 generated inputs (`tests/test_port_ee.py`). Needs `build/SLUS_200.01`. |
+| `TTT_DIFF=<vblank>[:<calls>]` | From that VBlank on, each `PORT_DIFF` hook runs its call twice, as the port's C and as the executable's code, and prints the differing words ([Draft divergence check](#draft-divergence-check)). `TTT_DIFF_ONLY=<name,...>` limits it; `TTT_DIFF_TRACE=1` also prints the calls each side makes (`c-call` / `ee-call`). |
 | `TTT_GS_TEXDUMP=<vblank>:<tex0 hex>:<x>:<y>:<w>:<h>` | With `TTT_DUMP`: writes that region of the texture TEX0 describes (through a CLUT loaded from it) as `tex_<vblank>.png`. |
 | `TTT_STUB_RETURN=<n>` | Generated stubs return n instead of stopping. |
 
@@ -305,6 +310,36 @@ original VU1 programs (`src/vu1/*.vsm`, uploaded by the boot packet) run unchang
   about 8.5 since the bilinear filter (four texel reads per textured pixel).
 - The reference project's interpreter computes with the host's float unit, so its structure and decoding were
   reused, not its code.
+
+## Draft divergence check
+
+Every rendering bug of T29 came from C that did not do what the asm does: a draft (m2c or typed, never compared) or a
+port replacement. `port/src/ee_diff.c` compares such C with the original directly:
+
+- **The interpreter.** User-mode EE code as the game's functions use it: the integer core on 64-bit registers, `lq` /
+  `sq`, the MMI instructions met so far (`pextlw`, `pextuw`, `pcpyld`, `pcpyud`, `por`, `pand`, `mult1`...), the FPU on
+  the EE float model (`softfloat_ps2_inl.h`, the arithmetic the port's C gets), COP2 macro mode (libvu0, the
+  hand-written VU0 routines) on the vector unit's arithmetic. Calls are interpreted too: the whole call tree is the
+  original's. Instructions and `.text` / `.rodata` / `.lit4` come from `build/SLUS_200.01` (the port keeps no `.lit4`
+  at its address), the data from the running program (the game's data sits at its PS2 addresses). Anything else (an
+  unknown instruction, a jump outside `.text`, a syscall, the VU0 flag registers) stops the check with a report. No
+  host float.
+- **The hook.** `PORT_DIFF(addr, fn, sig, args...)` (`port_compat.h`, under `#ifdef PORT` in the game sources) calls fn
+  as before; with `TTT_DIFF` it snapshots EE RAM and the scratchpad, runs the C, restores the snapshot, runs the
+  original from `addr` on its own stack, compares, and leaves the C's result in place. Only the port's stack frames
+  (from the end of `.bss` up) are left out: the game's `.bss` reaches 0x01FCDEF0, close to the stack. Hooks today:
+  `func_003478F0` (the whole fighter skeleton, `skeleton.c`) and the calls of its draft (`func_003DD918`,
+  `func_003DE0D8`, `func_00347E28`, `func_00351E98`, `func_0034D258`, `func_003DE4E0`, `func_00351AA0`), and
+  `func_0034CC38` / `func_0034C300` inside `func_0034D258`.
+- **Result (VBlank 1600, first fighter):** all of them agree with the original after the `func_003DD918` fix
+  (`tests/test_port_ee.py`, slow test, `TTT_SLOW_TESTS=1`); `func_0034C300` leaves one scratch word of its CamVol
+  view different (inside the drafts `func_0034B4E8` / `func_0034BDD8`; the result vector agrees). `TTT_SELFTEST=ee`
+  found two libm differences in `third_party/newlib_libm`, which has newer fdlibm constants than the executable's
+  newlib: `ef_asin.c` uses `pio2_hi` 0x3FC90FDB / `pio2_lo` -4.37e-8 where the executable has 0x3FC90FDA / 0x33A22168
+  (asinf off by up to 2 units in the last place for |x| >= 0.5; `ef_acos.c` already has the old ones), and atan2f's
+  |y / x| > 2^26 result is one unit off. The self-test reports them as KNOWN until the library is corrected.
+- **Limits.** The check covers the hooked calls in the frames asked for (a path not taken there is not covered).
+  About 0.3 s per checked call (two 32 MB copies).
 
 ## Hand replacements
 
@@ -428,6 +463,14 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
     coefficients 0x4F5700) instead of libm, `sceVu0ViewScreenMatrix` and the angle fold use the FPU's add.s / div.s
     (`Port_Fpu*`), `sceVu0TransMatrix` reads tv before storing, `sceVu0ClipAll` tests the sticky sign / zero flags
     (it was a placeholder returning 0). `TTT_SELFTEST=float` checks them with values from the executable's code.
+19. **m2c locals that are fields.** The m2c draft of `demo.c` `func_003DD918` (the per-frame pose of bones 7-0x1C of
+    every fighter, head and face among them, from the record `func_00364298` returns) blended each bone's translation
+    towards `sp30`, a local of its own, where the asm reads `sp + 0x30`: the translation row of the scratch matrix at
+    `sp`. The head's bones got garbage offsets (0, 1.3e-38, 1.57...) and the face and hair vertices skinned to them shot
+    off: the last spikes (`gs-adc` z 0xFFFFAA). The same draft wrote only x of the scale vector it keeps at
+    `f + 0xB0D0` and handed four separate locals to `sceVu0MulVector` as one vector (bones 13 / 14: the odd scales of
+    joints 11-14 seen in T29 batch 3), and bone 10 reads its translation at record + 0x0C, not 0x12. Rewritten after the
+    asm (typed, `#if 0`); `TTT_DIFF` showed 75 differing words in that call before, none after.
 
 ## EE float model
 
@@ -459,10 +502,10 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
 
 ## Next
 
-The fighters' heads are drawn since T29 batch 4 (gotcha 18), but the head and hair still show spikes (VBlank 1950: a
-spike above the head, hair strands pulled off): the remaining drafts on the skeleton path (`func_00347E28` secondary
-joints, `func_00351E98` look-at, `func_0034D258` accessory springs, all m2c / typed drafts) are next, checked the
-same way against their asm; `TTT_GS_TRACE_PRIMS` shows the spike vertices as `gs-adc` with z 0xFFFFAA. libgraph
+The fighters' heads and hair are clean since T29 batch 5 (gotcha 19). The draft divergence check covers the skeleton
+in one frame; hooks on the rest of the fight's path (the fighter draw from `func_00357640`, the stage, the effects,
+more frames, both fighters) are the systematic way on. `third_party/newlib_libm` `ef_asin.c` and atan2f's large-ratio
+result need the executable's constants ([Draft divergence check](#draft-divergence-check)). libgraph
 (`plat_lib.c`): the DBuff buffer pairing and SwapDBuff's ids differ from the library with the same GS result. The
 seven Tekken Bowl m2c drafts around VU0 code (`portsrc.REPLACED`, still placeholders: not reached by the attract
 demo); the libm PCSX2 run; pads, memory cards, sound (RSPU2DRV) and movies.

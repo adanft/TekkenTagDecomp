@@ -663,7 +663,12 @@ void func_0034D258(u8 *base, Vu0Matrix *mtx, s32 slot, s32 n, s32 arg4) {
         if (still && (p->unk10 & 1)) {
             continue;
         }
+#ifdef PORT /* TTT_DIFF (port/src/ee_diff.c): the handler against the original code */
+        if ((s32)Port_DiffCall("func_0034CC38", 0x34CC38, (void *)func_0034CC38, "iiiii:i", p->unkE, *mtx, f, o,
+                               arg4) != 0) {
+#else
         if (func_0034CC38(p->unkE, *mtx, f, o, arg4) != 0) {
+#endif
             continue;
         }
         if (alt && func_0034D038(p->unkE, *mtx, f, o, arg4) != 0) {
@@ -739,7 +744,11 @@ void func_0034D258(u8 *base, Vu0Matrix *mtx, s32 slot, s32 n, s32 arg4) {
                 sp->unk70 = e->unk4;
                 sp->unk78 = p->unk4;
                 if (e->unk4 != 2) {
+#ifdef PORT
+                    PORT_DIFF(0x34C300, func_0034C300, "iii", sp, e->unk10, p);
+#else
                     func_0034C300(sp, e->unk10, p);
+#endif
                 } else {
                     ws->unk428 = e->unk10[2] * 100.0f;
                     sceVu0SubVector(sp->unk10, sp->unk10, sp->unk30[3]);

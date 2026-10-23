@@ -716,11 +716,9 @@ void func_003DD8E8(void *m, void *r, f32 k) {
 #endif
 
 #if 0
-/* NON_MATCHING: 494 lines: m2c draft (float first arguments reordered by hand) */
-#define M2C_UNK u8
-#define M2C_FIELD(expr, type, offset) (*(type)((u8 *)(expr) + (offset)))
-#define M2C_BITWISE(type, expr) ((type)(s32)(expr))
-#define s128 u128
+/* NON_MATCHING: 494 lines: typed draft written after the asm in T29 batch 5 (the m2c draft read the scratch matrix's
+ * translation from a separate local `sp30` and wrote back only x of the scale vector: the bones 7-0x1C of the head
+ * and the upper body got garbage translations). Stack layout and register allocation not compared. */
 void Mtx_Unit(void *);
 void *func_00364298(void *);
 s32 func_003B87B0(s16);
@@ -729,224 +727,133 @@ void sceVu0InterVector(void *d, void *a, void *b, f32 t);
 s32 sceVu0MulVector(void *, void *, f32 *);
 extern u8 D_0046AFD0[];
 
-void func_003DD918(void *arg0) {
-    u8 sp[0x200];
-    s32 subroutine_arg0, subroutine_arg1, subroutine_arg2, subroutine_arg3, subroutine_arg4, subroutine_arg5;
-    f32 sp30;
-    f32 sp40;
-    f32 sp44;
-    f32 sp48;
-    f32 sp4C;
-    f32 *temp_a0_3;
-    f32 *temp_a0_4;
-    f32 temp_f1;
-    f32 temp_f1_2;
-    f32 temp_f1_3;
-    f32 temp_f22;
-    s32 temp_a0;
-    s32 temp_fp;
-    s32 temp_s0;
-    s32 var_s7;
-    s32 var_s7_2;
-    s32 var_v0;
-    u32 var_v1;
-    void *temp_a0_2;
-    void *temp_a2;
-    void *temp_s2;
-    void *temp_s2_2;
-    void *temp_s3;
-    void *temp_s3_2;
-    void *temp_v0;
-    void *temp_v0_2;
-    void *temp_v1;
-    void *var_a1;
-    void *var_a1_2;
-    void *var_s4;
-    void *var_s4_2;
+/* Bones 7-0x1C of fighter f (local matrices at f + 0x87D0 + i * 0x40, from 0x8990): without an animation record
+ * (func_00364298) they are set from the model's bone table (offsets, and the angles written into the angle table);
+ * else each bone is blended (weight f + 0xB090) towards the record's rotation and / or translation; bones 13 / 14
+ * also take a scale (the blended scale vectors at f + 0xB0D0 / 0xB110, the matrices kept at 0xB0A0 / 0xB0E0). */
+void func_003DD918(void *fv) {
+    u8 *f = fv;
+    Vu0Matrix m;
+    f32 s[4] __attribute__((aligned(16)));
+    f32 *ang;
+    u8 *p;
+    u8 *d;
+    s32 *bones;
+    f32 *src;
+    f32 k;
+    f32 fk;
+    s32 i;
 
-    temp_fp = func_003B87F8(M2C_FIELD(arg0, s16 *, 0x20));
-    if ((D_005F5EE0 == 0) && (D_005F5EE4 == 0) && (func_003A9698() == 0)) {
-        Mtx_Unit(sp);
-        temp_f22 = M2C_FIELD(arg0, f32 *, 0xB090);
-        temp_v0 = func_00364298(arg0);
-        if (temp_v0 == NULL) {
-            var_s7 = 7;
-            temp_s0 = func_003B87B0(M2C_FIELD(arg0, s16 *, 0x22)) + 0xC;
-            var_s4 = arg0 + 0x8990;
-            var_v0 = 7 * 4;
-            do {
-                temp_a2 = *(s32 *)(temp_s0 + var_v0);
-                temp_v1 = arg0 + (var_s7 << 6) + 0x8000;
-                temp_a0 = var_s7 * 0xC;
-                var_s7 += 1;
-                M2C_FIELD(temp_v1, f32 *, 0x800) = (f32) M2C_FIELD(temp_a2, f32 *, 4);
-                temp_v0_2 = temp_a0 + temp_fp;
-                temp_a0_2 = var_s4;
-                var_s4 += 0x40;
-                M2C_FIELD(temp_v1, f32 *, 0x804) = (f32) M2C_FIELD(temp_a2, f32 *, 8);
-                M2C_FIELD(temp_v1, f32 *, 0x808) = (f32) M2C_FIELD(temp_a2, f32 *, 0xC);
-                M2C_FIELD(temp_v0_2, f32 *, 0) = (f32) M2C_FIELD(temp_a2, f32 *, 0x10);
-                M2C_FIELD(temp_v0_2, f32 *, 4) = (f32) M2C_FIELD(temp_a2, f32 *, 0x14);
-                M2C_FIELD(temp_v0_2, f32 *, 8) = (f32) M2C_FIELD(temp_a2, f32 *, 0x18);
-                func_00349D70(temp_a0_2, temp_v0_2);
-                var_v0 = var_s7 * 4;
-            } while (var_s7 < 0x1D);
-        } else {
-            var_s7_2 = 7;
-            var_s4_2 = arg0 + 0x8990;
-            var_v1 = 0;
-            do {
-                switch (var_v1) {
-                case 0:
-                    var_a1 = temp_v0;
-block_18:
-                    var_s7_2 += 1;
-                    func_003DD788(sp, var_a1);
-                    func_003DD8E8(var_s4_2, sp, var_s4_2, temp_f22);
-                    break;
-                case 3:
-                    func_00349D70(sp, (var_s7_2 * 0xC) + temp_fp);
-                    func_003DD800(sp, temp_v0 + 6, M2C_FIELD(arg0, s32 *, 0x500));
-                    var_a1_2 = temp_v0 + 0xC;
-block_32:
-                    func_003DD890(sp, var_a1_2, M2C_FIELD(arg0, s32 *, 0x500));
-                    func_0034A180(var_s4_2, sp, var_s4_2, temp_f22);
-block_33:
-                    temp_a0_3 = var_s4_2 + 0x30;
-                    sceVu0InterVector(temp_a0_3, &sp30, temp_a0_3, temp_f22);
-                default:
-block_35:
-                    var_s7_2 += 1;
-                    break;
-                case 6:
-                    func_003DD788(sp, temp_v0 + 0x1E);
-                    temp_s3 = var_s4_2 + 0x10;
-                    func_003DD8E8(var_s4_2, sp, arg0 + 0xB0A0, temp_f22);
-                    temp_s2 = var_s4_2 + 0x20;
-                    M2C_FIELD(arg0, s128 *, 0xB0A0) = (s128) M2C_FIELD(var_s4_2, s128 *, 0);
-                    M2C_FIELD(arg0, s128 *, 0xB0B0) = (s128) M2C_FIELD(var_s4_2, s128 *, 0x10);
-                    M2C_FIELD(arg0, s128 *, 0xB0C0) = (s128) M2C_FIELD(var_s4_2, s128 *, 0x20);
-                    temp_f1 = (f32) M2C_FIELD(arg0, s32 *, 0x500);
-                    sp40 = (f32) M2C_FIELD(temp_v0, u16 *, 0x12) * 0.00024414062f * temp_f1 * 0.00024414062f;
-                    sp44 = (f32) M2C_FIELD(temp_v0, u16 *, 0x14) * 0.00024414062f * temp_f1 * 0.00024414062f;
-                    sp4C = 1.0f;
-                    sp48 = (f32) M2C_FIELD(temp_v0, u16 *, 0x16) * 0.00024414062f * temp_f1 * 0.00024414062f;
-                    sceVu0InterVector(&sp40, &sp40, arg0 + 0xB0D0, temp_f22);
-                    M2C_FIELD(arg0, f32 *, 0xB0D0) = sp40;
-                    sceVu0MulVector(var_s4_2, var_s4_2, &sp40);
-                    sceVu0MulVector(temp_s3, temp_s3, &sp40);
-                    sceVu0MulVector(temp_s2, temp_s2, &sp40);
-                    goto block_35;
-                case 7:
-                    func_003DD788(sp, temp_v0 + 0x24);
-                    func_003DD8E8(var_s4_2, sp, arg0 + 0xB0E0, temp_f22);
-                    M2C_FIELD(arg0, s128 *, 0xB0E0) = (s128) M2C_FIELD(var_s4_2, s128 *, 0);
-                    M2C_FIELD(arg0, s128 *, 0xB0F0) = (s128) M2C_FIELD(var_s4_2, s128 *, 0x10);
-                    temp_s2_2 = var_s4_2 + 0x10;
-                    temp_s3_2 = var_s4_2 + 0x20;
-                    M2C_FIELD(arg0, s128 *, 0xB100) = (s128) M2C_FIELD(var_s4_2, s128 *, 0x20);
-                    temp_f1_2 = (f32) M2C_FIELD(arg0, s32 *, 0x500);
-                    sp40 = (f32) M2C_FIELD(temp_v0, u16 *, 0x18) * 0.00024414062f * temp_f1_2 * 0.00024414062f;
-                    sp44 = (f32) M2C_FIELD(temp_v0, u16 *, 0x1A) * 0.00024414062f * temp_f1_2 * 0.00024414062f;
-                    sp4C = 1.0f;
-                    sp48 = (f32) M2C_FIELD(temp_v0, u16 *, 0x1C) * 0.00024414062f * temp_f1_2 * 0.00024414062f;
-                    sceVu0InterVector(&sp40, &sp40, arg0 + 0xB110, temp_f22);
-                    M2C_FIELD(arg0, f32 *, 0xB110) = sp40;
-                    sceVu0MulVector(var_s4_2, var_s4_2, &sp40);
-                    sceVu0MulVector(temp_s2_2, temp_s2_2, &sp40);
-                    sceVu0MulVector(temp_s3_2, temp_s3_2, &sp40);
-                    temp_f1_3 = (f32) M2C_FIELD(arg0, s32 *, 0x500);
-                    sp40 = (f32) M2C_FIELD(temp_v0, u16 *, 0x12) * 0.00024414062f * temp_f1_3 * 0.00024414062f;
-                    sp44 = (f32) M2C_FIELD(temp_v0, u16 *, 0x14) * 0.00024414062f * temp_f1_3 * 0.00024414062f;
-                    sp48 = (f32) M2C_FIELD(temp_v0, u16 *, 0x16) * 0.00024414062f * temp_f1_3 * 0.00024414062f;
-                    sceVu0InterVector(&sp40, &sp40, arg0 + 0xB0D0, temp_f22);
-                    sceVu0MulVector(var_s4_2 + 0x30, (M2C_FIELD(arg0, s16 *, 0x20) * 0x10) + ((u8 *)&D_0046AFD0), &sp40);
-                    M2C_FIELD(var_s4_2, f32 *, 0x3C) = 1.0f;
-                    goto block_35;
-                case 14:
-                    var_a1 = temp_v0 + 0x2A;
-                    goto block_18;
-                case 15:
-                    var_a1 = temp_v0 + 0x30;
-                    goto block_18;
-                case 18:
-                    var_a1 = temp_v0 + 0x36;
-                    goto block_18;
-                case 19:
-                    var_a1 = temp_v0 + 0x3C;
-                    goto block_18;
-                case 16:
-                    func_003DD890(sp, temp_v0 + 0x42, M2C_FIELD(arg0, s32 *, 0x500));
-                    goto block_33;
-                case 17:
-                    func_003DD890(sp, temp_v0 + 0x48, M2C_FIELD(arg0, s32 *, 0x500));
-                    goto block_33;
-                case 12:
-                    func_003DD890(sp, temp_v0 + 0x4E, M2C_FIELD(arg0, s32 *, 0x500));
-                    goto block_33;
-                case 13:
-                    func_003DD890(sp, temp_v0 + 0x54, M2C_FIELD(arg0, s32 *, 0x500));
-                    goto block_33;
-                case 20:
-                    func_003DD890(sp, temp_v0 + 0x5A, M2C_FIELD(arg0, s32 *, 0x500));
-                    goto block_33;
-                case 21:
-                    func_003DD890(sp, temp_v0 + 0x60, M2C_FIELD(arg0, s32 *, 0x500));
-                    goto block_33;
-                case 10:
-                    func_003DD788(sp, temp_v0 + 0x72);
-                    func_003DD890(sp, temp_v0 + 0x66, M2C_FIELD(arg0, s32 *, 0x500));
-                    func_003DD8E8(var_s4_2, sp, var_s4_2, temp_f22);
-                    goto block_33;
-                case 11:
-                    func_003DD788(sp, temp_v0 + 0x78);
-                    func_003DD890(sp, temp_v0 + 0x6C, M2C_FIELD(arg0, s32 *, 0x500));
-                    func_003DD8E8(var_s4_2, sp, var_s4_2, temp_f22);
-                    goto block_33;
-                case 8:
-                    func_00349D70(sp, (var_s7_2 * 0xC) + temp_fp);
-                    func_003DD800(sp, temp_v0 + 0x7E, M2C_FIELD(arg0, s32 *, 0x500));
-                    var_a1_2 = temp_v0 + 0x8A;
-                    goto block_32;
-                case 9:
-                    func_00349D70(sp, (var_s7_2 * 0xC) + temp_fp);
-                    func_003DD800(sp, temp_v0 + 0x84, M2C_FIELD(arg0, s32 *, 0x500));
-                    var_a1_2 = temp_v0 + 0x90;
-                    goto block_32;
-                case 4:
-                    func_00349D70(sp, (var_s7_2 * 0xC) + temp_fp);
-                    func_003DD800(sp, temp_v0 + 0x96, M2C_FIELD(arg0, s32 *, 0x500));
-                    var_a1_2 = temp_v0 + 0xA2;
-                    goto block_32;
-                case 5:
-                    func_00349D70(sp, (var_s7_2 * 0xC) + temp_fp);
-                    func_003DD800(sp, temp_v0 + 0x9C, M2C_FIELD(arg0, s32 *, 0x500));
-                    var_a1_2 = temp_v0 + 0xA8;
-                    goto block_32;
-                case 1:
-                    func_00349D70(sp, (var_s7_2 * 0xC) + temp_fp);
-                    func_003DD800(sp, temp_v0 + 0xAE, M2C_FIELD(arg0, s32 *, 0x500));
-                    var_a1_2 = temp_v0 + 0xBA;
-                    goto block_32;
-                case 2:
-                    func_00349D70(sp, (var_s7_2 * 0xC) + temp_fp);
-                    func_003DD800(sp, temp_v0 + 0xB4, M2C_FIELD(arg0, s32 *, 0x500));
-                    func_003DD890(sp, temp_v0 + 0xC0, M2C_FIELD(arg0, s32 *, 0x500));
-                    func_0034A180(var_s4_2, sp, var_s4_2, temp_f22);
-                    temp_a0_4 = var_s4_2 + 0x30;
-                    sceVu0InterVector(temp_a0_4, &sp30, temp_a0_4, temp_f22);
-                    goto block_35;
-                }
-                var_s4_2 += 0x40;
-                var_v1 = var_s7_2 - 7;
-            } while (var_s7_2 < 0x1D);
+    ang = (f32 *)func_003B87F8(*(s16 *)(f + 0x20));
+    if (D_005F5EE0 != 0 || D_005F5EE4 != 0 || func_003A9698() != 0) {
+        return;
+    }
+    Mtx_Unit(m);
+    k = *(f32 *)(f + 0xB090);
+    p = func_00364298(f);
+    if (p == NULL) {
+        bones = (s32 *)(func_003B87B0(*(s16 *)(f + 0x22)) + 0xC);
+        d = f + 0x8990;
+        for (i = 7; i < 0x1D; i++, d += 0x40) {
+            src = (f32 *)bones[i];
+            *(f32 *)(f + (i << 6) + 0x8800) = src[1];
+            *(f32 *)(f + (i << 6) + 0x8804) = src[2];
+            *(f32 *)(f + (i << 6) + 0x8808) = src[3];
+            ang[i * 3 + 0] = src[4];
+            ang[i * 3 + 1] = src[5];
+            ang[i * 3 + 2] = src[6];
+            func_00349D70(d, ang + i * 3);
+        }
+        return;
+    }
+    d = f + 0x8990;
+    for (i = 7; i < 0x1D; i++, d += 0x40) {
+        switch (i - 7) {
+        case 0:  /* rotation only */
+        case 14:
+        case 15:
+        case 18:
+        case 19:
+            func_003DD788(m, (s16 *)(p + (i == 7 ? 0 : i == 21 ? 0x2A : i == 22 ? 0x30 : i == 25 ? 0x36 : 0x3C)));
+            func_003DD8E8(d, m, d, k);
+            break;
+        case 12: /* translation only */
+        case 13:
+        case 16:
+        case 17:
+        case 20:
+        case 21:
+            func_003DD890((u8 *)m, (s16 *)(p + (i == 19 ? 0x4E : i == 20 ? 0x54 : i == 23 ? 0x42 : i == 24 ? 0x48
+                                                 : i == 27 ? 0x5A : 0x60)), *(s32 *)(f + 0x500));
+            sceVu0InterVector(d + 0x30, m[3], d + 0x30, k);
+            break;
+        case 10: /* rotation and translation from the record */
+        case 11:
+            func_003DD788(m, (s16 *)(p + (i == 17 ? 0x72 : 0x78)));
+            func_003DD890((u8 *)m, (s16 *)(p + (i == 17 ? 0x66 : 0x6C)), *(s32 *)(f + 0x500));
+            func_003DD8E8(d, m, d, k);
+            sceVu0InterVector(d + 0x30, m[3], d + 0x30, k);
+            break;
+        case 1: /* the bone's own angles, turned by the record, and a translation */
+        case 2:
+        case 3:
+        case 4:
+        case 5:
+        case 8:
+        case 9: {
+            s32 r = i == 8 ? 0xAE : i == 9 ? 0xB4 : i == 10 ? 0x06 : i == 11 ? 0x96 : i == 12 ? 0x9C : i == 15 ? 0x7E
+                                                                                                             : 0x84;
+            func_00349D70(m, ang + i * 3);
+            func_003DD800((u8 *)m, (u16 *)(p + r), *(s32 *)(f + 0x500));
+            func_003DD890((u8 *)m, (s16 *)(p + (i == 10 ? 0x0C : r + 0xC)), *(s32 *)(f + 0x500));
+            func_0034A180(d, m, d, k);
+            sceVu0InterVector(d + 0x30, m[3], d + 0x30, k);
+            break;
+        }
+        case 6: /* bone 13: rotation and the blended scale (0xB0D0) */
+            func_003DD788(m, (s16 *)(p + 0x1E));
+            func_003DD8E8(d, m, f + 0xB0A0, k);
+            *(u128 *)(f + 0xB0A0) = *(u128 *)(d + 0x00);
+            *(u128 *)(f + 0xB0B0) = *(u128 *)(d + 0x10);
+            *(u128 *)(f + 0xB0C0) = *(u128 *)(d + 0x20);
+            fk = (f32)*(s32 *)(f + 0x500);
+            s[0] = (f32)(s32)*(u16 *)(p + 0x12) * (1.0f / 4096.0f) * fk * (1.0f / 4096.0f);
+            s[1] = (f32)(s32)*(u16 *)(p + 0x14) * (1.0f / 4096.0f) * fk * (1.0f / 4096.0f);
+            s[3] = 1.0f;
+            s[2] = (f32)(s32)*(u16 *)(p + 0x16) * (1.0f / 4096.0f) * fk * (1.0f / 4096.0f);
+            sceVu0InterVector(s, s, f + 0xB0D0, k);
+            *(u128 *)(f + 0xB0D0) = *(u128 *)s;
+            sceVu0MulVector(d, d, s);
+            sceVu0MulVector(d + 0x10, d + 0x10, s);
+            sceVu0MulVector(d + 0x20, d + 0x20, s);
+            break;
+        case 7: /* bone 14: rotation, its own scale (0xB110), and the fighter's reference vector scaled by 0xB0D0's */
+            func_003DD788(m, (s16 *)(p + 0x24));
+            func_003DD8E8(d, m, f + 0xB0E0, k);
+            *(u128 *)(f + 0xB0E0) = *(u128 *)(d + 0x00);
+            *(u128 *)(f + 0xB0F0) = *(u128 *)(d + 0x10);
+            *(u128 *)(f + 0xB100) = *(u128 *)(d + 0x20);
+            fk = (f32)*(s32 *)(f + 0x500);
+            s[0] = (f32)(s32)*(u16 *)(p + 0x18) * (1.0f / 4096.0f) * fk * (1.0f / 4096.0f);
+            s[1] = (f32)(s32)*(u16 *)(p + 0x1A) * (1.0f / 4096.0f) * fk * (1.0f / 4096.0f);
+            s[3] = 1.0f;
+            s[2] = (f32)(s32)*(u16 *)(p + 0x1C) * (1.0f / 4096.0f) * fk * (1.0f / 4096.0f);
+            sceVu0InterVector(s, s, f + 0xB110, k);
+            *(u128 *)(f + 0xB110) = *(u128 *)s;
+            sceVu0MulVector(d, d, s);
+            sceVu0MulVector(d + 0x10, d + 0x10, s);
+            sceVu0MulVector(d + 0x20, d + 0x20, s);
+            fk = (f32)*(s32 *)(f + 0x500);
+            s[0] = (f32)(s32)*(u16 *)(p + 0x12) * (1.0f / 4096.0f) * fk * (1.0f / 4096.0f);
+            s[1] = (f32)(s32)*(u16 *)(p + 0x14) * (1.0f / 4096.0f) * fk * (1.0f / 4096.0f);
+            s[2] = (f32)(s32)*(u16 *)(p + 0x16) * (1.0f / 4096.0f) * fk * (1.0f / 4096.0f);
+            sceVu0InterVector(s, s, f + 0xB0D0, k);
+            sceVu0MulVector(d + 0x30, D_0046AFD0 + *(s16 *)(f + 0x20) * 16, s);
+            *(f32 *)(d + 0x3C) = 1.0f;
+            break;
         }
     }
 }
-#undef M2C_UNK
-#undef M2C_FIELD
-#undef M2C_BITWISE
-#undef s128
 #else
 INCLUDE_RODATA("asm/nonmatchings/demo", jtbl_00522C60);
 INCLUDE_ASM("asm/nonmatchings/demo", func_003DD918);

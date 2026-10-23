@@ -163,7 +163,11 @@ void Skel_Update(Fighter *f) {
     func_00350728(f);
     if (Tag_StepCounters((s16)f->unk20, 1) == 0) {
         Skel_ComputeWorld(f);
+#ifdef PORT
+        PORT_DIFF(0x3478F0, func_003478F0, "ii", f, 0); /* TTT_DIFF: draft against the original code */
+#else
         func_003478F0(f, 0);
+#endif
         Light_UpdateFighter(f->unk1E, (u8 *)f + 0x590);
         func_0034FB48(f);
     }

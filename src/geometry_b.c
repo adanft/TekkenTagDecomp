@@ -211,11 +211,20 @@ void func_003478F0(u8 *f) {
             break;
         }
     }
+#ifdef PORT /* TTT_DIFF (port/src/ee_diff.c): each call against the original code */
+    PORT_DIFF(0x3DD918, func_003DD918, "i", f);
+    PORT_DIFF(0x3DE0D8, func_003DE0D8, "i", f);
+#else
     func_003DD918(f);
     func_003DE0D8(f);
+#endif
     func_0034A050(rot, 3.141593f);
     sceVu0MulMatrix(*(Vu0Matrix *)(f + 0x560), rot, *(Vu0Matrix *)(f + 0x560));
+#ifdef PORT
+    PORT_DIFF(0x347E28, func_00347E28, "iii", chara, D_00416A18, local);
+#else
     func_00347E28(chara, D_00416A18, local);
+#endif
     Light_GetFighterMatrices(*(s16 *)(f + 0x1E), (u128 *)scr);
     j = (FJoint *)(f + 0xDB0);
     for (i = 98; i > 0; i--, j++) {
@@ -227,10 +236,17 @@ void func_003478F0(u8 *f) {
         *(u128 *)j->m2[2] = *(u128 *)tmp[2];
     }
     *(u128 *)tmp[0] = *(u128 *)((u8 *)Fighter_GetOpponent(f) + 0x11A0);
+#ifdef PORT
+    PORT_DIFF(0x351E98, func_00351E98, "iii", f, tmp[0], scr);
+    PORT_DIFF(0x34D258, func_0034D258, "iiiii", f + 0xDB0, last, chara, parts, scr);
+    PORT_DIFF(0x3DE4E0, func_003DE4E0, "iiiii", f, f + 0xDB0, (u8 *)last, chara, scr);
+    PORT_DIFF(0x351AA0, func_00351AA0, "iiiii", f, mdl, f + 0x5730, last, scr);
+#else
     func_00351E98(f, tmp[0], scr);
     func_0034D258(f + 0xDB0, last, chara, parts, scr);
     func_003DE4E0(f, f + 0xDB0, (u8 *)last, chara, scr);
     func_00351AA0(f, mdl, f + 0x5730, last, scr);
+#endif
     c = D_00522DE0;
     h = D_01FC49E0[*(s16 *)(f + 0x20)];
     sceVu0ApplyMatrix(tmp[1], *(Vu0Matrix *)(f + 0x4FB0), c.v);

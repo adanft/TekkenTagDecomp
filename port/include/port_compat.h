@@ -42,5 +42,10 @@ typedef unsigned _BitInt(128) u128 __attribute__((aligned(16)));
 /* Platform hooks the game sources call under `#ifdef PORT` (port/src/plat_hw.c). */
 int Port_BootSeed(int timer0); /* the seed Rng_Init takes: Timer 0 now, or TTT_SEED */
 int Port_MoviePlayable(void);  /* 0 until the movie player exists: func_0039C878 skips the movie */
+/* TTT_DIFF (port/src/ee_diff.c): calls fn as usual, and on request compares its result with the original EE code at
+   addr. sig: one letter per argument, 'i' for an integer / pointer, 'f' for a float passed as its bits, then ":i" /
+   ":f" to compare an integer / float result too. Returns fn's result (as its bits). */
+unsigned Port_DiffCall(const char *name, unsigned addr, void *fn, const char *sig, ...);
+#define PORT_DIFF(addr, fn, sig, ...) Port_DiffCall(#fn, addr, (void *)fn, sig, __VA_ARGS__)
 
 #endif

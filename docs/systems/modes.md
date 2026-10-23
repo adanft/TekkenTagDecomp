@@ -337,7 +337,8 @@ branch offsets. Every draft carries its one-line reason in the source.
 "CONGRATULATIONS!" and a minutes'seconds"hundredths time. It is the practice mode's command list and move demonstration:
 the command texts `D_01FC4930` (16 bytes per `Fighter.unk22` slot), a proportional glyph font (`PracFont_GlyphWidth`,
 `PracFont_StrWidth`, `PracFont_DrawGlyph`), command icons, image uploads (`Gfx_BuildImageUpload`, the `D_01FC4970` slots),
-the posing of the demonstration dummy (`func_003DD918`), `Prac_DrawDemoPrompt` and `Prac_DrawCongratulations`. The "VIF1
+the per-frame pose of bones 7-0x1C of every fighter (`func_003DD918`, called from `func_003478F0`: head, face and upper
+body from the record `func_00364298` returns, blended by `f + 0xB090`), `Prac_DrawDemoPrompt` and `Prac_DrawCongratulations`. The "VIF1
 DIRECT code" is `func_003DE6C0`: one GS register pair from `D_00456540[i]` and a linear map `D_005F6944` / `D_005F6948`
 [I: depth to fog]. The end of the range (0x3DFF30-0x3E1C68) holds shared 2D helpers (`Gfx_DrawLine`, `Gfx_DrawRect`,
 `Gfx_DrawTriangle`, rotated icons) used by `menu_bg`, `tekken_bowl` and the render code.
@@ -449,7 +450,7 @@ Every function of the T18 files has C; the ones below are compiling drafts in `#
   `PracFont_StrWidth` (7), `func_003DE0D8` (about 60), `func_003DE4E0` (66), `func_003DF2F0` (75), the packet builders
   `PracFont_DrawGlyph`, `func_003DEF98`, `func_003DF150`, `func_003DF500`, `func_003E0460` (an extra 0x10 stack slot in the
   original's frame), and the m2c drafts `func_003DC9C8` (311), `func_003DFA00` (328), `func_003DFF30` (344),
-  `func_003DD918` (494), `func_003E08D8` (1074).
+  `func_003DD918` (494; a typed draft written after the asm since T29 batch 5), `func_003E08D8` (1074).
 - `src/menu_bg.c` (6): `func_003E4860` (100), `Bowl_DrawHud` (102), `func_003E2A08` (143), `func_003E3178` (218), the
   m2c drafts `func_003E1C68`, `func_003E38F0`.
 - `src/gallery_jpeg.c` (8): `Jpeg_RgbToYcc` (2, two copies swapped; decomp-permuter 15 minutes: nothing below its base),
