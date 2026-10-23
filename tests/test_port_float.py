@@ -28,6 +28,7 @@ toolchain = _load("toolchain")
 X87 = re.compile(r"\t(fld|fst|fadd|fsub|fmul|fdiv|fsqrt|fsin|fcos|fsincos|fpatan|fptan|fild|fist|fcom|fucom|fyl2x"
                  r"|f2xm1|fscale|fprem|frndint|fchs|fabs)\w*\b")
 SSE = re.compile(r"\t\w+(ss|sd|ps|pd)\s.*%xmm")
+FUNC = re.compile(r"^[0-9a-f]+ <([^>]+)>:$")
 
 
 class VuRenameTest(unittest.TestCase):
@@ -53,10 +54,27 @@ class FloatSelfTest(unittest.TestCase):
         self.assertIn("ttt: float: libvu0:", r.stdout)
 
     def test_no_host_float_code(self):
-        """Every float operation goes through the EE model: the program's code has no x87 or SSE float instruction."""
+        """Every float operation goes through the EE model: the program's code has no x87 float instruction, and SSE
+        float instructions only in the functions of toolchain.SIMD_FILES (the predecoded VU interpreter, which runs
+        the model on the SSE unit in round-toward-zero / flush-to-zero mode, and its test against the integer
+        model)."""
+        allowed = set()
+        for name in toolchain.SIMD_FILES:
+            obj = toolchain.OBJ / f"pc_{Path(name).stem}.o"
+            self.assertTrue(obj.exists(), obj)
+            syms = subprocess.run(["nm", "--defined-only", str(obj)], capture_output=True, text=True, check=True).stdout
+            allowed |= {l.split()[2] for l in syms.splitlines() if len(l.split()) == 3 and l.split()[1] in "tT"}
+        self.assertIn("run_fast", allowed)
         out = subprocess.run(["objdump", "-d", "--no-show-raw-insn", str(EXE)], capture_output=True, text=True,
                              check=True).stdout
-        bad = [l.strip() for l in out.splitlines() if X87.search(l) or SSE.search(l)]
+        bad, fn = [], None
+        for line in out.splitlines():
+            m = FUNC.match(line)
+            if m:
+                fn = m.group(1).split(".")[0]  # run_fast, or run_fast.part.0 / .constprop.0 / .isra.0
+                continue
+            if X87.search(line) or (SSE.search(line) and fn not in allowed):
+                bad.append(f"{fn}: {line.strip()}")
         self.assertEqual(bad[:10], [])
 
     def test_no_temporary_host_float(self):

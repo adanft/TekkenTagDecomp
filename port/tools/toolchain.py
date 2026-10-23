@@ -30,8 +30,14 @@ PORT_CFLAGS = ["-m32", "-std=gnu99", "-O2", "-g", "-fno-pic", "-fno-strict-alias
                "-Iport/src"]
 
 # The port's hot paths (the VU interpreter, the GS rasteriser) at -O3: integer code, the same results (T30).
-HOT_FILES = ("vu_micro.c", "gs_core.c")
+HOT_FILES = ("vu_micro.c", "vu_fast.c", "gs_core.c")
 HOT_CFLAGS = ["-O3"]
+# The predecoded vector-unit interpreter and its test use SSE2 (vu_simd_inl.h: four lanes at once; the vector unit's
+# add, multiply, divide and square root on the SSE unit in round-toward-zero / flush-to-zero mode, which computes the
+# EE float model exactly). x86-64 CPUs all have SSE2. No float value crosses a function boundary (-msoft-float stays),
+# and these are the only files with SSE float instructions (tests/test_port_float.py).
+SIMD_FILES = ("vu_fast.c", "vu_fasttest.c")
+SIMD_CFLAGS = ["-msse2"]
 
 # newlib's float maths library (the PS2's own libm, third_party/newlib_libm): built like the port's code, in software
 # float on the EE model, with its shim header in front.

@@ -62,6 +62,49 @@ static void unpack(uint32_t cmd, uint32_t num, uint32_t imm, const uint32_t *dat
     if (cl == 0 && wl == 0) {
         cl = wl = 1;
     }
+    if (!masked && vif.mode == 0 && wl <= cl && (vl != 3 || vn == 3)) {
+        /* the game's UNPACKs (T30 batch 2): every vector comes from the data and is written whole (the fields the
+           format has not are 0, a scalar fills all four), so the loop below reduces to this */
+        uint32_t size = 32u >> vl, bytes = vn == 3 && vl == 3 ? 2 : (vn + 1) * (size / 8), pos = 0;
+        for (k = 0; k < n; k++) {
+            uint32_t out[4] = {0, 0, 0, 0};
+            if (vn == 3 && vl == 3) {
+                uint32_t w = src[pos] | (uint32_t)src[pos + 1] << 8;
+                out[0] = (w & 31) << 3;
+                out[1] = ((w >> 5) & 31) << 3;
+                out[2] = ((w >> 10) & 31) << 3;
+                out[3] = ((w >> 15) & 1) << 7;
+            } else if (size == 32) { /* constant sizes: inline copies */
+                switch (vn) {
+                case 0: memcpy(out, &src[pos], 4); break;
+                case 1: memcpy(out, &src[pos], 8); break;
+                case 2: memcpy(out, &src[pos], 12); break;
+                default: memcpy(out, &src[pos], 16); break;
+                }
+            } else {
+                for (c = 0; c <= vn; c++) {
+                    if (size == 16) {
+                        uint16_t h;
+                        memcpy(&h, &src[pos + c * 2], 2);
+                        out[c] = usn ? h : (uint32_t)(int32_t)(int16_t)h;
+                    } else {
+                        out[c] = usn ? src[pos + c] : (uint32_t)(int32_t)(int8_t)src[pos + c];
+                    }
+                }
+            }
+            if (vn == 0) {
+                out[1] = out[2] = out[3] = out[0];
+            }
+            pos += bytes;
+            memcpy(&mem[(addr & 0x3FF) * 16], out, 16);
+            addr++;
+            if (++cyc == wl) {
+                addr += cl - wl; /* skipping write */
+                cyc = 0;
+            }
+        }
+        return;
+    }
     for (k = 0; k < n; k++) {
         uint32_t v[4] = {0, 0, 0, 0}, out[4];
         int have = !(wl > cl && cyc >= cl); /* filling write: past CL the vector comes from the registers only */

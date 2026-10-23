@@ -4,7 +4,7 @@ The PC port is built from the same C as the matching decompilation. Nothing of t
 takes the game's data from the split of **your own** `SLUS_200.01` (the one the matching build already uses) and
 writes everything under `build/port/`, which git ignores.
 
-## Status (T30 batch 1, 2026-10-23)
+## Status (T30 batch 2, 2026-10-23)
 
 - Every game C file the matching build links (59) compiles for 32-bit x86 Linux with the host gcc, with the
   NON_MATCHING drafts switched on: every game function comes from C, except the hand-written EE / VU0 routines
@@ -39,6 +39,9 @@ writes everything under `build/port/`, which git ignores.
 - Speed (T30 batch 1): the headless `TTT_FRAMES=2551 TTT_SEED=1 TTT_DUMP_EVERY=150` run takes 112 s instead of 386 s
   (6.6 -> 22.8 VBlanks/s; 11.7 with `TTT_GS_THREADS=0`), with the same 17 frames, report and `sbss-hash 0x8dd3eebb`
   ([Speed](#speed)). The title and menus run in real time; the demo fight does not yet (about 11 VBlanks/s).
+- Speed (T30 batch 2): the same run in 60-65 s, the fight's VU1 part (VBlanks 1101-2551) at about 25 VBlanks/s
+  instead of 12, with the same frames, report and hash in both thread modes: a predecoded VU interpreter (2.5 times
+  the old one) and less waiting between the raster threads. The raster workers are now the limit ([Speed](#speed)).
 - A window (T30 batch 1): real-time runs show the picture in an SDL3 window ([Window](#window)).
 - Placeholders still reached on that path (listed at the end of a `TTT_FRAMES` run): `scePadGetState` (no pad),
   libmc (no card), the boot movie (skipped).
@@ -183,7 +186,10 @@ wait loops drive the hardware.
 | `gs_core.c` | GS: GIF paths (PACKED / REGLIST / IMAGE), registers, 4 MB GS memory with its layout, CLUT buffer, the software reference rasteriser, the frame dump, `TTT_SELFTEST=gs` |
 | `gs_vif1.c` | VIF1: UNPACK into VU1 memory, MPG, DIRECT / DIRECTHL to the GIF, MSCAL / MSCALF / MSCNT run the VU1 program |
 | `gs_vu1.c` | VU1: registers, the program runs, XGKICK on PATH1, `TTT_SELFTEST=vu1` |
-| `vu_micro.c` | The micro-mode interpreter shared by VU0 and VU1 |
+| `vu_micro.c` | The reference micro-mode interpreter shared by VU0 and VU1 (`Vu_RunRef`, one step per instruction in integer arithmetic), `Vu_SameState` |
+| `vu_fast.c` | The predecoded interpreter the game runs on (`Vu_Run` with a `VuOp` cache) ([VU1](#vu1), [Speed](#speed)) |
+| `vu_micro_inl.h` / `vu_simd_inl.h` | Their shared arithmetic and pipeline helpers / the vector unit's arithmetic on the SSE unit (four lanes, exact) |
+| `vu_fasttest.c` | `TTT_SELFTEST=vu1`'s second part: random programs on both interpreters, the SSE arithmetic against the model |
 | `plat_pkt.c` | libpkt: VIF1 and GIF packet builders |
 | `plat_vu0.c` | libvu0 in C (column-major matrices; `func_0034A868` is `sceVu0Normalize`) |
 | `plat_main.c` | Opens the window (on the host stack), then runs the game's `main` on the EE stack |
@@ -195,7 +201,7 @@ wait loops drive the hardware.
 | `TTT_DUMP_EVERY=<n>` | The dump's period in VBlanks (default 60). |
 | `TTT_SELFTEST=gs` | GS memory layout of every format, the upload paths, a GIF PACKED packet on the GIF channel (flat, CLUT-textured, blended, depth-tested, scissored sprites, a triangle), the read circuits' merge (ALP / circuit 1 alpha, SLBG, DISPLAY position), VIF1 UNPACK modes / STCYCL / masks / double buffer / MPG, DIRECT and FINISH (`tests/test_port_gs.py`). |
 | `TTT_SELFTEST=float` |
-| `vu0_micro.c` | VIF0 (MPG uploads) and the VU0 program start (vcallms) on `vu_micro.c` |
+| `vu0_micro.c` | VIF0 (MPG uploads) and the VU0 program start (vcallms) on `vu_fast.c` |
 | `ee_diff.c` | The draft divergence check: an EE interpreter for the executable's code, `PORT_DIFF`, `TTT_DIFF`, `TTT_SELFTEST=ee` |
 
 - **Polling.** `EE_HW_POLL()` (`include/ee_asm.h`, nothing in the matching build) sits in every game loop that waits
@@ -235,7 +241,8 @@ Switches:
 | `TTT_DUMP_EVERY=<n>` | The dump's period in VBlanks (default 60). |
 | `TTT_SELFTEST=gs` | GS memory layout of every format, the upload paths, a GIF PACKED packet on the GIF channel (flat, CLUT-textured, blended, depth-tested, scissored sprites, a triangle), VIF1 UNPACK modes / STCYCL / masks / double buffer / MPG, DIRECT and FINISH (`tests/test_port_gs.py`). |
 | `TTT_SELFTEST=float` | The EE float model against PCSX2 data, EE rules, exact libm cases, newlib `rand`, the fields libvu0's helpers write (`tests/test_port_float.py`). `TTT_FLOATDATA` overrides the data directory (`port/tests/ps2float`). |
-| `TTT_SELFTEST=vu1` | Hand-assembled VU1 programs sent through VIF1: pairing, delay slots, E bit, Q / P latency, flag delays, integer / EFU instructions, XTOP / XITOP, XGKICK (`tests/test_port_gs.py`). |
+| `TTT_SELFTEST=vu1` | Hand-assembled VU1 programs sent through VIF1: pairing, delay slots, E bit, Q / P latency, flag delays, integer / EFU instructions, XTOP / XITOP, XGKICK; then 9000 random programs on the predecoded and the reference interpreter, and the SSE arithmetic against the integer model on 3.2 million operations (`ttt: vu fast: ...`, `tests/test_port_gs.py`). |
+| `TTT_VU_CHECK=1` | Every VU1 program also runs on the reference interpreter, from a copy of the unit; the report adds `ttt: vu1 check: N runs, M differ` (the 2551-VBlank run: 1294286 runs, 0 differ). Twice as slow; the game's state is the same. |
 | `TTT_VU1_CALLS=1` | With `TTT_FRAMES`: the report also lists the VU1 runs per entry address. |
 | `TTT_GS_TRACE=1` | Per VBlank: pixels written per frame buffer (FBP) with the last FRAME / TEX0 / TEST / ALPHA, each GIF path's tag count and tag state, DISPFB1 / 2, PMODE, DISPLAY1 / 2 and BGCOLOR, every transfer (BITBLTBUF / TRXPOS / TRXREG / TRXDIR), and the first GIF tags with reserved bits set (`bad tag`, with the DMA block they came in). |
 | `TTT_GS_TRACE_PRIMS=<vblank>` | Every vertex kick drawn before that VBlank (type, context, coordinates, UV / STQ, colour, TEX0 / TEX1 / CLAMP / FRAME / TEST / ALPHA). Vertices that only queue (XYZ3 / ADC) print as `gs-adc`. With `TTT_GS_TRACE_PIXEL=<x>,<y>`: every write to that pixel then, with its source and result, and every rejected one (`gs-reject`: scissor, alpha, destination alpha or depth test). |
@@ -307,6 +314,13 @@ Times on a 24-thread x86-64 under `scripts/cool.sh` (the thermal governor's quot
 | before (T29 batch 5) | 386 s | 6.6 |
 | T30, `TTT_GS_THREADS=0` | 218 s | 11.7 |
 | T30, 8 raster threads (default here) | 112 s | 22.8 |
+| T30 batch 2, `TTT_GS_THREADS=0` | 188 s | 13.6 |
+| T30 batch 2, 8 raster threads | 60-65 s | 39-42 |
+
+T30 batch 2 timed the fight on its own (VBlanks 1101-2551, where VU1 draws the fighters; the 1100-VBlank run
+subtracted), the batch 1 build next to it on the same day: 118-128 s -> 53-59 s (11.4-12.2 -> 24.7-27.4 VBlanks/s);
+the game thread's CPU time without its waits 80.6 s -> 37.6 s (55.6 -> 25.9 ms per VBlank). The thermal governor
+throttles the whole slice when hot, so wall times move by 10-20% between runs; CPU times (`TTT_GS_STATS`) less.
 
 - **Profile before:** rasteriser about 75% (`vram_rw`, `draw_triangle`, `pixel`, `texel`, per-pixel 64-bit divisions in
   `__divdi3`), VU1 interpreter about 15%. In the demo fight the GS writes about 2.2 million pixels per VBlank (1.8
@@ -316,10 +330,11 @@ Times on a 24-thread x86-64 under `scripts/cool.sh` (the thermal governor's quot
   the span inside all three edges, exactly, and along a span the barycentric fractions are running quotients and the
   attributes running sums (no division or 64-bit multiply per pixel); a sprite's U is a running quotient; an indexed
   texture's CLUT is expanded once while CLUT, CPSM / CSA and TEXA stay; the level of detail is only computed when
-  MMAG and MMIN filter differently. `-O3` for `gs_core.c` and `vu_micro.c` (`toolchain.HOT_FILES`).
+  MMAG and MMIN filter differently. `-O3` for `gs_core.c`, `vu_micro.c` and `vu_fast.c` (`toolchain.HOT_FILES`).
 - **Raster threads.** The front end (GIF, registers, the vertex queue: the game's thread) turns primitives and the
   operations on GS memory into commands in a ring; each worker runs every command and draws only the rows of its
-  16-row bands (8- and 4-bit formats pack four rows into a word, inside one band). That is the serial result while,
+  8-row bands (16 before T30 batch 2; 8- and 4-bit formats pack a column's four rows into a word, inside one band).
+  That is the serial result while,
   since the last barrier, GS memory is written through one frame and one depth layout and nothing read (texture,
   CLUT, the window's picture) is written: the front end tracks the 8 KB pages written and read since the last
   barrier and puts a barrier in front of a command that breaks this, or runs it on one worker (serial) when it
@@ -331,9 +346,34 @@ Times on a 24-thread x86-64 under `scripts/cool.sh` (the thermal governor's quot
   unit instead of 64-bit mantissas and a normalisation loop; `TTT_SELFTEST=float` compares them with the model on 2
   million pairs); the MAC flags are worked out only when an instruction reads them; `memcpy` is inlined in the hot
   files (`-fno-builtin` sent every 4-byte instruction fetch through the PLT).
-- **Left:** the game's thread is the limit in the fight (VU1 about 70% of it: `mesh.vsm`, 1 million VU instructions
-  per VBlank); then the workers' per-pixel cost. A predecoded VU interpreter and a GPU back end (T30 batch 2+) are the
-  next steps.
+- **Predecoded VU interpreter (T30 batch 2, `vu_fast.c`).** The fight runs 1.8 million VU1 instructions per VBlank
+  (`mesh.vsm`). Each micro-memory slot is decoded once into a `VuOp` (operation, operands, dest mask, branch target);
+  the raw words are compared at each fetch, so an MPG or any other write to micro memory is seen. One dispatch per
+  half (the upper on operation and second operand together); Q, P and the flag queues are brought up to the current
+  step only where an instruction reads them and at the end, which gives the same values; the next pc skips the
+  branch state unless something branches or ends. The upper half runs on four lanes at once in SSE2
+  (`vu_simd_inl.h`): add, multiply, divide, square root and the int / float conversions on the SSE unit with MXCSR
+  set to round toward zero and flush to zero for the program (put back around XGKICK and at the end). Under that mode
+  the SSE unit computes the EE float model exactly: the model cuts the exact result toward zero, and with a cut
+  "tiny before rounding" is "tiny after rounding", so flush to zero gives the model's +/-0 below 2^-126; overflow
+  gives +/-FLT_MAX as the model; operands of exponent 0 / 255 are mapped to +/-0 / +/-FLT_MAX first. Max / min stay
+  integer compares. 5 ns per VU instruction instead of 14 on captured fight programs; in the game 2.5 times fewer
+  cycles than the old interpreter, 13 ms of a fight VBlank. `Vu_RunRef` keeps the one-step integer interpreter as the specification:
+  `TTT_SELFTEST=vu1` runs random programs through both, `TTT_VU_CHECK=1` every program of the game.
+- **Ring (T30 batch 2).** The ring's counters each have a cache line (the workers' tails shared one, written at every
+  command by eight threads); workers read the head once per batch of commands, the front end re-reads the tails only
+  when the ring looks full, and the workers wake sleepers every 32 commands, at barriers and before they wait instead
+  of after every command (a fence each). Waits spin 100 pauses before sleeping instead of 4000: spinning used the
+  governor's quota the drawing needed. 8-row bands give a 448-row frame 7 bands for each of 8 workers (16-row bands
+  gave four workers 4 and four 3). 8 workers stay the best count here (6: 73 s, 12: 77 s).
+- **VIF1 UNPACK.** The game's UNPACKs (unmasked, STMOD 0: V2 / V3 / V4-32, V4-8, S-32) write whole vectors from the
+  data: a direct path without the mask / mode per field.
+- **Left:** the raster workers are the limit in the fight: each spends about 26 ms of a fight VBlank drawing (texel
+  address and CLUT per texel, the bilinear filter, the pixel's read-modify-write, 64-bit divisions for S / Q), and at
+  the 140000 barriers / serial commands of the run (render-to-texture passes: a texture read from pages drawn since
+  the last barrier) they wait for each other. The game's thread needs about 26 ms per fight VBlank (VU1 13 ms, the
+  rest DMA, VIF, the GS front end). 60 VBlanks/s needs both halved: a GPU back end for the drawing, and the VU1 runs
+  on a thread of their own (with the VIF / GS front end) are the next steps.
 
 ## Window
 
@@ -358,8 +398,9 @@ Times on a 24-thread x86-64 under `scripts/cool.sh` (the thermal governor's quot
 
 ## VU1
 
-`port/src/gs_vu1.c` on the micro-mode interpreter `port/src/vu_micro.c` (shared with VU0, `vu0_micro.c`). The game's
-original VU1 programs (`src/vu1/*.vsm`, uploaded by the boot packet) run unchanged:
+`port/src/gs_vu1.c` on the micro-mode interpreter (shared with VU0, `vu0_micro.c`): `port/src/vu_fast.c`, predecoded,
+with `port/src/vu_micro.c` (`Vu_RunRef`) as its reference ([Speed](#speed)). The game's original VU1 programs
+(`src/vu1/*.vsm`, uploaded by the boot packet) run unchanged:
 
 - **When.** VIF1 MSCAL / MSCALF start the program at the given instruction, MSCNT continues where the last one stopped
   (the instruction after the E bit's delay slot: the programs put `b entry` there). TOP / ITOP are the values the VIF
@@ -372,8 +413,8 @@ original VU1 programs (`src/vu1/*.vsm`, uploaded by the boot packet) run unchang
   instruction; stalls are not modelled (the units interlock on the vector registers, and the programs are
   hand-scheduled). Not modelled: the status flag and the MAC flag's overflow / underflow bits (no program reads them).
   VU1 finishes Q / P / flags still in flight at the end of a program; VU0 keeps them in flight (as before T29).
-- **Arithmetic.** The EE float model's vector unit (`softfloat_ps2_inl.h`, no host float): add / sub / mul cut toward
-  zero, div / sqrt cut. ERLENG = 1 / sqrt(x^2 + y^2 + z^2) in that order; EATANxy / xz / EATAN use the VU manual's
+- **Arithmetic.** The EE float model's vector unit (`softfloat_ps2_inl.h`; `vu_fast.c` gets the same results from
+  the SSE unit in round-toward-zero / flush-to-zero mode): add / sub / mul cut toward zero, div / sqrt cut. ERLENG = 1 / sqrt(x^2 + y^2 + z^2) in that order; EATANxy / xz / EATAN use the VU manual's
   series (pi/4 + 8 odd terms of t = (y - x) / (y + x), the constants PCSX2 uses) [I: the EFU's internal order].
 - **Instructions.** Every one the game's VU0 and VU1 programs use (listing survey: the upper set of `mesh.vsm`...
   `sprites.vsm`, lower `xgkick`, `xtop`, `eatanxy` / `eatanxz`, `erleng`, `mfp`, `waitp`, ...) plus XITOP, ESADD,
@@ -563,9 +604,11 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
   denormals as zero. `sqrtf` is `sqrt.s` (ee-gcc inlines it; its errno fallback never runs on the EE).
 - **Vector unit**: `port/src/plat_vu0.c` and `vu0_pc.c` are VU0 macro code on the PS2; the build renames their
   `__addsf3` / `__subsf3` / `__mulsf3` / `__divsf3` / `sqrtf` calls to `Port_VuAdd`... (`toolchain.VU_FILES`,
-  objcopy), so C written with floats gets the vector unit's results. `vu_micro.c` runs the VU0 and VU1 microcode on
-  the same arithmetic. No host floating point anywhere (`tests/test_port_float.py` checks the program's code for x87 /
-  SSE float instructions).
+  objcopy), so C written with floats gets the vector unit's results. `vu_micro.c` / `vu_fast.c` run the VU0 and VU1
+  microcode on the same arithmetic. No host floating point, with one exception: `vu_fast.c` computes the vector
+  unit's model on the SSE unit in a mode where its results are the model's, exactly ([Speed](#speed)), checked
+  against the integer model (`TTT_SELFTEST=vu1`, `TTT_VU_CHECK`). `tests/test_port_float.py` checks the program's
+  code for x87 float instructions, and for SSE float instructions outside `toolchain.SIMD_FILES`.
 - **Constants**: no `eeconst` pass. The reference needed one because BT3's compiler truncated decimal constants;
   TTT's (ee-gcc 2.9-991111 with its assembler) rounds them to nearest like the host compiler: the executable holds
   0.1f as 0x3DCCCCCD, its newlib `__kernel_sinf` S1 as 0xBE2AAAAB (BT3: 0xBE2AAAAA), `(float)0.333...` in

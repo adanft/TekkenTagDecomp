@@ -65,6 +65,21 @@ class Vu1SelfTest(unittest.TestCase):
         self.assertNotIn("FAILED", r.stdout)
         self.assertIn("ttt: vu1 self-test OK", r.stdout)
 
+    def test_predecoded_interpreter_agrees_with_the_reference(self):
+        """The predecoded interpreter (Vu_Run with a VuOp cache) and the one-step reference (Vu_RunRef) end random
+        programs of every implemented instruction (dest masks, broadcasts, branches, flags, Q / P, XGKICK) in the same
+        registers, memory, pipeline state and kicked packets; its 4-lane add / multiply / max / min agree with the
+        scalar model on edge and random operands; rewriting micro memory is seen by the cache."""
+        r = run_ttt(TTT_SELFTEST="vu1")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        m = re.search(r"ttt: vu fast: (\d+) random programs, (\d+) instructions, (\d+) differ; "
+                      r"(\d+) lane operations, (\d+) differ", r.stdout)
+        self.assertTrue(m, r.stdout[-2000:])
+        self.assertGreaterEqual(int(m.group(1)), 2000)
+        self.assertEqual(m.group(3), "0")
+        self.assertGreaterEqual(int(m.group(4)), 1000000)
+        self.assertEqual(m.group(5), "0")
+
 
 @unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
 @unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
@@ -88,6 +103,27 @@ class FrameDump(unittest.TestCase):
                 colours = max(colours, len({row[i:i + 3] for row in rows[::4] for i in range(0, len(row), 12)}))
             self.assertGreater(colours, 16, "every dumped frame is (nearly) one colour")
         plain = run_ttt(TTT_FRAMES=str(self.FRAMES), TTT_SEED="1")
+        state = [re.search(r"ttt: state: .*", x.stdout) for x in (r, plain)]
+        self.assertTrue(all(state), plain.stdout[-2000:])
+        self.assertEqual(state[0].group(0), state[1].group(0))
+
+
+@unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
+@unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
+class Vu1Check(unittest.TestCase):
+    FRAMES = 1200  # the demo fight draws its fighters through VU1 from about VBlank 1090
+
+    def test_game_microcode_runs_the_same_on_both_interpreters(self):
+        """TTT_VU_CHECK=1 runs every VU1 program of the game twice, on the reference interpreter (a copy of the unit)
+        and on the predecoded one: the registers, VU memory, pipeline state and kicked packets agree, and the game's
+        state is the same as without the check."""
+        r = run_ttt(timeout=300, TTT_FRAMES=str(self.FRAMES), TTT_SEED="1", TTT_VU_CHECK="1")
+        self.assertEqual(r.returncode, 0, r.stdout[-3000:] + r.stderr[-3000:])
+        m = re.search(r"ttt: vu1 check: (\d+) runs, (\d+) differ", r.stdout)
+        self.assertTrue(m, r.stdout[-2000:])
+        self.assertGreater(int(m.group(1)), 10000)
+        self.assertEqual(m.group(2), "0")
+        plain = run_ttt(timeout=300, TTT_FRAMES=str(self.FRAMES), TTT_SEED="1")
         state = [re.search(r"ttt: state: .*", x.stdout) for x in (r, plain)]
         self.assertTrue(all(state), plain.stdout[-2000:])
         self.assertEqual(state[0].group(0), state[1].group(0))

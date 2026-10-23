@@ -1,6 +1,6 @@
 /*
  * VU0 micro mode: the VIF0 side that loads the game's VU0 microcode (MPG) and the program start the EE makes with
- * vcallms (port/src/vu0_pc.c). The programs run on the micro-mode interpreter shared with VU1 (vu_micro.c); the
+ * vcallms (port/src/vu0_pc.c). The programs run on the micro-mode interpreter shared with VU1 (vu_fast.c); the
  * game's four skinning programs (src/vu0/skin_*.vsm) run unchanged on it.
  *
  * VU0 memory is the EE's view of it (plat_mem.c): micro memory at 0x11000000 (4 KB), data memory at 0x11004000
@@ -84,6 +84,7 @@ void Port_Vif0Feed(const uint32_t *w, uint32_t n) {
    still in flight at the end stay in flight into the next call (the EE starts the next vertex at once). */
 void Port_Vu0CallMs(uint32_t addr) {
     static VuCore vu;
+    static VuOp ops[0x200]; /* the predecoded program cache (vu_fast.c) */
     static int reported;
 
     if (vu.vf == NULL) {
@@ -95,6 +96,7 @@ void Port_Vu0CallMs(uint32_t addr) {
         vu.data = DATA;
         vu.microMask = 0x1FF;
         vu.dataMask = 0xFF;
+        vu.ops = ops;
     }
     if (Vu_Run(&vu, addr / 8) != 0 && reported++ < 2) {
         fprintf(stderr, "ttt: vu0: program 0x%03X did not end\n", addr);

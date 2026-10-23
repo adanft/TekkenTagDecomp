@@ -2,9 +2,9 @@
  * VU1: the vertex unit. The game uploads its VU1 programs once (the boot packet, src/vu1/*.vsm) and, per object
  * and per batch, matrices and vertices through VIF1 UNPACK (gs_vif1.c); MSCAL / MSCALF / MSCNT run a program,
  * which transforms, lights and clips the batch and sends the finished GIF packet to the GS with XGKICK (PATH1):
- *     VIF1 UNPACK / MPG / MSCAL  ->  VU1 memory and program  ->  vu_micro.c  ->  XGKICK  ->  GIF (gs_core.c)
- * The ORIGINAL programs run unchanged on the shared micro-mode interpreter (vu_micro.c) with the EE float model's
- * vector-unit arithmetic: no host floating point.
+ *     VIF1 UNPACK / MPG / MSCAL  ->  VU1 memory and program  ->  vu_fast.c  ->  XGKICK  ->  GIF (gs_core.c)
+ * The ORIGINAL programs run unchanged on the shared micro-mode interpreter (vu_fast.c, predecoded; vu_micro.c, the
+ * reference) with the EE float model's vector-unit arithmetic. TTT_VU_CHECK=1 runs every program on both and compares.
  *
  * Structure after the reference project's VU1 unit (port/src/gs/gs_vu1.c of Tenkaichi3Decomp): the program runs to
  * its end at the VIF code that starts it, XGKICK hands the GIF one packet (its tags up to EOP, read across the end of
@@ -30,6 +30,7 @@ static uint32_t sVf[32][4] __attribute__((aligned(16)));
 static uint16_t sVi[16];
 static uint32_t sAcc[4], sQ;
 static VuCore sVu;
+static VuOp sOps[0x800]; /* the predecoded program cache (vu_fast.c) */
 static uint32_t sRuns, sKicks, sEndless;
 static uint32_t sEntry[0x800], sLastEntry; /* runs per entry address (MSCNT counts for the program it continues) */
 
@@ -53,6 +54,7 @@ void Gs_Vu1Reset(void) {
     sVu.vu1 = 1;
     sVu.kick = kick;
     sVu.settle = 1;
+    sVu.ops = sOps;
 }
 
 /* XGKICK: the GIF packet at quadword `qw` of VU1 memory, tag by tag up to the one with EOP. */
@@ -85,9 +87,80 @@ static void kick(uint32_t qw) {
     Gs_Gif(1, buf, len);
 }
 
+/* TTT_VU_CHECK=1: each program also runs on the reference interpreter, from a copy of the unit (registers, data
+   memory, pipeline) whose XGKICKs only hash their packets; both must end in the same state with the same packets. */
+static int sCheck = -1;
+static uint32_t sCheckRuns, sCheckBad;
+static uint32_t sRefVf[32][4] __attribute__((aligned(16)));
+static uint16_t sRefVi[16];
+static uint32_t sRefAcc[4], sRefQ;
+static uint8_t sRefData[0x4000];
+static uint64_t sHash[2];
+
+static void hash_packet(int which, const uint8_t *data, uint32_t qw) {
+    uint32_t a = qw & 0x3FF, n = 0;
+    uint64_t h = sHash[which];
+    for (;;) { /* the quadwords kick() sends */
+        uint64_t lo, w[2];
+        uint32_t nloop, flg, nreg, len;
+        memcpy(&lo, data + a * 16, 8);
+        nloop = lo & 0x7FFF;
+        flg = (lo >> 58) & 3;
+        nreg = (lo >> 60) & 15;
+        nreg = nreg == 0 ? 16 : nreg;
+        len = 1 + (flg == 0 ? nloop * nreg : flg == 1 ? (nloop * nreg + 1) / 2 : nloop);
+        len = n + len > 0x400 ? 0x400 - n : len;
+        for (; len != 0; len--, n++, a = (a + 1) & 0x3FF) {
+            memcpy(w, data + a * 16, 16);
+            h = (h ^ w[0]) * 0x100000001B3ull ^ w[1];
+        }
+        if (((lo >> 15) & 1) || n >= 0x400) {
+            break;
+        }
+    }
+    sHash[which] = h * 31 + 1;
+}
+static void ref_kick(uint32_t qw) { hash_packet(0, sRefData, qw); }
+static void fast_kick(uint32_t qw) {
+    hash_packet(1, VU1_DATA, qw);
+    kick(qw);
+}
+
+static int run_checked(uint32_t pc) {
+    VuCore ref = sVu;
+    int r0, r1;
+
+    memcpy(sRefVf, sVf, sizeof sVf);
+    memcpy(sRefVi, sVi, sizeof sVi);
+    memcpy(sRefAcc, sAcc, sizeof sAcc);
+    sRefQ = sQ;
+    memcpy(sRefData, VU1_DATA, sizeof sRefData);
+    ref.vf = sRefVf;
+    ref.vi = sRefVi;
+    ref.acc = sRefAcc;
+    ref.q = &sRefQ;
+    ref.data = sRefData;
+    ref.kick = ref_kick;
+    ref.ops = NULL;
+    sHash[0] = sHash[1] = 0;
+    r0 = Vu_RunRef(&ref, pc);
+    sVu.kick = fast_kick;
+    r1 = Vu_Run(&sVu, pc);
+    sVu.kick = kick;
+    sCheckRuns++;
+    if (r0 != r1 || sHash[0] != sHash[1] || !Vu_SameState(&ref, &sVu)) {
+        if (sCheckBad++ < 5) {
+            fprintf(stderr, "ttt: vu1 check: run %u (entry 0x%03X) differs from the reference\n", sRuns, pc);
+        }
+    }
+    return r1;
+}
+
 /* MSCAL / MSCALF (addr: the instruction address) or MSCNT (addr < 0: where the last program stopped), with TOP and
    ITOP as the VIF latched them. */
 void Gs_Vu1Run(int addr, uint32_t top, uint32_t itop) {
+    uint32_t pc;
+
     if (sVu.vf == NULL) {
         Gs_Vu1Reset();
     }
@@ -98,7 +171,11 @@ void Gs_Vu1Run(int addr, uint32_t top, uint32_t itop) {
         sLastEntry = (uint32_t)addr & 0x7FF;
     }
     sEntry[sLastEntry]++;
-    if (Vu_Run(&sVu, addr >= 0 ? (uint32_t)addr : sVu.pc) != 0 && sEndless++ == 0) {
+    if (sCheck < 0) {
+        sCheck = getenv("TTT_VU_CHECK") != NULL;
+    }
+    pc = addr >= 0 ? (uint32_t)addr : sVu.pc;
+    if ((sCheck ? run_checked(pc) : Vu_Run(&sVu, pc)) != 0 && sEndless++ == 0) {
         fprintf(stderr, "ttt: vu1: program at 0x%03X did not end (stopped at 0x%03X)\n", addr, sVu.pc);
     }
 }
@@ -113,6 +190,9 @@ void Gs_Vu1Report(void) {
         }
     }
     printf("\n");
+    if (sCheck > 0) {
+        printf("ttt: vu1 check: %u runs, %u differ\n", sCheckRuns, sCheckBad);
+    }
     if (getenv("TTT_VU1_CALLS") != NULL) { /* which programs ran, by the entry the last MSCAL / MSCALF named */
         for (k = 0; k < 0x800; k++) {
             if (sEntry[k] != 0) {
@@ -377,5 +457,6 @@ int Port_Vu1SelfTest(void) {
     Gs_Vu1Reset();
     memset(VU1_DATA, 0, 0x4000);
     memset(VU1_MICRO, 0, 0x4000);
+    sFails += Vu_FastSelfTest();
     return sFails;
 }

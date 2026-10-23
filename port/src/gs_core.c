@@ -454,8 +454,10 @@ static void draw_setup(Draw *d, int ctx) {
 /* ------------------------------------------------------------------------------------------------ back end */
 
 /* A raster worker. With GS threads (TTT_GS_THREADS, below) every worker runs every primitive and draws the rows of its
-   own 16-row bands ((y >> 4) % count == id); count 1 draws all of them. The 16-row bands keep every word of GS memory
-   that a buffer's pixels share (8- and 4-bit formats pack pixels of four rows) inside one band. */
+   own 8-row bands ((y >> 3) % count == id); count 1 draws all of them. The bands keep every word of GS memory that a
+   buffer's pixels share (8- and 4-bit formats pack pixels of a column's four rows; columns start every 4 rows) inside
+   one band. 8 rows rather than 16 (T30 batch 2) share an object's rows out more evenly, and a 448-row frame has 56
+   bands: 7 for each of 8 workers (16-row bands gave four of them 4 bands and the other four 3). */
 typedef struct Raster {
     int id, count;
     /* the CLUT buffer (each worker loads its own, in order with its primitives): 512 halfwords; a 32-bit entry e keeps
@@ -470,7 +472,7 @@ typedef struct Raster {
 } Raster;
 
 static inline int row_mine(const Raster *r, int y) {
-    return r->count == 1 || ((y >> 4) % r->count) == r->id;
+    return r->count == 1 || ((y >> 3) % r->count) == r->id;
 }
 
 /* Whether any of the rows y0..y1 - 1 is this worker's. */
@@ -479,7 +481,7 @@ static int rows_any_mine(const Raster *r, int y0, int y1) {
     if (r->count == 1) {
         return y0 < y1;
     }
-    for (b = y0 >> 4; b <= (y1 - 1) >> 4 && b < (y0 >> 4) + r->count; b++) {
+    for (b = y0 >> 3; b <= (y1 - 1) >> 3 && b < (y0 >> 3) + r->count; b++) {
         if (b % r->count == r->id) {
             return y0 < y1;
         }
@@ -1183,19 +1185,30 @@ static int sThreads = -1;   /* raster workers; 0 until started */
 static Raster sSync = {0, 1};
 static Raster sWorker[16];
 static Cmd *sRing;
-static uint32_t sHead;          /* commands published by the front end */
-static uint32_t sTail[16];      /* per worker: commands finished (the next one to read) */
-static int sSleepWake, sSleepIdle; /* threads asleep on sWake (workers waiting for commands) / sIdle (for progress) */
+/* The ring's counters, each on a cache line of its own: every command moves one of them, and threads sharing a line
+   would pass it back and forth at every command (T30 batch 2). */
+typedef struct {
+    uint32_t v;
+    uint8_t pad[60];
+} __attribute__((aligned(64))) Counter;
+static Counter sHeadC;     /* commands published by the front end */
+static Counter sTailC[16]; /* per worker: commands finished (the next one to read) */
+static Counter sSleepC[2]; /* threads asleep on sWake (workers waiting for commands) / sIdle (for progress) */
+#define sHead sHeadC.v
+#define sTail(k) sTailC[k].v
+#define sSleepWake sSleepC[0].v
+#define sSleepIdle sSleepC[1].v
+static uint32_t sMinTail; /* the front end's last look at min_tail(): the workers are at least that far */
 static pthread_mutex_t sLock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t sWake = PTHREAD_COND_INITIALIZER, sIdle = PTHREAD_COND_INITIALIZER;
 
 static uint32_t ld(const uint32_t *p) { return __atomic_load_n(p, __ATOMIC_ACQUIRE); }
 
 static uint32_t min_tail(void) {
-    uint32_t m = ld(&sTail[0]);
+    uint32_t m = ld(&sTail(0));
     int k;
     for (k = 1; k < sThreads; k++) {
-        uint32_t t = ld(&sTail[k]);
+        uint32_t t = ld(&sTail(k));
         if ((int32_t)(t - m) < 0) {
             m = t;
         }
@@ -1206,8 +1219,9 @@ static uint32_t min_tail(void) {
 /* Waits until cond() holds: spins a little, then sleeps on cv (sWake: new commands, broadcast by the front end;
    sIdle: a finished command, broadcast by the workers). */
 static void wait_until(int (*cond)(void *), void *arg, pthread_cond_t *cv) {
-    int spin, *sleepers = cv == &sWake ? &sSleepWake : &sSleepIdle;
-    for (spin = 0; spin < 4000; spin++) {
+    int spin;
+    uint32_t *sleepers = cv == &sWake ? &sSleepWake : &sSleepIdle;
+    for (spin = 0; spin < 100; spin++) {
         if (cond(arg)) {
             return;
         }
@@ -1223,7 +1237,7 @@ static void wait_until(int (*cond)(void *), void *arg, pthread_cond_t *cv) {
 }
 
 static void wake(pthread_cond_t *cv) {
-    int *sleepers = cv == &sWake ? &sSleepWake : &sSleepIdle;
+    uint32_t *sleepers = cv == &sWake ? &sSleepWake : &sSleepIdle;
     __atomic_thread_fence(__ATOMIC_SEQ_CST);
     if (__atomic_load_n(sleepers, __ATOMIC_SEQ_CST) != 0) {
         pthread_mutex_lock(&sLock);
@@ -1234,18 +1248,28 @@ static void wake(pthread_cond_t *cv) {
 
 static int has_cmd(void *a) { return ld(&sHead) != *(const uint32_t *)a; }
 static int all_reached(void *a) { return (int32_t)(min_tail() - *(const uint32_t *)a) >= 0; }
-static int worker0_past(void *a) { return (int32_t)(ld(&sTail[0]) - *(const uint32_t *)a) > 0; }
+static int worker0_past(void *a) { return (int32_t)(ld(&sTail(0)) - *(const uint32_t *)a) > 0; }
 
 static void *worker_main(void *arg) {
     Raster *r = arg;
-    uint32_t i = 0;
+    uint32_t i = 0, head = 0;
 
     for (;;) {
         const Cmd *c;
-        wait_until(has_cmd, &i, &sWake);
+        int sync;
+        if (i == head) { /* every command seen is done: look again, and before waiting tell the waiters on progress */
+            head = ld(&sHead);
+            if (i == head) {
+                wake(&sIdle);
+                wait_until(has_cmd, &i, &sWake);
+                head = ld(&sHead);
+            }
+        }
         c = &sRing[i & (RING - 1)];
-        if (c->serial || c->barrier) {
+        sync = c->serial || c->barrier;
+        if (sync) {
             /* everyone has finished the commands before this one */
+            wake(&sIdle);
             wait_until(all_reached, &i, &sIdle);
         }
         if (c->serial) {
@@ -1260,8 +1284,12 @@ static void *worker_main(void *arg) {
             exec_cmd(r, c);
         }
         i++;
-        __atomic_store_n(&sTail[r->id], i, __ATOMIC_RELEASE);
-        wake(&sIdle);
+        __atomic_store_n(&sTail(r->id), i, __ATOMIC_RELEASE);
+        /* the waiters on progress are told after a serial command or a barrier, every 32 commands, and before this
+           worker waits (above): none is left asleep, and the fence in wake() is not paid at every command */
+        if (sync || (i & 31) == 0) {
+            wake(&sIdle);
+        }
     }
     return NULL;
 }
@@ -1315,7 +1343,11 @@ static void gs_sync(void) {
     }
 }
 
-static int has_room(void *a) { (void)a; return ld(&sHead) - min_tail() < RING; }
+static int has_room(void *a) {
+    (void)a;
+    sMinTail = min_tail();
+    return sHead - sMinTail < RING;
+}
 
 static int64_t sWaitNs; /* the front end's CPU time spent waiting for room in the ring (TTT_GS_STATS) */
 
@@ -1339,7 +1371,7 @@ static void submit(const Cmd *c) {
         exec_cmd(&sSync, c);
         return;
     }
-    if (!has_room(NULL)) {
+    if (sHead - sMinTail >= RING && !has_room(NULL)) { /* full as far as last seen: look again, then wait */
         int64_t t0 = thread_ns();
         wake(&sWake);
         wait_until(has_room, NULL, &sIdle);
