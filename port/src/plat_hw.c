@@ -12,7 +12,8 @@
  *    INTC handlers of cause 2 (Gfx_VSyncHandler), held while interrupts are off (Port_Di) until Port_Ei.
  *  - DMA: a channel whose CHCR.STR is set is carried out at once and STR is cleared, D_STAT.CIS set and the
  *    channel's DMAC handlers run (when EnableDmac allowed them). The scratchpad channels (fromSPR 8, toSPR 9) copy
- *    their data; VIF0 / VIF1 / GIF / IPU / SIF go to a sink that only walks their chains (the GS path is T28).
+ *    their data; VIF0 feeds the VU0 microcode loader (vu0_micro.c), VIF1 and GIF the GS path (gs_vif1.c,
+ *    gs_core.c); IPU / SIF only walk their chains.
  *    MFIFO (D_CTRL.MFD): fromSPR fills the ring RBOR / RBSR, the VIF1 or GIF drain walks its chain from the ring
  *    and stays busy while the ring is empty (the game streams its display lists through the scratchpad).
  *  - D_ENABLEW (0x1000F590) is mirrored into D_ENABLER (0x1000F520).
@@ -33,6 +34,7 @@
 #include <string.h>
 #include <time.h>
 #include "port_addr.h"
+#include "gs.h"
 
 #define REG(a) (*(volatile uint32_t *)Port_Ptr(a))
 
@@ -218,7 +220,29 @@ static void dma_block(int ch, uint32_t addr, uint32_t qwc) {
     if (ch == 0 && qwc != 0) { /* VIF0: microcode uploads (vu0_micro.c) */
         Port_Vif0Feed((const uint32_t *)Port_DmaPtr(addr), qwc * 4);
     }
-    /* VIF1 / GIF / IPU / SIF: dropped here; the GS path (T28) takes the blocks over. */
+    if (ch == 1 && qwc != 0) { /* VIF1: VU1 and PATH2 (gs_vif1.c) */
+        Gs_Vif1((const uint32_t *)Port_DmaPtr(addr), qwc * 4);
+    }
+    if (ch == 2 && qwc != 0) { /* GIF: PATH3 (gs_core.c) */
+        Gs_Gif(3, (const uint8_t *)Port_DmaPtr(addr), qwc);
+    }
+    /* IPU / SIF: dropped here. */
+}
+
+/* A block that follows its tag inside the MFIFO ring: it may wrap around the ring's end. */
+static void dma_block_in(int ch, uint32_t addr, uint32_t qwc, int ring) {
+    while (ring && qwc != 0) {
+        uint32_t a = ring_wrap(addr), end = REG(D_RBOR) + REG(D_RBSR) + 16, n = (end - a) / 16;
+        if (n == 0 || n > qwc) {
+            n = qwc;
+        }
+        dma_block(ch, a, n);
+        addr = a + n * 16;
+        qwc -= n;
+    }
+    if (!ring) {
+        dma_block(ch, addr, qwc);
+    }
 }
 
 /* Source chain (CHCR.MOD = 1) from TADR: refe / cnt / next / ref / refs / call / ret / end. Returns 0 when an MFIFO
@@ -246,6 +270,9 @@ static int dma_source_chain(int ch) {
         if (ch == 0 && (REG(base + CHCR) & 0x40u)) { /* TTE: the tag's upper half goes to VIF0 as two codes */
             Port_Vif0Feed(&tag[2], 2);
         }
+        if (ch == 1 && (REG(base + CHCR) & 0x40u)) { /* the same for VIF1 */
+            Gs_Vif1(&tag[2], 2);
+        }
         switch (id) {
         case 0: /* refe */
             dma_block(ch, addr, qwc);
@@ -253,11 +280,11 @@ static int dma_source_chain(int ch) {
             done = 1;
             break;
         case 1: /* cnt: data follows the tag */
-            dma_block(ch, tadr + 16, qwc);
+            dma_block_in(ch, tadr + 16, qwc, ring);
             tadr += 16 + qwc * 16;
             break;
         case 2: /* next */
-            dma_block(ch, tadr + 16, qwc);
+            dma_block_in(ch, tadr + 16, qwc, ring);
             tadr = addr;
             break;
         case 3: /* ref */
@@ -266,7 +293,7 @@ static int dma_source_chain(int ch) {
             tadr += 16;
             break;
         case 5: /* call */
-            dma_block(ch, tadr + 16, qwc);
+            dma_block_in(ch, tadr + 16, qwc, ring);
             if (sp >= 2) {
                 done = 1;
                 break;
@@ -276,7 +303,7 @@ static int dma_source_chain(int ch) {
             tadr = addr;
             break;
         case 6: /* ret */
-            dma_block(ch, tadr + 16, qwc);
+            dma_block_in(ch, tadr + 16, qwc, ring);
             if (sp == 0) {
                 tadr += 16 + qwc * 16;
                 done = 1;
@@ -286,7 +313,7 @@ static int dma_source_chain(int ch) {
             tadr = REG(base + 0x40 + 0x10 * (uint32_t)sp);
             break;
         case 7: /* end */
-            dma_block(ch, tadr + 16, qwc);
+            dma_block_in(ch, tadr + 16, qwc, ring);
             tadr += 16 + qwc * 16;
             done = 1;
             break;
@@ -385,6 +412,7 @@ static void track_mode(void);
 
 static void vblank(void) {
     sVBlanks++;
+    Gs_VBlank((uint32_t)sVBlanks); /* the frame dump: the picture shown during the field that ends here */
     REG(0x12001000u) = (REG(0x12001000u) | 0x8u) ^ 0x2000u; /* CSR: VSINT, FIELD flips */
     sIntcPend |= 1u << 2;                                   /* INTC VBLANK_START */
     track_mode();
@@ -505,6 +533,7 @@ static void report_and_exit(void) {
     printf("ttt: last mode %d sub %d\n", gMode, gSubMode);
     printf("ttt: state: seed 0x%x spin 0x%08x sbss-hash 0x%08x cycles %llu\n", (unsigned)sSeed,
            (unsigned)gRngSpin, h, (unsigned long long)sCycles);
+    Gs_Report();
     Port_StubReport();
     fflush(stdout);
     exit(0);
@@ -637,9 +666,10 @@ void Port_HwSelfTest(void) {
 }
 
 void Port_RpcSelfTest(void);   /* plat_sys.c */
+void Port_GsSelfTest(void);    /* gs_core.c */
 void Port_FloatSelfTest(void); /* plat_floattest.c */
 
-/* TTT_SELFTEST=hw | rpc | float: run after the memory map (plat_mem.c, constructor 101), print and exit. */
+/* TTT_SELFTEST=hw | rpc | float | gs: run after the memory map (plat_mem.c, constructor 101), print and exit. */
 __attribute__((constructor(102))) static void Port_HwSelfTestEntry(void) {
     const char *t = getenv("TTT_SELFTEST");
     if (t != NULL && strcmp(t, "hw") == 0) {
@@ -650,5 +680,9 @@ __attribute__((constructor(102))) static void Port_HwSelfTestEntry(void) {
     }
     if (t != NULL && strcmp(t, "float") == 0) {
         Port_FloatSelfTest();
+    }
+    if (t != NULL && strcmp(t, "gs") == 0) {
+        sHeadless = 1;
+        Port_GsSelfTest();
     }
 }

@@ -220,7 +220,8 @@ but change the CPU's choices relative to the original (decision for T26) [I cons
 
 - **The GS packet consumer, not the producers.** Packet building stays C; the port needs a GS core that takes the same
   GIF data (PACKED / REGLIST / IMAGE, A+D) from the direct buffers and from the MFIFO rings, and VRAM uploads with
-  BITBLTBUF (T28). The ADC bit, context 2, the 12.4 offsets and alpha / test presets must be honoured.
+  BITBLTBUF (T28, done: `port/src/gs_core.c`, docs/port/README.md "GS path"). The ADC bit, context 2, the 12.4 offsets
+  and alpha / test presets must be honoured.
 - **DMA / scratchpad / MFIFO**: the scratchpad as memory plus synchronous emulations of toSPR / fromSPR and of the
   ring drain into VIF1 / GIF; the waits (`Dma_Wait`, BC0F) become no-ops once transfers are synchronous (T22, T28).
 - **VU0 and VU1**: the VU0 skinning loops (`vcallms`, macro mode) and the VU1 program need an interpreter or native

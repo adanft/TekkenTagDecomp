@@ -1,12 +1,13 @@
 /*
- * Sony SDK libraries of the game on PC that only need an answer for now: the GS set-up (libgraph), DMA / VU resets
- * (libdma, libvu0), pads (libpad, libmtap) and memory cards (libmc). Each reports "done / idle / nothing
- * connected". A function that is only a placeholder records itself (Port_Hit, plat_stub.c), so a headless run
- * lists what still waits for its real implementation: the GS path (T28), pads (T3x), memory cards, movies.
+ * Sony SDK libraries of the game on PC: the GS set-up (libgraph), DMA / VU resets (libdma, libvu0), and those that
+ * only need an answer for now: pads (libpad, libmtap) and memory cards (libmc), which report "nothing connected".
+ * A function that is only a placeholder records itself (Port_Hit, plat_stub.c), so a headless run lists what still
+ * waits for its real implementation: pads (T3x), memory cards, movies.
  */
 #include <stdint.h>
 #include <string.h>
 #include "port_addr.h"
+#include "gs.h"
 
 void Port_Hit(const char *name);
 int Port_WaitVBlank(void); /* plat_hw.c */
@@ -21,23 +22,115 @@ void sceGsResetPath(void) {}
 void sceDmaReset(int mode) { (void)mode; }
 void sceVpu0Reset(void) {}
 
-/* Placeholders for the GS set-up: the game's environment structures keep what the game itself wrote. */
+/* The GS set-up of libgraph, after the SDK's documented behaviour [I: field values not checked against the library
+   code]: the environments are built in the game's structures and written to the GS privileged registers (PMODE,
+   SMODE2, DISPFB2, DISPLAY2, BGCOLOR); the drawing environment and its clear go to the GS as a GIF packet. The
+   game writes DISPFB1 / DISPLAY1 itself (Gfx_ShowBuffer). */
+static int sInter, sOmode, sFfmode;
+void sceGsSetDefDispEnv(void *p, int16_t psm, int16_t w, int16_t h, int16_t dx, int16_t dy);
+
+#define PRIV(off) (*(volatile uint64_t *)Port_Ptr(0x12000000u + (off)))
+
 int sceGsResetGraph(int mode, int inter, int omode, int ffmode) {
-    (void)mode; (void)inter; (void)omode; (void)ffmode;
-    PLACEHOLDER();
+    (void)mode;
+    sInter = inter & 1;
+    sOmode = omode;
+    sFfmode = ffmode & 1;
+    Gs_Reset();
+    Gs_Vif1Reset();
+    PRIV(GS_PMODE) = 0;
+    PRIV(GS_SMODE2) = (uint64_t)sInter | (uint64_t)sFfmode << 1;
+    PRIV(GS_CSR) &= 0x2000u; /* (FIELD stays: the VBlank keeps it) */
     return 0;
 }
-int sceGsSetDefDBuff(void *db, int psm, int w, int h, int ztest, int zpsm, int clear) {
-    (void)db; (void)psm; (void)w; (void)h; (void)ztest; (void)zpsm; (void)clear;
-    PLACEHOLDER();
+
+typedef struct { uint64_t v, addr; } AdReg; /* one A+D register write */
+typedef struct { AdReg frame, zbuf, xyoffset, scissor, prmodecont, colclamp, dthe, test; } DrawEnv;
+typedef struct { AdReg testa, prim, rgbaq, xyz2a, xyz2b, testb; } Clear;
+typedef struct {
+    uint64_t disp[2][5];
+    uint64_t giftag0[2];
+    DrawEnv draw0;
+    Clear clear0;
+    uint64_t giftag1[2];
+    DrawEnv draw1;
+    Clear clear1;
+} DBuff; /* sceGsDBuff (include/gfx.h GsDBuff) */
+
+static void ad(AdReg *r, uint64_t v, uint64_t addr) {
+    r->v = v;
+    r->addr = addr;
+}
+
+static void draw_env(uint64_t *tag, DrawEnv *d, Clear *c, uint32_t fbp, uint32_t zbp, int psm, int w, int h, int ztest, int zpsm, int clear) {
+    uint64_t test = ztest ? 1ull << 16 | (uint64_t)(ztest & 3) << 17 : 0;
+    tag[0] = (uint64_t)(clear ? 14 : 8) | 1ull << 15 | 1ull << 60; /* NLOOP, EOP, PACKED, one register: A+D */
+    tag[1] = 0xE;
+    ad(&d->frame, fbp | (uint64_t)((w + 63) / 64) << 16 | (uint64_t)psm << 24, 0x4C);
+    ad(&d->zbuf, zbp | (uint64_t)(zpsm & 15) << 24 | (uint64_t)(ztest == 0) << 32, 0x4E);
+    ad(&d->xyoffset, (uint64_t)((2048 - w / 2) << 4) | (uint64_t)((2048 - h / 2) << 4) << 32, 0x18);
+    ad(&d->scissor, (uint64_t)(w - 1) << 16 | (uint64_t)(h - 1) << 48, 0x40);
+    ad(&d->prmodecont, 1, 0x1A);
+    ad(&d->colclamp, 1, 0x46);
+    ad(&d->dthe, (psm & 2) ? 1 : 0, 0x45);
+    ad(&d->test, test, 0x47);
+    ad(&c->testa, 1ull << 16 | 1ull << 17, 0x47); /* depth test ALWAYS: the clear writes every pixel's depth */
+    ad(&c->prim, 6, 0x00);
+    ad(&c->rgbaq, 0, 0x01);
+    ad(&c->xyz2a, (uint64_t)((2048 - w / 2) << 4) | (uint64_t)((2048 - h / 2) << 4) << 16, 0x05);
+    ad(&c->xyz2b, (uint64_t)((2048 + w / 2) << 4) | (uint64_t)((2048 + h / 2) << 4) << 16, 0x05);
+    ad(&c->testb, test, 0x47);
+}
+
+int sceGsSetDefDBuff(void *p, int psm, int w, int h, int ztest, int zpsm, int clear) {
+    DBuff *db = p;
+    uint32_t pages = (uint32_t)((w + 63) / 64) * (uint32_t)((h + 31) / 32); /* one buffer, in 8 KB pages */
+    memset(db, 0, sizeof *db);
+    draw_env(db->giftag0, &db->draw0, &db->clear0, 0, pages * 2, psm, w, h, ztest, zpsm, clear);
+    draw_env(db->giftag1, &db->draw1, &db->clear1, pages, pages * 2, psm, w, h, ztest, zpsm, clear);
+    sceGsSetDefDispEnv(&db->disp[0], (int16_t)psm, (int16_t)w, (int16_t)h, 0, 0);
+    sceGsSetDefDispEnv(&db->disp[1], (int16_t)psm, (int16_t)w, (int16_t)h, 0, 0);
+    db->disp[1][2] |= pages; /* DISPFB.FBP of the second buffer */
     return 0;
 }
-void sceGsSetDefDispEnv(void *disp, int psm, int w, int h, int dx, int dy) {
-    (void)disp; (void)psm; (void)w; (void)h; (void)dx; (void)dy;
-    PLACEHOLDER();
+
+/* PMODE: circuit 2, ALP 0xFF; SMODE2 of the reset; DISPFB 0, width, psm; DISPLAY centred on an NTSC / PAL screen
+   with MAGH filling 2560 video clocks; interlaced frame mode shows h buffer lines on 2h raster lines. */
+void sceGsSetDefDispEnv(void *p, int16_t psm, int16_t w, int16_t h, int16_t dx, int16_t dy) {
+    uint64_t *d = p;
+    uint32_t magh = w > 0 ? (uint32_t)(2560 / w) : 4, lines = (uint32_t)h * (sInter && sFfmode ? 2u : 1u);
+    uint32_t x0 = sOmode == 3 ? 656 : 636, y0 = sOmode == 3 ? 72 : 50;
+    if (magh == 0) {
+        magh = 1;
+    }
+    d[0] = 2 | 0xFFull << 8;
+    d[1] = (uint64_t)sInter | (uint64_t)sFfmode << 1;
+    d[2] = (uint64_t)((w + 63) / 64) << 9 | (uint64_t)(psm & 0x1F) << 15;
+    d[3] = (uint64_t)(x0 + (uint32_t)dx * magh) | (uint64_t)(y0 + (uint32_t)dy) << 12 | (uint64_t)(magh - 1) << 23 |
+           (uint64_t)((uint32_t)w * magh - 1) << 32 | (uint64_t)(lines - 1) << 44;
+    d[4] = 0;
 }
-int sceGsSwapDBuff(void *db, int id) { (void)db; (void)id; PLACEHOLDER(); return 0; }
-void sceGsPutDispEnv(void *disp) { (void)disp; PLACEHOLDER(); }
+
+void sceGsPutDispEnv(void *p) {
+    const uint64_t *d = p;
+    PRIV(GS_PMODE) = d[0];
+    PRIV(GS_SMODE2) = d[1];
+    PRIV(GS_DISPFB2) = d[2];
+    PRIV(GS_DISPLAY2) = d[3];
+    PRIV(GS_BGCOLOR) = d[4];
+}
+
+int sceGsPutDrawEnv(uint64_t *giftag) {
+    Gs_Gif(3, (const uint8_t *)giftag, 1 + (uint32_t)(giftag[0] & 0x7FFF));
+    return 0;
+}
+
+/* Shows buffer `id` and draws into the other one [I: the pairing, after the SDK's description]. */
+int sceGsSwapDBuff(void *p, int id) {
+    DBuff *db = p;
+    sceGsPutDispEnv(db->disp[id & 1]);
+    return sceGsPutDrawEnv((id & 1) ? db->giftag0 : db->giftag1);
+}
 
 /* ---- libmtap / libpad: no multitap, no pad connected (the real input is a later task) ---- */
 int sceMtapInit(void) { return 1; }

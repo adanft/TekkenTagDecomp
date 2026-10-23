@@ -113,6 +113,15 @@ open.
 | Restart [V] | programs end with `[E]` followed by `b <entry>`: an `MSCNT` runs the same program for the next batch |
 | Clipping [I] | xyz * vf31 - 1 against +-1 (the GS coordinate range); `fcand vi1, 0x3FFFF` over the last three vertices sets ADC |
 
+### PC port (T28)
+
+`port/src/gs_vif1.c` carries out the VIF1 side: UNPACK into VU1 data memory (0x1100C000) with STCYCL / STMASK /
+STROW / STCOL / STMOD and the BASE / OFFSET double buffer, MPG into micro memory (0x11008000), DIRECT to the GIF.
+`MSCAL` / `MSCALF` / `MSCNT` only latch TOP / ITOP and swap the buffer: no program runs, so nothing is kicked on PATH1
+and the models are missing from the picture. A headless run to the attract demo (1200 VBlanks) sees 16 MPG uploads
+and about 56,000 program calls (`ttt: gs:` line of the `TTT_FRAMES` report). The interpreter (T29) plugs in at
+`call()` and kicks with `Gs_Gif(1, ...)`.
+
 ## Listing syntax
 
 See the docstring of `scripts/vuasm.py`. Packets use `.dmatag`, `.vif`, `.word`, `.mpg` and `.include`; a

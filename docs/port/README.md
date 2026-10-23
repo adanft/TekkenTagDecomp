@@ -4,7 +4,7 @@ The PC port is built from the same C as the matching decompilation. Nothing of t
 takes the game's data from the split of **your own** `SLUS_200.01` (the one the matching build already uses) and
 writes everything under `build/port/`, which git ignores.
 
-## Status (T23, 2026-10-22)
+## Status (T28, 2026-10-23)
 
 - Every game C file the matching build links (59) compiles for 32-bit x86 Linux with the host gcc, with the
   NON_MATCHING drafts switched on: every game function comes from C, except the hand-written EE / VU0 routines
@@ -12,19 +12,26 @@ writes everything under `build/port/`, which git ignores.
 - The program links into `build/port/ttt` (32-bit ELF) and runs on the PS2's memory map ([Memory map](#memory-map))
   with the platform layer of [Platform layer](#platform-layer): kernel, SIF / IOP, the disc, DMA, timers and
   VBlank. Pointed at your disc (`TTT_DISC`, default `iso/`), it boots through `Sys_Init`, enters the main loop
-  with one update per VBlank and runs the boot mode, the title and the main menu (headless, nothing drawn):
+  with one update per VBlank and runs the boot mode, the title and the main menu:
   `TTT_FRAMES=600` reports `modes: 0@1 2@168 1@172 3@177` (mode@VBlank: boot, title, transition, main menu) and
   590 frames. Left alone, the menu returns to the title after about 480 frames and enters the attract cycle's
   loading mode (11) at VBlank 699 and runs the attract demo (mode 11, sub-state 2) through the VU0 blend
   (`func_0034A180`) and the VU0 skinning programs: `TTT_FRAMES=3000 TTT_SEED=1` ends at VBlank 3000 (2606 frames)
   with no stop, and two runs with the same seed end in the same state (`sbss-hash 0x9736ab37`).
-- Placeholders still reached on that path (listed at the end of a `TTT_FRAMES` run): `sceGsResetGraph`,
-  `sceGsSetDefDBuff`, `sceGsSetDefDispEnv`, `sceGsSwapDBuff`, `sceGsPutDispEnv` (GS path, T28), `scePadGetState`
-  (no pad), libmc (no card), the boot movie (skipped).
+- The GS path draws ([GS path](#gs-path)): the display lists go DMA -> VIF1 -> GIF -> GS memory and the software
+  reference rasteriser; `TTT_DUMP=<dir>` writes the displayed picture as PNG. The title and the main menu come out
+  complete (logo, menu text, highlight bar); the attract demo shows only its 2D part, because the VU1 programs that
+  draw the models do not run yet (T29).
+- With the real libgraph set-up (T28) the game reads the display position DX 636 / DY 50 back into `options.c`'s
+  `D_005F6DB0` / `D_005F6DB4` (zeros with the old placeholders), and new port code moves host addresses the game
+  keeps in `.sbss`: the state hash of a given `TTT_FRAMES` / `TTT_SEED` differs from T23's. The GS itself writes no
+  game memory: the same run with the VIF1 and GIF channels cut off from it gives the same hash.
+- Placeholders still reached on that path (listed at the end of a `TTT_FRAMES` run): `scePadGetState` (no pad),
+  libmc (no card), the boot movie (skipped).
 - Floats are the EE's: every float operation of the game and of `port/src` goes through the EE float model
   (`port/src/softfloat_ps2.c`), the maths library is the PS2's newlib (`third_party/newlib_libm`), `rand` / `srand`
   are newlib's on the game's own state word. No host float code is linked ([EE float model](#ee-float-model)).
-- Last clean build: 71 objects (59 game, 12 port), 1270 data objects, 22 names placed by address, 43 stubs (none
+- Last clean build: 74 objects (59 game, 15 port), 1270 data objects, 22 names placed by address, 43 stubs (none
   reached on the path above).
 - `TTT_CC=clang` (game code through clang 23) is not there yet: 55 of 62 objects; the other 7 stop on an implicit
   declaration followed by a definition with another return type, which gcc accepts with `-fpermissive`.
@@ -156,13 +163,18 @@ wait loops drive the hardware.
 | `plat_hw.c` | Bus-cycle clock, timers 0-3, VBlank (59.94 Hz, GS CSR FIELD / VSINT), INTC / DMAC handlers (`AddIntcHandler`, `AddDmacHandler`, `EnableIntc`...), DMA channels, MFIFO, `TTT_FRAMES` report, `TTT_SELFTEST=hw` |
 | `plat_sys.c` | Kernel (cache, threads, semaphores), SIF (IOP reboot, module loads, commands, `sceSifBindRpc` / `sceSifCallRpc` and the table of IOP servers), CD init, `TTT_SELFTEST=rpc` |
 | `plat_file.c` | The disc (`TTT_DISC`: a directory with `TEKKEN.BIN` or the `.iso`) and `sceSdRemote`: RSPU2DRV's file reads (0x204E / 0x2045), status (0x2030), harmless replies to the sound and movie commands |
-| `plat_lib.c` | libgraph waits (`sceGsSyncV` waits for the next VBlank), GS set-up placeholders, libpad / libmtap (no pad, no multitap), libmc (no card), movie skip, a cache call |
+| `plat_lib.c` | libgraph (`sceGsSyncV` waits for the next VBlank; `sceGsResetGraph`, `sceGsSetDefDBuff`, `sceGsSetDefDispEnv`, `sceGsPutDispEnv`, `sceGsSwapDBuff` build the environments and write the GS), libpad / libmtap (no pad, no multitap), libmc (no card), movie skip, a cache call |
+| `gs_core.c` | GS: GIF paths (PACKED / REGLIST / IMAGE), registers, 4 MB GS memory with its layout, CLUT buffer, the software reference rasteriser, the frame dump, `TTT_SELFTEST=gs` |
+| `gs_vif1.c` | VIF1: UNPACK into VU1 memory, MPG, DIRECT / DIRECTHL to the GIF, MSCAL recorded (VU1 programs not run: T29) |
 | `plat_pkt.c` | libpkt: VIF1 and GIF packet builders |
 | `plat_vu0.c` | libvu0 in C (column-major matrices; `func_0034A868` is `sceVu0Normalize`) |
 | `plat_main.c` | Runs the game's `main` on the EE stack |
 | `softfloat_ps2.c` | The EE float model: `__addsf3`... for the FPU, `Port_Vu*` for the vector unit |
 | `plat_libc.c` | newlib's `rand` / `srand` (the executable's 0x40FBD0 / 0x40FBC0) on `_impure_ptr->_rand_next` |
-| `plat_floattest.c` | `TTT_SELFTEST=float` |
+| `plat_floattest.c` | `TTT_DUMP=<dir>` | Write the displayed picture as `<dir>/frame_<vblank>.png` (8-bit RGB) every `TTT_DUMP_EVERY` VBlanks. Put it under `build/` (ignored by git): the pictures are the game's. |
+| `TTT_DUMP_EVERY=<n>` | The dump's period in VBlanks (default 60). |
+| `TTT_SELFTEST=gs` | GS memory layout of every format, the upload paths, a GIF PACKED packet on the GIF channel (flat, CLUT-textured, blended, depth-tested, scissored sprites, a triangle), VIF1 UNPACK modes / STCYCL / masks / double buffer / MPG, DIRECT and FINISH (`tests/test_port_gs.py`). |
+| `TTT_SELFTEST=float` |
 | `vu0_micro.c` | VIF0 (MPG uploads) and a VU0 micro-mode interpreter for the game's VU0 programs |
 
 - **Polling.** `EE_HW_POLL()` (`include/ee_asm.h`, nothing in the matching build) sits in every game loop that waits
@@ -176,8 +188,9 @@ wait loops drive the hardware.
 - **Interrupts.** VBlank start raises INTC cause 2 and a finished DMA its DMAC channel; handlers run inside the poll
   if interrupts are on (`Port_Di` / `Port_Ei`), else at the next `ei`, with interrupts off while they run.
 - **DMA.** A channel with STR set is carried out at the next poll: normal, source chain (refe / cnt / next / ref /
-  refs / call / ret / end) and the scratchpad's destination chain. toSPR / fromSPR copy the data; VIF0 / VIF1 / GIF /
-  IPU / SIF only walk their lists (T28 renders them). In MFIFO mode (D_CTRL.MFD, `dma_spr.c` streams the display
+  refs / call / ret / end) and the scratchpad's destination chain. toSPR / fromSPR copy the data; VIF0 feeds
+  `vu0_micro.c`, VIF1 and GIF feed the GS path (with TTE the VIF1 tag's upper half first); IPU / SIF only walk their
+  lists. A block that follows its tag inside the MFIFO ring is read across the ring's end. In MFIFO mode (D_CTRL.MFD, `dma_spr.c` streams the display
   lists through it) fromSPR writes into the ring and the drain channel stays busy while the ring is empty.
 - **IOP.** Reboot and module loads succeed. The game's remote calls all go through `sceSdRemote` (RSPU2DRV); the
   server table of `plat_sys.c` also answers padman, mcserv and mtapman with zeros. A 0x204E read copies the
@@ -195,8 +208,49 @@ Switches:
 | `TTT_HEADLESS=0/1` | Force the real-time or the headless clock. |
 | `TTT_SEED=<n>` | Pin the boot seed `Rng_Init` takes from Timer 0 (`src/rng_misc.c`, `docs/known_bugs.md` section 8). With the headless clock the seed is already repeatable; this sets its value, and makes real-time runs start alike. |
 | `TTT_SELFTEST=hw / rpc / mem` | Check the DMA, timers, VBlank and interrupts / the SIF, RPC and disc reads / the memory map, and exit (`tests/test_port_platform.py`, `tests/test_port_mem.py`). |
+| `TTT_DUMP=<dir>` | Write the displayed picture as `<dir>/frame_<vblank>.png` (8-bit RGB) every `TTT_DUMP_EVERY` VBlanks. Put it under `build/` (ignored by git): the pictures are the game's. |
+| `TTT_DUMP_EVERY=<n>` | The dump's period in VBlanks (default 60). |
+| `TTT_SELFTEST=gs` | GS memory layout of every format, the upload paths, a GIF PACKED packet on the GIF channel (flat, CLUT-textured, blended, depth-tested, scissored sprites, a triangle), VIF1 UNPACK modes / STCYCL / masks / double buffer / MPG, DIRECT and FINISH (`tests/test_port_gs.py`). |
 | `TTT_SELFTEST=float` | The EE float model against PCSX2 data, EE rules, exact libm cases, newlib `rand` (`tests/test_port_float.py`). `TTT_FLOATDATA` overrides the data directory (`port/tests/ps2float`). |
 | `TTT_STUB_RETURN=<n>` | Generated stubs return n instead of stopping. |
+
+## GS path
+
+`port/src/gs_core.c` and `gs_vif1.c`, fed by the DMA channels of `plat_hw.c` at the poll that carries a transfer out:
+
+```
+VIF1 channel (ch 1)  ->  VIF1 (UNPACK / MPG / MSCAL -> VU1 memory; DIRECT / DIRECTHL -> PATH2) --+
+GIF channel (ch 2)   ->  PATH3 ---------------------------------------------------------------+-> GIF -> GS
+(VU1 XGKICK, T29)    ->  PATH1 ---------------------------------------------------------------+
+```
+
+- **GIF.** Each path keeps its own tag (a packet may span transfers). PACKED (PRIM, RGBAQ with the Q of the last ST,
+  ST, UV, XYZF2 / XYZ2 with the ADC bit, FOG, XYZF3 / XYZ3, A+D, NOP), REGLIST, IMAGE; the tag's PRE / PRIM.
+- **GS memory.** 4 MB with the GS's layout: pages of 32 blocks, the per-format block order and columns of PSMCT32 / 24
+  / 16 / 16S, PSMT8 / 4 / 8H / 4HL / 4HH and the Z formats (the colour layouts with the page's blocks XOR 24). The game
+  draws its 2D frame into PSMCT24 FBP 0 (640 x 448, XYOFFSET 0x6C0 / 0x720, context 1 and 2 alike) and shows a 640 x
+  224 copy at FBP 0x8C in interlaced frame mode (SMODE2 3, DISPLAY 2560 x 448).
+- **Transfers.** Host -> GS (row-table fast paths for 32 / 16 / 16S / 8 / 4 bits, generic for the rest), local ->
+  local at TRXDIR; GS -> host is counted, not carried out.
+- **Registers.** PRIM / PRMODE / PRMODECONT, the two contexts (TEX0 / TEX1 / TEX2 / CLAMP / XYOFFSET / SCISSOR / ALPHA /
+  TEST / FBA / FRAME / ZBUF), TEXA, TEXCLUT, FOGCOL, COLCLAMP, PABE, BITBLTBUF / TRXPOS / TRXREG / TRXDIR, SIGNAL /
+  FINISH / LABEL (CSR and SIGLBLID in the privileged registers). The CLUT is the GS's 1 KB buffer, loaded on TEX0 /
+  TEX2 for indexed formats by CLD (0-5), CSM1 (the 8-bit table's index bits 3 / 4 exchanged) or CSM2, CSA for 4-bit
+  palettes. [I] CLD 4 / 5 also reload when GS memory was written since the last load.
+- **Rasteriser.** Integer only (no host float, as the rest of the port): 12.4 coordinates, sprites with the GS's
+  half-open edges, triangles (lists, strips, fans) by edge functions with the top-left rule and 24-bit barycentric
+  fractions (Gouraud colour, fog, depth, UV, perspective STQ decoded from the float bits), lines, points. Per pixel:
+  scissor, alpha test with its fail modes, destination alpha test, depth test and write (ZMSK), texture function
+  (TFX / TCC) with CLAMP's wrap modes, fog, blending ((A - B) * C >> 7) + D with PABE and COLCLAMP, FBA, FBMSK.
+  Nearest texel of level 0; no dithering, filtering or anti-aliasing.
+- **Display and dump.** The libgraph set-up writes PMODE / SMODE2 / DISPFB2 / DISPLAY2 / BGCOLOR and the game writes
+  DISPFB1 / DISPLAY1 itself (`Gfx_ShowBuffer`). At each VBlank start, before the handlers run, `TTT_DUMP` reads the
+  circuit PMODE enables (circuit 1 first): DISPFB's buffer from (DBX, DBY), (DW + 1) / (MAGH + 1) pixels by
+  (DH + 1) / (MAGV + 1) lines, interlaced frame mode doubling each buffer line. The PNG writer is the port's own
+  (stored deflate blocks, no library).
+- **VU1.** VIF1 fills VU1 data memory (0x1100C000) and micro memory (0x11008000) and counts MSCAL / MSCNT, but no VU1
+  program runs: the models they would kick on PATH1 are missing until T29. The reference project's interpreter was
+  not dropped in: it computes with the host's float unit, which the port does not link.
 
 ## Hand replacements
 
@@ -307,4 +361,4 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
 ## Next
 
 The seven Tekken Bowl m2c drafts around VU0 code (`portsrc.REPLACED`, still placeholders: not reached by the attract
-demo); the DMA / GS path (T28); the libm PCSX2 run; pads, memory cards, sound (RSPU2DRV) and movies.
+demo); the VU1 interpreter (T29: the models of the attract demo and the fights); the libm PCSX2 run; pads, memory cards, sound (RSPU2DRV) and movies.
