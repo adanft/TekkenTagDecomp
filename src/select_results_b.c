@@ -1921,29 +1921,23 @@ void func_003C68A8(SelState *s, s32 kind, s32 i) {
 /* NON_MATCHING: 2 lines, the table lui is scheduled one slot early */
 #if 0
 void func_003C68F0(SelState *s, s32 kind) {
+    /* the table's entries are 0x20 bytes (a font), not sizeof(SelState) */
+    const SelState *t = (const SelState *)((const u8 *)D_0051FFA0 + 0x20);
+
     switch (kind) {
     case 10:
     case 11:
-        s->unk0 = D_0051FFA0[kind - 10].unk0;
-        s->unk4 = D_0051FFA0[kind - 10].unk4;
-        s->unk8 = D_0051FFA0[kind - 10].unk8;
-        s->unkC = D_0051FFA0[kind - 10].unkC;
-        s->unk10 = D_0051FFA0[kind - 10].unk10;
-        s->unk14[0] = D_0051FFA0[kind - 10].unk14[0];
-        s->unk14[1] = D_0051FFA0[kind - 10].unk14[1];
-        s->unk1C = D_0051FFA0[kind - 10].unk1C;
-        break;
-    default:
-        s->unk0 = D_0051FFA0[1].unk0;
-        s->unk4 = D_0051FFA0[1].unk4;
-        s->unk8 = D_0051FFA0[1].unk8;
-        s->unkC = D_0051FFA0[1].unkC;
-        s->unk10 = D_0051FFA0[1].unk10;
-        s->unk14[0] = D_0051FFA0[1].unk14[0];
-        s->unk14[1] = D_0051FFA0[1].unk14[1];
-        s->unk1C = D_0051FFA0[1].unk1C;
+        t = (const SelState *)((const u8 *)D_0051FFA0 + (kind - 10) * 0x20);
         break;
     }
+    s->unk0 = t->unk0;
+    s->unk4 = t->unk4;
+    s->unk8 = t->unk8;
+    s->unkC = t->unkC;
+    s->unk10 = t->unk10;
+    s->unk14[0] = t->unk14[0];
+    s->unk14[1] = t->unk14[1];
+    s->unk1C = t->unk1C;
     func_003C68A8(s, kind, s->unk1C);
 }
 #else
@@ -3902,7 +3896,7 @@ block_46:
             sp24 = sp10 + 0x14;
 loop_103:
 loop_104:
-            temp_s0_5 = func_003C9AC0(sp10, temp_s5, var_s2, var_s6);
+            temp_s0_5 = func_003C9AC0(sp10, temp_s5, var_s2, var_s6, sp20, arg1, M32(sp10, 0x8)); /* a0-a3, t0-t2 */
             if ((*(var_fp + ((u8 *)&D_005F62A8)) == 1) && (M32(temp_s5, 0x10) == *((arg1 * 0x60) + ((u8 *)&D_00440C28)))) {
                 *(sp24 + sp1C) = 0;
             } else if (func_003C98C8(temp_s5) != 0) {

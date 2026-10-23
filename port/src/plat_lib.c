@@ -1,8 +1,8 @@
 /*
  * Sony SDK libraries of the game on PC: the GS set-up (libgraph), DMA / VU resets (libdma, libvu0), and those that
- * only need an answer for now: pads (libpad, libmtap) and memory cards (libmc), which report "nothing connected".
+ * only need an answer for now: memory cards (libmc), which report "nothing connected" (pads: plat_pad.c).
  * A function that is only a placeholder records itself (Port_Hit, plat_stub.c), so a headless run lists what still
- * waits for its real implementation: pads (T3x), memory cards, movies.
+ * waits for its real implementation: memory cards, movies.
  */
 #include <stdint.h>
 #include <string.h>
@@ -11,7 +11,6 @@
 
 void Port_Hit(const char *name);
 int Port_WaitVBlank(void); /* plat_hw.c */
-#define PLACEHOLDER() Port_Hit(__func__)
 
 /* ---- libgraph ---- */
 /* Waits for the next VBlank start; returns the field (0 even, 1 odd). */
@@ -135,25 +134,7 @@ int sceGsSwapDBuff(void *p, int id) {
     return sceGsPutDrawEnv((id & 1) ? db->giftag0 : db->giftag1);
 }
 
-/* ---- libmtap / libpad: no multitap, no pad connected (the real input is a later task) ---- */
-int sceMtapInit(void) { return 1; }
-int sceMtapPortOpen(int port) { (void)port; return 1; }
-int sceMtapPortClose(int port) { (void)port; return 1; }
-int sceMtapGetConnection(int port) { (void)port; return 0; }
-int scePadInit(int mode) { (void)mode; return 1; }
-int scePadEnd(void) { return 1; }
-int scePadPortOpen(int port, int slot, void *addr) { (void)port; (void)slot; (void)addr; return 1; }
-int scePadPortClose(int port, int slot) { (void)port; (void)slot; return 1; }
-int scePadGetState(int port, int slot) { (void)port; (void)slot; PLACEHOLDER(); return 0; } /* disconnected */
-int scePadGetReqState(int port, int slot) { (void)port; (void)slot; return 0; } /* complete */
-int scePadRead(int port, int slot, uint8_t *rdata) { (void)port; (void)slot; (void)rdata; return 0; }
-int scePadInfoMode(int port, int slot, int term, int offs) { (void)port; (void)slot; (void)term; (void)offs; return 0; }
-int scePadInfoAct(int port, int slot, int actno, int term) { (void)port; (void)slot; (void)actno; (void)term; return 0; }
-int scePadInfoPressMode(int port, int slot) { (void)port; (void)slot; return 0; }
-int scePadEnterPressMode(int port, int slot) { (void)port; (void)slot; return 0; }
-int scePadSetMainMode(int port, int slot, int offs, int lock) { (void)port; (void)slot; (void)offs; (void)lock; return 0; }
-int scePadSetActAlign(int port, int slot, const uint8_t *data) { (void)port; (void)slot; (void)data; return 0; }
-int scePadSetActDirect(int port, int slot, const uint8_t *data) { (void)port; (void)slot; (void)data; return 0; }
+/* libmtap / libpad: plat_pad.c. */
 
 /* ---- libmc: no memory card in either slot. Each call is accepted and finishes at the next sceMcSync with a
    "no card" result. ---- */

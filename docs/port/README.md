@@ -45,6 +45,11 @@ writes everything under `build/port/`, which git ignores.
 - A window (T30 batch 1): real-time runs show the picture in an SDL3 window ([Window](#window)).
 - Placeholders still reached on that path (listed at the end of a `TTT_FRAMES` run): `scePadGetState` (no pad),
   libmc (no card), the boot movie (skipped).
+- Input (T34 batch 1): two DualShock 2 pads from the keyboard and SDL gamepads, latched once per VBlank, with
+  recording and replay of the pad states ([Input](#input)). Real-time runs have the pads; headless runs have none
+  unless asked, so the runs above keep their reports and hashes. With input the character select is reached
+  (Start at the main menu); two drafts that stopped it there are fixed (gotcha 21). The cursor there does not move
+  yet (open, [Input](#input)).
 - Floats are the EE's: every float operation of the game and of `port/src` goes through the EE float model
   (`port/src/softfloat_ps2.c`), the maths library is the PS2's newlib (`third_party/newlib_libm`), `rand` / `srand`
   are newlib's on the game's own state word. No host float code is linked ([EE float model](#ee-float-model)).
@@ -182,7 +187,8 @@ wait loops drive the hardware.
 | `plat_hw.c` | Bus-cycle clock, timers 0-3, VBlank (59.94 Hz, GS CSR FIELD / VSINT), INTC / DMAC handlers (`AddIntcHandler`, `AddDmacHandler`, `EnableIntc`...), DMA channels, MFIFO, `TTT_FRAMES` report, `TTT_SELFTEST=hw` |
 | `plat_sys.c` | Kernel (cache, threads, semaphores), SIF (IOP reboot, module loads, commands, `sceSifBindRpc` / `sceSifCallRpc` and the table of IOP servers), CD init, `TTT_SELFTEST=rpc` |
 | `plat_file.c` | The disc (`TTT_DISC`: a directory with `TEKKEN.BIN` or the `.iso`) and `sceSdRemote`: RSPU2DRV's file reads (0x204E / 0x2045), status (0x2030), harmless replies to the sound and movie commands |
-| `plat_lib.c` | libgraph (`sceGsSyncV` waits for the next VBlank; `sceGsResetGraph`, `sceGsSetDefDBuff`, `sceGsSetDefDispEnv`, `sceGsPutDispEnv`, `sceGsSwapDBuff` build the environments and write the GS), libpad / libmtap (no pad, no multitap), libmc (no card), movie skip, a cache call |
+| `plat_lib.c` | libgraph (`sceGsSyncV` waits for the next VBlank; `sceGsResetGraph`, `sceGsSetDefDBuff`, `sceGsSetDefDispEnv`, `sceGsPutDispEnv`, `sceGsSwapDBuff` build the environments and write the GS), libmc (no card), movie skip, a cache call |
+| `plat_pad.c` | libpad / libmtap: two DualShock 2 pads on ports 0 and 1, no multitap, the per-VBlank latch, `TTT_INPUT_PLAY` / `TTT_INPUT_RECORD`, `TTT_SELFTEST=pad` ([Input](#input)) |
 | `gs_core.c` | GS: GIF paths (PACKED / REGLIST / IMAGE), registers, 4 MB GS memory with its layout, CLUT buffer, the software reference rasteriser, the frame dump, `TTT_SELFTEST=gs` |
 | `gs_vif1.c` | VIF1: UNPACK into VU1 memory, MPG, DIRECT / DIRECTHL to the GIF, MSCAL / MSCALF / MSCNT run the VU1 program |
 | `gs_vu1.c` | VU1: registers, the program runs, XGKICK on PATH1, `TTT_SELFTEST=vu1` |
@@ -192,7 +198,7 @@ wait loops drive the hardware.
 | `vu_fasttest.c` | `TTT_SELFTEST=vu1`'s second part: random programs on both interpreters, the SSE arithmetic against the model |
 | `plat_pkt.c` | libpkt: VIF1 and GIF packet builders |
 | `plat_vu0.c` | libvu0 in C (column-major matrices; `func_0034A868` is `sceVu0Normalize`) |
-| `plat_main.c` | Opens the window (on the host stack), then runs the game's `main` on the EE stack |
+| `plat_main.c` | `TTT_SELFTEST=pad`, opens the window (on the host stack), then runs the game's `main` on the EE stack |
 | `plat_window.c` | The SDL3 window: SDL loaded at run time, its own thread ([Window](#window)) |
 | `port_host.h` | Host library calls added since T30, declared `noplt` (gotcha 20) |
 | `softfloat_ps2.c` | The EE float model: `__addsf3`... for the FPU, `Port_Vu*` for the vector unit |
@@ -255,6 +261,10 @@ Switches:
 | `TTT_WINDOW=0/1` | The window ([Window](#window)): default on in real time, off headless and for self-tests. `1` with `TTT_FRAMES` shows a headless run as it goes. |
 | `TTT_VSYNC=0` | The window presents without the renderer's vsync. |
 | `TTT_SDL_LIB=<path>` | The SDL3 library to load (default `libSDL3.so.0`). |
+| `TTT_PADS=0/1/2` | Pads connected ([Input](#input)). Default: 2 in real time, 0 headless, 2 with `TTT_INPUT_PLAY`. |
+| `TTT_INPUT_PLAY=<file>` | The pads' states come from that recording instead of the keyboard and gamepads. |
+| `TTT_INPUT_RECORD=<file>` | Write the pads' states latched at each VBlank to that file (a line per change). |
+| `TTT_SELFTEST=pad` | The recording's line format, libpad's read data and the answers of the game's pad set-up sequence (`tests/test_port_input.py`). |
 
 ## GS path
 
@@ -379,15 +389,15 @@ throttles the whole slice when hot, so wall times move by 10-20% between runs; C
 
 `port/src/plat_window.c` shows the picture of each VBlank (both read circuits merged, as the dump) in an SDL3 window.
 
-- **SDL3 at run time.** `dlopen("libSDL3.so.0")` (or `TTT_SDL_LIB`) and a table of the 17 functions used: the program
+- **SDL3 at run time.** `dlopen("libSDL3.so.0")` (or `TTT_SDL_LIB`) and a table of the 20 functions used: the program
   does not link SDL, headless runs and the tests do not need it, and without it the run says
   `ttt: window: cannot load ...: running headless` and goes on. The program is 32-bit, so it needs the 32-bit
   library: on Arch `lib32-sdl3` from the multilib repository (`sudo pacman -S lib32-sdl3` with `[multilib]` enabled
   in `/etc/pacman.conf`); on Debian / Ubuntu `libsdl3-0:i386` where packaged. Only pointer and integer arguments
   cross into SDL (no `SDL_FRect`: the port has no host floating point).
 - **When.** Real-time runs (`build/port/ttt` without `TTT_FRAMES`) open it; `TTT_WINDOW=0` keeps them headless,
-  `TTT_WINDOW=1` opens it for a `TTT_FRAMES` run too. Closing it or Escape ends the program. No keyboard-to-pad
-  mapping yet (`scePadGetState` is still a placeholder; T34).
+  `TTT_WINDOW=1` opens it for a `TTT_FRAMES` run too. Closing it or Escape ends the program. The window thread
+  also reads the keyboard and the gamepads ([Input](#input)).
 - **Threads.** SDL runs on a thread of its own, started before the game (`plat_main.c`, on the host stack): the game's
   thread runs on the PS2 stack in EE RAM, 200 KB that grow into the game's `.bss`. Each VBlank the raster workers
   draw the picture into one of three slots (in order with the drawing); the newest finished one is copied to the
@@ -395,6 +405,56 @@ throttles the whole slice when hot, so wall times move by 10-20% between runs; C
   renderer's vsync (`TTT_VSYNC=0`: without). The game's pace is the clock's: 59.94 Hz in real time, as fast as it
   goes headless (the window then skips pictures).
 - `TTT_FRAMES` runs with a window end with `ttt: window: N pictures handed over, M shown`.
+
+## Input
+
+`port/src/plat_pad.c` answers libpad and libmtap as the game uses them (`src/pad.c`); `plat_window.c` reads the
+keyboard and the gamepads on the window thread.
+
+- **What the game sees.** Two DualShock 2 pads, on ports 0 and 1 (slot 0), no multitap: `scePadGetState` stable (6),
+  analog id 7 (current and extended), pressure mode entered at once, 2 actuators, every request complete at once.
+  `Pad_Update` walks them to ready (phase 0x30) in a few frames; from then on `scePadRead` returns libpad's data of
+  kind 0x79: the buttons active low, the sticks (right x, right y, left x, left y; 0x80 centre), 12 pressure bytes
+  (0xFF down, 0 up). Vibration (`scePadSetActDirect`) is accepted and not played.
+- **Once per VBlank.** At each VBlank, before the game's VBlank handler, the pads' state is latched from one source
+  (`Port_PadVBlank`, called by `plat_hw.c`); every read until the next VBlank returns it. The window thread keeps the
+  keyboard and gamepad state under a mutex and the game thread takes a copy at that point only.
+- **Pads connected** (`TTT_PADS`): 2 in real time, 0 in headless runs (as before T34: same reports, frames and hashes;
+  the report still lists `scePadGetState` for them), 2 with `TTT_INPUT_PLAY`. `TTT_FRAMES` runs with pads add
+  `ttt: input: N pads, M vblanks with a button down`.
+- **Record and replay.** `TTT_INPUT_RECORD=<file>` writes the latched states; `TTT_INPUT_PLAY=<file>` feeds them back
+  instead of the keyboard. The file is text: `ttt-input 1 pads 2`, then one line per VBlank where the state changes,
+  `<vblank> <buttons pad 1> <sticks pad 1> <buttons pad 2> <sticks pad 2>` in hex, buttons with 1 = pressed in
+  libpad's order (0x8000 left, 0x4000 down, 0x2000 right, 0x1000 up, 0x0800 Start, 0x0400 R3, 0x0200 L3,
+  0x0100 Select, 0x80 square, 0x40 cross, 0x20 circle, 0x10 triangle, 8 R1, 4 L1, 2 R2, 1 L2), sticks as 8 hex
+  digits (right x, right y, left x, left y); `#` starts a comment. Under the headless clock a run's VBlanks are the
+  same every time, so a recording replays the same run exactly (`tests/test_port_input.py`: Start at the main menu,
+  two replays end in the same state, which differs from the run without a button). A real-time recording replays the
+  same inputs at the same VBlanks, but the real-time clock itself varies from run to run; to record a run that
+  replays exactly, play it headless in a window (as fast as the host goes, not at 59.94 Hz):
+  `TTT_HEADLESS=1 TTT_WINDOW=1 TTT_PADS=2 TTT_SEED=1 TTT_INPUT_RECORD=run.txt build/port/ttt`, then replay with
+  `TTT_FRAMES=<n> TTT_SEED=1 TTT_INPUT_PLAY=run.txt`.
+
+Controls (the key's place, whatever the keyboard layout; Tekken's default: square left punch, triangle right
+punch, cross left kick, circle right kick):
+
+| PS2 button | Pad 1 keys | Pad 2 keys | SDL gamepad |
+|---|---|---|---|
+| D-pad | W A S D | arrows | d-pad (left stick: the analog stick) |
+| Square (LP) / Triangle (RP) | U / I | keypad 4 / 5 | west / north (X / Y on Xbox) |
+| Cross (LK) / Circle (RK) | J / K | keypad 1 / 2 | south / east (A / B on Xbox) |
+| L1 / R1 | Y / O | keypad 7 / 6 | shoulders |
+| L2 / R2 | H / L | keypad 8 / 9 | triggers past half way |
+| Start / Select | Return / Backspace | keypad Enter / keypad + | Start / Back |
+| L3 / R3 | | | stick buttons |
+
+The first two gamepads connected become pads 1 and 2 (`ttt: input: pad N: <name>`), together with the keyboard. Escape
+or closing the window ends the program. No rebinding yet (T36's settings).
+
+Open: in the character select (reached with Start at the main menu) the cursor does not move and a d-pad press
+selects at once. `TTT_DIFF` shows the step `func_003CA470` and `Input_Update` agreeing with the original code on
+those frames (hooks tried and removed), so the state they start from is already different: the drafts that set the
+select screen up come next.
 
 ## VU1
 
@@ -593,7 +653,21 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
     first `pthread_create`) moves every game function by 16 bytes per entry and changes the hash of an unchanged run.
     Host functions new since T30 are declared `noplt` in `port/src/port_host.h` (called through the GOT); the PLT
     stays the one of T29 and `tests/test_port_window.py` checks it. Changes to the port's own code do not move game
-    code (the game's objects are linked first).
+    code (the game's objects are linked first), with one exception: gcc puts constructors (`.text.startup`) and the
+    cold parts of functions (`.cold`, `.text.unlikely`) in sections the linker places before every `.text`, so a new
+    `__attribute__((constructor))` in `port/src` moved the game (T34: the pad self-test runs from `__wrap_main`
+    instead). Changing a game draft moves the game functions after it and so changes the hash too, with the same
+    frames: T34's two `select_results_b.c` fixes give `sbss-hash 0x341e8d2f` for the 2551-VBlank run, and that memory
+    with the two moved pointers (`func_003D9588`, `func_003DA138`) set back to their old addresses hashes to
+    `0x8dd3eebb` again.
+
+21. **Draft calls through a cast take any argument count.** m2c drafts call functions through
+    `#define f ((s32 (*)())f)`: `func_003CA470` called the 7-argument `func_003C9AC0` with 4, so it wrote through a
+    garbage `moved` pointer (crash on entering the character select). The asm passes a0-a3 and t0-t2: the state block,
+    the side, the button, the previous button, `&moved`, the side number and the word at `state + 8`. And a typed
+    table must have the size of its entries: `func_003C68F0` read its 0x20-byte font table as `SelState[]`, so kind 11
+    got the bytes 0x58 further (the hex digits next to it) and `Text_PutGlyph` divided by a zero column count
+    (SIGFPE on "FREE PLAY").
 
 ## EE float model
 
@@ -633,4 +707,5 @@ more frames, both fighters) are the systematic way on. `third_party/newlib_libm`
 result need the executable's constants ([Draft divergence check](#draft-divergence-check)). libgraph
 (`plat_lib.c`): the DBuff buffer pairing and SwapDBuff's ids differ from the library with the same GS result. The
 seven Tekken Bowl m2c drafts around VU0 code (`portsrc.REPLACED`, still placeholders: not reached by the attract
-demo); the libm PCSX2 run; pads, memory cards, sound (RSPU2DRV) and movies.
+demo); the libm PCSX2 run; the character select's cursor ([Input](#input)), the multitap, vibration and rebinding;
+memory cards, sound (RSPU2DRV) and movies.

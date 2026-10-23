@@ -414,9 +414,12 @@ extern uint16_t gFrameCount; /* src/main.c */
 extern int16_t gMode, gSubMode;
 static void report_and_exit(void);
 static void track_mode(void);
+void Port_PadVBlank(uint32_t n); /* plat_pad.c */
+void Port_PadReport(void);
 
 static void vblank(void) {
     sVBlanks++;
+    Port_PadVBlank((uint32_t)sVBlanks); /* the pads' state for this field: latched once, before the handler */
     Gs_VBlank((uint32_t)sVBlanks); /* the frame dump: the picture shown during the field that ends here */
     REG(0x12001000u) = (REG(0x12001000u) | 0x8u) ^ 0x2000u; /* CSR: VSINT, FIELD flips */
     sIntcPend |= 1u << 2;                                   /* INTC VBLANK_START */
@@ -547,6 +550,7 @@ static void report_and_exit(void) {
     printf("ttt: state: seed 0x%x spin 0x%08x sbss-hash 0x%08x cycles %llu\n", (unsigned)sSeed,
            (unsigned)gRngSpin, h, (unsigned long long)sCycles);
     Gs_Report();
+    Port_PadReport();
     Port_StubReport();
     fflush(stdout);
     exit(0);
