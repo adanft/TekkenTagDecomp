@@ -50,7 +50,11 @@ void sceVif1PkCnt(Vif1Packet *pk, u32 flag);
 void sceVif1PkAlign(Vif1Packet *pk, u32 bit, u32 pos);
 u32 *sceVif1PkReserve(Vif1Packet *pk, u32 count);
 void func_00342E78(Vu0Matrix *a, Vu0Matrix *b, void *pkt);
+#ifdef PORT
+void func_003421D8(void *a, void *b); /* the PS2 callee reads $a1 too: see func_00341B70 */
+#else
 void func_003421D8(void *a);
+#endif
 void Model_SendParts(VifModel *m);
 void Model_Render(VifModel *m, Vu0Matrix *a, ModelRef *o, u32 kind);
 extern u32 D_0046B174[];
@@ -104,7 +108,11 @@ void func_00341B70(ModelFile **files, ModelRef *o, void *a) {
         } while (0);
         models = files[1]->models;
         if (models[m] != NULL) {
+#ifdef PORT
+            func_003421D8(a, o); /* $a1 still holds o here on the PS2, and func_003421D8 reads it */
+#else
             func_003421D8(a);
+#endif
             Model_SendParts(models[o->model]);
         }
     }

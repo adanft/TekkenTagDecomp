@@ -4,7 +4,7 @@ The PC port is built from the same C as the matching decompilation. Nothing of t
 takes the game's data from the split of **your own** `SLUS_200.01` (the one the matching build already uses) and
 writes everything under `build/port/`, which git ignores.
 
-## Status (T24, 2026-10-22)
+## Status (T23, 2026-10-22)
 
 - Every game C file the matching build links (59) compiles for 32-bit x86 Linux with the host gcc, with the
   NON_MATCHING drafts switched on: every game function comes from C, except the hand-written EE / VU0 routines
@@ -15,12 +15,15 @@ writes everything under `build/port/`, which git ignores.
   with one update per VBlank and runs the boot mode, the title and the main menu (headless, nothing drawn):
   `TTT_FRAMES=600` reports `modes: 0@1 2@168 1@172 3@177` (mode@VBlank: boot, title, transition, main menu) and
   590 frames. Left alone, the menu returns to the title after about 480 frames and enters the attract cycle's
-  loading mode (11) at VBlank 699; at VBlank 1569 the attract demo reaches the VU0 placeholder `func_0034A180`
-  and stops (exit 3). No generated stub is reached before that.
+  loading mode (11) at VBlank 699 and runs the attract demo (mode 11, sub-state 2) through the VU0 blend
+  (`func_0034A180`) and the VU0 skinning programs: `TTT_FRAMES=3000 TTT_SEED=1` ends at VBlank 3000 (2606 frames)
+  with no stop, and two runs with the same seed end in the same state (`sbss-hash 0x9736ab37`).
 - Placeholders still reached on that path (listed at the end of a `TTT_FRAMES` run): `sceGsResetGraph`,
   `sceGsSetDefDBuff`, `sceGsSetDefDispEnv`, `sceGsSwapDBuff`, `sceGsPutDispEnv` (GS path, T28), `scePadGetState`
   (no pad), libmc (no card), the boot movie (skipped).
-- Floats are TEMPORARY host IEEE (`port/src/plat_float_tmp.c`, x87) until the EE float model (T23).
+- Floats are the EE's: every float operation of the game and of `port/src` goes through the EE float model
+  (`port/src/softfloat_ps2.c`), the maths library is the PS2's newlib (`third_party/newlib_libm`), `rand` / `srand`
+  are newlib's on the game's own state word. No host float code is linked ([EE float model](#ee-float-model)).
 - Last clean build: 71 objects (59 game, 12 port), 1270 data objects, 22 names placed by address, 43 stubs (none
   reached on the path above).
 - `TTT_CC=clang` (game code through clang 23) is not there yet: 55 of 62 objects; the other 7 stop on an implicit
@@ -101,12 +104,9 @@ Shared modules: `toolchain.py` (paths, compiler flags, `TTT_CC`), `portsrc.py` (
   generated stubs under `TTT_STUB_RETURN`); a `TTT_FRAMES` run lists them at its end.
 - No host libm is linked. Under `-msoft-float` the game expects float results in `eax`; the host's `sinf` /
   `cosf` / `sqrtf` return them on the x87 stack, so a link with `-lm` would give wrong values without any error.
-  The host's i386 libgcc has no soft-float helpers (`__addsf3`...) either. Until the EE float model and the PS2's
-  newlib maths library (T23), `port/src/plat_float_tmp.c` provides both with x87 instructions on the float words:
-  IEEE single precision, not the EE's results.
+  The float helpers and the maths library are the port's own ([EE float model](#ee-float-model)).
 - The host C library still provides the integer-only functions the game calls (`memcpy`, `memset`, `strlen`,
-  `strcmp`, `strcat`, `sprintf`, `printf`, `abs`, `exit`) and, for now, `rand` / `srand`. The game's random numbers
-  must come from the PS2's newlib `rand` (simulation state, `docs/known_bugs.md`): T23.
+  `strcmp`, `strcat`, `sprintf`, `printf`, `abs`, `exit`). `rand` / `srand` are newlib's (`port/src/plat_libc.c`).
 
 ### Memory map
 
@@ -160,7 +160,10 @@ wait loops drive the hardware.
 | `plat_pkt.c` | libpkt: VIF1 and GIF packet builders |
 | `plat_vu0.c` | libvu0 in C (column-major matrices; `func_0034A868` is `sceVu0Normalize`) |
 | `plat_main.c` | Runs the game's `main` on the EE stack |
-| `plat_float_tmp.c` | Temporary host float (T23 replaces it) |
+| `softfloat_ps2.c` | The EE float model: `__addsf3`... for the FPU, `Port_Vu*` for the vector unit |
+| `plat_libc.c` | newlib's `rand` / `srand` (the executable's 0x40FBD0 / 0x40FBC0) on `_impure_ptr->_rand_next` |
+| `plat_floattest.c` | `TTT_SELFTEST=float` |
+| `vu0_micro.c` | VIF0 (MPG uploads) and a VU0 micro-mode interpreter for the game's VU0 programs |
 
 - **Polling.** `EE_HW_POLL()` (`include/ee_asm.h`, nothing in the matching build) sits in every game loop that waits
   on the hardware: `Dma_Wait` and the other CHCR loops of `dma_gif.c` / `dma_spr.c`, the D_ENABLER loops, Timer 0 in
@@ -192,6 +195,7 @@ Switches:
 | `TTT_HEADLESS=0/1` | Force the real-time or the headless clock. |
 | `TTT_SEED=<n>` | Pin the boot seed `Rng_Init` takes from Timer 0 (`src/rng_misc.c`, `docs/known_bugs.md` section 8). With the headless clock the seed is already repeatable; this sets its value, and makes real-time runs start alike. |
 | `TTT_SELFTEST=hw / rpc / mem` | Check the DMA, timers, VBlank and interrupts / the SIF, RPC and disc reads / the memory map, and exit (`tests/test_port_platform.py`, `tests/test_port_mem.py`). |
+| `TTT_SELFTEST=float` | The EE float model against PCSX2 data, EE rules, exact libm cases, newlib `rand` (`tests/test_port_float.py`). `TTT_FLOATDATA` overrides the data directory (`port/tests/ps2float`). |
 | `TTT_STUB_RETURN=<n>` | Generated stubs return n instead of stopping. |
 
 ## Hand replacements
@@ -203,12 +207,12 @@ Routines written in EE / VU0 assembly that the PC build cannot compile. They are
 | Function | File | What it is | PC version |
 |---|---|---|---|
 | `Mtx_Unit`, `Mtx_Zero` | `theater_c.c` | identity / zero 4x4 matrix (`sq $0`) | C |
-| `func_003435C0`, `func_003436B8`, `func_003437B8`, `func_003438B8` | `dma_gif.c` | VU0 macro-mode skinning loops (`vcallms`, jumps into their own bodies) | placeholder |
-| `func_003E8FA0` | `tekken_bowl.c` | VU0 sin / cos (result in vf8) | placeholder |
-| `func_003E9038`, `func_003E9120`, `func_003E91D0`, `func_003E92C0` | `tekken_bowl.c` | VU0 matrix rotations around it (results left in vf4-vf7) | placeholder |
+| `func_003435C0`, `func_003436B8`, `func_003437B8`, `func_003438B8` | `dma_gif.c` | VU0 macro-mode skinning loops (`vcallms`, jumps into their own bodies) | C loop; the VU0 programs (`src/vu0/skin_*.vsm`) run on `vu0_micro.c` |
+| `func_003E8FA0` | `tekken_bowl.c` | VU0 sin / cos (result in vf8) | C on the VU0 registers |
+| `func_003E9038`, `func_003E9120`, `func_003E91D0`, `func_003E92C0` | `tekken_bowl.c` | VU0 matrix rotations around it (results left in vf4-vf7) | C on the VU0 registers |
 | `func_003EA978`, `func_003EAF78`, `func_003EBC98`, `func_003EC388`, `func_003ECAD8`, `func_003ED338`, `func_003EEF00` | `tekken_bowl.c` | m2c drafts around that VU0 code (register names the C does not hold, raw `sqrt.s` words) | placeholder |
-| `RotMtxXYZ` (inline helper of a draft) | `model_anim_b.c` | VU0 rotation x / y / z through `func_003E8FA0` | placeholder `Port_Vu0RotMtxXYZ` |
-| `func_0034A180` | `geometry_b.c` | entry one instruction before `func_0034A184` (its first instruction is the delay slot of `func_0034A148`'s return) | placeholder |
+| `RotMtxXYZ` (inline helper of a draft) | `model_anim_b.c` | VU0 rotation x / y / z through `func_003E8FA0` | C `Port_Vu0RotMtxXYZ` |
+| `func_0034A180` | `geometry_b.c` | entry one instruction before `func_0034A184` (its first instruction is the delay slot of `func_0034A148`'s return): d = a * k + b * (1 - k) | C; four arguments (gotcha 5) |
 
 Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
 
@@ -242,7 +246,11 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
    split file; the matching build either never links that C (drafts) or resolves them through splat's
    `undefined_syms_auto.txt`. Here they are placed by address (`symbols.ld`) or taken from the function's file (`gen_data.py`).
 5. **Calls relying on leftover registers.** `demo.c` calls `func_0034A180` with three arguments; the routine reads
-   a fourth (`$a2`) that the callers leave from earlier code. The PC version must find which value that is.
+   a fourth (`$a2`, the blend partner b of d = a * k + b * (1 - k)). The asm shows its value: the callers in
+   `func_003DD918` / `func_003DE0D8` load `$a2` with the destination (or, in two cases, the previous frame's matrix
+   at +0xB0A0 / +0xB0E0), and `func_003DD8E8` passes its own `$a2` through. Under `PORT` both functions take it as a
+   named argument. Likewise `render_fighter_b.c` `func_00341B70` calls `func_003421D8(a)`, which reads `$a1`: still
+   `o` there.
 6. **Soft-float ABI.** Float results travel in `eax` under `-msoft-float` and on the x87 stack in host libraries:
    no host libm, and port code that the game calls is built with the game's float flags.
 7. **The ELF headers land in EE RAM.** With the game's data as the lowest segment, `ld` puts the program's headers
@@ -264,9 +272,39 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
     path yet.
 12. **DMA from the stack.** The game sends quadwords from its stack to the scratchpad; the DMA address form only
     works for addresses below 0x10000000, hence the EE stack.
+13. **Waits without a poll.** `func_00343178` waits for room in the MFIFO ring by calling `func_0035E1C8` (di / ei
+    only): on the PS2 the drain runs meanwhile; here it needs an `EE_HW_POLL()` in that loop, or the demo hangs as
+    soon as the ring fills.
+
+## EE float model
+
+- **Arithmetic** (`port/src/softfloat_ps2_inl.h`, `softfloat_ps2.c`; the hardware-level model of the reference
+  project): no denormals (exponent 0 is zero), no infinity / NaN (exponent 255 is an ordinary number, results clamp
+  to +/-0x7F7FFFFF), add / sub / mul cut toward zero, the FPU's add.s keeps one guard bit of the smaller operand,
+  div.s and sqrt.s round to nearest, the vector unit's vdiv / vsqrt cut; x / 0 gives +/-max; comparisons see
+  denormals as zero. `sqrtf` is `sqrt.s` (ee-gcc inlines it; its errno fallback never runs on the EE).
+- **Vector unit**: `port/src/plat_vu0.c` and `vu0_pc.c` are VU0 macro code on the PS2; the build renames their
+  `__addsf3` / `__subsf3` / `__mulsf3` / `__divsf3` / `sqrtf` calls to `Port_VuAdd`... (`toolchain.VU_FILES`,
+  objcopy), so C written with floats gets the vector unit's results. `vu0_micro.c` runs the VU0 microcode on the
+  same arithmetic. No host floating point anywhere (`tests/test_port_float.py` checks the program's code for x87 /
+  SSE float instructions).
+- **Constants**: no `eeconst` pass. The reference needed one because BT3's compiler truncated decimal constants;
+  TTT's (ee-gcc 2.9-991111 with its assembler) rounds them to nearest like the host compiler: the executable holds
+  0.1f as 0x3DCCCCCD, its newlib `__kernel_sinf` S1 as 0xBE2AAAAB (BT3: 0xBE2AAAAA), `(float)0.333...` in
+  `__ieee754_logf` as 0x3EAAAAAB, and ee-gcc 2.9 folds 1.0f / 30.0f to 0x3D088889.
+- **libm** (`third_party/newlib_libm`, newlib 1.10.0's float fdlibm, built in software float through
+  `newlib_shim.h`): the sources the reference copied, plus `ef_log.c` and `ef_fmod.c` written after the executable's
+  `__ieee754_logf` / `__ieee754_fmodf` (constants as bit patterns), and `wrappers.c`: the executable's wrappers are
+  built without `_IEEE_LIBM` (they read `__fdlib_version` = 1, `_XOPEN_`, call matherr and set errno, both in the
+  game's memory); their error results are reproduced on bit patterns (fp-bit's double conversions included).
+- **Test** (`TTT_SELFTEST=float`, `port/tests/ps2float`): `pcsx2_v2.7.303.txt` is the reference project's PCSX2
+  2.7.303 output of `test.c` (1500 inputs x 16 FPU / VU operation classes; hardware-level, the same chip): all
+  agree. 38 EE-rule cases, 29 libm cases fixed by the algorithm or the wrappers' control flow, newlib `rand`.
+  PENDING (needs PCSX2 and a BIOS): the general libm results of TTT's own library (`libm_test.c` packed with your
+  executable by `pack_libm.py`; its output saved as `pcsx2_libm.txt` is compared automatically), and the wrappers'
+  NaN result (0x7FB00000, from gcc 2.96 fp-bit's rules).
 
 ## Next
 
-T23 EE float model, `softfloat_ps2`, newlib libm and `rand` (replacing `plat_float_tmp.c`); the DMA / GS path
-(T28: the GS set-up placeholders and the VIF1 / GIF lists the sink drops); the VU0 placeholders by hand
-(`func_0034A180` first: the attract demo stops on it); pads, memory cards, sound (RSPU2DRV) and movies.
+The seven Tekken Bowl m2c drafts around VU0 code (`portsrc.REPLACED`, still placeholders: not reached by the attract
+demo); the DMA / GS path (T28); the libm PCSX2 run; pads, memory cards, sound (RSPU2DRV) and movies.

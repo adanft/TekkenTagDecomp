@@ -29,6 +29,24 @@ PORT_CFLAGS = ["-m32", "-std=gnu99", "-O2", "-g", "-fno-pic", "-fno-strict-alias
                "-fno-builtin", "-msoft-float", "-mno-sse", "-mno-mmx", "-malign-double", "-Iinclude", "-Iport/include",
                "-Iport/src"]
 
+# newlib's float maths library (the PS2's own libm, third_party/newlib_libm): built like the port's code, in software
+# float on the EE model, with its shim header in front.
+NEWLIB = ROOT / "third_party/newlib_libm"
+NEWLIB_CFLAGS = ["-m32", "-std=gnu89", "-O2", "-g", "-fno-pic", "-fno-strict-aliasing", "-ffp-contract=off", "-w",
+                 "-fno-builtin", "-fno-stack-protector", "-Werror=implicit-function-declaration", "-msoft-float", "-mno-sse", "-mno-mmx", "-malign-double",
+                 f"-I{NEWLIB}", "-include", "newlib_shim.h"]
+
+# Port files that are VU0 macro code on the PS2: their float operations are the vector unit's, not the FPU's
+# (port/src/softfloat_ps2.c). After compiling, their calls to the software-float helpers are renamed.
+VU_FILES = ("plat_vu0.c", "vu0_pc.c")
+VU_RENAMES = {"__addsf3": "Port_VuAdd", "__subsf3": "Port_VuSub", "__mulsf3": "Port_VuMul", "__divsf3": "Port_VuDiv",
+              "sqrtf": "Port_VuSqrt"}
+
+
+def vu_redefine_args():
+    """objcopy arguments that send a VU file's float operations to the vector unit's arithmetic."""
+    return [f"--redefine-sym={a}={b}" for a, b in sorted(VU_RENAMES.items())]
+
 
 # clang has no -fpermissive for C: the same diagnostics are turned back into warnings one by one.
 CLANG_CFLAGS = ["-Wno-error=int-conversion", "-Wno-error=incompatible-pointer-types", "-Wno-error=return-mismatch",

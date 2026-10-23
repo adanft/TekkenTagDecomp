@@ -304,6 +304,7 @@ retry:
         *(u32 *)0x70000010 = n;
         if (n <= qwc) {
             func_0035E1C8();
+            EE_HW_POLL(); /* the ring drains while the EE waits for room */
             n = *(u32 *)0x70000010;
             goto retry;
         }

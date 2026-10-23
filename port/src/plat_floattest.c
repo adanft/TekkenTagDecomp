@@ -1,0 +1,315 @@
+/*
+ * Float self-test (TTT_SELFTEST=float): the EE float model (softfloat_ps2.c), the vector-unit entry points, the maths
+ * library (third_party/newlib_libm) and newlib's rand, checked on the running program. Prints a summary and exits.
+ *
+ * Groups:
+ *   pcsx2  port/tests/ps2float/pcsx2_v2.7.303.txt: 1500 inputs through every FPU and vector-unit operation class,
+ *          result bits printed by test.c running in PCSX2 2.7.303 (hardware-level data of the reference project; the
+ *          EE is the same chip). VERIFIED.
+ *   rules  single cases that follow from the EE's documented behaviour (no denormals, no infinity / NaN, clamping,
+ *          division by zero) and from the model the pcsx2 group verified.
+ *   libm   cases whose result the algorithm fixes exactly on any number model (fmodf is integer arithmetic,
+ *          sinf / cosf of 0, logf of 1...), and the error results of the executable's wrappers (wrappers.c).
+ *          The general libm results need a PCSX2 run of port/tests/ps2float/libm_test.c (PENDING); when
+ *          port/tests/ps2float/pcsx2_libm.txt exists it is compared too.
+ *   rand   newlib's rand / srand (the executable's 0x40FBD0 / 0x40FBC0 algorithm) on the game's own state word.
+ * The data directory is TTT_FLOATDATA, or port/tests/ps2float next to build/port/ttt.
+ */
+#include <errno.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+typedef uint32_t w32; /* a float's bits; every float function below is soft-float: bits in, bits out */
+
+w32 __addsf3(w32, w32), __subsf3(w32, w32), __mulsf3(w32, w32), __divsf3(w32, w32);
+int32_t __fixsfsi(w32);
+uint32_t __fixunssfsi(w32);
+w32 __floatsisf(int32_t), __floatunsisf(uint32_t);
+int __eqsf2(w32, w32), __ltsf2(w32, w32);
+w32 Port_FpuSqrt(w32), Port_FpuMadd(w32, w32, w32);
+w32 Port_VuAdd(w32, w32), Port_VuSub(w32, w32), Port_VuMul(w32, w32), Port_VuDiv(w32, w32), Port_VuSqrt(w32);
+w32 Port_VuMadd(w32, w32, w32);
+w32 L_sinf(w32) __asm__("sinf");
+w32 L_cosf(w32) __asm__("cosf");
+w32 L_asinf(w32) __asm__("asinf");
+w32 L_acosf(w32) __asm__("__ieee754_acosf");
+w32 L_atanf(w32) __asm__("atanf");
+w32 L_atan2f(w32, w32) __asm__("atan2f");
+w32 L_sqrtf(w32) __asm__("sqrtf");
+w32 L_ieee_sqrtf(w32) __asm__("__ieee754_sqrtf");
+w32 L_logf(w32) __asm__("logf");
+w32 L_powf(w32, w32) __asm__("powf");
+w32 L_fmodf(w32, w32) __asm__("fmodf");
+w32 L_fabsf(w32) __asm__("fabsf");
+w32 L_floorf(w32) __asm__("Nl_floorf");
+int rand(void);
+void srand(unsigned);
+extern int *D_004F5A8C; /* _impure_ptr: errno first, the rand state at +0x58 */
+
+static int sFailed;
+
+static void data_dir(char *out, size_t n) {
+    const char *e = getenv("TTT_FLOATDATA");
+    char exe[1024];
+    ssize_t k;
+    char *slash;
+
+    if (e != NULL) {
+        snprintf(out, n, "%s", e);
+        return;
+    }
+    out[0] = 0;
+    k = readlink("/proc/self/exe", exe, sizeof exe - 1);
+    if (k <= 0) {
+        return;
+    }
+    exe[k] = 0;
+    slash = strrchr(exe, '/');
+    if (slash != NULL) {
+        *slash = 0;
+        snprintf(out, n, "%s/../../port/tests/ps2float", exe); /* build/port/ttt -> port/tests/ps2float */
+    }
+}
+
+static FILE *open_data(const char *name) {
+    char dir[1100], path[1300];
+
+    data_dir(dir, sizeof dir);
+    snprintf(path, sizeof path, "%s/%s", dir, name);
+    return fopen(path, "r");
+}
+
+/* Reads one line of hexadecimal words; returns how many. */
+static int read_words(FILE *f, uint32_t *w, int max) {
+    char line[512], *p, *end;
+    int n = 0;
+
+    if (fgets(line, sizeof line, f) == NULL) {
+        return -1;
+    }
+    p = line;
+    while (n < max) {
+        unsigned long v = strtoul(p, &end, 16);
+        if (end == p) {
+            break;
+        }
+        w[n++] = (uint32_t)v;
+        p = end;
+    }
+    return n;
+}
+
+/* ---- pcsx2: test.c's columns ---- */
+static const char *const kOpCols[] = {"fpu_add", "fpu_sub", "fpu_mul", "fpu_div", "fpu_sqrt", "fpu_madd", "fpu_itof",
+                                      "fpu_ftoi", "vu_add", "vu_sub", "vu_mul", "vu_div", "vu_sqrt", "vu_madd",
+                                      "vu_itof", "vu_ftoi"};
+
+static void model_row(uint32_t a, uint32_t b, int32_t n, uint32_t *r) {
+    uint32_t ea = (a >> 23) & 0xFF;
+    uint32_t p = Port_VuMul(a, b);
+
+    r[0] = __addsf3(a, b);
+    r[1] = __subsf3(a, b);
+    r[2] = __mulsf3(a, b);
+    r[3] = __divsf3(a, b);
+    r[4] = Port_FpuSqrt(a);
+    r[5] = Port_FpuMadd(__addsf3(0, a), a, b); /* adda.s ACC = 0 + x; madd.s ACC + x * y */
+    r[6] = __floatsisf(n);
+    r[7] = (uint32_t)__fixsfsi((a & 0x807FFFFFu) | ((120 + (ea & 31)) << 23));
+    r[8] = Port_VuAdd(a, b);
+    r[9] = Port_VuSub(a, b);
+    r[10] = p;
+    r[11] = Port_VuDiv(a, b);
+    r[12] = Port_VuSqrt(a);
+    r[13] = Port_VuMadd(p, a, b); /* vmula ACC = x * y; vmadd ACC + x * y */
+    r[14] = __floatsisf(n);       /* vitof0: the same cut as cvt.s.w */
+    r[15] = (uint32_t)__fixsfsi(a);
+}
+
+static void group_pcsx2(void) {
+    FILE *f = open_data("pcsx2_v2.7.303.txt");
+    uint32_t w[19], r[16];
+    int bad[16] = {0}, rows = 0, i;
+
+    if (f == NULL) {
+        printf("ttt: float: pcsx2: data file not found (TTT_FLOATDATA)\n");
+        sFailed = 1;
+        return;
+    }
+    while (read_words(f, w, 19) == 19) {
+        model_row(w[0], w[1], (int32_t)w[2], r);
+        for (i = 0; i < 16; i++) {
+            if (r[i] != w[3 + i]) {
+                if (bad[i]++ == 0) {
+                    printf("ttt: float: pcsx2 %s a %08x b %08x n %08x: PCSX2 %08x, model %08x\n", kOpCols[i], w[0],
+                           w[1], w[2], w[3 + i], r[i]);
+                }
+            }
+        }
+        rows++;
+    }
+    fclose(f);
+    for (i = 0; i < 16; i++) {
+        if (bad[i]) {
+            printf("ttt: float: pcsx2 %-8s %d of %d differ\n", kOpCols[i], bad[i], rows);
+            sFailed = 1;
+        }
+    }
+    if (rows != 1500) {
+        printf("ttt: float: pcsx2: %d rows read, 1500 expected\n", rows);
+        sFailed = 1;
+    }
+    printf("ttt: float: pcsx2 (verified): %d cases x 16 operation classes\n", rows);
+}
+
+/* ---- single cases ---- */
+static int sCases;
+
+static void expect(const char *what, uint32_t got, uint32_t want) {
+    sCases++;
+    if (got != want) {
+        printf("ttt: float: %s: %08x, expected %08x\n", what, got, want);
+        sFailed = 1;
+    }
+}
+
+static void group_rules(void) {
+    sCases = 0;
+    expect("denormal + 0 is 0", __addsf3(0x00000001u, 0), 0);
+    expect("denormal * 1 is 0", __mulsf3(0x007FFFFFu, 0x3F800000u), 0);
+    expect("min normal / 2 flushes", __divsf3(0x00800000u, 0x40000000u), 0);
+    expect("max + max clamps", __addsf3(0x7F7FFFFFu, 0x7F7FFFFFu), 0x7F7FFFFFu);
+    expect("-max * 2 clamps", __mulsf3(0xFF7FFFFFu, 0x40000000u), 0xFF7FFFFFu);
+    expect("inf pattern is max", __addsf3(0x7F800000u, 0), 0x7F7FFFFFu);
+    expect("NaN pattern is max", __mulsf3(0x7FC00000u, 0x3F800000u), 0x7F7FFFFFu);
+    expect("1 / 0 is max", __divsf3(0x3F800000u, 0), 0x7F7FFFFFu);
+    expect("-1 / 0 is -max", __divsf3(0xBF800000u, 0), 0xFF7FFFFFu);
+    expect("1 / -0 is -max", __divsf3(0x3F800000u, 0x80000000u), 0xFF7FFFFFu);
+    expect("0 / 0 is max", __divsf3(0, 0), 0x7F7FFFFFu);
+    expect("x - x is +0", __subsf3(0xC1200000u, 0xC1200000u), 0);
+    expect("div.s rounds to nearest (1 / 30)", __divsf3(0x3F800000u, 0x41F00000u), 0x3D088889u);
+    expect("vdiv cuts (1 / 30)", Port_VuDiv(0x3F800000u, 0x41F00000u), 0x3D088888u);
+    expect("mul.s cuts (1/3 * 3)", __mulsf3(0x3EAAAAABu, 0x40400000u), 0x3F800000u);
+    expect("mul.s cuts (0.1 * 3)", __mulsf3(0x3DCCCCCDu, 0x40400000u), 0x3E999999u);
+    expect("add.s guard bit (1 + 2^-24 ulp)", __addsf3(0x3F800000u, 0x33800001u), 0x3F800000u);
+    expect("sqrt.s of -4 is 2", Port_FpuSqrt(0xC0800000u), 0x40000000u);
+    expect("sqrt.s rounds to nearest (sqrt 2)", Port_FpuSqrt(0x40000000u), 0x3FB504F3u);
+    expect("vsqrt cuts (sqrt 2)", Port_VuSqrt(0x40000000u), 0x3FB504F3u);
+    expect("sqrt.s rounds to nearest (sqrt 3)", Port_FpuSqrt(0x40400000u), 0x3FDDB3D7u);
+    expect("vsqrt cuts (sqrt 3)", Port_VuSqrt(0x40400000u), 0x3FDDB3D7u);
+    expect("sqrt.s rounds to nearest (sqrt 5)", Port_FpuSqrt(0x40A00000u), 0x400F1BBDu);
+    expect("vsqrt cuts (sqrt 5)", Port_VuSqrt(0x40A00000u), 0x400F1BBCu);
+    expect("sqrtf is sqrt.s", L_sqrtf(0x40A00000u), 0x400F1BBDu);
+    expect("cvt.s.w cuts 2^31-1", __floatsisf(0x7FFFFFFF), 0x4EFFFFFFu);
+    expect("cvt.s.w cuts 16777217", __floatsisf(16777217), 0x4B800000u);
+    expect("cvt.s.w -16777219", __floatsisf(-16777219), 0xCB800001u);
+    expect("cvt.w.s cuts 2.9", (uint32_t)__fixsfsi(0x4039999Au), 2);
+    expect("cvt.w.s cuts -2.9", (uint32_t)__fixsfsi(0xC039999Au), (uint32_t)-2);
+    expect("cvt.w.s saturates 3e9", (uint32_t)__fixsfsi(0x4F32D05Eu), 0x7FFFFFFFu);
+    expect("cvt.w.s saturates -3e9", (uint32_t)__fixsfsi(0xCF32D05Eu), 0x80000000u);
+    expect("float -> u32 of 3e9", __fixunssfsi(0x4F32D05Eu), 3000000000u);
+    expect("u32 -> float of 0xFFFFFFFF (-1 + 2^32, guard step)", __floatunsisf(0xFFFFFFFFu), 0x4F800000u);
+    expect("-0 == +0", (uint32_t)__eqsf2(0x80000000u, 0), 0);
+    expect("denormal == 0", (uint32_t)__eqsf2(0x00000005u, 0), 0);
+    expect("-1 < 1", (uint32_t)(__ltsf2(0xBF800000u, 0x3F800000u) < 0), 1);
+    expect("inf pattern == max", (uint32_t)__eqsf2(0x7F800000u, 0x7F7FFFFFu), 0);
+    printf("ttt: float: rules: %d cases\n", sCases);
+}
+
+static void group_libm(void) {
+    int *reent = D_004F5A8C;
+    FILE *f;
+
+    sCases = 0;
+    expect("sinf(0)", L_sinf(0), 0);
+    expect("sinf(-0)", L_sinf(0x80000000u), 0x80000000u);
+    expect("sinf(2^-30) = x", L_sinf(0x30800000u), 0x30800000u);
+    expect("cosf(0)", L_cosf(0), 0x3F800000u);
+    expect("atan2f(0, 1)", L_atan2f(0, 0x3F800000u), 0);
+    expect("atanf(0)", L_atanf(0), 0);
+    expect("asinf(0)", L_asinf(0), 0);
+    expect("logf(1)", L_logf(0x3F800000u), 0);
+    expect("fabsf(-3)", L_fabsf(0xC0400000u), 0x40400000u);
+    expect("floorf(-1.5)", L_floorf(0xBFC00000u), 0xC0000000u);
+    expect("floorf(2.75)", L_floorf(0x40300000u), 0x40000000u);
+    expect("fmodf(5.5, 2)", L_fmodf(0x40B00000u, 0x40000000u), 0x3FC00000u);
+    expect("fmodf(-7, 3)", L_fmodf(0xC0E00000u, 0x40400000u), 0xBF800000u);
+    expect("fmodf(6, 3) = +0", L_fmodf(0x40C00000u, 0x40400000u), 0);
+    expect("fmodf(-6, 3) = -0", L_fmodf(0xC0C00000u, 0x40400000u), 0x80000000u);
+    expect("fmodf(1, 3) = 1", L_fmodf(0x3F800000u, 0x40400000u), 0x3F800000u);
+    expect("fmodf(1000.25, 0.5)", L_fmodf(0x447A1000u, 0x3F000000u), 0x3E800000u);
+    expect("powf(2, 0) = 1", L_powf(0x40000000u, 0), 0x3F800000u);
+    expect("powf(x, 1) = x", L_powf(0x40490FDBu, 0x3F800000u), 0x40490FDBu);
+    expect("ieee754_sqrtf(4)", L_ieee_sqrtf(0x40800000u), 0x40000000u);
+    expect("acosf(1) = 0", L_acosf(0x3F800000u), 0);
+    /* error paths of the executable's wrappers (_LIB_VERSION 1, _XOPEN_); the errno cell is the game's */
+    reent[0] = 0;
+    expect("asinf(2) = +0 (DOMAIN)", L_asinf(0x40000000u), 0);
+    expect("asinf(2) errno EDOM", (uint32_t)reent[0], 33);
+    expect("atan2f(0, 0) = +0 (DOMAIN)", L_atan2f(0x80000000u, 0x80000000u), 0);
+    expect("logf(0) = -inf pattern (SING)", L_logf(0), 0xFF800000u);
+    expect("logf(-1) = -inf pattern (DOMAIN)", L_logf(0xBF800000u), 0xFF800000u);
+    expect("powf(0, 0) = 1", L_powf(0, 0), 0x3F800000u);
+    expect("powf(0, -1) = -inf pattern", L_powf(0, 0xBF800000u), 0xFF800000u);
+    expect("fmodf(1, 0) = fp-bit NaN", L_fmodf(0x3F800000u, 0), 0x7FB00000u);
+    reent[0] = 0;
+    printf("ttt: float: libm: %d exact / error-path cases (general results PENDING a PCSX2 run of libm_test.c)\n",
+           sCases);
+    f = open_data("pcsx2_libm.txt");
+    if (f != NULL) {
+        /* libm_test.c's columns: a b c sinf cosf atanf atan2f asinf acosf logf powf fmodf floorf */
+        uint32_t w[13], r[10];
+        int bad = 0, rows = 0, i;
+
+        while (read_words(f, w, 13) == 13) {
+            r[0] = L_sinf(w[0]);
+            r[1] = L_cosf(w[0]);
+            r[2] = L_atanf(w[0]);
+            r[3] = L_atan2f(w[0], w[1]);
+            r[4] = L_asinf(w[2]);
+            r[5] = L_acosf(w[2]);
+            r[6] = L_logf(w[0] & 0x7FFFFFFFu);
+            r[7] = L_powf(w[0] & 0x7FFFFFFFu, w[2]);
+            r[8] = L_fmodf(w[0], w[1]);
+            r[9] = L_floorf(w[0]);
+            for (i = 0; i < 10; i++) {
+                if (r[i] != w[3 + i] && bad++ < 5) {
+                    printf("ttt: float: libm row %d column %d: PCSX2 %08x, port %08x\n", rows, 3 + i, w[3 + i], r[i]);
+                }
+            }
+            rows++;
+        }
+        fclose(f);
+        printf("ttt: float: libm (PCSX2 data): %d rows, %d results differ\n", rows, bad);
+        sFailed |= bad != 0;
+    }
+}
+
+static void group_rand(void) {
+    uint32_t save = (uint32_t)D_004F5A8C[0x58 / 4];
+
+    sCases = 0;
+    srand(1);
+    expect("rand #1 after srand(1)", (uint32_t)rand(), 1103527590u);
+    expect("rand #2", (uint32_t)rand(), 377401575u);
+    expect("rand #3", (uint32_t)rand(), 662824084u);
+    expect("rand #4", (uint32_t)rand(), 1147902781u);
+    expect("rand #5", (uint32_t)rand(), 2035015474u);
+    expect("state word in EE RAM (_impure_ptr + 0x58)", (uint32_t)D_004F5A8C[0x58 / 4], 0xF94BDF32u);
+    D_004F5A8C[0x58 / 4] = (int)save;
+    printf("ttt: float: rand: %d cases\n", sCases);
+}
+
+void Port_FloatSelfTest(void) {
+    group_pcsx2();
+    group_rules();
+    group_libm();
+    group_rand();
+    if (!sFailed) {
+        printf("ttt: float self-test OK\n");
+    }
+    exit(sFailed);
+}

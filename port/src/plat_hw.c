@@ -194,6 +194,8 @@ static int mfifo_mode(void) { return (int)((REG(D_CTRL) >> 2) & 3); }
 static int mfifo_drain(int ch) { return (mfifo_mode() == 2 && ch == 1) || (mfifo_mode() == 3 && ch == 2); }
 static uint32_t ring_wrap(uint32_t a) { return REG(D_RBOR) | (a & REG(D_RBSR)); }
 
+void Port_Vif0Feed(const uint32_t *w, uint32_t n); /* vu0_micro.c */
+
 /* One block of a transfer: `qwc` quadwords at DMA address `addr`. */
 static void dma_block(int ch, uint32_t addr, uint32_t qwc) {
     uint32_t base = kDmaBase[ch], i;
@@ -213,7 +215,10 @@ static void dma_block(int ch, uint32_t addr, uint32_t qwc) {
         }
         REG(base + SADR) = (sadr + qwc * 16) & 0x3FF0u;
     }
-    /* VIF0 / VIF1 / GIF / IPU / SIF: dropped here; the GS path (T28) takes the blocks over. */
+    if (ch == 0 && qwc != 0) { /* VIF0: microcode uploads (vu0_micro.c) */
+        Port_Vif0Feed((const uint32_t *)Port_DmaPtr(addr), qwc * 4);
+    }
+    /* VIF1 / GIF / IPU / SIF: dropped here; the GS path (T28) takes the blocks over. */
 }
 
 /* Source chain (CHCR.MOD = 1) from TADR: refe / cnt / next / ref / refs / call / ret / end. Returns 0 when an MFIFO
@@ -238,6 +243,9 @@ static int dma_source_chain(int ch) {
         id = (tag[0] >> 28) & 7;
         addr = tag[1];
         irq = tag[0] >> 31;
+        if (ch == 0 && (REG(base + CHCR) & 0x40u)) { /* TTE: the tag's upper half goes to VIF0 as two codes */
+            Port_Vif0Feed(&tag[2], 2);
+        }
         switch (id) {
         case 0: /* refe */
             dma_block(ch, addr, qwc);
@@ -628,9 +636,10 @@ void Port_HwSelfTest(void) {
     exit(sFails != 0);
 }
 
-void Port_RpcSelfTest(void); /* plat_sys.c */
+void Port_RpcSelfTest(void);   /* plat_sys.c */
+void Port_FloatSelfTest(void); /* plat_floattest.c */
 
-/* TTT_SELFTEST=hw | rpc: run after the memory map (plat_mem.c, constructor 101), print and exit. */
+/* TTT_SELFTEST=hw | rpc | float: run after the memory map (plat_mem.c, constructor 101), print and exit. */
 __attribute__((constructor(102))) static void Port_HwSelfTestEntry(void) {
     const char *t = getenv("TTT_SELFTEST");
     if (t != NULL && strcmp(t, "hw") == 0) {
@@ -638,5 +647,8 @@ __attribute__((constructor(102))) static void Port_HwSelfTestEntry(void) {
     }
     if (t != NULL && strcmp(t, "rpc") == 0) {
         Port_RpcSelfTest();
+    }
+    if (t != NULL && strcmp(t, "float") == 0) {
+        Port_FloatSelfTest();
     }
 }

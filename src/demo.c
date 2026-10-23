@@ -211,13 +211,23 @@ void func_003DE850(s32 side, struct DemoImg *img);
 void func_003DEC20(void);
 void func_00349D70(void *m, f32 *v);
 void sceVu0ScaleVector(void *d, void *s, f32 k);
+#ifdef PORT
+/* The PS2 routine takes four arguments, d = a * k + b * (1 - k) (src/geometry_b.c func_0034A184); the matched callers
+ * below pass the third ($a2) without naming it (docs/port/README.md, "Leftover argument registers"). */
+void func_0034A180(void *d, void *a, void *b, f32 k);
+#else
 void func_0034A180(void *m, void *r, f32 k);
+#endif
 void func_0034A710(void *a, void *b);
 struct DemoImg *func_00364528(s32 i, u8 *p);
 u64 *func_00399520(void);
 void func_00399650(u64 *p);
 void func_003DD098(void);
+#ifdef PORT
+void func_003DD8E8(void *m, void *r, void *b, f32 k);
+#else
 void func_003DD8E8(void *m, void *r, f32 k);
+#endif
 void func_003DE0D8(u8 *f);
 s16 *func_00364390(void *f, s32 ch);
 void func_00365718(void *f);
@@ -692,10 +702,18 @@ void func_003DD890(u8 *m, s16 *v, s32 k) {
     *(f32 *)(m + 0x38) = v[2] * fk * (1.0f / 40960.0f);
 }
 
+#ifdef PORT
+/* $a2 (b) comes from the caller untouched: the blend partner of m (m itself, or the previous frame's matrix). */
+void func_003DD8E8(void *m, void *r, void *b, f32 k) {
+    func_0034A180(m, r, b, k);
+    func_0034A710(m, m);
+}
+#else
 void func_003DD8E8(void *m, void *r, f32 k) {
     func_0034A180(m, r, k);
     func_0034A710(m, m);
 }
+#endif
 
 #if 0
 /* NON_MATCHING: 494 lines: m2c draft (float first arguments reordered by hand) */
@@ -784,7 +802,7 @@ void func_003DD918(void *arg0) {
 block_18:
                     var_s7_2 += 1;
                     func_003DD788(sp, var_a1);
-                    func_003DD8E8(var_s4_2, sp, temp_f22);
+                    func_003DD8E8(var_s4_2, sp, var_s4_2, temp_f22);
                     break;
                 case 3:
                     func_00349D70(sp, (var_s7_2 * 0xC) + temp_fp);
@@ -792,7 +810,7 @@ block_18:
                     var_a1_2 = temp_v0 + 0xC;
 block_32:
                     func_003DD890(sp, var_a1_2, M2C_FIELD(arg0, s32 *, 0x500));
-                    func_0034A180(var_s4_2, sp, temp_f22);
+                    func_0034A180(var_s4_2, sp, var_s4_2, temp_f22);
 block_33:
                     temp_a0_3 = var_s4_2 + 0x30;
                     sceVu0InterVector(temp_a0_3, &sp30, temp_a0_3, temp_f22);
@@ -803,7 +821,7 @@ block_35:
                 case 6:
                     func_003DD788(sp, temp_v0 + 0x1E);
                     temp_s3 = var_s4_2 + 0x10;
-                    func_003DD8E8(var_s4_2, sp, temp_f22);
+                    func_003DD8E8(var_s4_2, sp, arg0 + 0xB0A0, temp_f22);
                     temp_s2 = var_s4_2 + 0x20;
                     M2C_FIELD(arg0, s128 *, 0xB0A0) = (s128) M2C_FIELD(var_s4_2, s128 *, 0);
                     M2C_FIELD(arg0, s128 *, 0xB0B0) = (s128) M2C_FIELD(var_s4_2, s128 *, 0x10);
@@ -821,7 +839,7 @@ block_35:
                     goto block_35;
                 case 7:
                     func_003DD788(sp, temp_v0 + 0x24);
-                    func_003DD8E8(var_s4_2, sp, temp_f22);
+                    func_003DD8E8(var_s4_2, sp, arg0 + 0xB0E0, temp_f22);
                     M2C_FIELD(arg0, s128 *, 0xB0E0) = (s128) M2C_FIELD(var_s4_2, s128 *, 0);
                     M2C_FIELD(arg0, s128 *, 0xB0F0) = (s128) M2C_FIELD(var_s4_2, s128 *, 0x10);
                     temp_s2_2 = var_s4_2 + 0x10;
@@ -878,12 +896,12 @@ block_35:
                 case 10:
                     func_003DD788(sp, temp_v0 + 0x72);
                     func_003DD890(sp, temp_v0 + 0x66, M2C_FIELD(arg0, s32 *, 0x500));
-                    func_003DD8E8(var_s4_2, sp, temp_f22);
+                    func_003DD8E8(var_s4_2, sp, var_s4_2, temp_f22);
                     goto block_33;
                 case 11:
                     func_003DD788(sp, temp_v0 + 0x78);
                     func_003DD890(sp, temp_v0 + 0x6C, M2C_FIELD(arg0, s32 *, 0x500));
-                    func_003DD8E8(var_s4_2, sp, temp_f22);
+                    func_003DD8E8(var_s4_2, sp, var_s4_2, temp_f22);
                     goto block_33;
                 case 8:
                     func_00349D70(sp, (var_s7_2 * 0xC) + temp_fp);
@@ -914,7 +932,7 @@ block_35:
                     func_00349D70(sp, (var_s7_2 * 0xC) + temp_fp);
                     func_003DD800(sp, temp_v0 + 0xB4, M2C_FIELD(arg0, s32 *, 0x500));
                     func_003DD890(sp, temp_v0 + 0xC0, M2C_FIELD(arg0, s32 *, 0x500));
-                    func_0034A180(var_s4_2, sp, temp_f22);
+                    func_0034A180(var_s4_2, sp, var_s4_2, temp_f22);
                     temp_a0_4 = var_s4_2 + 0x30;
                     sceVu0InterVector(temp_a0_4, &sp30, temp_a0_4, temp_f22);
                     goto block_35;
@@ -962,7 +980,7 @@ void func_003DE0D8(u8 *f) {
         for (i = 0x27; i < 0x36; i++) {
             if ((u32)(i - 0x27) < 15) {
                 func_003DD788(m, (s16 *)((u8 *)a + (i - 0x27) * 6));
-                func_003DD8E8(dst, m, *(f32 *)(f + 0xB080));
+                func_003DD8E8(dst, m, dst, *(f32 *)(f + 0xB080));
             }
             dst += 0x40;
         }
@@ -978,12 +996,12 @@ void func_003DE0D8(u8 *f) {
                 v[1] = (s16)-p[1] * (3.141593f / 32768.0f);
                 v[2] = (s16)-p[2] * (3.141593f / 32768.0f);
                 func_00349D70(m, v);
-                func_003DD8E8(dst, m, *(f32 *)(f + 0xB07C));
+                func_003DD8E8(dst, m, dst, *(f32 *)(f + 0xB07C));
                 break;
             case 0x41:
             case 0x42:
                 func_003DD788(m, (s16 *)((u8 *)a + (i - 0x40) * 6));
-                func_003DD8E8(dst, m, *(f32 *)(f + 0xB07C));
+                func_003DD8E8(dst, m, dst, *(f32 *)(f + 0xB07C));
                 break;
             case 0x43:
             case 0x44:
@@ -997,7 +1015,7 @@ void func_003DE0D8(u8 *f) {
                 v[1] = (s16)-p[1] * (3.141593f / 32768.0f);
                 v[2] = (s16)-p[2] * (3.141593f / 32768.0f);
                 func_00349D70(m, v);
-                func_003DD8E8(dst, m, *(f32 *)(f + 0xB07C));
+                func_003DD8E8(dst, m, dst, *(f32 *)(f + 0xB07C));
                 break;
             case 0x45:
             case 0x48:
@@ -1007,7 +1025,7 @@ void func_003DE0D8(u8 *f) {
                 v[1] = (s16)-p[1] * (3.141593f / 32768.0f);
                 v[2] = (s16)-p[2] * (3.141593f / 32768.0f);
                 func_00349D70(m, v);
-                func_003DD8E8(dst, m, *(f32 *)(f + 0xB07C));
+                func_003DD8E8(dst, m, dst, *(f32 *)(f + 0xB07C));
                 break;
             }
             dst += 0x40;

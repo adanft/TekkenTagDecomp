@@ -216,8 +216,11 @@ described; no game data is reproduced.
   0x1D attack volume `src/fight_misc.c:899` `func_00378760` (`atan2f` of points moved by `sceVu0ApplyMatrix`).
 - **Original**: the R5900 FPU rounds toward zero, flushes denormals to zero and has no infinities or NaN (results
   clamp to the largest value); `cvt.w.s` truncates.
-- **Port**: run game float code on the EE model (`softfloat_ps2`, T23) and newlib's libm, not host SSE and libm.
-- **Status**: `[I]` (R5900 manual); `[?]` results in PCSX2 (T23 test ELFs).
+- **Port**: done in T23: every float operation runs on the EE model (`port/src/softfloat_ps2.c`; the FPU's add keeps one
+  guard bit, its div.s / sqrt.s round to nearest under PCSX2) and newlib's libm (`third_party/newlib_libm`); no host
+  float code is linked.
+- **Status**: `[V]` for the operation classes (1500 PCSX2 2.7.303 results per class, `port/tests/ps2float`); `[?]` the
+  game's own libm results (test ELF built, PCSX2 run pending).
 
 ### Nine objects built without `-ffast-math`
 
@@ -227,7 +230,8 @@ described; no game data is reproduced.
   game was built with `-ffast-math` (folded constants, bare `sqrt.s`).
 - **Port**: build each file with the same float flags as the original; a host compiler must not contract, reassociate
   or fold differently (no `-ffast-math`, no FMA contraction on the game code), and float constants must be ee-gcc's
-  values.
+  values: TTT's compiler rounds decimal constants and folds to nearest like the host (0.1f = 0x3DCCCCCD in the
+  executable), so no constant rewriting is needed (unlike the reference project's compiler).
 - **Status**: `[V]` (matching builds).
 
 ### Skeleton float path only outside fights

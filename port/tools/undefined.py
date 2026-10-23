@@ -14,7 +14,8 @@ import re
 import subprocess
 import sys
 
-from toolchain import BUILD, DATA_OBJ, OBJ, PORT_CFLAGS, ROOT, cc, game_cflags
+from toolchain import (BUILD, DATA_OBJ, NEWLIB, NEWLIB_CFLAGS, OBJ, PORT_CFLAGS, ROOT, VU_FILES, cc, game_cflags,
+                       vu_redefine_args)
 import portsrc
 
 TEXT_START, TEXT_END = 0x340000, 0x415700  # .text of SLUS_200.01; .data and the rest follow
@@ -63,6 +64,8 @@ def compile_one(job):
     compiler, src, obj, flags = job
     r = subprocess.run([compiler, "-c"] + flags + [str(src), "-o", str(obj)],
                        cwd=ROOT, capture_output=True, text=True)
+    if r.returncode == 0 and src.parent == ROOT / "port/src" and src.name in VU_FILES:
+        r = subprocess.run(["objcopy"] + vu_redefine_args() + [str(obj)], cwd=ROOT, capture_output=True, text=True)
     return src, obj, r.returncode, r.stderr
 
 
@@ -76,6 +79,8 @@ def jobs():
         out.append((cc(), src, OBJ / f"{f.stem}.o", game_cflags() + [f"-I{ROOT / 'src'}"]))
     for f in sorted((ROOT / "port/src").glob("*.c")):
         out.append(("gcc", f, OBJ / f"pc_{f.stem}.o", PORT_CFLAGS))
+    for f in sorted(NEWLIB.glob("*.c")):  # the PS2's maths library, on the EE float model
+        out.append(("gcc", f, OBJ / f"nl_{f.stem}.o", NEWLIB_CFLAGS))
     return out, missing
 
 
