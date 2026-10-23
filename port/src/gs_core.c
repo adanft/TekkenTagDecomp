@@ -18,7 +18,7 @@
  * Added: the CLUT buffer with CLD / CSA / CSM2, fog, PABE, COLCLAMP, DATE, FBA, local -> local transfers, SIGNAL /
  * FINISH / LABEL, and the frame dump.
  *
- * Not modelled: bilinear filtering and mip-mapping (nearest texel of level 0), dithering, anti-aliasing, GS -> host
+ * Not modelled: mip-mapping (level 0 only, nearest or bilinear by TEX1), dithering, anti-aliasing, GS -> host
  * transfers (counted), the exact rasterisation rules of the hardware beyond the top-left fill convention.
  *
  * TTT_DUMP=<dir> writes the displayed picture as <dir>/frame_<vblank>.png every TTT_DUMP_EVERY VBlanks (default 60):
@@ -198,11 +198,18 @@ static struct {
     uint32_t cbp[2], clutGen;
 } gs;
 
+/* TTT_GS_TRACE=1: per VBlank, the pixels written per frame buffer (FBP) and the last TEX0 / FRAME / TEST used. */
+static int sTrace = -1;
+static struct { uint32_t px, prims; uint64_t tex0, frame, test, alpha; } sTr[512];
 static uint32_t sUploadGen; /* bumped by every write into GS memory through a transfer (CLD 4 / 5, below) */
 static struct { uint32_t tags, prims, pixels, imageQw, localCopies, readbacks, regs; } sStat;
 
 /* GIF tag state of each path (1 = VU1, 2 = VIF1, 3 = GIF channel) */
 static struct { uint64_t lo, hi; uint32_t loops, reg; } sPath[4];
+static uint32_t sTracePrimVb, sCurVb;
+static int sTraceX = -1, sTraceY = -1;
+static uint32_t sPathTags[4], sTraceBad, sBlockQwc;
+static const uint8_t *sBlock;
 
 void Gs_Reset(void) {
     tables_init();
@@ -311,13 +318,79 @@ static uint32_t texel(int ctx, int u, int v) {
     return bits > 8 ? expand(c, psm) : clut_read(t0, c, bits);
 }
 
+/* Q of the pixel being drawn as sPixQ / 2^sPixQSh (the level of detail of LCM 0 depends on it): set by the
+   rasteriser. */
+static int64_t sPixQ = (int64_t)1 << 20;
+static int sPixQSh = 20;
+
+/* log2(x) in 1/16 units for x > 0: the position of the highest bit, then the next four bits as the fraction
+   [I: a linear fraction; the GS's own log2 of Q is not documented beyond "log2(1/|Q|)"]. */
+static int32_t log2_16(int64_t x) {
+    int p = 0;
+    while (p < 62 && (x >> (p + 1)) != 0) {
+        p++;
+    }
+    return p * 16 + (int32_t)((p >= 4 ? x >> (p - 4) : x << (4 - p)) & 15);
+}
+
+/* The texel colour at (u16, v16) (1/16 texel) with TEX1's filter: LOD = K (LCM 1) or (log2(1/|Q|) << L) + K (LCM 0),
+   in 1/16; LOD <= 0 magnifies (MMAG), else minifies (MMIN). Linear (MMAG 1, MMIN 1 / 4 / 5) weighs the four texels
+   around the point half a texel up and left with the coordinates' 4-bit fractions, colour and alpha alike. Only level
+   0 is read: no mip-maps (MXL), which the game does not use. */
+static uint32_t sample(int ctx, int32_t u16, int32_t v16) {
+    uint64_t t1 = gs.tex1[ctx];
+    int32_t k = (int32_t)((t1 >> 32) & 0xFFF), lod;
+    int linear;
+    uint32_t c00, c10, c01, c11, out = 0;
+    int32_t fu, fv, u0, v0, i;
+
+    if (k & 0x800) {
+        k -= 0x1000;
+    }
+    if (t1 & 1) {
+        lod = k;
+    } else {
+        int64_t q = sPixQ < 0 ? -sPixQ : sPixQ;
+        lod = ((sPixQSh * 16 - log2_16(q != 0 ? q : 1)) << ((t1 >> 19) & 3)) + k;
+    }
+    if (lod <= 0) {
+        linear = (int)((t1 >> 5) & 1);
+    } else {
+        uint32_t mmin = (uint32_t)(t1 >> 6) & 7;
+        linear = mmin == 1 || mmin == 4 || mmin == 5; /* LINEAR, LINEAR_MIPMAP_NEAREST / _LINEAR: linear inside a level */
+    }
+    if (!linear) {
+        return texel(ctx, u16 >> 4, v16 >> 4);
+    }
+    u16 -= 8;
+    v16 -= 8;
+    u0 = u16 >> 4;
+    v0 = v16 >> 4;
+    fu = u16 & 15;
+    fv = v16 & 15;
+    c00 = texel(ctx, u0, v0);
+    if (fu == 0 && fv == 0) {
+        return c00;
+    }
+    c10 = texel(ctx, u0 + 1, v0);
+    c01 = texel(ctx, u0, v0 + 1);
+    c11 = texel(ctx, u0 + 1, v0 + 1);
+    for (i = 0; i < 32; i += 8) {
+        uint32_t a = (c00 >> i) & 0xFF, b = (c10 >> i) & 0xFF, c = (c01 >> i) & 0xFF, d = (c11 >> i) & 0xFF;
+        uint32_t v = (a * (uint32_t)(16 - fu) * (uint32_t)(16 - fv) + b * (uint32_t)fu * (uint32_t)(16 - fv) + c * (uint32_t)(16 - fu) * (uint32_t)fv +
+                      d * (uint32_t)fu * (uint32_t)fv) >> 8;
+        out |= v << i;
+    }
+    return out;
+}
+
 /* Texture function (TEX0.TFX, TCC) on a vertex colour; u16 / v16 are texel coordinates in 1/16 texel. */
 static uint32_t shade(int ctx, uint32_t vc, int32_t u16, int32_t v16) {
     uint64_t t0 = gs.tex0[ctx];
     uint32_t tc, out = 0, tfx = (t0 >> 35) & 3, tcc = (t0 >> 34) & 1, av = vc >> 24, at, a;
     int i;
 
-    tc = texel(ctx, u16 >> 4, v16 >> 4);
+    tc = sample(ctx, u16, v16);
     at = tc >> 24;
     for (i = 0; i < 3; i++) {
         uint32_t cv = (vc >> (8 * i)) & 0xFF, ct = (tc >> (8 * i)) & 0xFF, c;
@@ -343,6 +416,7 @@ static uint32_t fogged(uint32_t c, uint32_t f) {
 
 /* ------------------------------------------------------------------------------------------------ pixels */
 
+static int tex_on(void);
 static void pixel(int ctx, int x, int y, uint32_t z, uint32_t src) {
     uint64_t test = gs.test[ctx], al = gs.alpha[ctx], zb = gs.zbuf[ctx], pr = gs.prim, sc = gs.scissor[ctx], fr = gs.frame[ctx];
     uint32_t fbp = (uint32_t)(fr & 0x1FF) << 5, fbw = (fr >> 16) & 0x3F, fpsm = (fr >> 24) & 0x3F;
@@ -441,6 +515,17 @@ static void pixel(int ctx, int x, int y, uint32_t z, uint32_t src) {
         }
         vram_rw(fbp, fbw, fpsm, (uint32_t)x, (uint32_t)y, 1, c);
         sStat.pixels++;
+        if (sTracePrimVb != 0 && sCurVb == sTracePrimVb && x == sTraceX && y == sTraceY) {
+            printf("gs-pixel %d,%d fbp %X src %08X old %08X new %08X prim %03llX tex0 %016llX alpha %llX test %llX\n", x, y, fbp, src, old, c,
+                   (unsigned long long)gs.prim, (unsigned long long)gs.tex0[ctx], (unsigned long long)al, (unsigned long long)test);
+        }
+        if (sTrace > 0) {
+            sTr[fbp >> 5].px++;
+            sTr[fbp >> 5].tex0 = tex_on() ? gs.tex0[ctx] : 0;
+            sTr[fbp >> 5].frame = fr;
+            sTr[fbp >> 5].test = test;
+            sTr[fbp >> 5].alpha = al;
+        }
     }
     if (write_z) {
         vram_rw(zbp, fbw, zpsm, (uint32_t)x, (uint32_t)y, 1, z);
@@ -449,7 +534,7 @@ static void pixel(int ctx, int x, int y, uint32_t z, uint32_t src) {
 
 /* ------------------------------------------------------------------------------------------------ primitives */
 
-/* A float's value times 2^shift, from its bits (EE floats: exponent 0 is zero), clamped to +/- 2^40. */
+/* A float's value times 2^shift, from its bits (EE floats: exponent 0 is zero), clamped to +/- 2^62. */
 static int64_t fix(uint32_t bits, int shift) {
     int e = (int)((bits >> 23) & 0xFF), sh;
     int64_t m = (int64_t)((bits & 0x7FFFFF) | 0x800000), r;
@@ -458,8 +543,8 @@ static int64_t fix(uint32_t bits, int shift) {
         return 0;
     }
     sh = e - 150 + shift;
-    if (sh > 16) {
-        r = (int64_t)1 << 40;
+    if (sh > 38) {
+        r = (int64_t)1 << 62;
     } else if (sh >= 0) {
         r = m << sh;
     } else if (sh > -32) {
@@ -470,11 +555,31 @@ static int64_t fix(uint32_t bits, int shift) {
     return (bits >> 31) ? -r : r;
 }
 
+/* The shift that puts the largest of n floats near 2^36 (S, T and Q of a primitive share it, so S / Q keeps its
+   precision however small Q gets: far away Q is about 2^-14, which a fixed 2^20 scale left with 6 bits). */
+static int stq_shift(const uint32_t *bits, int n) {
+    int i, e = 0;
+    for (i = 0; i < n; i++) {
+        int ei = (int)((bits[i] >> 23) & 0xFF);
+        if (ei > e) {
+            e = ei;
+        }
+    }
+    return e == 0 ? 20 : 36 - (e - 127) - 1;
+}
+
 /* S / Q times the texture's size, in 1/16 texel. */
 static int32_t stq_texel(int64_t s20, int64_t q20, int log2size) {
     int64_t r;
     if (q20 == 0) {
-        q20 = (int64_t)1 << 20;
+        q20 = 1;
+    }
+    if (s20 > ((int64_t)1 << 47) || s20 < -((int64_t)1 << 47)) { /* keep s * size inside 64 bits */
+        s20 >>= 14;
+        q20 >>= 14;
+        if (q20 == 0) {
+            q20 = 1;
+        }
     }
     r = s20 * ((int64_t)16 << log2size) / q20;
     return r > 0x3FFFFFFF ? 0x3FFFFFFF : r < -0x3FFFFFFF ? -0x3FFFFFFF : (int32_t)r;
@@ -515,12 +620,21 @@ static void draw_sprite(int ctx, const Vtx *a, const Vtx *b) {
 
     if (fst_on()) {
         U0 = a->u; U1 = b->u; V0 = a->v; V1 = b->v;
+        sPixQ = fix(b->q, 20);
+        sPixQSh = 20;
     } else {
         uint64_t t0 = gs.tex0[ctx];
         int lw = (int)((t0 >> 26) & 15), lh = (int)((t0 >> 30) & 15);
-        int64_t q = fix(b->q, 20);
-        U0 = stq_texel(fix(a->s, 20), q, lw); U1 = stq_texel(fix(b->s, 20), q, lw);
-        V0 = stq_texel(fix(a->t, 20), q, lh); V1 = stq_texel(fix(b->t, 20), q, lh);
+        uint32_t f[5];
+        int sh;
+        int64_t q;
+        f[0] = a->s; f[1] = b->s; f[2] = a->t; f[3] = b->t; f[4] = b->q;
+        sh = stq_shift(f, 5);
+        q = fix(b->q, sh);
+        sPixQ = q;
+        sPixQSh = sh;
+        U0 = stq_texel(fix(a->s, sh), q, lw); U1 = stq_texel(fix(b->s, sh), q, lw);
+        V0 = stq_texel(fix(a->t, sh), q, lh); V1 = stq_texel(fix(b->t, sh), q, lh);
     }
     if (X0 > X1) { int32_t t = X0; X0 = X1; X1 = t; t = U0; U0 = U1; U1 = t; }
     if (Y0 > Y1) { int32_t t = Y0; Y0 = Y1; Y1 = t; t = V0; V0 = V1; V1 = t; }
@@ -559,6 +673,7 @@ static void draw_triangle(int ctx, const Vtx *a, const Vtx *b, const Vtx *c) {
     int bias0, bias1, bias2, x, y, x0, x1, y0, y1, sx0, sx1, sy0, sy1;
     int32_t minx, maxx, miny, maxy;
     int64_t S[3] = {0, 0, 0}, T[3] = {0, 0, 0}, Q[3] = {0, 0, 0};
+    int qsh = 20;
     int lw = (int)((gs.tex0[ctx] >> 26) & 15), lh = (int)((gs.tex0[ctx] >> 30) & 15);
     const Vtx *v[3];
 
@@ -568,11 +683,22 @@ static void draw_triangle(int ctx, const Vtx *a, const Vtx *b, const Vtx *c) {
     area *= sign;
     v[0] = a; v[1] = b; v[2] = c;
     if (tex && !fst) {
+        uint32_t f[9];
         for (x = 0; x < 3; x++) {
-            S[x] = fix(v[x]->s, 20);
-            T[x] = fix(v[x]->t, 20);
-            Q[x] = fix(v[x]->q, 20);
+            f[x * 3] = v[x]->s;
+            f[x * 3 + 1] = v[x]->t;
+            f[x * 3 + 2] = v[x]->q;
         }
+        qsh = stq_shift(f, 9);
+        for (x = 0; x < 3; x++) {
+            S[x] = fix(v[x]->s, qsh);
+            T[x] = fix(v[x]->t, qsh);
+            Q[x] = fix(v[x]->q, qsh);
+        }
+    }
+    if (tex && fst) {
+        sPixQ = fix(c->q, 20);
+        sPixQSh = 20;
     }
     bias0 = top_left(b, c, sign) ? 0 : 1;
     bias1 = top_left(c, a, sign) ? 0 : 1;
@@ -620,6 +746,8 @@ static void draw_triangle(int ctx, const Vtx *a, const Vtx *b, const Vtx *c) {
                     v16 = (int32_t)LERP((int64_t)a->v, (int64_t)b->v, (int64_t)c->v);
                 } else {
                     int64_t q = LERP(Q[0], Q[1], Q[2]);
+                    sPixQ = q;
+                    sPixQSh = qsh;
                     u16 = stq_texel(LERP(S[0], S[1], S[2]), q, lw);
                     v16 = stq_texel(LERP(T[0], T[1], T[2]), q, lh);
                 }
@@ -661,6 +789,12 @@ static void vertex(uint32_t x, uint32_t y, uint32_t z, uint32_t f, int kick) {
         gs.vtx[0] = gs.vtx[1];
         gs.vtx[1] = gs.vtx[2];
         gs.vtx[2] = v;
+    }
+    if (kick && sTracePrimVb != 0 && sCurVb == sTracePrimVb) {
+        printf("gs-prim t%d ctx%d prim %03llX xy %d,%d z %X uv %d,%d st %08X,%08X q %08X rgba %08X tex0 %016llX tex1 %llX clamp %llX frame %llX test %llX alpha %llX texa %llX\n",
+               type, ctx, (unsigned long long)gs.prim, v.x >> 4, v.y >> 4, v.z, v.u >> 4, v.v >> 4, v.s, v.t, v.q, v.rgba,
+               (unsigned long long)gs.tex0[ctx], (unsigned long long)gs.tex1[ctx], (unsigned long long)gs.clamp[ctx], (unsigned long long)gs.frame[ctx],
+               (unsigned long long)gs.test[ctx], (unsigned long long)gs.alpha[ctx], (unsigned long long)gs.texa);
     }
     switch (type) {
     case 0:
@@ -735,6 +869,10 @@ static void transfer_begin(void) {
     gs.tw = gs.trxreg & 0xFFF;
     gs.th = (gs.trxreg >> 32) & 0xFFF;
     gs.tpos = 0;
+    if (sTrace > 0) {
+        printf("gs-xfer %u dir %u bitbltbuf %016llX trxpos %llX trxreg %llX\n", sCurVb, dir, (unsigned long long)gs.bitbltbuf,
+               (unsigned long long)gs.trxpos, (unsigned long long)gs.trxreg);
+    }
     if (dir == 1) {
         sStat.readbacks++; /* GS -> host: not modelled */
     } else if (dir == 2) { /* local -> local, at once */
@@ -890,6 +1028,8 @@ void Gs_Gif(int path, const uint8_t *p, uint32_t qwc) {
     uint64_t q[2];
     tables_init();
     path &= 3;
+    sBlock = p;
+    sBlockQwc = qwc;
     while (qwc != 0) {
         uint32_t flg, nreg;
         if (sPath[path].loops == 0) {
@@ -897,6 +1037,13 @@ void Gs_Gif(int path, const uint8_t *p, uint32_t qwc) {
             p += 16;
             qwc--;
             sStat.tags++;
+            sPathTags[path]++;
+            if (sTrace > 0 && ((q[0] >> 16) & 0x3FFFFFFFull) != 0 && sTraceBad < 4) {
+                sTraceBad++;
+                printf("gs-trace bad tag path %d at %p (block %p qwc %u): %016llX %016llX, previous %016llX %016llX\n", path,
+                       (const void *)(p - 16), (const void *)sBlock, sBlockQwc, (unsigned long long)q[0], (unsigned long long)q[1],
+                       (unsigned long long)sPath[path].lo, (unsigned long long)sPath[path].hi);
+            }
             sPath[path].lo = q[0];
             sPath[path].hi = q[1];
             sPath[path].loops = q[0] & 0x7FFF;
@@ -1091,6 +1238,7 @@ static uint8_t *displayed(uint32_t *w, uint32_t *h) {
     for (y = 0; y < buflines; y++) {
         for (x = 0; x < width; x++) {
             uint32_t c = vram_rw(fbp, fbw, psm, dbx + x, dby + y, 0, 0), k;
+            if ((int)x == sTraceX && (int)y == sTraceY) { printf("gs-disp %d,%d fbp %X fbw %u psm %X dbx %u dby %u -> %08X\n", x, y, fbp, fbw, psm, dbx, dby, c); }
             if (psm_bits(psm) == 16) {
                 c = (c & 31) << 3 | ((c >> 5) & 31) << 11 | ((c >> 10) & 31) << 19;
             }
@@ -1120,6 +1268,69 @@ void Gs_VBlank(uint32_t vblank) {
         every = e != NULL ? (uint32_t)strtoul(e, NULL, 0) : 60;
         if (every == 0) {
             every = 60;
+        }
+    }
+    sCurVb = vblank + 1;
+    if (sTrace < 0) {
+        const char *t = getenv("TTT_GS_TRACE"), *pv = getenv("TTT_GS_TRACE_PRIMS");
+        sTrace = t != NULL && *t != 0 && *t != '0';
+        sTracePrimVb = pv != NULL ? (uint32_t)strtoul(pv, NULL, 0) : 0;
+        if (getenv("TTT_GS_TRACE_PIXEL")) {
+            char *e;
+            sTraceX = (int)strtol(getenv("TTT_GS_TRACE_PIXEL"), &e, 0);
+            sTraceY = (int)strtol(e + 1, NULL, 0);
+        }
+    }
+    if (sTrace > 0) {
+        uint32_t i;
+        for (i = 0; i < 512; i++) {
+            if (sTr[i].px != 0) {
+                printf("gs-trace %u fbp %03X px %u frame %016llX tex0 %016llX test %llX alpha %llX\n", (unsigned)vblank, (unsigned)i,
+                       (unsigned)sTr[i].px, (unsigned long long)sTr[i].frame, (unsigned long long)sTr[i].tex0,
+                       (unsigned long long)sTr[i].test, (unsigned long long)sTr[i].alpha);
+            }
+        }
+        memset(sTr, 0, sizeof sTr);
+        { /* each path's tags this VBlank and its tag state (a path left inside a packet swallows what follows) */
+            int k;
+            for (k = 1; k < 4; k++) {
+                printf("gs-trace %u path %d tags %u loops %u tag %016llX %016llX\n", (unsigned)vblank, k, sPathTags[k], sPath[k].loops,
+                       (unsigned long long)sPath[k].lo, (unsigned long long)sPath[k].hi);
+                sPathTags[k] = 0;
+            }
+            printf("gs-trace %u dispfb1 %llX dispfb2 %llX pmode %llX\n", (unsigned)vblank, (unsigned long long)PRIV(GS_DISPFB1),
+                   (unsigned long long)PRIV(GS_DISPFB2), (unsigned long long)PRIV(GS_PMODE));
+        }
+    }
+    { /* TTT_GS_TEXDUMP=<vblank>:<tex0>:<x>:<y>:<w>:<h> writes that texture region (through a CLUT loaded from TEX0) */
+        const char *td = getenv("TTT_GS_TEXDUMP");
+        if (td != NULL && dir != NULL && strtoul(td, NULL, 0) == vblank) {
+            char *e;
+            unsigned long long t0;
+            uint32_t x0, y0, tw, th, xx, yy;
+            uint8_t *img;
+            uint16_t saved[512];
+            strtoul(td, &e, 0);
+            t0 = strtoull(e + 1, &e, 16);
+            x0 = (uint32_t)strtoul(e + 1, &e, 0);
+            y0 = (uint32_t)strtoul(e + 1, &e, 0);
+            tw = (uint32_t)strtoul(e + 1, &e, 0);
+            th = (uint32_t)strtoul(e + 1, &e, 0);
+            img = calloc((size_t)tw * th, 3);
+            memcpy(saved, gs.clut, sizeof saved);
+            clut_load((t0 & ~(7ull << 61)) | (1ull << 61));
+            for (yy = 0; yy < th; yy++) {
+                for (xx = 0; xx < tw; xx++) {
+                    uint32_t psm = (uint32_t)(t0 >> 20) & 0x3F, c = vram_rw((uint32_t)t0 & 0x3FFF, (uint32_t)(t0 >> 14) & 0x3F, psm, x0 + xx, y0 + yy, 0, 0);
+                    uint8_t *o = &img[(yy * tw + xx) * 3];
+                    c = psm_bits(psm) > 8 ? expand(c, psm) : clut_read(t0, c, psm_bits(psm));
+                    o[0] = (uint8_t)c; o[1] = (uint8_t)(c >> 8); o[2] = (uint8_t)(c >> 16);
+                }
+            }
+            memcpy(gs.clut, saved, sizeof saved);
+            snprintf(name, sizeof name, "%s/tex_%05u.png", dir, (unsigned)vblank);
+            write_png(name, tw, th, img);
+            free(img);
         }
     }
     if (dir == NULL || *dir == 0 || vblank % every != 0) {
@@ -1370,6 +1581,53 @@ static void selftest_draw(void) {
     pk_ad(0x05, xyz(146, 116, 0));
     pk_send();
     expect(at(130 + 9, 100 + 3) == ((9 + 48) * 0x010101u | 0x80000000u), "CLD 0 keeps the CLUT buffer");
+    /* bilinear magnification (TEX1 MMAG = 1, LCM = 1, K = 0: LOD 0): a 2 x 2 PSMCT32 texture, black | red, stretched
+       over 32 x 4 pixels; the GS samples half a texel back and weighs the four texels with the 4-bit fractions */
+    {
+        static uint32_t tex2[4] = {0x80000000u, 0x800000FFu, 0x80000000u, 0x800000FFu};
+        pk_begin();
+        pk_ad(0x50, (uint64_t)0x380 << 32 | 1ull << 48);
+        pk_ad(0x51, 0);
+        pk_ad(0x52, 2 | 2ull << 32);
+        pk_ad(0x53, 0);
+        pk_image(tex2, 1);
+        pk_ad(0x06, 0x380 | 1ull << 14 | 1ull << 26 | 1ull << 30 | 1ull << 34 | 1ull << 35); /* 2 x 2, CT32, TCC, DECAL */
+        pk_ad(0x08, 1 | 1 << 2);                                                       /* CLAMP_1: clamp */
+        pk_ad(0x14, 1 | 1 << 5);                                                       /* TEX1_1: LCM, MMAG linear */
+        pk_ad(0x00, 6 | 1 << 4 | 1 << 8);
+        pk_ad(0x03, 0);
+        pk_ad(0x05, xyz(160, 100, 0));
+        pk_ad(0x03, 32 | 32ull << 16);
+        pk_ad(0x05, xyz(192, 104, 0));
+        pk_send();
+        expect((at(160 + 8, 101) & 0xFF) == 0 && (at(160 + 24, 101) & 0xFF) == 0xFF && (at(160 + 16, 101) & 0xFF) >= 0x7E &&
+                   (at(160 + 16, 101) & 0xFF) <= 0x80 && (at(160 + 12, 101) & 0xFF) >= 0x3E && (at(160 + 12, 101) & 0xFF) <= 0x40,
+               "bilinear magnification (TEX1 MMAG)");
+        pk_begin();
+        pk_ad(0x14, 1);                                                                /* TEX1_1: nearest */
+        pk_ad(0x00, 6 | 1 << 4 | 1 << 8);
+        pk_ad(0x03, 0);
+        pk_ad(0x05, xyz(160, 110, 0));
+        pk_ad(0x03, 32 | 32ull << 16);
+        pk_ad(0x05, xyz(192, 114, 0));
+        pk_ad(0x08, 0);
+        pk_send();
+        expect((at(160 + 15, 111) & 0xFF) == 0 && (at(160 + 16, 111) & 0xFF) == 0xFF, "nearest texel with MMAG 0");
+    }
+    /* STQ with a small Q (a far vertex, Q = 2^-14): S / Q = 0.3 on a 1024-wide texture is texel 307.2 */
+    for (x = 300; x < 316; x++) {
+        vram_rw(0x2000, 16, 0, x, 0, 1, 0x80000000u | (x - 299));
+    }
+    pk_begin();
+    pk_ad(0x06, 0x2000 | 16ull << 14 | 10ull << 26 | 1ull << 34 | 1ull << 35); /* 1024 x 1, CT32, TCC, DECAL */
+    pk_ad(0x14, 1);
+    pk_ad(0x00, 6 | 1 << 4);                                                   /* sprite, textured, STQ */
+    pk_ad(0x02, 0x3799999Au);                                                  /* S = 0.3 * 2^-14, T = 0 */
+    pk_ad(0x01, 0x80808080u | 0x38800000ull << 32);                            /* Q = 2^-14 */
+    pk_ad(0x05, xyz(200, 120, 0));
+    pk_ad(0x05, xyz(201, 121, 0));
+    pk_send();
+    expect((at(200, 120) & 0xFF) == 307 - 299, "S / Q keeps its precision with a small Q");
     /* a Gouraud triangle covers its inside and owns only its top-left edges */
     pk_begin();
     pk_ad(0x00, 3 | 1 << 3);

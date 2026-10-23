@@ -1936,15 +1936,15 @@ void func_003DFF30(s32 arg0, s32 arg1, s32 arg2, s32 arg3, u32 arg4) {
         if (arg1 >= 0) {
 
         }
-        M2C_FIELD(temp_s0_2, s64 *, 0) = (s64) ((0xC1AA4000 << 0x20) | 0x8001);
+        M2C_FIELD(temp_s0_2, s64 *, 0) = (s64) ((0xC1AA4000ULL << 0x20) | 0x8001);
         temp_s0_3 = temp_s0_2 + 8;
-        M2C_FIELD(temp_s0_2, s64 *, 8) = (s64) ((((0x4343 << 0x10) | 0x4343) << 0x10) | 0x1EEE);
+        M2C_FIELD(temp_s0_2, s64 *, 8) = (s64) ((((0x4343ULL << 0x10) | 0x4343) << 0x10) | 0x1EEE);
         temp_s0_4 = temp_s0_3 + 8;
         M2C_FIELD(temp_s0_3, s64 *, 8) = (s64) (((temp_s3 & 0x30) * 4) | 4);
         temp_s0_5 = temp_s0_4 + 8;
         M2C_FIELD(temp_s0_4, s64 *, 8) = 0x1C;
         temp_s0_6 = temp_s0_5 + 8;
-        M2C_FIELD(temp_s0_5, s64 *, 8) = (s64) ((((0x20D76806 << 0x10) | 0x2141) << 0x10) | 0x3B40);
+        M2C_FIELD(temp_s0_5, s64 *, 8) = (s64) ((((0x20D76806ULL << 0x10) | 0x2141) << 0x10) | 0x3B40);
         temp_s0_7 = temp_s0_6 + 8;
         M2C_FIELD(temp_s0_6, s64 *, 8) = 7;
         temp_s0_8 = temp_s0_7 + 8;
@@ -1952,20 +1952,20 @@ void func_003DFF30(s32 arg0, s32 arg1, s32 arg2, s32 arg3, u32 arg4) {
         temp_s0_9 = temp_s0_8 + 8;
         M2C_FIELD(temp_s0_8, s64 *, 8) = 0x43;
         temp_s0_10 = temp_s0_9 + 8;
-        M2C_FIELD(temp_s0_9, s64 *, 8) = (s64) (((temp_s4 >> 0x18) & 0xFF) | (((temp_s4 >> 0x10) & 0xFF) << 0x20));
+        M2C_FIELD(temp_s0_9, s64 *, 8) = (s64) (((temp_s4 >> 0x18) & 0xFF) | ((u64)((temp_s4 >> 0x10) & 0xFF) << 0x20));
         temp_a2 = (temp_s3 & 0xF) << 8;
         temp_a1 = (((temp_s3 >> 6) * 0xF) + 4) * 0x10;
         temp_s0_11 = temp_s0_10 + 8;
         temp_a0 = temp_a2 + 8;
-        M2C_FIELD(temp_s0_10, s64 *, 8) = (s64) (((temp_s4 >> 8) & 0xFF) | ((temp_s4 & 0xFF) << 0x20));
-        temp_a3 = (temp_a1 + 8) << 0x20;
+        M2C_FIELD(temp_s0_10, s64 *, 8) = (s64) (((temp_s4 >> 8) & 0xFF) | ((u64)(temp_s4 & 0xFF) << 0x20));
+        temp_a3 = (s64)(temp_a1 + 8) << 0x20;
         temp_s0_12 = temp_s0_11 + 8;
         M2C_FIELD(temp_s0_11, s64 *, 8) = (s64) (temp_a0 | temp_a3);
         temp_s0_13 = temp_s0_12 + 8;
         temp_t0 = -1U >> 0x1F;
         M2C_FIELD(temp_s0_12, s64 *, 8) = 0;
         temp_s0_14 = temp_s0_13 + 8;
-        temp_a1_2 = (temp_a1 + 0xE8) << 0x20;
+        temp_a1_2 = (s64)(temp_a1 + 0xE8) << 0x20;
         M2C_FIELD(temp_s0_13, s64 *, 8) = (s64) (M2C_BITWISE(s32, (temp_f21 * temp_f4)) | (M2C_BITWISE(s64, (temp_f5 * temp_f4)) << 0x20));
         temp_s0_15 = temp_s0_14 + 8;
         M2C_FIELD(temp_s0_14, u64 *, 8) = temp_t0;
@@ -1975,7 +1975,7 @@ void func_003DFF30(s32 arg0, s32 arg1, s32 arg2, s32 arg3, u32 arg4) {
         M2C_FIELD(temp_s0_16, s64 *, 8) = 0;
         temp_a2_2 = temp_a2 + 0xF8;
         temp_s0_18 = temp_s0_17 + 8;
-        M2C_FIELD(temp_s0_17, s64 *, 8) = (s64) (M2C_BITWISE(s32, var_f1) | (0x43F00000 << 0x20));
+        M2C_FIELD(temp_s0_17, s64 *, 8) = (s64) (M2C_BITWISE(s32, var_f1) | (0x43F00000LL << 0x20));
         temp_s0_19 = temp_s0_18 + 8;
         temp_a3_2 = temp_a2_2 | temp_a3;
         M2C_FIELD(temp_s0_18, u64 *, 8) = temp_t0;
@@ -1985,7 +1985,7 @@ void func_003DFF30(s32 arg0, s32 arg1, s32 arg2, s32 arg3, u32 arg4) {
         temp_s0_21 = temp_s0_20 + 8;
         M2C_FIELD(temp_s0_20, s64 *, 8) = 0;
         temp_s0_22 = temp_s0_21 + 8;
-        M2C_FIELD(temp_s0_21, s64 *, 8) = (s64) (0x43F00000 | (0x43F00000 << 0x20));
+        M2C_FIELD(temp_s0_21, s64 *, 8) = (s64) (0x43F00000 | (0x43F00000LL << 0x20));
         temp_s0_23 = temp_s0_22 + 8;
         M2C_FIELD(temp_s0_22, u64 *, 8) = temp_t0;
         temp_s0_24 = temp_s0_23 + 8;
@@ -1993,7 +1993,7 @@ void func_003DFF30(s32 arg0, s32 arg1, s32 arg2, s32 arg3, u32 arg4) {
         temp_s0_25 = temp_s0_24 + 8;
         M2C_FIELD(temp_s0_24, s64 *, 8) = 0;
         temp_s0_26 = temp_s0_25 + 8;
-        M2C_FIELD(temp_s0_25, s64 *, 8) = (s64) (M2C_BITWISE(s32, var_f1_2) | (0x43F00000 << 0x20));
+        M2C_FIELD(temp_s0_25, s64 *, 8) = (s64) (M2C_BITWISE(s32, var_f1_2) | (0x43F00000LL << 0x20));
         M2C_FIELD(temp_s0_26, u64 *, 8) = temp_t0;
         func_00399650((u64 *)(temp_s0_26 + 8 + 8));
     }

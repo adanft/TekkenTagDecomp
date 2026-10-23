@@ -17,13 +17,17 @@ writes everything under `build/port/`, which git ignores.
   590 frames. Left alone, the menu returns to the title after about 480 frames and enters the attract cycle's
   loading mode (11) at VBlank 699 and runs the attract demo (mode 11, sub-state 2) through the VU0 blend
   (`func_0034A180`) and the VU0 skinning programs: `TTT_FRAMES=3000 TTT_SEED=1` ends at VBlank 3000 (2606 frames)
-  with no stop, and two runs with the same seed end in the same state (`sbss-hash 0x9736ab37`).
+  with no stop, and two runs with the same seed end in the same state (`sbss-hash 0x82bb5654` since T29 batch 2, where the fighter packets are sent with their real size).
 - The GS path draws ([GS path](#gs-path)): the display lists go DMA -> VIF1 -> GIF -> GS memory and the software
   reference rasteriser; `TTT_DUMP=<dir>` writes the displayed picture as PNG. The title and the main menu come out
   complete (logo, menu text, highlight bar). Since T29 the game's VU1 programs run ([VU1](#vu1)): the attract path's
-  loading scene (mode 11) shows the 3D stage, textured, with its smoke and lightning effects. Open: from the scene's
-  camera cut to the fighters (script frame 488, about VBlank 1575) the displayed picture stays on the white lightning
-  flash while the scene script goes on, so the fighters are not seen yet.
+  loading scene (mode 11) shows the 3D stage, textured and filtered, with its sky, smoke and lightning effects, and
+  from the camera cut (script frame 488, about VBlank 1571) the two fighters of the demo fight. T29 batch 2 fixed the
+  picture that froze on the lightning flash there (the fighter packets' size is read from a DMA tag that toSPR copies
+  into the scratchpad, gotcha 15), the title's header text (the same cause), and the blocky stage textures (bilinear
+  filtering, and the precision of S / Q for far vertices: [GS path](#gs-path)). Open: the fighters' heads and hair
+  come out as long spikes (a few vertices far off; the look-at draft `func_00351E98` is not the cause: skipping it
+  changes nothing).
 - With the real libgraph set-up (T28) the game reads the display position DX 636 / DY 50 back into `options.c`'s
   `D_005F6DB0` / `D_005F6DB4` (zeros with the old placeholders), and new port code moves host addresses the game
   keeps in `.sbss`: the state hash of a given `TTT_FRAMES` / `TTT_SEED` differs from T23's. The GS itself writes no
@@ -193,8 +197,8 @@ wait loops drive the hardware.
   if interrupts are on (`Port_Di` / `Port_Ei`), else at the next `ei`, with interrupts off while they run.
 - **DMA.** A channel with STR set is carried out at the next poll: normal, source chain (refe / cnt / next / ref /
   refs / call / ret / end) and the scratchpad's destination chain. toSPR / fromSPR copy the data; VIF0 feeds
-  `vu0_micro.c`, VIF1 and GIF feed the GS path (with TTE the VIF1 tag's upper half first); IPU / SIF only walk their
-  lists. A block that follows its tag inside the MFIFO ring is read across the ring's end. In MFIFO mode (D_CTRL.MFD, `dma_spr.c` streams the display
+  `vu0_micro.c`, VIF1 and GIF feed the GS path (with TTE the VIF1 tag's upper half first; toSPR with TTE copies
+  each whole tag quadword into the scratchpad in front of its data); IPU / SIF only walk their lists. A block that follows its tag inside the MFIFO ring is read across the ring's end. In MFIFO mode (D_CTRL.MFD, `dma_spr.c` streams the display
   lists through it) fromSPR writes into the ring and the drain channel stays busy while the ring is empty.
 - **IOP.** Reboot and module loads succeed. The game's remote calls all go through `sceSdRemote` (RSPU2DRV); the
   server table of `plat_sys.c` also answers padman, mcserv and mtapman with zeros. A 0x204E read copies the
@@ -218,6 +222,9 @@ Switches:
 | `TTT_SELFTEST=float` | The EE float model against PCSX2 data, EE rules, exact libm cases, newlib `rand` (`tests/test_port_float.py`). `TTT_FLOATDATA` overrides the data directory (`port/tests/ps2float`). |
 | `TTT_SELFTEST=vu1` | Hand-assembled VU1 programs sent through VIF1: pairing, delay slots, E bit, Q / P latency, flag delays, integer / EFU instructions, XTOP / XITOP, XGKICK (`tests/test_port_gs.py`). |
 | `TTT_VU1_CALLS=1` | With `TTT_FRAMES`: the report also lists the VU1 runs per entry address. |
+| `TTT_GS_TRACE=1` | Per VBlank: pixels written per frame buffer (FBP) with the last FRAME / TEX0 / TEST / ALPHA, each GIF path's tag count and tag state, DISPFB1 / 2 and PMODE, every transfer (BITBLTBUF / TRXPOS / TRXREG / TRXDIR), and the first GIF tags with reserved bits set (`bad tag`, with the DMA block they came in). |
+| `TTT_GS_TRACE_PRIMS=<vblank>` | Every vertex kick drawn before that VBlank (type, context, coordinates, UV / STQ, colour, TEX0 / TEX1 / CLAMP / FRAME / TEST / ALPHA). With `TTT_GS_TRACE_PIXEL=<x>,<y>`: every write to that pixel then, with its source and result. |
+| `TTT_GS_TEXDUMP=<vblank>:<tex0 hex>:<x>:<y>:<w>:<h>` | With `TTT_DUMP`: writes that region of the texture TEX0 describes (through a CLUT loaded from it) as `tex_<vblank>.png`. |
 | `TTT_STUB_RETURN=<n>` | Generated stubs return n instead of stopping. |
 
 ## GS path
@@ -245,10 +252,15 @@ VU1 XGKICK (gs_vu1.c) ->  PATH1 ------------------------------------------------
   palettes. [I] CLD 4 / 5 also reload when GS memory was written since the last load.
 - **Rasteriser.** Integer only (no host float, as the rest of the port): 12.4 coordinates, sprites with the GS's
   half-open edges, triangles (lists, strips, fans) by edge functions with the top-left rule and 24-bit barycentric
-  fractions (Gouraud colour, fog, depth, UV, perspective STQ decoded from the float bits), lines, points. Per pixel:
+  fractions (Gouraud colour, fog, depth, UV, perspective STQ decoded from the float bits on a per-primitive scale
+  that puts the largest of S / T / Q near 2^36: far vertices have Q about 2^-14, which a fixed 2^20 scale left with
+  6 bits and blocky textures), lines, points. Per pixel:
   scissor, alpha test with its fail modes, destination alpha test, depth test and write (ZMSK), texture function
   (TFX / TCC) with CLAMP's wrap modes, fog, blending ((A - B) * C >> 7) + D with PABE and COLCLAMP, FBA, FBMSK.
-  Nearest texel of level 0; no dithering, filtering or anti-aliasing.
+  Texture filter per TEX1: LOD = K (LCM 1) or (log2(1/|Q|) << L) + K; LOD <= 0 takes MMAG, else MMIN; linear
+  (MMAG 1, MMIN 1 / 4 / 5) weighs the four texels around (u - 0.5, v - 0.5) with the 4-bit fractions, after the
+  CLUT; the game uses TEX1 0x61 (LCM, MMAG and MMIN linear) on the 3D stage. Level 0 only (no mip-maps: MXL is 0
+  in the game's TEX1 values seen); no dithering or anti-aliasing.
 - **Display and dump.** The libgraph set-up writes PMODE / SMODE2 / DISPFB2 / DISPLAY2 / BGCOLOR and the game writes
   DISPFB1 / DISPLAY1 itself (`Gfx_ShowBuffer`). At each VBlank start, before the handlers run, `TTT_DUMP` reads the
   circuit PMODE enables (circuit 1 first): DISPFB's buffer from (DBX, DBY), (DW + 1) / (MAGH + 1) pixels by
@@ -282,7 +294,8 @@ original VU1 programs (`src/vu1/*.vsm`, uploaded by the boot packet) run unchang
 - **XGKICK.** The GIF packet at the given quadword of VU1 memory, tag by tag up to EOP (read across the end of
   memory), goes to `Gs_Gif(1, ...)` at once.
 - **Cost.** About 1.35 million program runs and 2.8 billion VU instructions in 3000 VBlanks of the attract path
-  (`mesh.vsm`, entry 0x050, is almost all of it); a `TTT_FRAMES=3000` run takes about 4.5 minutes instead of 1.
+  (`mesh.vsm`, entry 0x050, is almost all of it); a `TTT_FRAMES=3000` run took about 4.5 minutes instead of 1, and
+  about 8.5 since the bilinear filter (four texel reads per textured pixel).
 - The reference project's interpreter computes with the host's float unit, so its structure and decoding were
   reused, not its code.
 
@@ -367,9 +380,16 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
 14. **`long` constants in 64-bit fields.** Drafts written for the EE, where `long` is 64-bit, build GIF tags with
     `0x8000UL << 44`; on i386 the shift is taken modulo 32 and the IMAGE tag of every stage texture upload
     (`fighter_setup.c` `func_003623B8`) became a PACKED one, so the stage was drawn without its textures. Those drafts
-    (`fighter_setup.c`, `fighter_setup_b.c` `func_003665E0`, `theater_d.c`) use `ULL` now; the m2c draft
-    `func_003DFA00` (`demo.c`, not on the path) still has eight such shifts. A compile with `-Wshift-count-overflow`
-    finds them.
+    (`fighter_setup.c`, `fighter_setup_b.c` `func_003665E0`, `theater_d.c`, and since T29 batch 2 the m2c draft
+    `func_003DFF30` of `demo.c`, next to `func_003DFA00`) use `ULL` / 64-bit casts now. A compile of every game and
+    port source with `-Wshift-count-overflow` reports none; it does not see `(0x4343 << 16 | 0x4343) << 16`, an
+    `int` that overflows before it is widened (two more in that draft, fixed alike).
+15. **DMA tags the game reads back.** `func_00357640` copies a fighter's packet into the scratchpad with a toSPR
+    chain with TTE (`func_003430D8`, CHCR 0x145) and sends `pkt[0]` quadwords from `pkt + 16`: the QWC of the tag
+    that TTE put there. Without the tag copy it read whatever the scratchpad held (15038 quadwords from VBlank 1570
+    on), the GIF channel took a vertex quadword for a GIF tag and its IMAGE NLOOP swallowed every later PATH3 packet,
+    the display copy into FBP 0x8C among them: the frozen picture. `TTT_GS_TRACE=1` shows such a path (`loops`
+    never back to 0, `bad tag`).
 
 ## EE float model
 
@@ -401,6 +421,6 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
 
 ## Next
 
-The frozen picture of the loading scene from the fighters' entrance on (see Status); the seven Tekken Bowl m2c drafts
+The fighters' spiky heads and hair (see Status); the seven Tekken Bowl m2c drafts
 around VU0 code (`portsrc.REPLACED`, still placeholders: not reached by the attract demo); the libm PCSX2 run; pads,
 memory cards, sound (RSPU2DRV) and movies.

@@ -273,6 +273,11 @@ static int dma_source_chain(int ch) {
         if (ch == 1 && (REG(base + CHCR) & 0x40u)) { /* the same for VIF1 */
             Gs_Vif1(&tag[2], 2);
         }
+        if (ch == 9 && (REG(base + CHCR) & 0x40u)) { /* toSPR with TTE: the whole tag quadword goes in front of its data */
+            uint32_t sadr = REG(base + SADR);
+            memcpy(spr(sadr), tag, 16);
+            REG(base + SADR) = (sadr + 16) & 0x3FF0u;
+        }
         switch (id) {
         case 0: /* refe */
             dma_block(ch, addr, qwc);
@@ -599,6 +604,17 @@ void Port_HwSelfTest(void) {
         expect(*(uint32_t *)Port_Ptr(0x70000200u) == 0xAAAA5555u &&
                *(uint32_t *)Port_Ptr(0x70000210u) == 0x12345678u, "toSPR chain copied cnt and end data");
         expect(!(REG(0x1000D400u) & 0x100u), "toSPR chain STR cleared");
+        /* with TTE each tag quadword lands in the scratchpad in front of its data (func_00357640 reads the QWC of
+           the fighter packet's tag back from there) */
+        memset(Port_Ptr(0x70000400u), 0, 64);
+        REG(0x1000D400u + TADR) = 0x00100200u;
+        REG(0x1000D400u + SADR) = 0x400;
+        REG(0x1000D400u) = 0x145;
+        Port_HwPoll();
+        expect(*(uint32_t *)Port_Ptr(0x70000400u) == 0x10000001u && *(uint32_t *)Port_Ptr(0x70000410u) == 0xAAAA5555u &&
+                   *(uint32_t *)Port_Ptr(0x70000420u) == 0x70000001u && *(uint32_t *)Port_Ptr(0x70000430u) == 0x12345678u,
+               "toSPR chain with TTE copies each tag before its data");
+        expect(REG(0x1000D400u + SADR) == 0x440, "toSPR chain with TTE advances SADR over the tags");
     }
     /* MFIFO: a VIF1 drain on an empty ring waits; a fromSPR fill of an end tag lets it finish */
     {

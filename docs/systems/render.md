@@ -37,7 +37,7 @@ Tags: **[V]** read in matching C or in the disassembly, **[I]** inferred.
 | 1 | `Frame_Begin` | `Vu0_LoadMicrocode`, `Gfx_SetPhase(0)`, scratchpad stream reset `func_0035D790(D_005F5C00)`, `Gfx_SetFrameReady`, `Gfx_WaitVSync` |
 | 2 | `func_00357BD0` | `Gfx_SetPhase(1)`, show the buffer of the field parity |
 | 3 | `func_00357A50` | stream state 2 (`func_0035DB90`), stage pass `func_00357C88` (stage objects `func_003DB758` / `func_003DB7B0` around the stage geometry), flush |
-| 4 | `func_00357A78` | fighter pass 0: for each drawn fighter `func_00357640` (its DMA packet through the scratchpad), `Fx_DrawFighterTex` (texture animation uploads, section 7), `func_00343340(f, 0)` (VU0 matrices, then the skinned parts) |
+| 4 | `func_00357A78` | fighter pass 0: for each drawn fighter `func_00357640` (its DMA packet through the scratchpad: a toSPR chain with TTE, `func_003430D8`, puts the packet's tag in front of it, and the tag's QWC is the count `func_00343178` sends on) [V], `Fx_DrawFighterTex` (texture animation uploads, section 7), `func_00343340(f, 0)` (VU0 matrices, then the skinned parts) |
 | 5 | `func_00357B28` | stream state 4, stage overlays (`func_003E7270` on stages 2, 0x13, 0x16), model pass |
 | 6 | `func_00357B50` | stream state 5, `func_00399918`; effect pass `func_00346830`; fighter pass 1 `func_00343340(f, 1)`; then for each fighter the sword effect `func_00350C40` (section 3); effects `func_003469D8`, the textured quads `Fx_DrawQuads`; 2D lists `func_00399AF8`, the fade and title logo `func_003A6C08` |
 | 7 | `Frame_PreUpdate`, `Mode_Dispatch` | input, RNG, one update of the mode (the fight: `Battle_UpdateFrame`, whose `func_0036EA80` queues the HUD, section 5) |
