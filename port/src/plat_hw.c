@@ -542,6 +542,29 @@ void Port_HwSummary(void) {
            sModes, gMode, gSubMode);
 }
 
+/* TTT_PEEK=<addr>[:<words>],...: EE RAM words at the end of a TTT_FRAMES run, for tests and debugging. */
+static void peek_report(void) {
+    const char *p = getenv("TTT_PEEK");
+
+    while (p != NULL && *p != 0) {
+        char *end;
+        uint32_t a = (uint32_t)strtoul(p, &end, 16) & ~3u, n = 1, k;
+        if (end == p) {
+            break;
+        }
+        if (*end == ':') {
+            n = (uint32_t)strtoul(end + 1, &end, 0);
+        }
+        printf("ttt: peek %08X:", (unsigned)a);
+        for (k = 0; k < n && k < 64; k++) {
+            uint32_t w = a + k * 4;
+            printf(" %08X", w >= 0x00010000u && w < 0x02000000u ? (unsigned)*(volatile uint32_t *)Port_Ptr(w) : 0u);
+        }
+        printf("\n");
+        p = *end == ',' ? end + 1 : end;
+    }
+}
+
 static void report_and_exit(void) {
     uint32_t h = fnv((const uint8_t *)Port_Ptr(0x005F6B00u), 0x1000, 2166136261u);
     printf("ttt: %s: %u vblanks, %u frames\n", sHeadless ? "headless" : "real time", (unsigned)sVBlanks, (unsigned)gFrameCount);
@@ -552,6 +575,7 @@ static void report_and_exit(void) {
     Gs_Report();
     Port_PadReport();
     Port_StubReport();
+    peek_report();
     fflush(stdout);
     exit(0);
 }

@@ -35,7 +35,7 @@ extern float gPortVu0Vf[32][4];
 #define SPR_LO 0x70000000u
 #define SPR_SIZE 0x4000u
 #define RET_MAGIC 0x00000010u /* return address of the outermost call: no code there */
-#define MAX_STEPS 200000000u
+#define MAX_STEPS 2000000000u
 
 /* ------------------------------------------------------------------------------------------- the executable */
 
@@ -52,6 +52,8 @@ static int sImgState; /* 0 not loaded, 1 ok, -1 failed */
 
 static uint32_t rd32le(const uint8_t *p) { return p[0] | p[1] << 8 | p[2] << 16 | (uint32_t)p[3] << 24; }
 static uint16_t rd16le(const uint8_t *p) { return (uint16_t)(p[0] | p[1] << 8); }
+
+static void load_image_list(void);
 
 static int load_elf(void) {
     const char *path = getenv("TTT_DIFF_ELF");
@@ -128,6 +130,7 @@ static int load_elf(void) {
         printf("ee-diff: %s: no loadable segment / .text / .reginfo\n", path);
         return -1;
     }
+    load_image_list();
     sImgState = 1;
     return 1;
 }
@@ -160,14 +163,82 @@ static void fail(Ee *e, const char *what, uint32_t op) {
     }
 }
 
+/* TTT_DIFF_WATCH=<addr>: report every store of the original code to that word (pc, ra). */
+static uint32_t sWatch;
+
+static void watch(Ee *e, uint32_t a, uint32_t op) {
+    printf("ee-watch %08X: store by op %08X at %08X, ra %08X, step %llu\n", a, op, e->pc, (uint32_t)e->r[31].lo,
+           (unsigned long long)e->steps);
+}
+
+static void fail_addr(Ee *e, const char *what, uint32_t op, uint32_t a) {
+    if (e->stop == 0) {
+        e->stop = -1;
+        snprintf(e->why, sizeof e->why, "%s %08X (op %08X at %08X, ra %08X)", what, a, op, e->pc, (uint32_t)e->r[31].lo);
+    }
+}
+
+/* The .rodata objects the port keeps at their addresses (build/port/gen/image.txt, next to the program): the game
+   writes some of them (the move table D_00531EA0 gets its motion pointers at load time), so they are read from the
+   running memory. The rest of .rodata (the jump tables, which the port's C does not keep) comes from the executable. */
+static Range sLive[4096];
+static uint32_t sLiveN;
+
+/* (strtoul, fgets, strcspn: host calls already in the program's PLT, see port_host.h; no sscanf / realloc) */
+static void load_image_list(void) {
+    static char buf[1100];
+    ssize_t k = readlink("/proc/self/exe", buf, 1000);
+    char line[256], *slash, *p, *end;
+    FILE *f;
+
+    buf[k > 0 ? k : 0] = 0;
+    slash = strrchr(buf, '/');
+    if (slash == NULL) {
+        return;
+    }
+    strcpy(slash + 1, "gen/image.txt");
+    f = fopen(buf, "r");
+    if (f == NULL) {
+        printf("ee-diff: cannot open %s: .rodata read from the executable only\n", buf);
+        return;
+    }
+    while (fgets(line, sizeof line, f) != NULL && sLiveN < sizeof sLive / sizeof sLive[0]) {
+        uint32_t lo, size;
+        p = line + strcspn(line, " "); /* "<name> 0x<addr> 0x<size> <kind>" */
+        if (*p == 0 || strstr(line, " progbits") == NULL) {
+            continue;
+        }
+        lo = (uint32_t)strtoul(p, &end, 16);
+        size = (uint32_t)strtoul(end, NULL, 16);
+        if (lo < sRo[1].lo || lo >= sRo[1].hi) {
+            continue;
+        }
+        sLive[sLiveN].lo = lo;
+        sLive[sLiveN].hi = lo + size;
+        sLiveN++;
+    }
+    fclose(f);
+}
+
+/* 1 when a is read from the executable's image: .text, .lit4 and the .rodata the port does not keep. */
 static int is_ro(uint32_t a) {
-    int k;
+    uint32_t k;
     for (k = 0; k < 3; k++) {
         if (a >= sRo[k].lo && a < sRo[k].hi) {
-            return 1;
+            break;
         }
     }
-    return 0;
+    if (k == 3) {
+        return 0;
+    }
+    if (k == 1) {
+        for (k = 0; k < sLiveN; k++) {
+            if (a >= sLive[k].lo && a < sLive[k].hi) {
+                return 0;
+            }
+        }
+    }
+    return 1;
 }
 
 /* Where the data at a is read: the executable's image for its read-only sections, else the running memory. */
@@ -195,7 +266,7 @@ static uint8_t *wptr(Ee *e, uint32_t a, uint32_t n) {
     do {                                                                                                               \
         uint8_t *p_ = rptr(e, (a), sizeof(T));                                                                         \
         if (p_ == NULL) {                                                                                              \
-            fail(e, "load outside memory", op);                                                                        \
+            fail_addr(e, "load outside memory", op, (a));                                                              \
             return;                                                                                                    \
         }                                                                                                              \
         memcpy(&(out), p_, sizeof(T));                                                                                 \
@@ -204,8 +275,11 @@ static uint8_t *wptr(Ee *e, uint32_t a, uint32_t n) {
     do {                                                                                                               \
         T v_ = (T)(v);                                                                                                 \
         uint8_t *p_ = wptr(e, (a), sizeof(T));                                                                         \
+        if (sWatch != 0 && (uint32_t)(a) < sWatch + 4 && (uint32_t)(a) + sizeof(T) > sWatch) {                       \
+            watch(e, (a), op);                                                                                         \
+        }                                                                                                              \
         if (p_ == NULL) {                                                                                              \
-            fail(e, "store outside memory", op);                                                                       \
+            fail_addr(e, "store outside memory", op, (a));                                                             \
             return;                                                                                                    \
         }                                                                                                              \
         memcpy(p_, &v_, sizeof(T));                                                                                    \
@@ -555,6 +629,10 @@ static void mmi(Ee *e, uint32_t op) {
         case 0x08: e->hi = a.lo; e->hi1 = a.hi; return; /* pmthi */
         case 0x09: e->lo = a.lo; e->lo1 = a.hi; return; /* pmtlo */
         case 0x0E: d.lo = a.hi; d.hi = b.hi; break;     /* pcpyud */
+        case 0x1B: /* pcpyh: halfword 0 of each doubleword of rt, four times */
+            d.lo = (b.lo & 0xFFFFu) * 0x0001000100010001ull;
+            d.hi = (b.hi & 0xFFFFu) * 0x0001000100010001ull;
+            break;
         case 0x12: d.lo = a.lo | b.lo; d.hi = a.hi | b.hi; break;
         case 0x13: d.lo = ~(a.lo | b.lo); d.hi = ~(a.hi | b.hi); break;
         default: fail(e, "MMI3 instruction not modelled", op); return;
@@ -663,8 +741,8 @@ static void exec(Ee *e, uint32_t op, uint32_t pc, int *branch, uint32_t *target,
         *branch = 1;
         *target = ((pc + 4) & 0xF0000000u) | ((op & 0x3FFFFFF) << 2);
         e->r[31].lo = pc + 8;
-        if (e->trace && e->depth++ == 0) {
-            e->tracePending = 1;
+        if (e->trace && e->depth++ < e->trace) {
+            e->tracePending = e->depth;
         }
         break;
     case 0x04: BR(A == B, 0); break;
@@ -707,6 +785,13 @@ static void exec(Ee *e, uint32_t op, uint32_t pc, int *branch, uint32_t *target,
             fail(e, "COP2 transfer not modelled", op);
         }
         break;
+    case 0x10: /* COP0: the DMA wait (bc0f / bc0t on CPCOND0, the port's DMA is done at once) and ei / di */
+        if (rs == 8 && rt < 4) {
+            BR(rt & 1, rt >> 1);
+        } else if (op != 0x42000038u && op != 0x42000039u) {
+            fail(e, "COP0 instruction not modelled", op);
+        }
+        break;
     case 0x14: BR(A == B, 1); break;
     case 0x15: BR(A != B, 1); break;
     case 0x16: BR((int64_t)A <= 0, 1); break;
@@ -734,8 +819,11 @@ static void exec(Ee *e, uint32_t op, uint32_t pc, int *branch, uint32_t *target,
     }
     case 0x1F: { /* sq */
         uint8_t *p_ = wptr(e, addr & ~15u, 16);
+        if (sWatch != 0 && (addr & ~15u) <= sWatch && sWatch < (addr & ~15u) + 16) {
+            watch(e, addr & ~15u, op);
+        }
         if (p_ == NULL) {
-            fail(e, "store outside memory", op);
+            fail_addr(e, "store outside memory", op, addr & ~15u);
             return;
         }
         memcpy(p_, &e->r[rt], 16);
@@ -791,8 +879,11 @@ static void exec(Ee *e, uint32_t op, uint32_t pc, int *branch, uint32_t *target,
     case 0x39: STOREN(uint32_t, addr, e->f[rt]); break; /* swc1 */
     case 0x3E: { /* sqc2 */
         uint8_t *p_ = wptr(e, addr & ~15u, 16);
+        if (sWatch != 0 && (addr & ~15u) <= sWatch && sWatch < (addr & ~15u) + 16) {
+            watch(e, addr & ~15u, op);
+        }
         if (p_ == NULL) {
-            fail(e, "store outside memory", op);
+            fail_addr(e, "store outside memory", op, addr & ~15u);
             return;
         }
         memcpy(p_, e->vf[rt], 16);
@@ -814,12 +905,191 @@ static void exec(Ee *e, uint32_t op, uint32_t pc, int *branch, uint32_t *target,
 #undef BR
 }
 
+/* Function pointers the port's C stored in game memory are host addresses: a call through one goes to the original
+   function of the same name (its PS2 address: func_XXXXXXXX names it, other names come from the matching build's
+   build/SLUS_200.01.elf). Both symbol tables are read on the first such call. */
+typedef struct {
+    uint32_t host, ps2;
+} HostFn;
+#define MAX_FNS 40000
+static HostFn sHostFns[MAX_FNS];
+static uint32_t sHostFnN;
+static int sHostFnState;
+static const char *sPs2Names[MAX_FNS];
+static uint32_t sPs2Addrs[MAX_FNS], sPs2N;
+
+/* Calls fn(name, value) for every function symbol of a 32-bit little-endian ELF file; the names stay valid (the file
+   is kept in memory). */
+static void elf_funcs(const char *path, void (*fn)(const char *, uint32_t)) {
+    FILE *f = fopen(path, "rb");
+    uint8_t *d;
+    long n;
+    uint32_t shoff, k;
+    uint16_t shnum, shentsize;
+
+    if (f == NULL) {
+        return;
+    }
+    fseek(f, 0, SEEK_END);
+    n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    d = malloc((size_t)n);
+    if (d == NULL || fread(d, 1, (size_t)n, f) != (size_t)n) {
+        free(d);
+        fclose(f);
+        return;
+    }
+    fclose(f);
+    shoff = rd32le(d + 32);
+    shentsize = rd16le(d + 46);
+    shnum = rd16le(d + 48);
+    for (k = 0; k < shnum; k++) {
+        const uint8_t *sh = d + shoff + k * shentsize;
+        if (rd32le(sh + 4) == 2) { /* SHT_SYMTAB */
+            const uint8_t *str = d + rd32le(d + shoff + rd32le(sh + 24) * shentsize + 16);
+            uint32_t off = rd32le(sh + 16), size = rd32le(sh + 20), j;
+            for (j = 0; j + 16 <= size; j += 16) {
+                const uint8_t *sym = d + off + j;
+                if ((sym[12] & 15) == 2) { /* STT_FUNC */
+                    fn((const char *)str + rd32le(sym), rd32le(sym + 4));
+                }
+            }
+        }
+    }
+}
+
+static void add_ps2(const char *name, uint32_t a) {
+    if (sPs2N < MAX_FNS) {
+        sPs2Names[sPs2N] = name;
+        sPs2Addrs[sPs2N++] = a;
+    }
+}
+
+static void add_host(const char *name, uint32_t a) {
+    uint32_t ps2 = 0, k;
+
+    if (memcmp(name, "func_", 5) == 0 && strlen(name) == 13) {
+        ps2 = (uint32_t)strtoul(name + 5, NULL, 16);
+    } else {
+        for (k = 0; k < sPs2N; k++) {
+            if (strcmp(sPs2Names[k], name) == 0) {
+                ps2 = sPs2Addrs[k];
+                break;
+            }
+        }
+    }
+    if (ps2 >= sRo[0].lo && ps2 < sRo[0].hi && sHostFnN < MAX_FNS) {
+        sHostFns[sHostFnN].host = a;
+        sHostFns[sHostFnN++].ps2 = ps2;
+    }
+}
+
+static uint32_t host_to_ps2(uint32_t a) {
+    uint32_t k;
+
+    if (sHostFnState == 0) {
+        static char buf[1100];
+        ssize_t n = readlink("/proc/self/exe", buf, 1000);
+        char *slash;
+        sHostFnState = 1;
+        buf[n > 0 ? n : 0] = 0;
+        slash = strrchr(buf, '/');
+        if (slash != NULL) {
+            strcpy(slash + 1, "../SLUS_200.01.elf");
+            elf_funcs(buf, add_ps2);
+        }
+        elf_funcs("/proc/self/exe", add_host);
+    }
+    for (k = 0; k < sHostFnN; k++) {
+        if (sHostFns[k].host == a) {
+            return sHostFns[k].ps2;
+        }
+    }
+    return 0;
+}
+
 static uint32_t fetch(Ee *e, uint32_t pc) {
+    if (pc >= 0x08000000u && (pc < sRo[0].lo || pc >= sRo[0].hi)) {
+        uint32_t ps2 = host_to_ps2(pc); /* a host function pointer: the original function of that name */
+        if (ps2 != 0) {
+            e->pc = pc = ps2;
+        }
+    }
     if (pc < sRo[0].lo || pc + 4 > sRo[0].hi || (pc & 3)) {
         fail(e, "jump outside .text", 0);
         return 0;
     }
     return rd32le(sImg + (pc - sImgLo));
+}
+
+/* Calls the original code cannot make here (they talk to the IOP, or wait for the DMA hardware): the interpreter calls
+   the port's own version instead, with the same arguments (a0-a3, t0-t3, then the stack), so both runs see the same
+   effect on EE memory. Their host-side state sees the call twice (the sound queue; a transfer kicked by the original
+   runs again in the port's DMA when Dma_Wait polls it). */
+int sceSifCallRpc(void *client, int fn, int mode, void *send, int ssize, void *recv, int rsize, void *end, void *endArg);
+int sceSifCheckStatRpc(void *client);
+int sceSdRemote(int mode, int cmd, int a0, int a1, int a2, int a3, int a4, int a5);
+uint32_t Dma_Wait(volatile uint32_t *chan); /* src/dma_gif.c: polls the port's DMA (the original spins on CHCR) */
+/* The game's functions that kick or wait for the DMA hardware (EE_HW_POLL in their C): the port's DMA runs at a poll */
+void func_0035D6E0(void);
+void func_0035D738(void);
+void Dma_SendChain(volatile uint32_t *chan, void *tag);
+void Dma_SendNormal(volatile uint32_t *chan, void *addr, uint32_t qwc);
+void func_00343178(uint32_t spr, uint32_t qwc);
+void func_0035E6B8(void *tag);
+void func_0035E758(void *addr, uint32_t qwc);
+void Gfx_WaitVSync(void);
+typedef uint32_t (*FnR12)(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t,
+                          uint32_t, uint32_t, uint32_t);
+static const struct {
+    uint32_t addr;
+    void *fn;
+} sNative[] = {
+    {0x00402B58u, (void *)sceSifCallRpc},
+    {0x00402D10u, (void *)sceSifCheckStatRpc},
+    {0x00404BB8u, (void *)sceSdRemote},
+    {0x00343278u, (void *)Dma_Wait},
+    {0x0035D6E0u, (void *)func_0035D6E0},
+    {0x0035D738u, (void *)func_0035D738},
+    {0x00343028u, (void *)Dma_SendChain},
+    {0x00343080u, (void *)Dma_SendNormal},
+    {0x00343178u, (void *)func_00343178},
+    {0x0035E6B8u, (void *)func_0035E6B8},
+    {0x0035E758u, (void *)func_0035E758},
+    {0x00398CE8u, (void *)Gfx_WaitVSync},
+};
+
+static int native_call(Ee *e, uint32_t pc) {
+    uint32_t k, a[12];
+    const uint8_t *sp;
+
+    for (k = 0; k < sizeof sNative / sizeof sNative[0]; k++) {
+        if (sNative[k].addr == pc) {
+            break;
+        }
+    }
+    if (k == sizeof sNative / sizeof sNative[0]) {
+        return 0;
+    }
+    sp = rptr(e, (uint32_t)e->r[29].lo, 16);
+    if (sp == NULL) {
+        fail(e, "native call: stack outside memory", pc);
+        return 1;
+    }
+    for (k = 0; k < 8; k++) {
+        a[k] = (uint32_t)e->r[k < 4 ? 4 + k : 8 + (k - 4)].lo;
+    }
+    for (k = 0; k < 4; k++) {
+        memcpy(&a[8 + k], sp + k * 4, 4);
+    }
+    for (k = 0; k < sizeof sNative / sizeof sNative[0]; k++) {
+        if (sNative[k].addr == pc) {
+            e->r[2].lo = sx32(((FnR12)sNative[k].fn)(a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8], a[9], a[10],
+                                                     a[11]));
+        }
+    }
+    e->pc = (uint32_t)e->r[31].lo;
+    return 1;
 }
 
 static void run(Ee *e) {
@@ -831,15 +1101,24 @@ static void run(Ee *e) {
             e->stop = 1;
             break;
         }
+        if (native_call(e, pc)) {
+            continue;
+        }
         if (++e->steps > MAX_STEPS) {
             fail(e, "too many steps", 0);
             break;
         }
         op = fetch(e, pc);
+        pc = e->pc; /* a host function pointer became its PS2 address */
         if (e->stop) {
             break;
         }
         if ((op >> 26) == 0 && (op & 63) == 0x0C) {
+            if ((uint32_t)e->r[3].lo == 0x64u) { /* FlushCache: nothing to do here (the port's is empty too) */
+                e->r[2].lo = 0;
+                e->pc = pc + 4;
+                continue;
+            }
             fail(e, "syscall", op);
             break;
         }
@@ -860,8 +1139,9 @@ static void run(Ee *e) {
             e->pc = target;
             if (e->tracePending) {
                 const uint32_t *v = (const uint32_t *)(uintptr_t)(uint32_t)e->r[6].lo;
+                int ind = (e->tracePending - 1) * 2;
                 e->tracePending = 0;
-                printf("ee-call %08X %08X %08X %08X %08X %08X f12 %08X f13 %08X", target, (uint32_t)e->r[4].lo,
+                printf("ee-call%*s %08X %08X %08X %08X %08X %08X f12 %08X f13 %08X", ind, "", target, (uint32_t)e->r[4].lo,
                        (uint32_t)e->r[5].lo, (uint32_t)e->r[6].lo, (uint32_t)e->r[7].lo, (uint32_t)e->r[8].lo,
                        e->f[12], e->f[13]);
                 if (target == 0x34A7A8 && rptr(e, (uint32_t)e->r[6].lo, 16) != NULL) {
@@ -918,6 +1198,9 @@ static int wanted(const char *name) {
                 sMaxCalls = (uint32_t)strtoul(end + 1, NULL, 0);
             }
             sOnly = getenv("TTT_DIFF_ONLY");
+            if (getenv("TTT_DIFF_WATCH") != NULL) {
+                sWatch = (uint32_t)strtoul(getenv("TTT_DIFF_WATCH"), NULL, 16);
+            }
         }
     }
     if (!sEnabled || Port_VBlankCount() < sFromVb) {
@@ -939,6 +1222,11 @@ static int wanted(const char *name) {
 typedef uint32_t (*FnR8)(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
 
 /* Prints the differing words of [lo, hi) between the C result c and the interpreter's i, as runs. */
+/* Equal words, or a function pointer: the port's C stores the host address where the original stores the PS2 one. */
+static int same_word(uint32_t cv, uint32_t iv) {
+    return cv == iv || (cv >= 0x08000000u && iv >= sRo[0].lo && iv < sRo[0].hi && host_to_ps2(cv) == iv);
+}
+
 static unsigned report(const char *name, uint32_t lo, const uint8_t *c, const uint8_t *i, uint32_t size, uint32_t skipLo,
                        uint32_t skipHi, unsigned shown) {
     uint32_t k, n = 0;
@@ -950,14 +1238,14 @@ static unsigned report(const char *name, uint32_t lo, const uint8_t *c, const ui
         }
         memcpy(&cv, c + k, 4);
         memcpy(&iv, i + k, 4);
-        if (cv == iv) {
+        if (same_word(cv, iv)) {
             continue;
         }
         while (k + run * 4 < size) {
             uint32_t x, y;
             memcpy(&x, c + k + run * 4, 4);
             memcpy(&y, i + k + run * 4, 4);
-            if (x == y) {
+            if (same_word(x, y)) {
                 break;
             }
             run++;
@@ -1059,7 +1347,10 @@ uint32_t Port_DiffCall(const char *name, uint32_t addr, void *fn, const char *si
     memcpy((void *)(uintptr_t)skipHi, s0 + (skipHi - RAM_LO), RAM_HI - skipHi);
     memcpy((void *)(uintptr_t)SPR_LO, spr0, SPR_SIZE);
     memcpy(e->vf, vf0, sizeof vf0);
-    e->trace = getenv("TTT_DIFF_TRACE") != NULL;
+    e->trace = getenv("TTT_DIFF_TRACE") != NULL ? atoi(getenv("TTT_DIFF_TRACE")) : 0; /* the call depth traced */
+    if (getenv("TTT_DIFF_TRACE") != NULL && e->trace < 1) {
+        e->trace = 1;
+    }
     ee_call(e, addr, sig, args);
     if (e->stop >= 0 && ret != 0) {
         uint32_t ri = ret == 'f' ? e->f[0] : (uint32_t)e->r[2].lo;

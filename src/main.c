@@ -440,13 +440,25 @@ void Mode_Dispatch(void) {
         Mode_Title();
         break;
     case 3:
+#ifdef PORT
+        PORT_DIFF(0x3BD2E0, Mode_MainMenu, "i", 0); /* TTT_DIFF: the mode against the original code */
+#else
         Mode_MainMenu();
+#endif
         break;
     case 4:
+#ifdef PORT
+        PORT_DIFF(0x35A6A0, Mode_Battle, "i", 0); /* TTT_DIFF: the mode against the original code */
+#else
         Mode_Battle();
+#endif
         break;
     case 5:
+#ifdef PORT
+        PORT_DIFF(0x3CB900, Mode_CharSelect, "i", 0); /* TTT_DIFF: the mode against the original code */
+#else
         Mode_CharSelect();
+#endif
         break;
     case 6:
         func_003C8A50();

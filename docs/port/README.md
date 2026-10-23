@@ -48,8 +48,16 @@ writes everything under `build/port/`, which git ignores.
 - Input (T34 batch 1): two DualShock 2 pads from the keyboard and SDL gamepads, latched once per VBlank, with
   recording and replay of the pad states ([Input](#input)). Real-time runs have the pads; headless runs have none
   unless asked, so the runs above keep their reports and hashes. With input the character select is reached
-  (Start at the main menu); two drafts that stopped it there are fixed (gotcha 21). The cursor there does not move
-  yet (open, [Input](#input)).
+  (Start at the main menu); two drafts that stopped it there are fixed (gotcha 21). T34 batch 2: the pads play the
+  game from the main menu to the fight. The character select's per-side step `func_003CA470` is written from the asm
+  (gotcha 22), four calls that lacked an argument the callee reads now pass it (gotcha 23), and the
+  [draft divergence check](#draft-divergence-check) finds every frame of the character select and of round 1 with
+  inputs agreeing with the original code: ARCADE, two characters picked with the d-pad and a button, the stage loads,
+  the fight (sub-state 8) runs by VBlank 830 and the fighters walk, punch and kick as the pad says
+  ([Input](#input)). The CPU's decisions, the camera volume and the fighters' wind follow the original again
+  (gotchas 23, 24): the wind of `Skel_Update` changes the attract demo's hair from VBlank 1650 on, so the 2551-VBlank
+  run ends with `sbss-hash 0xcf8bdf40` (the wind words `D_005F6E18` / `D_005F6E20` of both sides, and the two moved
+  function pointers of gotcha 20; with those six words set back the memory hashes to the old `0x341e8d2f`).
 - Floats are the EE's: every float operation of the game and of `port/src` goes through the EE float model
   (`port/src/softfloat_ps2.c`), the maths library is the PS2's newlib (`third_party/newlib_libm`), `rand` / `srand`
   are newlib's on the game's own state word. No host float code is linked ([EE float model](#ee-float-model)).
@@ -451,10 +459,15 @@ punch, cross left kick, circle right kick):
 The first two gamepads connected become pads 1 and 2 (`ttt: input: pad N: <name>`), together with the keyboard. Escape
 or closing the window ends the program. No rebinding yet (T36's settings).
 
-Open: in the character select (reached with Start at the main menu) the cursor does not move and a d-pad press
-selects at once. `TTT_DIFF` shows the step `func_003CA470` and `Input_Update` agreeing with the original code on
-those frames (hooks tried and removed), so the state they start from is already different: the drafts that set the
-select screen up come next.
+From the main menu to the fight (T34 batch 2): Start at the main menu starts ARCADE; in the character select the
+d-pad moves the cursor, a punch / kick button picks the character (its costume), and a second pick takes the tag
+partner; then the stage loads and the fight starts (sub-state 8 by VBlank 830 of a headless run), and the fighters
+follow the pad. `tests/test_port_input.py` replays it: the cursor test (always), and with `TTT_SLOW_TESTS=1` the whole
+path, twice with the same result, and against the same run without the fight's inputs. In a window (SDL on X11) the
+keys reach pad 1 in a real-time run: D / S / U moved the cursor right and down and picked with square
+(`TTT_INPUT_RECORD` shows 0x2000, 0x4000, 0x0080 at the VBlanks of the presses). `TTT_PEEK=<addr>[:<words>],...`
+prints EE RAM words at the end of a `TTT_FRAMES` run (`ttt: peek ...`), which the tests read (`gMode` / `gSubMode` at
+0x5F5C20, the select state at 0x440D08, the fighters' positions at 0x879644 / 0x884EE4).
 
 ## VU1
 
@@ -508,14 +521,48 @@ port replacement. `port/src/ee_diff.c` compares such C with the original directl
   `func_003DE0D8`, `func_00347E28`, `func_00351E98`, `func_0034D258`, `func_003DE4E0`, `func_00351AA0`), and
   `func_0034CC38` / `func_0034C300` inside `func_0034D258`.
 - **Result (VBlank 1600, first fighter):** all of them agree with the original after the `func_003DD918` fix
-  (`tests/test_port_ee.py`, slow test, `TTT_SLOW_TESTS=1`); `func_0034C300` leaves one scratch word of its CamVol
-  view different (inside the drafts `func_0034B4E8` / `func_0034BDD8`; the result vector agrees). `TTT_SELFTEST=ee`
+  (`tests/test_port_ee.py`, slow test, `TTT_SLOW_TESTS=1`). The scratch word `func_0034C300` left different in its
+  CamVol view is gone since T34 batch 2: the drafts `func_0034B4E8` / `func_0034BDD8` stored `sqrt` back over the
+  squared length / the discriminant the original keeps there (gotcha 24). `TTT_SELFTEST=ee`
   found two libm differences in `third_party/newlib_libm`, which has newer fdlibm constants than the executable's
   newlib: `ef_asin.c` uses `pio2_hi` 0x3FC90FDB / `pio2_lo` -4.37e-8 where the executable has 0x3FC90FDA / 0x33A22168
   (asinf off by up to 2 units in the last place for |x| >= 0.5; `ef_acos.c` already has the old ones), and atan2f's
   |y / x| > 2^26 result is one unit off. The self-test reports them as KNOWN until the library is corrected.
+- **What the original cannot do here** (T34 batch 2). `FlushCache` (syscall 0x64) does nothing, as the port's;
+  `bc0f` / `bc0t` see the DMA done; `ei` / `di` do nothing. The calls that talk to the IOP (`sceSifCallRpc`,
+  `sceSifCheckStatRpc`, `sceSdRemote`) or kick and wait for the DMA hardware (the game functions with `EE_HW_POLL` in
+  their C: `Dma_Wait`, `Dma_SendChain`, `Dma_SendNormal`, `func_00343178`, `func_0035D6E0`, `func_0035D738`,
+  `func_0035E6B8`, `func_0035E758`, `Gfx_WaitVSync`) go to the port's own functions with the same arguments (a0-a3,
+  t0-t3, then the stack), so a sound effect or a load no longer stops the check. Their host-side state sees the call
+  twice (both runs): a sound request is queued twice, a transfer runs twice. A function pointer the port's C stored in
+  game memory is a host address: a call through it goes to the original function of the same name (`func_XXXXXXXX`,
+  or the name's address in `build/SLUS_200.01.elf`), and a word where the C has the host address and the original
+  the PS2 one counts as equal. `.rodata` is read from the running memory where the port keeps the object at its
+  address (`build/port/gen/image.txt`): the game writes some of it (the move table `D_00531EA0` gets its motion
+  pointers when a character loads); the rest of `.rodata` (the jump tables) still comes from the executable.
+- **Tools.** `TTT_DIFF_TRACE=<depth>` prints the original's calls to that depth (`ee-call`, indented; 1 = the hooked
+  function's own calls); `TTT_DIFF_WATCH=<hex addr>` prints every store of the original code to that word (pc, ra);
+  a load or store outside memory names the address and `ra`. With gdb on the C side (a hardware watchpoint on the same
+  word, from a breakpoint on the hooked function at the VBlank: `break Battle_UpdateFrame if sVBlanks == 1032`) the
+  two writers are found in a minute.
+- **The path to the fight (T34 batch 2).** Hooks: `Mode_MainMenu`, `Mode_Battle` and `Mode_CharSelect`
+  (`Mode_Dispatch`, `main.c`), `func_003CA470` (both sides), `Battle_UpdateFrame` in `Mode_Battle`'s sub-state 8, and
+  `Skel_Update` through `func_0034E8B0` (one fighter's frame). With the inputs of `tests/test_port_input.py`
+  (ARCADE, two characters, the fight with a walk, punches and a kick), every frame from the main menu (VBlank 177) to
+  the end of the check (1449) agrees with the original except for these known differences:
+  - `gGfx.field` / `vsyncCount` (`0x8BD2F0`-`0x8BD2F8`) in frames that load: the VBlank interrupt counts on while
+    the C runs a load, not while the original is interpreted;
+  - the game's own uninitialised locals, garbage on both sides: the preview fighters' joint rows `m2` (`func_003564C8`
+    passes its stack `m` to `func_00349C50` as the screen matrix; VBlanks 342, 618, 710, 801), the camera key words
+    3, 4 and 8 that `func_0035B690` never writes (`func_003D2818` copies them to `D_00415808`), and the fourth
+    components of a hit flash (`Light_StartFlash`);
+  - asinf's last bits (the libm constants above) in the fighters' turned upper bodies (`func_0034A0D0` of
+    `geometry_b.c`, VBlanks 815, 1163-1165, 1384);
+  - the sign of a zero in one joint matrix (VBlanks 620, 803): the hand-written `func_00349D70` multiplies the vf9 the
+    previous VU0 code left, and the port's libvu0 (C on its own registers) leaves another one.
 - **Limits.** The check covers the hooked calls in the frames asked for (a path not taken there is not covered).
-  About 0.3 s per checked call (two 32 MB copies).
+  About 0.3 s per checked call (two 32 MB copies); a whole fight frame (about 440,000 instructions) takes about 1 s;
+  the stage load of VBlank 617 (256 million instructions, the wind generator's warm-up) about two minutes.
 
 ## Hand replacements
 
@@ -669,6 +716,29 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
     got the bytes 0x58 further (the hex digits next to it) and `Text_PutGlyph` divided by a zero column count
     (SIGFPE on "FREE PLAY").
 
+22. **m2c drafts that guess the size of an access.** The m2c draft of `func_003CA470` (the character select's step
+    per side, 1292 lines of asm) wrote every access as a byte or a word at an offset: it read the pad words
+    `D_00415728` / `D_00415738` as bytes (the d-pad bits 0x1000-0x8000 never arrived: the cursor never moved), the
+    member counts `D_005F62A8[side]` (s16) as bytes and the game type (a byte) as a word, and it called `Text_Printf`
+    with two arguments short. Written again from the asm with the game's types (`SelState`, `SelSide`, `GameSetup`, the
+    member slots of `D_00440C28` as `{chr, cos, s16 id}`); `TTT_DIFF` then finds the select screen equal to the
+    original frame by frame.
+23. **Callees that read a register the caller left.** Like gotcha 5, found on the way to the fight: matched C
+    `Skel_Update` calls `func_0034E018()` (the per-side wind) with no argument, but its `$a0` is still `f` and the
+    callee reads it; `draw_list.c`'s draft `func_00357160` calls `func_00340398()` with `id` still in `$a0`;
+    `stage.c`'s draft `func_00395718` passes `a0` only to `func_0035BB58`, which reads `$a1` too; and the draft
+    `func_0035C850` called `func_003AE3C0()` with no fighter (SIGSEGV when the fight starts). The port passes them.
+    A scan of every `src/*.c` declaration against the definitions' parameter counts lists the rest (callers that
+    pass fewer arguments than the callee reads): `func_003DC188` (`demo.c`), `Ui_DrawWindow` / `func_003DBE98`
+    (`theater.c`, `theater_b.c`), off the path to the fight.
+24. **m2c drafts that change the order or the home of a value.** The CPU's decider `func_003865A0` (`fighter_core.c`)
+    stepped the seed word `D_005F6C08` before adding it to `rand()`; the asm adds the old seed and stores the new one
+    after (`(rand() + seed) & 0x7FFF`, then `seed = seed * 5 + 3`). From the first frame of the fight on, the CPU took
+    other decisions (and more random numbers) than the original. The camera-volume drafts `func_0034B4E8` /
+    `func_0034BDD8` (`geometry_c.c`) stored a `sqrt` back over the value it was taken from, where the original keeps
+    it in a register: `unk274` must stay the squared distance, which the cylinder test compares with squared
+    distances later.
+
 ## EE float model
 
 - **Arithmetic** (`port/src/softfloat_ps2_inl.h`, `softfloat_ps2.c`; the hardware-level model of the reference
@@ -707,5 +777,6 @@ more frames, both fighters) are the systematic way on. `third_party/newlib_libm`
 result need the executable's constants ([Draft divergence check](#draft-divergence-check)). libgraph
 (`plat_lib.c`): the DBuff buffer pairing and SwapDBuff's ids differ from the library with the same GS result. The
 seven Tekken Bowl m2c drafts around VU0 code (`portsrc.REPLACED`, still placeholders: not reached by the attract
-demo); the libm PCSX2 run; the character select's cursor ([Input](#input)), the multitap, vibration and rebinding;
-memory cards, sound (RSPU2DRV) and movies.
+demo); the libm PCSX2 run; the other game types after the character select (VS, team, survival: the same step
+function, not checked frame by frame) and the leftover-register calls of gotcha 23 off the fight's path; the multitap,
+vibration and rebinding; memory cards, sound (RSPU2DRV) and movies.

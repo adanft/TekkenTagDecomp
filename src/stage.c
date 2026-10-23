@@ -170,7 +170,7 @@ s32 func_00366108(s32 dx, s32 dz);
 s32 Cam_SetDistance(s32 dist);
 u8 CamScript_Step(s32 n, Unk8B92D0 *out, s32 a2);
 s32 func_0039C0E0(s32 a0, s32 a1);
-void func_0035BB58(s32 a0);
+void func_0035BB58(s32 a0, s32 a1);
 void func_0035BD20(s32 a0, s32 a1);
 s32 func_0038FD90(s32 a0, s32 a1, s32 a2, s32 a3, s32 a4, s32 a5, s32 a6, s32 a7);
 s32 func_00391358(s32 a0, s32 a1, s32 a2, s32 a3, s32 a4, s32 a5, s32 a6, s32 a7);
@@ -4754,7 +4754,7 @@ s32 func_00395718(s32 a0, s32 a1, s32 a2) {
     D_005F6140 = 0;
     p->unk4 = a0;
     p->unk8 = a1;
-    func_0035BB58(a0);
+    func_0035BB58(a0, a1); /* the PS2 call keeps a1 in $a1, and func_0035BB58 reads it */
     return 0;
 }
 #else

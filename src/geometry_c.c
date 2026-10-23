@@ -106,7 +106,7 @@ s32 func_0034B4E8(CamVol *c) {
     sceVu0SubVector(c->unk1F0, c->unk1A0, c->unk190);
     c->unk1F0[1] = 0.0f;
     c->unk274 = sceVu0InnerProduct(c->unk1F0, c->unk1F0);
-    c->unk270 = c->unk274 = sqrtf(c->unk274);
+    c->unk270 = sqrtf(c->unk274); /* unk274 keeps the squared length: compared with squared lengths below (asm 0x34BC88) */
     if (c->unk1A0[0] == c->unk190[0]) {
         if (c->unk1A0[2] == c->unk190[2]) {
 push:
@@ -149,11 +149,11 @@ push:
         if (c->unk284 <= 0.0f) {
             return 0;
         }
-        c->unk284 = sqrtf(c->unk284);
-        c->unk288 = (-c->unk27C + c->unk284) / c->unk278;
+        h = sqrtf(c->unk284); /* in a register: unk284 keeps the discriminant (asm 0x34B960 / 0x34B9B0) */
+        c->unk288 = (-c->unk27C + h) / c->unk278;
         sceVu0ScaleVector(c->unk200, c->unk1D0, c->unk288);
         sceVu0AddVector(c->unk200, c->unk200, c->unk190);
-        c->unk288 = (-c->unk27C - c->unk284) / c->unk278;
+        c->unk288 = (-c->unk27C - h) / c->unk278;
         sceVu0ScaleVector(c->unk210, c->unk1D0, c->unk288);
         sceVu0AddVector(c->unk210, c->unk210, c->unk190);
     } else {
@@ -288,9 +288,9 @@ s32 func_0034BDD8(CamVol *c) {
     if (c->unk280 <= 0.0f) {
         return 0;
     }
-    c->unk280 = sqrtf(c->unk280);
-    sceVu0ScaleVectorXYZ(c->unk200, c->unk1D0, (-c->unk278 - c->unk280) / c->unk274);
-    sceVu0ScaleVectorXYZ(c->unk210, c->unk1D0, (-c->unk278 + c->unk280) / c->unk274);
+    a = sqrtf(c->unk280); /* kept in a register: unk280 stays the discriminant (asm 0x34C00C) */
+    sceVu0ScaleVectorXYZ(c->unk200, c->unk1D0, (-c->unk278 - a) / c->unk274);
+    sceVu0ScaleVectorXYZ(c->unk210, c->unk1D0, (-c->unk278 + a) / c->unk274);
     sceVu0AddVector(c->unk200, c->unk190, c->unk200);
     sceVu0AddVector(c->unk210, c->unk190, c->unk210);
     sceVu0SubVector(c->unk1F0, c->unk190, c->unk1A0);

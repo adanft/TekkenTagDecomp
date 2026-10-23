@@ -3437,7 +3437,7 @@ extern s16 D_004FF690[];
 extern s8 D_0043B9B8[];
 extern s32 D_005F6668;
 extern s32 D_005F666C;
-void func_003ADBE8(s32 side, s32 chr, s32 *cos);
+s32 func_003ADBE8(s32 side, s32 chr, s32 *cos);
 #define SLOT(side, i) (*(SelSlotM *)((u8 *)D_00440C28 + (i) * 12 + (side) * 0x60))
 
 s32 func_003C9ED8(SelState *s, SelSide *d, s32 side, s32 btn);
@@ -3574,669 +3574,386 @@ INCLUDE_RODATA("asm/nonmatchings/select_results_b", D_005204B8);
 INCLUDE_RODATA("asm/nonmatchings/select_results_b", jtbl_005204D0);
 
 #if 0
-/* NON_MATCHING: 1292 lines: m2c-based compiling draft only (calls through unprototyped casts, byte-offset accesses); the C emits its own jump table, so jtbl_005204D0 must go when it is enabled */
-#define M32(p, o) (*(s32 *)((u8 *)(p) + (o)))
+/* NON_MATCHING: 1292 lines, written from the asm for the PC port (T34 b2: the m2c draft before it read the pad words, the
+   member counts and the game type as bytes / words of the wrong size, so the cursor never moved); not compared for
+   matching yet. The C emits its own jump table, so jtbl_005204D0 must go when it is enabled. */
 extern u16 D_005F5C80[2];
 extern s32 D_005F6EB8;
+extern u32 D_00415728[];
+extern u32 D_00415738[];
+extern u32 D_00415758[];
+extern u32 D_00415768[];
+extern const char D_005204B8[];
 extern Fighter gFighters[4];
-void func_003AE9D8();
-void func_003AEC58();
-void func_003AECA8();
-void func_003AEF88();
-void func_003AFF40();
-void func_003B0660();
-void func_003BF7F8();
-void func_003BF820();
-#define Snd_PlaySe ((s32 (*)())Snd_PlaySe)
-#define Text_Printf ((s32 (*)())Text_Printf)
-#define func_003ADBE8 ((s32 (*)())func_003ADBE8)
-#define func_003AE738 ((s32 (*)())func_003AE738)
-#define func_003AE9D8 ((s32 (*)())func_003AE9D8)
-#define func_003AEC58 ((s32 (*)())func_003AEC58)
-#define func_003AECA8 ((s32 (*)())func_003AECA8)
-#define func_003AEF88 ((s32 (*)())func_003AEF88)
-#define func_003AFF08 ((s32 (*)())func_003AFF08)
-#define func_003AFF40 ((s32 (*)())func_003AFF40)
-#define func_003AFFB8 ((s32 (*)())func_003AFFB8)
-#define func_003B01B0 ((s32 (*)())func_003B01B0)
-#define func_003B0380 ((s32 (*)())func_003B0380)
-#define func_003B0660 ((s32 (*)())func_003B0660)
-#define func_003BA450 ((s32 (*)())func_003BA450)
-#define func_003BF7F8 ((s32 (*)())func_003BF7F8)
-#define func_003BF820 ((s32 (*)())func_003BF820)
-#define func_003C94C0 ((s32 (*)())func_003C94C0)
-#define func_003C9518 ((s32 (*)())func_003C9518)
-#define func_003C9888 ((s32 (*)())func_003C9888)
-#define func_003C98A8 ((s32 (*)())func_003C98A8)
-#define func_003C98C8 ((s32 (*)())func_003C98C8)
-#define func_003C98E8 ((s32 (*)())func_003C98E8)
-#define func_003C9AC0 ((s32 (*)())func_003C9AC0)
-#define func_003C9E70 ((s32 (*)())func_003C9E70)
-#define func_003C9E98 ((s32 (*)())func_003C9E98)
-#define func_003C9ED8 ((s32 (*)())func_003C9ED8)
-#define func_003CA428 ((s32 (*)())func_003CA428)
-#define func_003CB8E0 ((s32 (*)())func_003CB8E0)
-extern u8 D_00415728[];
-extern u8 D_00415738[];
-extern u8 D_00415758[];
-extern u8 D_00415768[];
-extern u8 D_005204B8[];
-void func_003CA470(SelState *arg0_, s32 arg1_) {
-    u8 *arg0 = (u8 *)arg0_;
-    s16 arg1 = arg1_;
-    u8 spbuf[0x400];
-    s32 sp4;
-    s32 sp8;
-    s32 spC;
-    u8 *sp10;
-    s32 sp14;
-    s32 sp18;
-    s32 sp1C;
-    s32 *sp20;
-    u8 *sp24;
-    s16 *temp_s0_7;
-    s16 *temp_s3_2;
-    s16 *temp_v0_11;
-    s16 *temp_v0_13;
-    s16 *temp_v1_6;
-    s16 temp_a0_2;
-    s16 temp_s0_8;
-    s16 temp_s2_2;
-    s16 temp_v0_6;
-    s16 temp_v0_8;
-    s16 var_s0_3;
-    s32 *temp_a0;
-    s32 *temp_a0_7;
-    s32 *temp_s0;
-    s32 *temp_s0_2;
-    s32 *temp_s1;
-    s32 *temp_s1_2;
-    s32 temp_a0_6;
-    s32 temp_a1;
-    s32 temp_a2_2;
-    s32 temp_a2_3;
-    s32 temp_a2_4;
-    s32 temp_a3_2;
-    s32 temp_s0_10;
-    s32 temp_s0_3;
-    s32 temp_s0_4;
-    s32 temp_s0_5;
-    s32 temp_s0_6;
-    s32 temp_s1_3;
-    s32 temp_s1_4;
-    s32 temp_s1_5;
-    s32 temp_s1_6;
-    s32 temp_s2;
-    s32 temp_s2_3;
-    s32 temp_s3;
-    s32 temp_s3_3;
-    s32 temp_v0;
-    s32 temp_v0_10;
-    s32 temp_v0_12;
-    s32 temp_v0_14;
-    s32 temp_v0_2;
-    s32 temp_v0_3;
-    s32 temp_v0_4;
-    s32 temp_v0_5;
-    s32 temp_v0_7;
-    s32 temp_v0_9;
-    s32 temp_v1_2;
-    s32 temp_v1_4;
-    s32 temp_v1_7;
-    s32 var_a0;
-    s32 var_a1;
-    s32 var_a2;
-    s32 var_fp;
-    s32 var_s0;
-    s32 var_s0_2;
-    s32 var_s0_4;
-    s32 var_s1;
-    s32 var_s1_2;
-    s32 var_s1_3;
-    s32 var_s1_4;
-    s32 var_s1_5;
-    s32 var_s2;
-    s32 var_s2_2;
-    s32 var_s2_3;
-    s32 var_s6;
-    s32 var_s6_2;
-    s32 var_v0_10;
-    s32 var_v0_2;
-    s32 var_v0_3;
-    s32 var_v0_4;
-    s32 var_v0_5;
-    s32 var_v0_6;
-    s32 var_v0_7;
-    s32 var_v0_8;
-    s32 var_v0_9;
-    s32 var_v1;
-    s32 var_v1_2;
-    s8 temp_a0_3;
-    s8 temp_s0_9;
-    s8 var_s1_6;
-    u16 *temp_a0_5;
-    u16 *temp_v1_5;
-    u16 *temp_v1_8;
-    u32 temp_v1;
-    u32 var_v0;
-    u8 *temp_a0_4;
-    u8 *temp_a0_8;
-    u8 *temp_t0;
-    u8 temp_a1_2;
-    u8 *temp_a2;
-    u8 *temp_a3;
-    u8 *temp_s5;
-    u8 *temp_v1_3;
+void func_003AEC58(s32 i, s32 a, s32 b, s32 c);
+void func_003AECA8(s32 side, s32 ch, s32 costume, s32 c);
+void func_003AE9D8(s32 i);
+void func_003AFF40(s32 i);
+void func_003B0660(s16 i);
+void func_003BF7F8(void);
+void func_003BF820(s32 d, s32 b);
+void func_003AEF88(s32 side, s32 b, s32 c, s32 hold);
+/* D_00440C28 as the picked members: 8 per side (0x60 bytes) [V offsets] */
+typedef struct {
+    /* 0x0 */ s32 chr;
+    /* 0x4 */ s32 cos;
+    /* 0x8 */ s16 id; /* chr * 8 + costume */
+    /* 0xA */ s16 padA;
+} SelMember;
+#define MEMBER(side, i) (((SelMember *)D_00440C28)[(side) * 8 + (i)])
 
-    sp10 = arg0;
-    temp_s5 = arg0 + ((arg1 * 0x1C) + 0x20);
-    sp14 = 0;
-    temp_v0 = M32(temp_s5, 0x18);
-    if (temp_v0 > 0) {
-        M32(temp_s5, 0x18) = (s32) (temp_v0 - 1);
+/* Both directions of an axis held cancel each other. */
+static s32 sel_axes(s32 b) {
+    if ((b & 0x5000) == 0x5000) {
+        b &= ~0x5000;
     }
-    temp_v1 = M32(temp_s5, 0x0);
-    switch (temp_v1) {
-    case 0:
-        if (M32(sp10, 0x8) != 0) {
-            func_003C9888(sp10);
-        }
-        M32(temp_s5, 0x18) = 0;
-        var_a2 = arg1 * 2;
-        if (M32(((u8 *)&D_0043B7F8), 0x0) == 2) {
-            func_003C9E98(temp_s5, arg1, var_a2);
-            var_a2 = arg1 * 2;
-        }
-        var_s1 = arg1 * 4;
-        if (*(var_a2 + ((u8 *)&D_005F5C80)) != 0) {
-            *(var_a2 + ((u8 *)&D_005F62A8)) = *(var_s1 + ((u8 *)&D_005F6700));
-            M32(temp_s5, 0x18) = 0x5A;
-        } else if (*(var_a2 + ((u8 *)&D_005F5CB0)) == 0) {
-            var_s1 = arg1 * 4;
-            *(var_a2 + ((u8 *)&D_005F62A8)) = *(var_s1 + ((u8 *)&D_005F6700));
-            *(var_s1 + ((u8 *)&D_005F6668)) = 1;
-        } else {
-            var_s1 = arg1 * 4;
-            *(var_s1 + ((u8 *)&D_005F6668)) = 0;
-            *(var_a2 + ((u8 *)&D_005F62A8)) = 0;
-            var_a1 = 0;
-            do {
-                temp_v1_2 = var_a1 * 0xC;
-                var_a1 += 1;
-                temp_v0_2 = temp_v1_2 + (arg1 * 0x60);
-                temp_v1_3 = temp_v0_2 + ((u8 *)&D_00440C28);
-                M32(temp_v1_3, 0x0) = -1;
-                *(temp_v0_2 + (((u8 *)&D_00440C28) + 4)) = -1;
-                M32(temp_v1_3, 0x8) = -1;
-            } while (var_a1 < 8);
-        }
-        func_003C98E8(sp10, temp_s5, arg1);
-        temp_v0_3 = func_003BA450(arg1);
-        if (temp_v0_3 != 2) {
-            if (temp_v0_3 >= 3) {
-                if (temp_v0_3 != 3) {
-                    return;
-                }
-                temp_s2 = arg1 * 0x60;
-                temp_s1 = temp_s2 + ((u8 *)&D_00440C28);
-                temp_s0 = temp_s2 + (((u8 *)&D_00440C28) + 4);
-                func_003ADBE8(arg1, *temp_s1, temp_s0);
-                func_003AECA8(arg1, *temp_s1, *temp_s0, 1);
-                func_003AE9D8(arg1);
-                if ((u32) (M32(((u8 *)&D_0043B7F8), 0x0) - 5) >= 2U) {
-                    temp_s0_2 = temp_s2 + (((u8 *)&D_00440C28) + 0xC);
-                    temp_s1_2 = temp_s2 + (((u8 *)&D_00440C28) + 0x10);
-                    temp_s2_2 = arg1 + 2;
-                    func_003ADBE8(arg1, *temp_s0_2, temp_s1_2);
-                    func_003AECA8(temp_s2_2, *temp_s0_2, *temp_s1_2, 1);
-                    func_003AE9D8(temp_s2_2);
-                }
-                M32(temp_s5, 0x0) = 6U;
-                goto block_34;
-            }
-            if (temp_v0_3 >= 0) {
-                M32(temp_s5, 0x0) = 2U;
-                goto block_34;
-            }
-            return;
-        }
-        var_s0 = func_003C98A8(sp10, temp_s5);
-        if (var_s0 == 0x37) {
-            var_s0 = *(var_s1 + ((u8 *)&D_005F6708));
-        }
-        if (M32(((u8 *)&D_0043B7F8), 0x8) == 0) {
-            func_003ADBE8(arg1, var_s0, spbuf);
-            func_003AEC58(arg1, var_s0, 0 /* stack arg 0 */, 0);
-        }
-        if (M32(((u8 *)&D_0043B7F8), 0x0) != temp_v0_3) {
-            var_v0 = 1;
-        } else {
-            var_v0 = 4;
-        }
-        M32(temp_s5, 0x0) = var_v0;
-        *(var_s1 + ((u8 *)&D_005F6EB8)) = 0x3C;
-block_34:
-        return;
-    case 1:
-        var_s6 = 0;
-        if (D_005F6EAA == 0) {
-            temp_v0_4 = func_003AFF08(arg1);
-            if (temp_v0_4 != -1) {
-                temp_s0_3 = temp_v0_4 * 4;
-                var_fp = arg1 * 2;
-                var_s6 = func_003CA428(*(temp_s0_3 + ((u8 *)&D_00415728)));
-                var_s2 = (*(temp_s0_3 + ((u8 *)&D_00415738)) & 0xFFFFA300) | (var_s6 & 0x58F4);
-            } else {
-                var_s6 = 0;
-                var_s2 = 0;
-                goto block_45;
-            }
-            goto block_46;
-        }
-        var_s1_2 = 0;
-        var_s2 = 0;
-        temp_s3 = func_003B01B0(D_005F6EAC) + 1;
-        var_fp = arg1 * 2;
-        if (temp_s3 > 0) {
-            do {
-                temp_v0_5 = func_003AFFB8(D_005F6EAC, var_s1_2);
-                if (temp_v0_5 != -1) {
-                    temp_s0_4 = temp_v0_5 * 4;
-                    var_s6 |= func_003CA428(*(temp_s0_4 + ((u8 *)&D_00415728)));
-                    var_s2 = var_s2 | (var_s6 & 0x58F4) | (*(temp_s0_4 + ((u8 *)&D_00415738)) & 0xFFFFA300);
-                } else {
-                    var_s6 = 0;
-                    var_s2 = 0;
-                }
-                var_s1_2 += 1;
-                var_v0_2 = var_s2 & 0x5000;
-            } while (var_s1_2 < temp_s3);
-        } else {
-block_45:
-            var_fp = arg1 * 2;
-block_46:
-            var_v0_2 = var_s2 & 0x5000;
-        }
-        var_v0_3 = var_s2 & 0xA000;
-        if (var_v0_2 == 0x5000) {
-            var_s2 &= 0xFFFFAFFF;
-            var_v0_3 = var_s2 & 0xA000;
-        }
-        var_v0_4 = var_s6 & 0x5000;
-        if (var_v0_3 == 0xA000) {
-            var_s2 &= 0xFFFF5FFF;
-            var_v0_4 = var_s6 & 0x5000;
-        }
-        var_v0_5 = var_s6 & 0xA000;
-        if (var_v0_4 == 0x5000) {
-            var_s6 &= 0xFFFFAFFF;
-            var_v0_5 = var_s6 & 0xA000;
-        }
-        if (var_v0_5 == 0xA000) {
-            var_s6 &= 0xFFFF5FFF;
-        }
-        var_v0_6 = var_s6 & 0x100;
-        if (D_005F66FA != 0) {
-            var_s6 = 0;
-            var_s2 = 0;
-            var_v0_6 = 0 & 0x100;
-        }
-        if (var_v0_6 == 0) {
-            temp_s1_3 = arg1 * 4;
-            sp1C = temp_s1_3;
-            temp_a0 = temp_s1_3 + ((u8 *)&D_005F6EB8);
-            temp_v1_4 = *temp_a0;
-            if (temp_v1_4 < 2) {
-                sp18 = var_s2;
-            } else {
-                sp18 = 0;
-                *temp_a0 = temp_v1_4 - 2;
-            }
-            sp20 = &sp8;
-            sp24 = sp10 + 0x14;
-loop_103:
-loop_104:
-            temp_s0_5 = func_003C9AC0(sp10, temp_s5, var_s2, var_s6, sp20, arg1, M32(sp10, 0x8)); /* a0-a3, t0-t2 */
-            if ((*(var_fp + ((u8 *)&D_005F62A8)) == 1) && (M32(temp_s5, 0x10) == *((arg1 * 0x60) + ((u8 *)&D_00440C28)))) {
-                *(sp24 + sp1C) = 0;
-            } else if (func_003C98C8(temp_s5) != 0) {
-                *(sp24 + sp1C) = 0;
-            } else {
-                *(sp24 + sp1C) = 1;
-            }
-            if (sp8 != 0) {
-                spC = 0;
-                func_003ADBE8(arg1, M32(temp_s5, 0x10), &spC);
-                if (M32(((u8 *)&D_0043B7F8), 0x8) == 0) {
-                    func_003AEC58(arg1 + (*(var_fp + ((u8 *)&D_005F62A8)) * 2), M32(temp_s5, 0x10), spC, 0);
-                } else if (*(var_fp + ((u8 *)&D_005F62A8)) == 0) {
-                    M32(((arg1 * 0xB8A0) + ((u8 *)&gFighters)), 0x26) = (s16) ((u16) spC + ((u16) M32(temp_s5, 0x10) * 8));
-                }
-            }
-            if (temp_s0_5 != 0) {
+    if ((b & 0xA000) == 0xA000) {
+        b &= ~0xA000;
+    }
+    return b;
+}
 
-            } else {
-                if (func_003C9ED8(sp10, temp_s5, arg1, sp18) != 0) {
-                    var_v0_7 = M32(sp10, 0x8);
-                    goto block_101;
-                }
-                M32(temp_s5, 0x18) = 0x5A;
-                *(sp1C + ((u8 *)&D_005F6EB8)) = 0x14;
-                temp_v0_6 = *(var_fp + ((u8 *)&D_005F62A8));
-                temp_a1 = (temp_v0_6 * 0xC) + (arg1 * 0x60);
-                temp_a3 = temp_a1 + ((u8 *)&D_00440C28);
-                M32(temp_a3, 0x0) = (s32) M32(temp_s5, 0x10);
-                temp_a2 = ((u8 *)&D_00440C28) + temp_a1;
-                M32(temp_a2, 0x4) = (s32) M32(temp_s5, 0x14);
-                M32(temp_a3, 0x8) = (s16) (((u16) M32(temp_s5, 0x10) * 8) + ((u16) M32(temp_s5, 0x14) & 7));
-                if ((M32(((u8 *)&D_0043B7F8), 0x8) != 0) || (M32((((arg1 + (temp_v0_6 * 2)) * 0xB8A0) + ((u8 *)&gFighters)), 0x26) != ((M32(temp_s5, 0x10) * 8) + M32(temp_s5, 0x14))) || (func_003C98C8(temp_s5, M32(((u8 *)&D_0043B7F8), 0x8), temp_a2, temp_a3) != 0)) {
-                    temp_s3_2 = var_fp + ((u8 *)&D_005F62A8);
-                    temp_s0_6 = arg1 * 0x60;
-                    temp_a2_2 = *temp_s3_2 * 0xC;
-                    if (func_003ADBE8(arg1, *(temp_a2_2 + temp_s0_6 + ((u8 *)&D_00440C28)), temp_s0_6 + (temp_a2_2 + ((u8 *)&D_00440C28)) + 4) == 0) {
-                        temp_a0_2 = *temp_s3_2;
-                        temp_v0_7 = (temp_a0_2 * 0xC) + temp_s0_6;
-                        func_003AEC58(arg1 + (temp_a0_2 * 2), *(temp_v0_7 + ((u8 *)&D_00440C28)), M32((((u8 *)&D_00440C28) + temp_v0_7), 0x4), 1);
-                    }
-                }
-                temp_s0_7 = var_fp + ((u8 *)&D_005F62A8);
-                func_003AE9D8(arg1 + (*temp_s0_7 * 2));
-                if (M32(((u8 *)&D_0043B7F8), 0xA) != 0) {
-                    var_s1_3 = arg1 * 8;
-                    *(*temp_s0_7 + var_s1_3 + ((u8 *)&D_004157F8)) = M32(temp_s5, 0x4);
-                } else {
-                    var_s1_3 = arg1 * 8;
-                }
-                temp_a1_2 = M32(temp_s5, 0x4);
-                *((s16) (u16) *temp_s0_7 + var_s1_3 + ((u8 *)&D_00440D40)) = temp_a1_2;
-                func_003AFF40(arg1, temp_a1_2);
-                temp_v0_8 = (u16) *temp_s0_7 + 1;
-                *temp_s0_7 = temp_v0_8;
-                if (temp_v0_8 == 1) {
-                    func_003B0660(arg1);
-                }
-                temp_a0_3 = M32((((u8 *)&D_004157F8) + var_s1_3), 0x1);
-                if ((temp_a0_3 != -1) && (*temp_s0_7 == 1)) {
-                    M32(temp_s5, 0x4) = (s32) temp_a0_3;
-                    sp4 = 0;
-                    temp_v0_9 = func_003C98A8(sp10, temp_s5);
-                    M32(temp_s5, 0x10) = temp_v0_9;
-                    if (temp_v0_9 == 0x37) {
-                        M32(temp_s5, 0x10) = 0;
-                    } else {
-                        temp_s0_8 = arg1 + 2;
-                        func_003ADBE8(temp_s0_8, temp_v0_9, &sp4);
-                        func_003AEC58(temp_s0_8, M32(temp_s5, 0x10), sp4, 0);
-                    }
-                }
-                M32(temp_s5, 0x14) = 0;
-                if (M32(((u8 *)&D_0043B7F8), 0x0) == 2) {
-                    if (*(var_fp + ((u8 *)&D_005F62A8)) < *(sp1C + ((u8 *)&D_005F6700))) {
-                        if (M32(((arg1 * 0x1E) + ((u8 *)&D_0043B7F8)), 0x5E) == 0) {
-                            goto block_87;
-                        }
-                        goto loop_104;
-                    }
-                    goto block_87;
-                }
-block_87:
-                if (*(var_fp + ((u8 *)&D_005F62A8)) != *(sp1C + ((u8 *)&D_005F6700))) {
-                    var_v0_7 = M32(sp10, 0x8);
-block_101:
-                    if (var_v0_7 == 0) {
-                        var_s2 = 0xFFFF;
-                        goto loop_103;
-                    }
-                } else {
-                    if (M32(((u8 *)&D_0043B7F8), 0x0) == 7) {
-                        temp_s0_9 = arg1 ^ 1;
-                        if (*((temp_s0_9 * 2) + ((u8 *)&D_005F5CB0)) == 0) {
-                            func_003AE738(0, temp_s0_9, ((u8 *)&D_005F62A8));
-                            D_005F6EAC = (s8) arg1;
-                            D_005F6EAD = 1;
-                            D_005F6EAA = 1;
-                            D_005F6EAB = temp_s0_9;
-                            D_005F6EA8 = (u16) M32(temp_s5, 0x4);
-                            func_003CB8E0(temp_s0_9, 0);
-                            func_003B0380(D_005F6EAB);
-                            func_003C94C0(D_005F6EAB);
-                        } else {
-                            D_005F6EAA = 0;
-                            *((D_005F6EAB * 4) + ((u8 *)&D_005F6668)) = 1;
-                        }
-                    }
-                    *(sp24 + sp1C) = 1;
-                    if (M32(((u8 *)&D_0043B7F8), 0x0) != 1) {
-                        if (M32(((u8 *)&D_0043B7F8), 0x0) != 6) {
-                            M32(temp_s5, 0x0) = 6U;
-                            D_005F6EB0 = 7;
-                        } else {
-                            goto block_99;
-                        }
-                    } else {
-block_99:
-                        M32(temp_s5, 0x0) = 3U;
-                    }
-                }
-            }
-            if ((M32(((u8 *)&D_0043B7F8), 0x0) == 1) || (M32(((u8 *)&D_0043B7F8), 0x0) == 6)) {
-                temp_a0_4 = ((u8 *)&D_0043B7F8) + 0x44;
-                if (M32(sp10, 0x1C) == 0) {
-                    temp_v1_5 = (arg1 * 6) + temp_a0_4;
-                    *temp_v1_5 += 0x14;
-                }
-                temp_v1_6 = (arg1 * 6) + temp_a0_4;
-                if (*temp_v1_6 >= 0x181) {
-                    *temp_v1_6 = 0x180;
-                }
-            }
-        } else {
-block_138:
-            func_003C9518(sp10, temp_s5, arg1);
-        }
-block_183:
-        if (((func_003C98C8(temp_s5) == 0) && (*(var_fp + ((u8 *)&D_005F62A8)) == 0)) || (*(var_fp + ((u8 *)&D_005F62A8)) > 0)) {
-            func_003AEF88(arg1, 0, 0, M32(sp10, 0x1C));
-        } else {
-            M32(((arg1 * 0xB8A0) + ((u8 *)&gFighters)), 0x127) = 0;
-        }
-        if ((u32) (M32(((u8 *)&D_0043B7F8), 0x0) - 5) >= 2U) {
-            if (M32((sp10 + (arg1 * 4)), 0x14) != 0) {
-                func_003AEF88(arg1 + 2, 0, 0, M32(sp10, 0x1C));
-            } else {
-                M32((((arg1 + 2) * 0xB8A0) + ((u8 *)&gFighters)), 0x127) = 0;
-                if ((M32(temp_s5, 0x18) == 0) && (*(var_fp + ((u8 *)&D_005F62A8)) > 0) && (M32(((u8 *)&D_0043B7F8), 0x8) == 0)) {
-                    Text_Printf(((u8 *)&D_005204B8), (arg1 == 0) ? 0x3E : 0x1E0, 0x15E, 0xA);
-                }
-            }
-        }
-        func_003C9E70(temp_s5);
-        return;
-    case 3:
-        var_s6_2 = 0;
-        var_s1_4 = 0;
-        temp_s3_3 = func_003B01B0((s8) arg1) + 1;
-        var_s2_2 = 0;
-        if (temp_s3_3 > 0) {
-            var_fp = arg1 * 2;
-            do {
-                temp_v0_10 = func_003AFFB8((s8) arg1, var_s1_4);
-                var_s1_4 += 1;
-                var_s0_2 = temp_v0_10 * 4;
-                var_s2_2 |= *(var_s0_2 + ((u8 *)&D_00415768));
-                var_s6_2 |= *(var_s0_2 + ((u8 *)&D_00415758));
-            } while (var_s1_4 < temp_s3_3);
-        } else {
-            var_s0_2 = 0 * 4;
-            var_fp = arg1 * 2;
-        }
-        var_v0_8 = var_s2_2 & 0xA000;
-        if ((var_s2_2 & 0x5000) == 0x5000) {
-            var_s2_2 &= 0xFFFFAFFF;
-            var_v0_8 = var_s2_2 & 0xA000;
-        }
-        var_v0_9 = var_s6_2 & 0x5000;
-        if (var_v0_8 == 0xA000) {
-            var_s2_2 &= 0xFFFF5FFF;
-            var_v0_9 = var_s6_2 & 0x5000;
-        }
-        var_v0_10 = var_s6_2 & 0xA000;
-        if (var_v0_9 == 0x5000) {
-            var_s6_2 &= 0xFFFFAFFF;
-            var_v0_10 = var_s6_2 & 0xA000;
-        }
-        if (var_v0_10 == 0xA000) {
-            var_s6_2 &= 0xFFFF5FFF;
-        }
-        if (*(var_s0_2 + ((u8 *)&D_00415728)) & 0x100) {
-            goto block_138;
-        }
-        if (M32(sp10, 0x1C) == 0) {
-            temp_a0_5 = (arg1 * 6) + (((u8 *)&D_0043B7F8) + 0x44);
-            *temp_a0_5 -= 0x14;
-        }
-        temp_a0_6 = arg1 * 6;
-        temp_v0_11 = temp_a0_6 + (((u8 *)&D_0043B7F8) + 0x44);
-        if (*temp_v0_11 < 0) {
-            *temp_v0_11 = 0;
-        }
-        temp_s1_4 = ((var_s2_2 >> 0xD) & 1) - ((var_s2_2 >> 0xF) & 1);
-        var_s1_5 = (arg1 == 0) ? -temp_s1_4 : temp_s1_4;
-        if (var_s1_5 == 0) {
-            var_v1 = (var_s2_2 >> 0xC) & 1;
-            if (var_s2_2 & 0x4000) {
-                var_v1 -= 1;
-            }
-            var_s1_5 = var_v1 * 0xA;
-        }
-        var_s0_3 = M32((((u8 *)&D_0043B7F8) + temp_a0_6), 0x42) + var_s1_5;
-        if (var_s0_3 <= 0) {
-            var_s0_3 = 1;
-        } else if (var_s0_3 >= 0x97) {
-            var_s0_3 = 0x96;
-        } else if (var_s1_5 != 0) {
-            Snd_PlaySe(3, 0);
-        }
-        M32((((u8 *)&D_0043B7F8) + (arg1 * 6)), 0x42) = var_s0_3;
-        if (((var_s6_2 & 0x400) ? (var_s6_2 | 4) : var_s6_2) & 0x8FC) {
-            Snd_PlaySe(5, arg1);
-            D_005F6EB0 |= 1 << arg1;
-            M32(temp_s5, 0x0) = 6U;
-            func_003BF7F8();
-        }
-        goto block_183;
-    case 4:
-        temp_s0_10 = arg1 * 4;
-        temp_s1_5 = *(temp_s0_10 + ((u8 *)&D_005F6700));
-        temp_v0_12 = func_003AFF08(arg1) * 4;
-        temp_s2_3 = (*(temp_v0_12 + ((u8 *)&D_00415768)) & 0xFFFFA7FF) | (*(temp_v0_12 + ((u8 *)&D_00415758)) & 0x5800);
-        temp_v1_7 = ((temp_s2_3 >> 0xD) & 1) - ((temp_s2_3 >> 0xF) & 1);
-        var_s1_6 = temp_s1_5 + temp_v1_7;
-        if (var_s1_6 <= 0) {
-            var_s1_6 = 1;
-        } else if (var_s1_6 >= 9) {
-            var_s1_6 = 8;
-        } else if (temp_v1_7 != 0) {
-            Snd_PlaySe(3, 0);
-        }
-        if (temp_s2_3 & 0x8FC) {
-            Snd_PlaySe(5, arg1);
-            M32(temp_s5, 0x0) = 1U;
-        }
-        temp_t0 = ((u8 *)&D_0043B7F8) + 0x5D;
-        temp_a2_3 = arg1 ^ 1;
-        temp_a3_2 = temp_a2_3 * 4;
-        *((arg1 * 0x1E) + temp_t0) = var_s1_6;
-        *(temp_s0_10 + ((u8 *)&D_005F6700)) = (s32) var_s1_6;
-        if (*(temp_a3_2 + ((u8 *)&D_005F6668)) != 0) {
-            temp_a0_7 = temp_a3_2 + ((u8 *)&D_005F6700);
-            var_fp = arg1 * 2;
-            *((temp_a2_3 * 0x1E) + temp_t0) = var_s1_6;
-            *temp_a0_7 = (s32) var_s1_6;
-            *((temp_a2_3 * 2) + ((u8 *)&D_005F62A8)) = (u16) *temp_a0_7;
-        } else {
-        default:
-block_182:
-            var_fp = arg1 * 2;
-        }
-        goto block_183;
-    case 5:
-        func_003CB8E0((s8) arg1, 1);
-        goto block_182;
-    case 6:
-        sp14 = 1;
-        temp_a2_4 = (M32(temp_s5, 0x18) != 0) ? 0 : 1;
-        sp14 = temp_a2_4;
-        if ((M32(((u8 *)&D_0043B7F8), 0x0) == 1) || (M32(((u8 *)&D_0043B7F8), 0x0) == 6)) {
-            temp_a0_8 = ((u8 *)&D_0043B7F8) + 0x44;
-            if (M32(sp10, 0x1C) == 0) {
-                temp_v1_8 = (arg1 * 6) + temp_a0_8;
-                *temp_v1_8 -= 0x14;
-            }
-            temp_v0_13 = (arg1 * 6) + temp_a0_8;
-            if (*temp_v0_13 < 0) {
-                *temp_v0_13 = 0;
-            }
-            var_s2_3 = 0;
-            temp_s1_6 = func_003B01B0((s8) arg1, ((u8 *)&D_0043B7F8), temp_a2_4) + 1;
-            var_s0_4 = 0;
-            if (temp_s1_6 > 0) {
-                var_fp = arg1 * 2;
-                do {
-                    temp_v0_14 = func_003AFFB8((s8) arg1, var_s0_4);
-                    var_s0_4 += 1;
-                    var_s2_3 |= *((temp_v0_14 * 4) + ((u8 *)&D_00415768));
-                } while (var_s0_4 < temp_s1_6);
-            } else {
-                var_fp = arg1 * 2;
-            }
-            var_v1_2 = var_s2_3 & 0xA000;
-            if ((var_s2_3 & 0x5000) == 0x5000) {
-                var_s2_3 &= 0xFFFFAFFF;
-                var_v1_2 = var_s2_3 & 0xA000;
-            }
-            var_a0 = var_s2_3 >> 0xD;
-            if (var_v1_2 == 0xA000) {
-                var_s2_3 &= 0xFFFF5FFF;
-                var_a0 = var_s2_3 >> 0xD;
-            }
-            func_003BF820((var_a0 & 1) - ((var_s2_3 >> 0xF) & 1), var_s2_3 & 0x8FC);
-        } else {
-            goto block_182;
-        }
-        goto block_183;
+/* The pad bits of every port that plays this side, ORed. */
+static void sel_side_pads(s32 side, s32 *held, s32 *trig, s32 *last) {
+    s32 n = func_003B01B0(side) + 1;
+    s32 i;
+
+    for (i = 0; i < n; i++) {
+        s32 p = func_003AFFB8(side, i);
+        *last = p;
+        *held |= D_00415768[p];
+        *trig |= D_00415758[p];
     }
 }
-#undef M32
-#undef Snd_PlaySe
-#undef Text_Printf
-#undef func_003ADBE8
-#undef func_003AE738
-#undef func_003AE9D8
-#undef func_003AEC58
-#undef func_003AECA8
-#undef func_003AEF88
-#undef func_003AFF08
-#undef func_003AFF40
-#undef func_003AFFB8
-#undef func_003B01B0
-#undef func_003B0380
-#undef func_003B0660
-#undef func_003BA450
-#undef func_003BF7F8
-#undef func_003BF820
-#undef func_003C94C0
-#undef func_003C9518
-#undef func_003C9888
-#undef func_003C98A8
-#undef func_003C98C8
-#undef func_003C98E8
-#undef func_003C9AC0
-#undef func_003C9E70
-#undef func_003C9E98
-#undef func_003C9ED8
-#undef func_003CA428
-#undef func_003CB8E0
+
+/* One side's step of the character select: cursor, picks, the VS handicap and member count screens. */
+void func_003CA470(SelState *s, s32 side) {
+    SelSide *d = &s->side[side];
+    GameSetup *g = &D_0043B7F8;
+    s32 *timer = &D_005F6EB8 + side;
+    s32 sp0, sp4, moved, spC;
+    s32 btn, trig, rep, ret, r, n, i, p, c, dx, v;
+
+    if (d->unk18 > 0) {
+        d->unk18--;
+    }
+    p = 0;
+    switch (d->unk0) {
+    case 0:
+        if (s->unk8 != 0) {
+            func_003C9888(s);
+        }
+        d->unk18 = 0;
+        if (g->unk0 == 2) {
+            func_003C9E98((s32)d, side);
+        }
+        if (D_005F5C80[side] != 0) {
+            D_005F62A8[side] = D_005F6700[side];
+            d->unk18 = 0x5A;
+        } else if (D_005F5CB0[side] == 0) {
+            D_005F62A8[side] = D_005F6700[side];
+            (&D_005F6668)[side] = 1;
+        } else {
+            (&D_005F6668)[side] = 0;
+            D_005F62A8[side] = 0;
+            for (i = 0; i < 8; i++) {
+                MEMBER(side, i).chr = -1;
+                MEMBER(side, i).cos = -1;
+                MEMBER(side, i).id = -1;
+            }
+        }
+        func_003C98E8(s, (SelState *)d, side);
+        r = func_003BA450(side);
+        if (r == 2) {
+            sp0 = 0;
+            c = func_003C98A8(s, (SelState *)d);
+            if (c == 0x37) {
+                c = D_005F6708[side];
+            }
+            if (g->unk8 == 0) {
+                func_003ADBE8(side, c, &sp0);
+                func_003AEC58(side, c, sp0, 0);
+            }
+            d->unk0 = g->unk0 != r ? 1 : 4;
+            *timer = 0x3C;
+        } else if (r < 3) {
+            if (r >= 0) {
+                d->unk0 = 2;
+            }
+        } else if (r == 3) {
+            func_003ADBE8(side, MEMBER(side, 0).chr, &MEMBER(side, 0).cos);
+            func_003AECA8(side, MEMBER(side, 0).chr, MEMBER(side, 0).cos, 1);
+            func_003AE9D8(side);
+            if ((u32)(g->unk0 - 5) >= 2) {
+                func_003ADBE8(side, MEMBER(side, 1).chr, &MEMBER(side, 1).cos);
+                func_003AECA8(side + 2, MEMBER(side, 1).chr, MEMBER(side, 1).cos, 1);
+                func_003AE9D8(side + 2);
+            }
+            d->unk0 = 6;
+        }
+        return;
+    case 1:
+        trig = 0;
+        btn = 0;
+        if (D_005F6EAA == 0) {
+            p = func_003AFF08(side);
+            if (p != -1) {
+                trig = func_003CA428(D_00415728[p]);
+                btn = (D_00415738[p] & 0xFFFFA300) | (trig & 0x58F4);
+            }
+        } else {
+            n = func_003B01B0(D_005F6EAC) + 1;
+            for (i = 0; i < n; i++) {
+                p = func_003AFFB8(D_005F6EAC, i);
+                if (p != -1) {
+                    trig |= func_003CA428(D_00415728[p]);
+                    btn |= (trig & 0x58F4) | (D_00415738[p] & 0xFFFFA300);
+                } else {
+                    trig = 0;
+                    btn = 0;
+                }
+            }
+        }
+        btn = sel_axes(btn);
+        trig = sel_axes(trig);
+        if (D_005F66FA != 0) {
+            trig = 0;
+            btn = 0;
+        }
+        if (trig & 0x100) {
+            func_003C9518(s, d, side);
+            break;
+        }
+        /* the held repeat for the costume buttons, every other frame once the timer runs out */
+        if (*timer < 2) {
+            rep = btn;
+        } else {
+            rep = 0;
+            *timer -= 2;
+        }
+        for (;;) {
+            ret = func_003C9AC0(s, d, btn, trig, &moved, side, s->unk8);
+            if (D_005F62A8[side] == 1 && d->unk10 == MEMBER(side, 0).chr) {
+                s->unk14[side] = 0;
+            } else if (func_003C98C8((SelState *)d) != 0) {
+                s->unk14[side] = 0;
+            } else {
+                s->unk14[side] = 1;
+            }
+            if (moved != 0) {
+                spC = 0;
+                func_003ADBE8(side, d->unk10, &spC);
+                if (g->unk8 == 0) {
+                    func_003AEC58(side + D_005F62A8[side] * 2, d->unk10, spC, 0);
+                } else if (D_005F62A8[side] == 0) {
+                    gFighters[side].unk26 = (u16)spC + (u16)d->unk10 * 8;
+                }
+            }
+            if (ret != 0) {
+                break;
+            }
+            if (func_003C9ED8(s, d, side, rep) != 0) {
+                if (s->unk8 != 0) {
+                    break;
+                }
+                btn = 0xFFFF;
+                continue;
+            }
+            d->unk18 = 0x5A;
+            *timer = 0x14;
+            n = D_005F62A8[side];
+            MEMBER(side, n).chr = d->unk10;
+            MEMBER(side, n).cos = d->unk14;
+            MEMBER(side, n).id = (u16)d->unk10 * 8 + ((u16)d->unk14 & 7);
+            if (g->unk8 != 0 || gFighters[side + n * 2].unk26 != d->unk10 * 8 + d->unk14 ||
+                func_003C98C8((SelState *)d) != 0) {
+                n = D_005F62A8[side];
+                if (func_003ADBE8(side, MEMBER(side, n).chr, &MEMBER(side, n).cos) == 0) {
+                    n = D_005F62A8[side];
+                    func_003AEC58(side + n * 2, MEMBER(side, n).chr, MEMBER(side, n).cos, 1);
+                }
+            }
+            func_003AE9D8(side + D_005F62A8[side] * 2);
+            if (g->unkA != 0) {
+                ((s8 *)&D_004157F8[side])[D_005F62A8[side]] = d->unk4;
+            }
+            D_00440D40[side][D_005F62A8[side]] = d->unk4;
+            func_003AFF40(side);
+            if (++D_005F62A8[side] == 1) {
+                func_003B0660((s16)side);
+            }
+            c = D_004157F8[side].unk1;
+            if (c != -1 && D_005F62A8[side] == 1) {
+                d->unk4 = c;
+                sp4 = 0;
+                d->unk10 = func_003C98A8(s, (SelState *)d);
+                if (d->unk10 == 0x37) {
+                    d->unk10 = 0;
+                } else {
+                    func_003ADBE8(side + 2, d->unk10, &sp4);
+                    func_003AEC58(side + 2, d->unk10, sp4, 0);
+                }
+            }
+            d->unk14 = 0;
+            if (g->unk0 == 2 && D_005F62A8[side] < D_005F6700[side] && g->u.t.team[side].unk1C != 0) {
+                continue; /* team battle, random members: the next pick at once */
+            }
+            if (D_005F62A8[side] != D_005F6700[side]) {
+                if (s->unk8 != 0) {
+                    break;
+                }
+                btn = 0xFFFF;
+                continue;
+            }
+            /* the side is complete */
+            if (g->unk0 == 7) {
+                s32 o = side ^ 1;
+
+                if (D_005F5CB0[o] == 0) {
+                    func_003AE738(0, o);
+                    D_005F6EAC = side;
+                    D_005F6EAD = 1;
+                    D_005F6EAA = 1;
+                    D_005F6EAB = o;
+                    D_005F6EA8 = d->unk4;
+                    func_003CB8E0((s8)o, 0);
+                    func_003B0380(D_005F6EAB);
+                    func_003C94C0(D_005F6EAB);
+                } else {
+                    D_005F6EAA = 0;
+                    (&D_005F6668)[D_005F6EAB] = 1;
+                }
+            }
+            s->unk14[side] = 1;
+            if (g->unk0 == 1 || g->unk0 == 6) {
+                d->unk0 = 3;
+            } else {
+                d->unk0 = 6;
+                D_005F6EB0 = 7;
+            }
+            break;
+        }
+        if (g->unk0 == 1 || g->unk0 == 6) {
+            if (s->unk1C == 0) {
+                g->u.v.rec[side].unk4 += 0x14;
+            }
+            if (g->u.v.rec[side].unk4 > 0x180) {
+                g->u.v.rec[side].unk4 = 0x180;
+            }
+        }
+        break;
+    case 3: /* VS: the handicap */
+        btn = 0;
+        trig = 0;
+        sel_side_pads(side, &btn, &trig, &p);
+        btn = sel_axes(btn);
+        trig = sel_axes(trig);
+        if (trig & 0x400) {
+            trig |= 4;
+        }
+        if (D_00415728[p] & 0x100) {
+            func_003C9518(s, d, side);
+            break;
+        }
+        if (s->unk1C == 0) {
+            g->u.v.rec[side].unk4 -= 0x14;
+        }
+        if (g->u.v.rec[side].unk4 < 0) {
+            g->u.v.rec[side].unk4 = 0;
+        }
+        dx = ((btn >> 13) & 1) - ((btn >> 15) & 1);
+        if (side == 0) {
+            dx = -dx;
+        }
+        v = g->u.v.rec[side].pad2;
+        if (dx == 0) {
+            s32 u = (btn >> 12) & 1;
+            if (btn & 0x4000) {
+                u--;
+            }
+            dx = u * 10;
+        }
+        v += dx;
+        if (v <= 0) {
+            v = 1;
+        } else if (v >= 0x97) {
+            v = 0x96;
+        } else if (dx != 0) {
+            Snd_PlaySe(3, 0);
+        }
+        g->u.v.rec[side].pad2 = v;
+        if (trig & 0x8FC) {
+            Snd_PlaySe(5, side);
+            D_005F6EB0 |= 1 << side;
+            d->unk0 = 6;
+            func_003BF7F8();
+        }
+        break;
+    case 4: /* team battle: the member count */
+        n = D_005F6700[side];
+        p = func_003AFF08(side);
+        btn = (D_00415768[p] & 0xFFFFA7FF) | (D_00415758[p] & 0x5800);
+        dx = ((btn >> 13) & 1) - ((btn >> 15) & 1);
+        n += dx;
+        if (n <= 0) {
+            n = 1;
+        } else if (n >= 9) {
+            n = 8;
+        } else if (dx != 0) {
+            Snd_PlaySe(3, 0);
+        }
+        if (btn & 0x8FC) {
+            Snd_PlaySe(5, side);
+            d->unk0 = 1;
+        }
+        g->u.t.team[side].n = n;
+        D_005F6700[side] = n;
+        if ((&D_005F6668)[side ^ 1] != 0) {
+            g->u.t.team[side ^ 1].n = n;
+            D_005F6700[side ^ 1] = n;
+            D_005F62A8[side ^ 1] = D_005F6700[side ^ 1];
+        }
+        break;
+    case 5:
+        func_003CB8E0(side, 1);
+        break;
+    case 6:
+        if (g->unk0 == 1 || g->unk0 == 6) {
+            if (s->unk1C == 0) {
+                g->u.v.rec[side].unk4 -= 0x14;
+            }
+            if (g->u.v.rec[side].unk4 < 0) {
+                g->u.v.rec[side].unk4 = 0;
+            }
+            btn = 0;
+            n = func_003B01B0(side) + 1;
+            for (i = 0; i < n; i++) {
+                btn |= D_00415768[func_003AFFB8(side, i)];
+            }
+            btn = sel_axes(btn);
+            func_003BF820(((btn >> 13) & 1) - ((btn >> 15) & 1), btn & 0x8FC);
+        }
+        break;
+    }
+    /* the preview fighters */
+    if ((func_003C98C8((SelState *)d) == 0 && D_005F62A8[side] == 0) || D_005F62A8[side] > 0) {
+        func_003AEF88(side, 0, 0, s->unk1C);
+    } else {
+        gFighters[side].unk127 = 0;
+    }
+    if ((u32)(g->unk0 - 5) >= 2) {
+        if (s->unk14[side] != 0) {
+            func_003AEF88(side + 2, 0, 0, s->unk1C);
+        } else {
+            gFighters[side + 2].unk127 = 0;
+            if (d->unk18 == 0 && D_005F62A8[side] > 0 && g->unk8 == 0) {
+                Text_Printf(D_005204B8, side == 0 ? 0x3E : 0x1E0, 0x15E, 10, 5, 0x172);
+            }
+        }
+    }
+    func_003C9E70((SelState *)d);
+}
+#undef MEMBER
 #else
 INCLUDE_ASM("asm/nonmatchings/select_results_b", func_003CA470);
 #endif
@@ -4412,8 +4129,8 @@ s32 Mode_CharSelect(void) {
             }
             func_003AEA30(s);
         }
-        func_003CA470(s, 0);
-        func_003CA470(s, 1);
+        PORT_DIFF(0x3CA470, func_003CA470, "ii", s, 0); /* TTT_DIFF: the step against the original code */
+        PORT_DIFF(0x3CA470, func_003CA470, "ii", s, 1);
         if (D_005F6EAD == 0 && s->unk1C == 0) {
             func_003B0820(s);
         }

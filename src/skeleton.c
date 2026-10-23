@@ -59,7 +59,7 @@ extern s16 D_005F5E68[];
 
 f32 sinf(f32 x);
 f32 cosf(f32 x);
-void func_0034E018(void);
+void func_0034E018(Fighter *f);
 void func_003ADFB0(void);
 void func_00365300(Fighter *f);
 s32 func_00346378(s32 side);
@@ -139,7 +139,7 @@ typedef struct {
  * motion blend, the root matrix (Skel_SetRootMatrix) and, unless the slot's countdown Tag_StepCounters runs, the world
  * matrices (Skel_ComputeWorld) and the joint projections (func_0034FB48). */
 void Skel_Update(Fighter *f) {
-    func_0034E018();
+    func_0034E018(f); /* the PS2 call leaves f in $a0, and func_0034E018 reads it */
     func_003ADFB0();
     func_00365300(f);
     if (func_00346378(f->unk1E) != 0) {
@@ -175,7 +175,11 @@ void Skel_Update(Fighter *f) {
 
 /* Tail call of Skel_Update (func_00371B18 calls this one). */
 void func_0034E8B0(Fighter *f) {
+#ifdef PORT
+    PORT_DIFF(0x34E748, Skel_Update, "i", f); /* TTT_DIFF: the frame update of a fighter against the original code */
+#else
     Skel_Update(f);
+#endif
 }
 
 /* Samples the root channels of the base motion and rebuilds the root matrix only. */

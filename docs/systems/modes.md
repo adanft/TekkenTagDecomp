@@ -178,7 +178,7 @@ batch 3 did `theater`, `demo`, `menu_bg`, `gallery_jpeg` and `tekken_bowl` (sect
   cursor over the grid (cell 0x36 is skipped, 0x37 is the random cell), `func_003C99C8` rolls a random character (0x22
   characters, locked ones and the current one skipped), `func_003C9ED8` picks the costume from the button pressed (0x80,
   0x40, 0x10, 0x20, 4, 0x800 give costumes 0-4; random for a CPU side or in team mode; a costume already taken by the
-  other member is changed) [V]. `func_003CA470` is the per-side step that calls them [I; a compiling draft since T18 b3].
+  other member is changed) [V]. `func_003CA470` is the per-side step that calls them [V: written from the asm in T34 b2, checked frame by frame against the original with `TTT_DIFF`]: state 0 set-up, 1 cursor and picks (pad words `D_00415728` new presses / `D_00415738` held, the cursor through `func_003C9AC0`, a pick through `func_003C9ED8`, Select undoes with `func_003C9518`), 3 the VS handicap (left / right +-1, up / down +-10, 1-150), 4 the team member count (1-8), 5 and 6 waiting.
 - **Tag partner**: each side picks its members one after the other into `D_00440C28` (8 member slots of 0xC bytes per
   side, count `D_005F62A8[side]`); `func_003C9518` undoes the last pick (and the partner side's when `D_005F6EAA` is set),
   with sound 3. `func_003CB610` commits: characters and costumes to the team records `D_00440940[side][member]` (through

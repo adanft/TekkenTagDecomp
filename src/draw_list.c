@@ -34,7 +34,7 @@ u32 func_00354290(void *pk, void *rec, u32 base);
 s32 func_003678A8(void);
 s32 func_003678B8(void);
 void func_003E13C8(f32 x);
-s32 func_00340398(void);
+s32 func_00340398(s32 id);
 void func_00340000(s32 id);
 s32 func_00356A78(u8 *p, s32 a, s32 b);
 void func_003E1330(void *p, s32 n);
@@ -280,7 +280,7 @@ void func_00357160(s32 id, s32 slot, MdlTable *t, s32 a) {
     s32 i;
 
     kinds[0] = 5;
-    k = func_00356F48(func_00340398());
+    k = func_00356F48(func_00340398(id)); /* $a0 still holds id at the PS2 call */
     for (i = 1; i < 27; i++) {
         kinds[i] = k;
     }

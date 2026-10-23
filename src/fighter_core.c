@@ -6156,9 +6156,10 @@ s32 func_003865A0(s32 wait) {
                                             var_a0_5 = func_003844B0;
                                             goto block_195;
                                         }
+                                        /* rand() plus the old seed word, then the seed steps (as in the asm) */
                                         if ((gCpuSelf->unk135 == 0) && (gCpu->unk68 < 0) &&
-                                            (D_005F6C08 = (D_005F6C08 * 5) + 3,
-                                             (((s32) ((u32) ((rand() + D_005F6C08) & 0x7FFF) >> 3) < 0x200) != 0)) &&
+                                            (temp_s1 = (u32) ((rand() + D_005F6C08) & 0x7FFF) >> 3,
+                                             D_005F6C08 = (D_005F6C08 * 5) + 3, ((s32) temp_s1 < 0x200)) &&
                                             (var_s2_2 = Cpu_PickCands(func_00384AB8), (var_s2_2 > 0))) {
                                             gCpu->unk68 = 4;
                                             temp_s1 = (u32) ((rand() + D_005F6C08) & 0x7FFF) >> 0xD;
@@ -6169,8 +6170,9 @@ s32 func_003865A0(s32 wait) {
                                             D_005F6C08 = (D_005F6C08 * 5) + 3;
                                             gCpu->unk68 = temp_s1 + 1 + temp_s0_2;
                                         } else {
+                                            temp_s1 = (u32) ((rand() + D_005F6C08) & 0x7FFF) >> 3;
                                             D_005F6C08 = (D_005F6C08 * 5) + 3;
-                                            if ((s32) ((u32) ((rand() + D_005F6C08) & 0x7FFF) >> 3) < 0xA) {
+                                            if ((s32) temp_s1 < 0xA) {
                                                 var_a0_5 = func_00384A50;
                                                 goto block_195;
                                             }

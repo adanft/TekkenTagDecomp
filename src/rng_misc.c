@@ -66,7 +66,7 @@ void Gte_SetTransMatrix(s32 *m);
 void func_003ADA28(u8 *a, u8 *b, u32 *out);
 s32 CharSet_Count(u32 *set);
 s32 func_003ADA08(u32 *set, s32 i);
-s32 func_003AE3C0(void);
+s32 func_003AE3C0(Fighter *f);
 s16 func_003AD8E0(s16 x);
 void func_00366380(Fighter *o);
 void CharSet_Clear(void *set);
@@ -334,7 +334,7 @@ s32 Rng_PickRandomEntry(u8 *table) {
 void func_0035C850(Fighter *o, s32 flag) {
     u8 *table;
 
-    if ((u32)(func_003AE3C0() - 1) < 2 && flag != 0) {
+    if ((u32)(func_003AE3C0(o) - 1) < 2 && flag != 0) {
         table = D_0051E940;
     } else if (o->unk2A == 15) {
         table = D_0051E8A0;

@@ -2,6 +2,7 @@
 the built program build/port/ttt (made from your own SLUS_200.01 by port/tools/build.py). Skipped when the program has
 not been built; the replay runs are also skipped without disc data."""
 
+import os
 import re
 import tempfile
 import unittest
@@ -24,6 +25,25 @@ def stream(*presses, pads=2):
 def state(r):
     m = re.search(r"ttt: state: .*", r.stdout)
     return m.group(0) if m else None
+
+
+def peek(r, addr):
+    """The words TTT_PEEK printed for addr (hex string as passed) at the end of the run."""
+    m = re.search(rf"ttt: peek {int(addr, 16):08X}:((?: [0-9A-F]{{8}})+)", r.stdout)
+    return [int(w, 16) for w in m.group(1).split()] if m else None
+
+
+START, RIGHT, DOWN, SQUARE, TRIANGLE, CROSS = 0x0800, 0x2000, 0x4000, 0x0080, 0x0010, 0x0040
+# Start at the main menu (ARCADE), then at the character select: right, down, square (Yoshimitsu), right, square
+# (Nina, the tag partner). The stage loads and stage 1 is fought (mode 4, sub-state 8) by VBlank 830.
+TO_THE_FIGHT = ((200, START, 6), (330, RIGHT, 4), (360, DOWN, 4), (400, SQUARE, 4), (440, RIGHT, 4),
+                (470, SQUARE, 4))
+# In round 1: forward for 100 VBlanks, then left punch, right punch, left kick.
+IN_THE_FIGHT = ((1150, RIGHT, 100), (1300, SQUARE, 4), (1340, TRIANGLE, 4), (1380, CROSS, 4))
+SEL_SIDE0 = "440D08"  # SelState side 0 (D_00440CE8 + 0x20): state, cursor cell, ..., character at +0x10
+MODE = "5F5C20"  # gMode (s16), gSubMode (s16)
+FIGHTER0 = "879644"  # gFighters[0].unk4 / unk8 / unkC: the position
+FIGHTER1 = "884EE4"  # gFighters[1], the same
 
 
 @unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
@@ -94,6 +114,60 @@ class Replay(unittest.TestCase):
         b, rec2 = self.play(rec)
         self.assertEqual(state(a), state(b))
         self.assertEqual(rec, rec2)
+
+
+@unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
+@unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
+class CharacterSelect(unittest.TestCase):
+    def run_select(self, *presses):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "in.txt"
+            p.write_text(stream(*presses))
+            r = run_ttt(TTT_FRAMES="345", TTT_SEED="1", TTT_INPUT_PLAY=str(p), TTT_PEEK=f"{SEL_SIDE0}:5")
+        self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
+        return peek(r, SEL_SIDE0)
+
+    def test_the_cursor_moves(self):
+        """Right on the d-pad moves side 1's cursor to the next cell and the side keeps choosing (state 1). Before T34
+        b2 the m2c draft of func_003CA470 read the pad words as bytes: the cursor stayed and a press picked at once."""
+        idle = self.run_select((200, START, 6))
+        moved = self.run_select((200, START, 6), (330, RIGHT, 4))
+        self.assertEqual(idle[0], 1)
+        self.assertEqual(moved[0], 1)
+        self.assertEqual(moved[1], idle[1] + 1)
+        self.assertNotEqual(moved[4], idle[4])  # the character under the cursor
+
+
+@unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
+@unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
+@unittest.skipUnless(os.environ.get("TTT_SLOW_TESTS") == "1", "slow (about three minutes): TTT_SLOW_TESTS=1")
+class Fight(unittest.TestCase):
+    FRAMES = "1450"
+
+    def play(self, *presses):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "in.txt"
+            p.write_text(stream(*presses))
+            r = run_ttt(timeout=900, TTT_FRAMES=self.FRAMES, TTT_SEED="1", TTT_INPUT_PLAY=str(p),
+                        TTT_PEEK=f"{MODE},{FIGHTER0}:3,{FIGHTER1}:3")
+        self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
+        return r
+
+    def test_arcade_to_the_fight(self):
+        """The pads take the game from the main menu through the character select (two members) and the stage load
+        to round 1 of the fight (mode 4, sub-state 8); the fighters' moves follow the pad (forward, punches, a kick),
+        and the same inputs replay the same fight."""
+        a = self.play(*TO_THE_FIGHT, *IN_THE_FIGHT)
+        b = self.play(*TO_THE_FIGHT, *IN_THE_FIGHT)
+        idle = self.play(*TO_THE_FIGHT)
+        modes = re.search(r"ttt: modes: (.*)", a.stdout).group(1)
+        self.assertRegex(modes, r"\b3@\d+ 4@\d+ 5@\d+ 4@\d+$")  # main menu, fight set-up, select, fight
+        self.assertEqual(peek(a, MODE), [0x00080004])
+        self.assertEqual(peek(idle, MODE), [0x00080004])
+        self.assertEqual(state(a), state(b))
+        self.assertEqual(peek(a, FIGHTER0), peek(b, FIGHTER0))
+        self.assertNotEqual(peek(a, FIGHTER0), peek(idle, FIGHTER0))
+        self.assertNotEqual(state(a), state(idle))
 
 
 if __name__ == "__main__":
