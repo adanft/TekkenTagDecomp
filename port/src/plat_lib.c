@@ -22,8 +22,11 @@ void sceGsResetPath(void) {}
 void sceDmaReset(int mode) { (void)mode; }
 void sceVpu0Reset(void) {}
 
-/* The GS set-up of libgraph, after the SDK's documented behaviour [I: field values not checked against the library
-   code]: the environments are built in the game's structures and written to the GS privileged registers (PMODE,
+/* The GS set-up of libgraph, after the SDK's documented behaviour; T29 b4 checked it against the library code
+   (asm/B4320.s) for the values that reach the GS: PMODE 0x66 and the clear's RGBAQ Q = 1.0 now follow it. Still
+   different, with the same GS result for the game's calls: SetDefDBuff gives the second buffer's FBP to draw1 here
+   (the library: draw0 and disp[1]) and SwapDBuff pairs the ids the other way round; the page count ignores the
+   16-bit / frame-mode rules; ResetGraph also resets VIF1 (the library: sceGsResetPath). The environments are built in the game's structures and written to the GS privileged registers (PMODE,
    SMODE2, DISPFB2, DISPLAY2, BGCOLOR); the drawing environment and its clear go to the GS as a GIF packet. The
    game writes DISPFB1 / DISPLAY1 itself (Gfx_ShowBuffer). */
 static int sInter, sOmode, sFfmode;
@@ -76,7 +79,7 @@ static void draw_env(uint64_t *tag, DrawEnv *d, Clear *c, uint32_t fbp, uint32_t
     ad(&d->test, test, 0x47);
     ad(&c->testa, 1ull << 16 | 1ull << 17, 0x47); /* depth test ALWAYS: the clear writes every pixel's depth */
     ad(&c->prim, 6, 0x00);
-    ad(&c->rgbaq, 0, 0x01);
+    ad(&c->rgbaq, 0x3F80000000000000ull, 0x01); /* Q = 1.0 (ori 0xFE00; dsll32 14) */
     ad(&c->xyz2a, (uint64_t)((2048 - w / 2) << 4) | (uint64_t)((2048 - h / 2) << 4) << 16, 0x05);
     ad(&c->xyz2b, (uint64_t)((2048 + w / 2) << 4) | (uint64_t)((2048 + h / 2) << 4) << 16, 0x05);
     ad(&c->testb, test, 0x47);
@@ -94,7 +97,7 @@ int sceGsSetDefDBuff(void *p, int psm, int w, int h, int ztest, int zpsm, int cl
     return 0;
 }
 
-/* PMODE: circuit 2, ALP 0xFF; SMODE2 of the reset; DISPFB 0, width, psm; DISPLAY centred on an NTSC / PAL screen
+/* PMODE: circuit 2 (0x66); SMODE2 of the reset; DISPFB 0, width, psm; DISPLAY centred on an NTSC / PAL screen
    with MAGH filling 2560 video clocks; interlaced frame mode shows h buffer lines on 2h raster lines. */
 void sceGsSetDefDispEnv(void *p, int16_t psm, int16_t w, int16_t h, int16_t dx, int16_t dy) {
     uint64_t *d = p;
@@ -103,7 +106,7 @@ void sceGsSetDefDispEnv(void *p, int16_t psm, int16_t w, int16_t h, int16_t dx, 
     if (magh == 0) {
         magh = 1;
     }
-    d[0] = 2 | 0xFFull << 8;
+    d[0] = 0x66; /* EN2, CRTMD, MMOD, AMOD, ALP 0 (0x3F6A84) */
     d[1] = (uint64_t)sInter | (uint64_t)sFfmode << 1;
     d[2] = (uint64_t)((w + 63) / 64) << 9 | (uint64_t)(psm & 0x1F) << 15;
     d[3] = (uint64_t)(x0 + (uint32_t)dx * magh) | (uint64_t)(y0 + (uint32_t)dy) << 12 | (uint64_t)(magh - 1) << 23 |

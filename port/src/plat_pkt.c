@@ -1,17 +1,20 @@
 /*
  * libpkt: the SDK's packet builders the game makes its DMA lists with (VIF1 packets with DMA tags, VIF codes and GIF
- * tags; GIF packets). They only write into the game's buffers and keep four pointers; the layout follows the
- * SDK's documented behaviour:
+ * tags; GIF packets). Written after the library's own code (asm/B4320.s, 0x404500-0x404AA0; checked instruction by
+ * instruction in T29 b4, TTT_SELFTEST=hw):
  *
- *  - a DMA tag takes a whole quadword; in a VIF1 packet its upper 64 bits carry the first two VIF codes (the
- *    channel runs with TTE), in a GIF packet they are padding;
- *  - Cnt / Ref / End close the previous tag (its QWC becomes the quadwords written after it) and open a new one;
- *  - Open*Code puts the VIF code in the last word of a quadword (DIRECT data must start on a quadword), padding
- *    with VIF NOPs, and Close*Code writes the quadword count into it; Open/CloseGifTag do the same for NLOOP;
- *  - Terminate pads to a quadword with NOPs and closes the last tag; Size is in quadwords.
- *
- * [I: field use beyond the four documented pointers, and the exact padding words, are not checked against the
- * library code; the GS path (T28) will check the lists it receives.]
+ *  - the packet struct: pCurrent 0x0, pBase 0x4, pDmaTag 0x8, pVifCode 0xC, pGifTag 0x14 (VIF1 packets); Init and
+ *    Reset write only the first three;
+ *  - Terminate pads with zero words to a quadword, ADDS (end - tag) / 16 - 1 to the open DMA tag's QWC, clears
+ *    pDmaTag and returns pCurrent; Cnt / Ref / End (and the GIF ones) terminate first;
+ *  - Cnt writes the tag's lower half (flag | 0x10000000, 0) and leaves its upper half to the VIF codes; Ref writes a
+ *    whole tag (flag | size | 0x30000000, addr & 0x9FFFFFFF, opt1, opt2) and leaves no tag open;
+ *  - Open*Code aligns to the quadword's last word (zero words) and writes 0x50 / 0x51 << 24, bit 31 for any non-zero
+ *    irq; Close*Code ADDS the whole quadwords written after the code (rounded down);
+ *  - CloseGifTag ADDS ceil(n / NREG) to NLOOP (n: quadwords after the tag for PACKED, doublewords for REGLIST /
+ *    IMAGE; NREG 0 is 16) and pads with zero words to a quadword: Gfx_PkAddImage presets NLOOP in an IMAGE tag and
+ *    closes it with nothing after it, so NLOOP must stay;
+ *  - Size is (pCurrent - pBase) / 16, rounded down.
  */
 #include <stdint.h>
 #include <string.h>
@@ -20,171 +23,189 @@ typedef struct {
     uint32_t *pCurrent;
     uint32_t *pBase;
     uint32_t *pDmaTag;
-    uint32_t *pVifCode; /* GIF packet: pGifTag */
-    uint32_t *pGifTag;  /* VIF1 packet only (its 0x10 words) */
-    uint32_t pad[3];
+    uint32_t *pVifCode; /* unused by the GIF packet functions */
+    uint32_t unk10;
+    uint32_t *pGifTag; /* VIF1 packets */
 } Packet;
 
-static uint32_t qw_index(const uint32_t *p) { return (uint32_t)(uintptr_t)p >> 2 & 3; }
-
-/* Closes the open DMA tag: QWC = quadwords from the tag's end to the current position (rounded up). */
-static void close_tag(Packet *pk) {
-    uint32_t *t = pk->pDmaTag, words;
-    if (t == NULL) {
-        return;
+/* Zero words up to the next quadword. */
+static uint32_t *pad_qw(uint32_t *p) {
+    while ((uint32_t)(uintptr_t)p & 0xC) {
+        *p++ = 0;
     }
-    if ((t[0] >> 28 & 7) == 3 || (t[0] >> 28 & 7) == 0) { /* ref / refe: the data is elsewhere */
-        return;
-    }
-    words = (uint32_t)(pk->pCurrent - (t + 4));
-    t[0] = (t[0] & 0xFFFF0000u) | ((words + 3) / 4 & 0xFFFF);
+    return p;
 }
 
-static void pad_to(Packet *pk, uint32_t index) {
-    while (qw_index(pk->pCurrent) != index) {
-        *pk->pCurrent++ = 0; /* VIF NOP */
+static uint32_t *terminate(Packet *pk) {
+    uint32_t *p = pad_qw(pk->pCurrent);
+
+    if (pk->pDmaTag != NULL) {
+        pk->pDmaTag[0] += (uint32_t)(((int32_t)((uint8_t *)p - (uint8_t *)pk->pDmaTag) >> 4) - 1);
     }
-}
-
-static uint32_t *new_tag(Packet *pk, uint32_t id, uint32_t addr, uint32_t qwc, int irq) {
-    uint32_t *t;
-    close_tag(pk);
-    pad_to(pk, 0);
-    t = pk->pCurrent;
-    t[0] = (uint32_t)irq << 31 | id << 28 | (qwc & 0xFFFF);
-    t[1] = addr;
-    t[2] = 0;
-    t[3] = 0;
-    pk->pDmaTag = t;
-    return t;
-}
-
-/* ---- VIF1 packets ---- */
-void sceVif1PkInit(Packet *pk, void *base) {
-    pk->pBase = pk->pCurrent = base;
     pk->pDmaTag = NULL;
-    pk->pVifCode = NULL;
-    pk->pGifTag = NULL;
+    pk->pCurrent = p;
+    return p;
 }
-void sceVif1PkReset(Packet *pk) {
-    pk->pCurrent = pk->pBase;
-    pk->pDmaTag = NULL;
-    pk->pVifCode = NULL;
-    pk->pGifTag = NULL;
-}
-void sceVif1PkCnt(Packet *pk, uint32_t flag) {
-    new_tag(pk, 1, 0, 0, flag & 1);
-    pk->pCurrent = pk->pDmaTag + 2; /* the VIF codes in the tag's upper half */
-}
-void sceVif1PkRef(Packet *pk, void *addr, uint32_t size, uint32_t opt1, uint32_t opt2, uint32_t flag) {
-    uint32_t *t = new_tag(pk, 3, (uint32_t)(uintptr_t)addr, size, flag & 1);
+
+/* Ref of either packet kind: a whole tag, no tag left open. */
+static void ref(Packet *pk, void *addr, uint32_t size, uint32_t opt1, uint32_t opt2, uint32_t flag) {
+    uint32_t *t = terminate(pk);
+
+    t[0] = flag | size | 0x30000000u;
+    t[1] = (uint32_t)(uintptr_t)addr & 0x9FFFFFFFu;
     t[2] = opt1;
     t[3] = opt2;
     pk->pCurrent = t + 4;
 }
+
+/* ---- VIF1 packets ---- */
+void sceVif1PkInit(Packet *pk, void *base) {
+    pk->pCurrent = base;
+    pk->pDmaTag = NULL;
+    pk->pBase = base;
+}
+void sceVif1PkReset(Packet *pk) {
+    pk->pDmaTag = NULL;
+    pk->pCurrent = pk->pBase;
+}
+uint32_t *sceVif1PkTerminate(Packet *pk) { return terminate(pk); }
+uint32_t sceVif1PkSize(Packet *pk) { return (uint32_t)((uint8_t *)pk->pCurrent - (uint8_t *)pk->pBase) >> 4; }
+void sceVif1PkCnt(Packet *pk, uint32_t flag) {
+    uint32_t *t = terminate(pk);
+
+    pk->pDmaTag = t;
+    t[0] = flag | 0x10000000u;
+    pk->pVifCode = NULL;
+    t[1] = 0;
+    pk->pCurrent = t + 2;
+}
+void sceVif1PkRef(Packet *pk, void *addr, uint32_t size, uint32_t opt1, uint32_t opt2, uint32_t flag) {
+    ref(pk, addr, size, opt1, opt2, flag);
+}
+/* Not in the executable; the counterpart of sceVif1PkCnt with ID end. */
 void sceVif1PkEnd(Packet *pk, uint32_t flag) {
-    new_tag(pk, 7, 0, 0, flag & 1);
-    pk->pCurrent = pk->pDmaTag + 2;
+    uint32_t *t = terminate(pk);
+
+    pk->pDmaTag = t;
+    t[0] = flag | 0x70000000u;
+    pk->pVifCode = NULL;
+    t[1] = 0;
+    pk->pCurrent = t + 2;
 }
 uint32_t *sceVif1PkReserve(Packet *pk, uint32_t count) {
     uint32_t *p = pk->pCurrent;
-    pk->pCurrent += count;
+    pk->pCurrent = p + count;
     return p;
 }
+/* Zero words up to the next word whose index within a 2^(bit + 2)-byte block is pos. */
 void sceVif1PkAlign(Packet *pk, uint32_t bit, uint32_t pos) {
-    uint32_t mask = (1u << bit) - 1;
-    while ((((uint32_t)(uintptr_t)pk->pCurrent >> 2) & mask) != (pos & mask)) {
-        *pk->pCurrent++ = 0;
+    uint32_t mask = 0xFFFFFFFFu >> (32 - ((bit + 2) & 31));
+    uint32_t cur = (uint32_t)(uintptr_t)pk->pCurrent;
+    uint32_t end = (cur & ~mask) + pos * 4;
+    uint32_t *p = pk->pCurrent;
+
+    if (end < cur) {
+        end += mask + 1;
+    }
+    if (cur < end) {
+        while ((uint32_t)(uintptr_t)p < end) {
+            *p++ = 0;
+        }
+        pk->pCurrent = p;
     }
 }
-static void open_direct(Packet *pk, uint32_t cmd, int irq) {
-    pad_to(pk, 3);
-    pk->pVifCode = pk->pCurrent;
-    *pk->pCurrent++ = (uint32_t)irq << 31 | cmd << 24;
+static void open_direct(Packet *pk, uint32_t code, int irq) {
+    uint32_t *p;
+
+    sceVif1PkAlign(pk, 2, 3);
+    p = pk->pCurrent;
+    pk->pCurrent = p + 1;
+    pk->pVifCode = p;
+    *p = irq != 0 ? code | 0x80000000u : code;
 }
 static void close_direct(Packet *pk) {
-    uint32_t words;
-    if (pk->pVifCode == NULL) {
-        return;
-    }
-    words = (uint32_t)(pk->pCurrent - (pk->pVifCode + 1));
-    *pk->pVifCode = (*pk->pVifCode & 0xFFFF0000u) | ((words + 3) / 4 & 0xFFFF);
+    uint32_t *c = pk->pVifCode;
+
     pk->pVifCode = NULL;
+    *c += (uint32_t)((int32_t)((uint8_t *)(pk->pCurrent - 1) - (uint8_t *)c) >> 2) >> 2;
 }
-void sceVif1PkOpenDirectCode(Packet *pk, int irq) { open_direct(pk, 0x50, irq & 1); }
+void sceVif1PkOpenDirectCode(Packet *pk, int irq) { open_direct(pk, 0x50000000u, irq); }
 void sceVif1PkCloseDirectCode(Packet *pk) { close_direct(pk); }
-void sceVif1PkOpenDirectHLCode(Packet *pk, int irq) { open_direct(pk, 0x51, irq & 1); }
+void sceVif1PkOpenDirectHLCode(Packet *pk, int irq) { open_direct(pk, 0x51000000u, irq); }
 void sceVif1PkCloseDirectHLCode(Packet *pk) { close_direct(pk); }
 /* The GIF tag is passed by value (u128: four words on the stack). */
 void sceVif1PkOpenGifTag(Packet *pk, uint32_t t0, uint32_t t1, uint32_t t2, uint32_t t3) {
-    pk->pGifTag = pk->pCurrent;
-    pk->pCurrent[0] = t0;
-    pk->pCurrent[1] = t1;
-    pk->pCurrent[2] = t2;
-    pk->pCurrent[3] = t3;
-    pk->pCurrent += 4;
+    uint32_t *p = pk->pCurrent;
+
+    p[0] = t0;
+    p[1] = t1;
+    p[2] = t2;
+    p[3] = t3;
+    pk->pCurrent = p + 4;
+    pk->pGifTag = p;
 }
 void sceVif1PkCloseGifTag(Packet *pk) {
-    uint32_t *g = pk->pGifTag, nreg, qws, flg, nloop;
-    if (g == NULL) {
-        return;
-    }
-    nreg = g[1] >> 28;
-    flg = g[1] >> 26 & 3;
-    if (nreg == 0) {
-        nreg = 16;
-    }
-    qws = (uint32_t)(pk->pCurrent - (g + 4)) / 4;
-    nloop = flg == 0 ? qws / nreg : qws; /* PACKED: a quadword per register; REGLIST / IMAGE: per quadword [I] */
-    g[0] = (g[0] & ~0x7FFFu) | (nloop & 0x7FFF);
+    uint32_t *g = pk->pGifTag, *p = pk->pCurrent;
+    uint64_t tag = g[0] | (uint64_t)g[1] << 32;
+    uint32_t dw = (uint32_t)(((int32_t)((uint8_t *)p - (uint8_t *)g) >> 3) - 2);
+    uint32_t nreg = (uint32_t)(tag >> 60) != 0 ? (uint32_t)(tag >> 60) : 16;
+    uint32_t n = (tag >> 58) & 3 ? dw : dw >> 1;
+
+    tag += (n + nreg - 1) / nreg;
+    g[0] = (uint32_t)tag;
+    g[1] = (uint32_t)(tag >> 32);
     pk->pGifTag = NULL;
+    pk->pCurrent = pad_qw(p);
 }
 void sceVif1PkAddGsAD(Packet *pk, uint32_t addr, uint32_t lo, uint32_t hi) {
-    pk->pCurrent[0] = lo;
-    pk->pCurrent[1] = hi;
-    pk->pCurrent[2] = addr;
-    pk->pCurrent[3] = 0;
-    pk->pCurrent += 4;
+    uint32_t *p = pk->pCurrent;
+
+    p[0] = lo;
+    p[1] = hi;
+    p[2] = addr;
+    p[3] = 0;
+    pk->pCurrent = p + 4;
 }
-void sceVif1PkTerminate(Packet *pk) {
-    pad_to(pk, 0);
-    close_tag(pk);
-}
-uint32_t sceVif1PkSize(Packet *pk) { return (uint32_t)(pk->pCurrent - pk->pBase + 3) / 4; }
 
 /* ---- GIF packets ---- */
 void sceGifPkInit(Packet *pk, void *base) {
-    pk->pBase = pk->pCurrent = base;
+    pk->pCurrent = base;
     pk->pDmaTag = NULL;
-    pk->pVifCode = NULL;
+    pk->pBase = base;
 }
+/* Not in the executable: as sceVif1PkReset. */
 void sceGifPkReset(Packet *pk) {
-    pk->pCurrent = pk->pBase;
     pk->pDmaTag = NULL;
-    pk->pVifCode = NULL;
+    pk->pCurrent = pk->pBase;
 }
+/* Not in the executable: as sceGifPkEnd with ID cnt. */
 void sceGifPkCnt(Packet *pk, uint32_t opt1, uint32_t opt2, uint32_t flag) {
-    uint32_t *t = new_tag(pk, 1, 0, 0, flag & 1);
+    uint32_t *t = terminate(pk);
+
+    pk->pDmaTag = t;
+    t[0] = flag | 0x10000000u;
+    t[1] = 0;
     t[2] = opt1;
     t[3] = opt2;
     pk->pCurrent = t + 4;
 }
 void sceGifPkRef(Packet *pk, void *addr, uint32_t size, uint32_t opt1, uint32_t opt2, uint32_t flag) {
-    sceVif1PkRef(pk, addr, size, opt1, opt2, flag);
+    ref(pk, addr, size, opt1, opt2, flag);
 }
 void sceGifPkEnd(Packet *pk, uint32_t opt1, uint32_t opt2, uint32_t flag) {
-    uint32_t *t = new_tag(pk, 7, 0, 0, flag & 1);
+    uint32_t *t = terminate(pk);
+
+    pk->pDmaTag = t;
+    t[0] = flag | 0x70000000u;
+    t[1] = 0;
     t[2] = opt1;
     t[3] = opt2;
     pk->pCurrent = t + 4;
 }
 uint32_t *sceGifPkReserve(Packet *pk, uint32_t count) {
     uint32_t *p = pk->pCurrent;
-    pk->pCurrent += count;
+    pk->pCurrent = p + count;
     return p;
 }
-void sceGifPkTerminate(Packet *pk) {
-    pad_to(pk, 0);
-    close_tag(pk);
-}
-uint32_t sceGifPkSize(Packet *pk) { return (uint32_t)(pk->pCurrent - pk->pBase + 3) / 4; }
+uint32_t *sceGifPkTerminate(Packet *pk) { return terminate(pk); }
+uint32_t sceGifPkSize(Packet *pk) { return (uint32_t)((uint8_t *)pk->pCurrent - (uint8_t *)pk->pBase) >> 4; }

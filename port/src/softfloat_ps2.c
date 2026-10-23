@@ -29,6 +29,13 @@ f32w __negsf2(f32w a) { return a ^ SF_SIGN; }
 f32w Port_FpuSqrt(f32w a) { return sf_sqrt_core(a, 1); }
 f32w sqrtf(f32w a) { return sf_sqrt_core(a, 1); }
 
+/* add.s / sub.s / mul.s / div.s under names the VU files' rename leaves alone: EE FPU code inside a library the
+   port writes as VU code (libvu0's ViewScreenMatrix, the angle fold of its Rot* functions, plat_vu0.c). */
+f32w Port_FpuAdd(f32w a, f32w b) { return sf_fpu_add(a, b); }
+f32w Port_FpuSub(f32w a, f32w b) { return sf_fpu_add(a, b ^ SF_SIGN); }
+f32w Port_FpuMul(f32w a, f32w b) { return sf_mul_core(a, b, 0); }
+f32w Port_FpuDiv(f32w a, f32w b) { return sf_div_core(a, b, 1); }
+
 /* madd.s / msub.s: ACC +/- fs * ft, the product formed first, each step an FPU operation. */
 f32w Port_FpuMadd(f32w acc, f32w s, f32w t) { return sf_fpu_add(acc, sf_mul_core(s, t, 0)); }
 f32w Port_FpuMsub(f32w acc, f32w s, f32w t) { return sf_fpu_add(acc, sf_mul_core(s, t, 0) ^ SF_SIGN); }

@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <string.h>
 #include "softfloat_ps2_inl.h"
+#include "port_addr.h"
 
 extern void Port_Missing(const char *name); /* plat_stub.c */
 extern float gPortVu0Vf[32][4];             /* plat_ee.c */
@@ -333,4 +334,197 @@ void Port_Vu0RotMtxXYZ(uint32_t *m, const uint32_t *r) {
     func_003E8FA0(r[2]);
     rot_z();
     store4(m, 4);
+}
+
+/* ---- src/geometry_b.c: the hand-written VU0 rotation builders (0x349CF8-0x34A148), on the VU0 registers ----
+ * Their drafts built the matrix from a unit matrix with libvu0 calls, which cleared row 3: the originals store rows
+ * 0-2 only (func_00349D70 also m[3][3] = 1.0, func_0034A050 row 3 = vf0), and func_00347760 relies on it: the
+ * local matrices of joints 7-0x1C keep their bone offsets in row 3. With the offsets cleared the fighters' heads
+ * collapsed onto their necks (T29 b4). Each step below is one instruction of the original, in its order. */
+#define ALL (MX | MY | MZ | MW)
+
+/* The FPU's fold of the angle (c.lt.s; add.s / sub.s with pi/2 from .lit4) into vf3.x; returns a3 (t < 0). */
+static int fold_angle(uint32_t t) {
+    const uint32_t h = 0x3FC90FDBu; /* D_005F57CC ... D_005F57E8 */
+    int neg = sf_key(t) < 0;
+
+    v_qmtc2_word(3, neg ? sf_fpu_add(h, t) : sf_fpu_add(h, t ^ SF_SIGN));
+    return neg;
+}
+/* func_00349CF8: vf4.x = +/-sqrt(1 - c^2) (sin, negative when a3), vf4.y = c = the series of vf3.x (cos), with the
+ * coefficients D_0046B040 and vf19 = 0. */
+static void vu0_cos_sin(int neg) {
+    memcpy(VFW(1), Port_Ptr(0x0046B040u), 16);          /* lqc2 vf1, D_0046B040 */
+    VFW(3)[3] = VFW(3)[0];                               /* vmr32.w vf3, vf3 */
+    v_bc(0, 4, 0, 3, 0, MX);                             /* vaddx.x vf4, vf0, vf3x */
+    VFW(3)[0] = sf_mul_core(VFW(3)[0], VFW(3)[0], 0);    /* vmul.x vf3, vf3, vf3 */
+    v_bc(2, 4, 4, 0, 0, MY | MZ | MW);                   /* vmulx.yzw vf4, vf4, vf0x */
+    v_bc(2, 2, 1, 3, 3, ALL);                            /* vmulw.xyzw vf2, vf1, vf3w */
+    v_bc(2, 2, 2, 3, 0, ALL);                            /* vmulx.xyzw vf2, vf2, vf3x */
+    v_bc(2, 2, 2, 3, 0, MX | MY | MZ);                   /* vmulx.xyz */
+    v_bc(0, 4, 4, 2, 3, MX);                             /* vaddw.x vf4, vf4, vf2w */
+    v_bc(2, 2, 2, 3, 0, MX | MY);                        /* vmulx.xy */
+    v_bc(0, 4, 4, 2, 2, MX);                             /* vaddz.x */
+    v_bc(2, 2, 2, 3, 0, MX);                             /* vmulx.x */
+    v_bc(0, 4, 4, 2, 1, MX);                             /* vaddy.x */
+    v_bc(0, 4, 4, 2, 0, MX);                             /* vaddx.x */
+    v_bc(0, 4, 19, 4, 0, MX | MY);                       /* vaddx.xy vf4, vf19, vf4x */
+    VFW(5)[0] = sf_mul_core(VFW(4)[0], VFW(4)[0], 0);    /* vmul.x vf5, vf4, vf4 */
+    v_bc(1, 5, 0, 5, 0, MW);                             /* vsubx.w vf5, vf0, vf5x */
+    gPortVu0Q = sf_sqrt_core(VFW(5)[3], 0);              /* vsqrt Q, vf5w; vwaitq */
+    v_qmtc2_word(5, gPortVu0Q);                          /* cfc2 $t0, $vi22; qmtc2 $t0, vf5 */
+    v_bc(neg, 4, 19, 5, 0, MX);                          /* vaddx.x / vsubx.x vf4, vf19, vf5x */
+}
+/* vsub.xyzw fd, vf0, vf0 (field by field: all four are +0) */
+static void v_zero(int fd) {
+    int c;
+    for (c = 0; c < 4; c++) {
+        VFW(fd)[c] = sf_add_core(VFW(0)[c], VFW(0)[c] ^ SF_SIGN, 0);
+    }
+}
+static void v_move(int fd, int fs) { memcpy(VFW(fd), VFW(fs), 16); }
+/* ACC.c += fs.c * vf0.w (vmaddaw.c) */
+static void v_madda_w(int fs, int c) {
+    gPortVu0Acc[c] = sf_add_core(gPortVu0Acc[c], sf_mul_core(VFW(fs)[c], VFW(0)[3], 0), 0);
+}
+
+/* 0x349D70: m rows 0-2 = Rz(ang[2]) Ry(ang[1]) Rx(ang[0]), m[3][3] = 1.0; row 3 xyz kept. */
+void func_00349D70(uint32_t *m, const uint32_t *ang) {
+    int neg, r;
+
+    m[15] = 0x3F800000u;
+    neg = fold_angle(ang[0]);
+    v_zero(19);
+    vu0_cos_sin(neg);
+    v_move(7, 19);
+    v_move(8, 19);
+    v_bc(0, 7, 19, 4, 0, MZ); /* vaddx.z vf7, vf19, vf4x */
+    v_bc(0, 7, 19, 4, 1, MY); /* vaddy.y vf7, vf19, vf4y */
+    v_bc(1, 8, 19, 4, 0, MY); /* vsubx.y vf8, vf19, vf4x */
+    v_bc(0, 8, 19, 4, 1, MZ); /* vaddy.z vf8, vf19, vf4y */
+    neg = fold_angle(ang[1]);
+    vu0_cos_sin(neg);
+    v_move(6, 19);
+    v_move(11, 19);
+    v_bc(1, 6, 19, 4, 0, MZ);  /* vsubx.z vf6, vf19, vf4x */
+    v_bc(0, 6, 19, 4, 1, MX);  /* vaddy.x vf6, vf19, vf4y */
+    v_bc(0, 11, 19, 4, 0, MX); /* vaddx.x vf11, vf19, vf4x */
+    v_bc(0, 11, 19, 4, 1, MZ); /* vaddy.z vf11, vf19, vf4y */
+    for (r = 7; r <= 8; r++) {
+        v_acc_bc(0, 9, r, 0, ALL);       /* vmulax.xyzw ACC, vf9, vf(r)x (vf9 as the PS2 leaves it; x is 0) */
+        v_madda_w(r, 1);                 /* vmaddaw.y ACC, vf(r), vf0w */
+        v_madd_bc(0, r, 11, r, 2, ALL);  /* vmaddz.xyzw vf(r), vf11, vf(r)z */
+    }
+    neg = fold_angle(ang[2]);
+    vu0_cos_sin(neg);
+    v_move(9, 19);
+    v_move(10, 19);
+    v_bc(0, 9, 19, 4, 0, MY);  /* vaddx.y vf9, vf19, vf4x */
+    v_bc(0, 9, 19, 4, 1, MX);  /* vaddy.x vf9, vf19, vf4y */
+    v_bc(1, 10, 19, 4, 0, MX); /* vsubx.x vf10, vf19, vf4x */
+    v_bc(0, 10, 19, 4, 1, MY); /* vaddy.y vf10, vf19, vf4y */
+    for (r = 6; r <= 8; r++) {
+        v_acc_bc(0, 9, r, 0, ALL);       /* vmulax.xyzw ACC, vf9, vf(r)x */
+        v_madda_w(r, 2);                 /* vmaddaw.z ACC, vf(r), vf0w */
+        v_madd_bc(0, r, 10, r, 1, ALL);  /* vmaddy.xyzw vf(r), vf10, vf(r)y */
+    }
+    memcpy(m, VFW(6), 16);
+    memcpy(m + 4, VFW(7), 16);
+    memcpy(m + 8, VFW(8), 16);
+}
+
+/* 0x349EE0: m rows 0-2 = Rx(ang[0]) Ry(ang[1]) Rz(ang[2]); row 3 untouched. */
+void func_00349EE0(uint32_t *m, const uint32_t *ang) {
+    int neg, r;
+
+    neg = fold_angle(ang[2]);
+    v_zero(19);
+    vu0_cos_sin(neg);
+    v_move(6, 19);
+    v_move(7, 19);
+    v_bc(0, 6, 19, 4, 0, MY); /* vaddx.y vf6, vf19, vf4x */
+    v_bc(0, 6, 19, 4, 1, MX); /* vaddy.x vf6, vf19, vf4y */
+    v_bc(1, 7, 19, 4, 0, MX); /* vsubx.x vf7, vf19, vf4x */
+    v_bc(0, 7, 19, 4, 1, MY); /* vaddy.y vf7, vf19, vf4y */
+    neg = fold_angle(ang[1]);
+    vu0_cos_sin(neg);
+    v_move(9, 19);
+    v_move(10, 19);
+    v_move(8, 19);
+    v_bc(0, 10, 19, 0, 3, MY); /* vaddw.y vf10, vf19, vf0w */
+    v_bc(1, 9, 19, 4, 0, MZ);  /* vsubx.z vf9, vf19, vf4x */
+    v_bc(0, 9, 19, 4, 1, MX);  /* vaddy.x vf9, vf19, vf4y */
+    v_bc(0, 8, 19, 4, 0, MX);  /* vaddx.x vf8, vf19, vf4x */
+    v_bc(0, 8, 19, 4, 1, MZ);  /* vaddy.z vf8, vf19, vf4y */
+    for (r = 6; r <= 7; r++) {
+        v_acc_bc(0, 9, r, 0, ALL);   /* vmulax.xyzw ACC, vf9, vf(r)x */
+        {
+            uint32_t b = VFW(r)[1];
+            int c;
+            for (c = 0; c < 4; c++) { /* vmadday.xyzw ACC, vf10, vf(r)y */
+                gPortVu0Acc[c] = sf_add_core(gPortVu0Acc[c], sf_mul_core(VFW(10)[c], b, 0), 0);
+            }
+        }
+        v_madd_bc(0, r, 8, r, 2, ALL); /* vmaddz.xyzw vf(r), vf8, vf(r)z */
+    }
+    neg = fold_angle(ang[0]);
+    vu0_cos_sin(neg);
+    v_move(10, 19);
+    v_move(11, 19);
+    v_bc(0, 10, 19, 4, 0, MZ); /* vaddx.z vf10, vf19, vf4x */
+    v_bc(0, 10, 19, 4, 1, MY); /* vaddy.y vf10, vf19, vf4y */
+    v_bc(1, 11, 19, 4, 0, MY); /* vsubx.y vf11, vf19, vf4x */
+    v_bc(0, 11, 19, 4, 1, MZ); /* vaddy.z vf11, vf19, vf4y */
+    for (r = 6; r <= 8; r++) {
+        v_acc_bc(0, 10, r, 1, ALL);      /* vmulay.xyzw ACC, vf10, vf(r)y */
+        v_madda_w(r, 0);                 /* vmaddaw.x ACC, vf(r), vf0w */
+        v_madd_bc(0, r, 11, r, 2, ALL);  /* vmaddz.xyzw vf(r), vf11, vf(r)z */
+    }
+    memcpy(m, VFW(6), 16);
+    memcpy(m + 4, VFW(7), 16);
+    memcpy(m + 8, VFW(8), 16);
+}
+
+/* 0x34A050: the rotation about X by a, row 3 = vf0. */
+void func_0034A050(uint32_t *m, uint32_t a) {
+    int neg = fold_angle(a);
+
+    v_zero(19);
+    vu0_cos_sin(neg);
+    v_zero(5);
+    v_move(6, 5);
+    v_move(7, 5);
+    v_move(8, 5);
+    v_bc(0, 6, 5, 0, 3, MX); /* vaddw.x vf6, vf5, vf0w */
+    v_bc(0, 7, 5, 4, 0, MZ); /* vaddx.z vf7, vf5, vf4x */
+    v_bc(0, 7, 5, 4, 1, MY); /* vaddy.y vf7, vf5, vf4y */
+    v_bc(1, 8, 5, 4, 0, MY); /* vsubx.y vf8, vf5, vf4x */
+    v_bc(0, 8, 5, 4, 1, MZ); /* vaddy.z vf8, vf5, vf4y */
+    memcpy(m, VFW(6), 16);
+    memcpy(m + 4, VFW(7), 16);
+    memcpy(m + 8, VFW(8), 16);
+    memcpy(m + 12, VFW(0), 16);
+}
+
+/* 0x34A0D0: the rotation about Z by a in rows 0-2 (row 2 = vf0 rotated: (0, 0, 1, 0)); row 3 untouched. */
+void func_0034A0D0(uint32_t *m, uint32_t a) {
+    int neg = fold_angle(a);
+
+    v_zero(19);
+    vu0_cos_sin(neg);
+    v_zero(5);
+    v_move(6, 5);
+    v_move(7, 5);
+    VFW(8)[0] = VFW(0)[1];   /* vmr32.xyzw vf8, vf0 */
+    VFW(8)[1] = VFW(0)[2];
+    VFW(8)[2] = VFW(0)[3];
+    VFW(8)[3] = VFW(0)[0];
+    v_bc(0, 6, 5, 0, 3, MX); /* vaddw.x vf6, vf5, vf0w */
+    v_bc(0, 6, 5, 4, 0, MY); /* vaddx.y vf6, vf5, vf4x */
+    v_bc(0, 6, 5, 4, 1, MX); /* vaddy.x vf6, vf5, vf4y */
+    v_bc(1, 7, 5, 4, 0, MX); /* vsubx.x vf7, vf5, vf4x */
+    v_bc(0, 7, 5, 4, 1, MY); /* vaddy.y vf7, vf5, vf4y */
+    memcpy(m, VFW(6), 16);
+    memcpy(m + 4, VFW(7), 16);
+    memcpy(m + 8, VFW(8), 16);
 }

@@ -555,6 +555,89 @@ static void expect(int ok, const char *what) {
 static int sHandled[16];
 static int32_t count_handler(int32_t c) { sHandled[c & 15]++; return 0; }
 
+/* libpkt (plat_pkt.c) against the library's code (asm/B4320.s 0x404500-0x404AA0): the packet struct is pCurrent 0x0,
+   pBase 0x4, pDmaTag 0x8, pVifCode 0xC, pGifTag 0x14; tags and codes get their counts ADDED (preset counts stay). */
+void sceVif1PkInit(uint32_t *pk, void *base);
+void sceVif1PkCnt(uint32_t *pk, uint32_t flag);
+void sceVif1PkRef(uint32_t *pk, void *addr, uint32_t size, uint32_t opt1, uint32_t opt2, uint32_t flag);
+uint32_t *sceVif1PkReserve(uint32_t *pk, uint32_t count);
+void sceVif1PkOpenDirectCode(uint32_t *pk, int irq);
+void sceVif1PkCloseDirectCode(uint32_t *pk);
+void sceVif1PkOpenGifTag(uint32_t *pk, uint32_t t0, uint32_t t1, uint32_t t2, uint32_t t3);
+void sceVif1PkCloseGifTag(uint32_t *pk);
+void sceVif1PkAddGsAD(uint32_t *pk, uint32_t addr, uint32_t lo, uint32_t hi);
+uint32_t *sceVif1PkTerminate(uint32_t *pk);
+uint32_t sceVif1PkSize(uint32_t *pk);
+void sceGifPkInit(uint32_t *pk, void *base);
+void sceGifPkEnd(uint32_t *pk, uint32_t opt1, uint32_t opt2, uint32_t flag);
+
+static void pkt_self_test(void) {
+    static uint32_t buf[64] __attribute__((aligned(16)));
+    uint32_t pk[8], *g, *t;
+    int i;
+
+    for (i = 0; i < 8; i++) {
+        pk[i] = 0xAAAAAAAAu;
+    }
+    sceVif1PkInit(pk, buf);
+    expect(pk[0] == Port_Addr(buf) && pk[1] == Port_Addr(buf) && pk[2] == 0, "PkInit: pCurrent, pBase, pDmaTag = 0");
+    expect(pk[3] == 0xAAAAAAAAu && pk[4] == 0xAAAAAAAAu && pk[5] == 0xAAAAAAAAu, "PkInit writes nothing past 0x8");
+    /* Cnt: Terminate, then tag word 0 = flag | 0x10000000 (flag as given), word 1 = 0; pVifCode cleared */
+    buf[2] = buf[3] = 0x55u;
+    sceVif1PkCnt(pk, 0x80000000u);
+    expect(buf[0] == 0x90000000u && buf[1] == 0 && pk[2] == Port_Addr(buf) && pk[3] == 0, "PkCnt tag and pointers");
+    expect(pk[0] == Port_Addr(buf + 2) && buf[2] == 0x55u, "PkCnt leaves the tag's upper half to the VIF codes");
+    /* OpenDirectCode: any non-zero irq sets bit 31; CloseDirectCode adds the whole quadwords after the code */
+    sceVif1PkOpenDirectCode(pk, 2);
+    expect(buf[2] == 0 && buf[3] == 0xD0000000u && pk[3] == Port_Addr(buf + 3), "PkOpenDirectCode at word 3, irq 2");
+    /* OpenGifTag (pGifTag at 0x14); an IMAGE tag with NLOOP preset and closed at once keeps NLOOP */
+    sceVif1PkOpenGifTag(pk, 0x00000005u, 0x08000000u, 0, 0);
+    g = buf + 4;
+    expect(pk[5] == Port_Addr(g) && pk[4] == 0xAAAAAAAAu, "PkOpenGifTag keeps the tag pointer at 0x14");
+    sceVif1PkCloseGifTag(pk);
+    expect(g[0] == 5u && pk[5] == 0, "PkCloseGifTag adds to a preset NLOOP (IMAGE, no data: + 0)");
+    /* PACKED, NREG 1, NLOOP 0 + two A+D quadwords */
+    sceVif1PkOpenGifTag(pk, 0, 0x10000000u, 0x0E, 0);
+    g = (uint32_t *)Port_Ptr(pk[0]) - 4;
+    sceVif1PkAddGsAD(pk, 0x3F, 1, 0);
+    sceVif1PkAddGsAD(pk, 0x3F, 2, 0);
+    sceVif1PkCloseGifTag(pk);
+    expect(g[0] == 2u, "PkCloseGifTag PACKED NLOOP = quadwords / NREG");
+    sceVif1PkReserve(pk, 1); /* one word: the code's count is rounded down */
+    sceVif1PkCloseDirectCode(pk);
+    expect(buf[3] == 0xD0000004u && pk[3] == 0, "PkCloseDirectCode adds whole quadwords (4, the odd word dropped)");
+    /* Terminate pads with zero words, adds (end - tag) / 16 - 1 to the tag, clears pDmaTag, returns pCurrent */
+    t = sceVif1PkTerminate(pk);
+    expect(buf[0] == 0x90000005u && pk[2] == 0 && t == (uint32_t *)Port_Ptr(pk[0]) && t == buf + 24,
+           "PkTerminate: QWC 5 added, pDmaTag cleared");
+    /* Ref: tag words (flag | size | 0x30000000, addr & 0x9FFFFFFF, opt1, opt2), no open tag after it */
+    sceVif1PkRef(pk, Port_Ptr(0x20123450u), 3, 0x11, 0x22, 0);
+    expect(buf[24] == 0x30000003u && buf[25] == 0x00123450u && buf[26] == 0x11 && buf[27] == 0x22 && pk[2] == 0,
+           "PkRef tag");
+    sceVif1PkReserve(pk, 2);
+    expect(sceVif1PkSize(pk) == 7, "PkSize = (pCurrent - pBase) / 16, rounded down");
+    /* GIF packet End: (flag | 0x70000000, 0, opt1, opt2), pDmaTag = the tag */
+    sceGifPkInit(pk, buf);
+    sceGifPkEnd(pk, 0x33, 0x44, 0);
+    expect(buf[0] == 0x70000000u && buf[1] == 0 && buf[2] == 0x33 && buf[3] == 0x44 && pk[2] == Port_Addr(buf) &&
+               pk[0] == Port_Addr(buf + 4),
+           "GifPkEnd tag");
+}
+
+/* libgraph (plat_lib.c): the values the library code writes that reach the GS. */
+void sceGsSetDefDispEnv(void *p, int16_t psm, int16_t w, int16_t h, int16_t dx, int16_t dy);
+int sceGsSetDefDBuff(void *p, int psm, int w, int h, int ztest, int zpsm, int clear);
+
+static void graph_self_test(void) {
+    static uint64_t db[0x300 / 8];
+
+    sceGsSetDefDispEnv(db, 0, 640, 224, 0, 0);
+    expect(db[0] == 0x66, "sceGsSetDefDispEnv PMODE 0x66 (0x3F6A84)");
+    sceGsSetDefDBuff(db, 1, 640, 224, 3, 0x3A, 1);
+    /* clear0 after disp[2][5] (0x50), giftag0 (0x10), draw0 (8 A+D): its rgbaq is the third A+D */
+    expect(db[(0x50 + 0x10 + 0x80 + 0x20) / 8] == 0x3F80000000000000ull, "sceGsSetDefDBuff clear RGBAQ Q = 1.0");
+}
+
 void Port_HwSelfTest(void) {
     uint8_t *src = (uint8_t *)Port_Ptr(0x00100000u);
     uint32_t i, v0;
@@ -675,6 +758,8 @@ void Port_HwSelfTest(void) {
     expect(REG(0x1000F520u) == 0x10000, "D_ENABLER follows D_ENABLEW");
     REG(0x1000F590u) = 0;
     Port_HwPoll();
+    pkt_self_test();
+    graph_self_test();
     if (sFails == 0) {
         printf("ttt: hw self-test OK\n");
     }

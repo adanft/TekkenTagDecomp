@@ -18,7 +18,8 @@ writes everything under `build/port/`, which git ignores.
   loading mode (11) at VBlank 699 and runs the attract demo (mode 11, sub-state 2) through the VU0 blend
   (`func_0034A180`) and the VU0 skinning programs: `TTT_FRAMES=3000 TTT_SEED=1` ends at VBlank 3000 (2606 frames)
   with no stop, and two runs with the same seed end in the same state (`sbss-hash 0x82bb5654` in T29 batch 2, where the fighter packets are sent with their real size; the joint
-  matrices of batch 3 change it again: `TTT_FRAMES=2551 TTT_SEED=1` ends with `0x27e2f897`).
+  matrices of batch 3 change it again: `TTT_FRAMES=2551 TTT_SEED=1` ends with `0x27e2f897`; batch 4, with the libvu0 / libpkt / VU0 rotation fixes, with
+  `0x577e0d2f`).
 - The GS path draws ([GS path](#gs-path)): the display lists go DMA -> VIF1 -> GIF -> GS memory and the software
   reference rasteriser; `TTT_DUMP=<dir>` writes the displayed picture as PNG. The title and the main menu come out
   complete (logo, menu text, highlight bar). Since T29 the game's VU1 programs run ([VU1](#vu1)): the attract path's
@@ -224,7 +225,7 @@ Switches:
 | `TTT_SELFTEST=vu1` | Hand-assembled VU1 programs sent through VIF1: pairing, delay slots, E bit, Q / P latency, flag delays, integer / EFU instructions, XTOP / XITOP, XGKICK (`tests/test_port_gs.py`). |
 | `TTT_VU1_CALLS=1` | With `TTT_FRAMES`: the report also lists the VU1 runs per entry address. |
 | `TTT_GS_TRACE=1` | Per VBlank: pixels written per frame buffer (FBP) with the last FRAME / TEX0 / TEST / ALPHA, each GIF path's tag count and tag state, DISPFB1 / 2, PMODE, DISPLAY1 / 2 and BGCOLOR, every transfer (BITBLTBUF / TRXPOS / TRXREG / TRXDIR), and the first GIF tags with reserved bits set (`bad tag`, with the DMA block they came in). |
-| `TTT_GS_TRACE_PRIMS=<vblank>` | Every vertex kick drawn before that VBlank (type, context, coordinates, UV / STQ, colour, TEX0 / TEX1 / CLAMP / FRAME / TEST / ALPHA). With `TTT_GS_TRACE_PIXEL=<x>,<y>`: every write to that pixel then, with its source and result. |
+| `TTT_GS_TRACE_PRIMS=<vblank>` | Every vertex kick drawn before that VBlank (type, context, coordinates, UV / STQ, colour, TEX0 / TEX1 / CLAMP / FRAME / TEST / ALPHA). Vertices that only queue (XYZ3 / ADC) print as `gs-adc`. With `TTT_GS_TRACE_PIXEL=<x>,<y>`: every write to that pixel then, with its source and result, and every rejected one (`gs-reject`: scissor, alpha, destination alpha or depth test). |
 | `TTT_GS_TEXDUMP=<vblank>:<tex0 hex>:<x>:<y>:<w>:<h>` | With `TTT_DUMP`: writes that region of the texture TEX0 describes (through a CLUT loaded from it) as `tex_<vblank>.png`. |
 | `TTT_STUB_RETURN=<n>` | Generated stubs return n instead of stopping. |
 
@@ -319,6 +320,7 @@ Routines written in EE / VU0 assembly that the PC build cannot compile. They are
 | `func_003E9038`, `func_003E9120`, `func_003E91D0`, `func_003E92C0` | `tekken_bowl.c` | VU0 matrix rotations around it (results left in vf4-vf7) | C on the VU0 registers |
 | `func_003EA978`, `func_003EAF78`, `func_003EBC98`, `func_003EC388`, `func_003ECAD8`, `func_003ED338`, `func_003EEF00` | `tekken_bowl.c` | m2c drafts around that VU0 code (register names the C does not hold, raw `sqrt.s` words) | placeholder |
 | `RotMtxXYZ` (inline helper of a draft) | `model_anim_b.c` | VU0 rotation x / y / z through `func_003E8FA0` | C `Port_Vu0RotMtxXYZ` |
+| `func_00349D70`, `func_00349EE0`, `func_0034A050`, `func_0034A0D0` | `geometry_b.c` | VU0 rotation builders on the sin / cos kernel `func_00349CF8` (rows 0-2 only) | C on the VU0 registers, instruction by instruction (gotcha 18) |
 | `func_0034A180` | `geometry_b.c` | entry one instruction before `func_0034A184` (its first instruction is the delay slot of `func_0034A148`'s return): d = a * k + b * (1 - k) | C; four arguments (gotcha 5) |
 
 Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
@@ -408,6 +410,25 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
     whose world matrix was not a rotation, then a gdb watchpoint on its local matrix. `sceVu0InversMatrix` keeps
     row 3's w the same way. `TTT_SELFTEST=float` checks these fields against the executable's code.
 
+17. **libpkt adds its counts.** The SDK's packet builders (`plat_pkt.c`, checked against asm/B4320.s in T29 batch
+    4) ADD to the counts already in a tag: `sceVif1PkTerminate` adds (end - tag) / 16 - 1 to the DMA tag's QWC,
+    `Close*Code` the whole quadwords to the VIF code, `sceVif1PkCloseGifTag` ceil(n / NREG) to NLOOP.
+    `Gfx_PkAddImage` (font_tex.c) presets NLOOP in an IMAGE tag and closes it with nothing after it; the old C
+    replaced NLOOP by 0. The packet struct keeps pGifTag at 0x14 (the C had 0x10), Init / Reset write only
+    pCurrent, pBase and pDmaTag, `Size` rounds down, any non-zero irq sets bit 31. `TTT_SELFTEST=hw` checks them.
+18. **Hand-written VU0 routines that keep a row.** `geometry_b.c`'s rotation builders `func_00349D70` /
+    `func_00349EE0` / `func_0034A050` / `func_0034A0D0` store rows 0-2 of the matrix only (`func_00349D70` also
+    m[3][3] = 1.0). `func_00347760` builds the local matrices of joints 7-0x1C with `func_00349D70` over matrices
+    whose row 3 already holds the bone offsets; their drafts started from `Mtx_Unit` and cleared the offsets, so the
+    head and its children collapsed onto the neck: the missing heads of the demo fight (VBlank 1950: no fighter
+    vertex, drawn or ADC, reached the GS above the neck; `TTT_GS_TRACE_PRIMS` now prints ADC vertices as `gs-adc`
+    and `TTT_GS_TRACE_PIXEL` the reason a pixel was rejected, `gs-reject`). The four are now C on the VU0 registers
+    in `vu0_pc.c` (`portsrc.REPLACED`), with the libvu0 sin / cos series (coefficients `D_0046B040`); the drafts keep
+    row 3 too. libvu0 itself (`plat_vu0.c`) was checked the same way: `sceVu0Rot*` use the library's series (0x34AAF0,
+    coefficients 0x4F5700) instead of libm, `sceVu0ViewScreenMatrix` and the angle fold use the FPU's add.s / div.s
+    (`Port_Fpu*`), `sceVu0TransMatrix` reads tv before storing, `sceVu0ClipAll` tests the sticky sign / zero flags
+    (it was a placeholder returning 0). `TTT_SELFTEST=float` checks them with values from the executable's code.
+
 ## EE float model
 
 - **Arithmetic** (`port/src/softfloat_ps2_inl.h`, `softfloat_ps2.c`; the hardware-level model of the reference
@@ -438,8 +459,10 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
 
 ## Next
 
-The fighters' heads: since batch 3 no spikes, but in the demo fight frames (e.g. VBlank 1950, 2400) the head is
-not seen above the neck although its vertices are skinned into that area, unclipped (VU0 output checked); the
-GS side of those strips (depth, texture, alpha) is next. The seven Tekken Bowl m2c drafts
-around VU0 code (`portsrc.REPLACED`, still placeholders: not reached by the attract demo); the libm PCSX2 run; pads,
-memory cards, sound (RSPU2DRV) and movies.
+The fighters' heads are drawn since T29 batch 4 (gotcha 18), but the head and hair still show spikes (VBlank 1950: a
+spike above the head, hair strands pulled off): the remaining drafts on the skeleton path (`func_00347E28` secondary
+joints, `func_00351E98` look-at, `func_0034D258` accessory springs, all m2c / typed drafts) are next, checked the
+same way against their asm; `TTT_GS_TRACE_PRIMS` shows the spike vertices as `gs-adc` with z 0xFFFFAA. libgraph
+(`plat_lib.c`): the DBuff buffer pairing and SwapDBuff's ids differ from the library with the same GS result. The
+seven Tekken Bowl m2c drafts around VU0 code (`portsrc.REPLACED`, still placeholders: not reached by the attract
+demo); the libm PCSX2 run; pads, memory cards, sound (RSPU2DRV) and movies.

@@ -1022,10 +1022,15 @@ INCLUDE_ASM("asm/nonmatchings/geometry_b", func_00349CF8);
 void func_00349D70(Vu0Matrix m, f32 *ang) {
     Vu0Matrix r;
 
-    Mtx_Unit(m);
-    sceVu0RotMatrixX(m, m, ang[0]);
-    sceVu0RotMatrixY(m, m, ang[1]);
-    sceVu0RotMatrixZ(m, m, ang[2]);
+    /* rows 0-2 and m[3][3] only: the translation in row 3 is kept (port: port/src/vu0_pc.c) */
+    Mtx_Unit(r);
+    sceVu0RotMatrixX(r, r, ang[0]);
+    sceVu0RotMatrixY(r, r, ang[1]);
+    sceVu0RotMatrixZ(r, r, ang[2]);
+    *(u128 *)m[0] = *(u128 *)r[0];
+    *(u128 *)m[1] = *(u128 *)r[1];
+    *(u128 *)m[2] = *(u128 *)r[2];
+    m[3][3] = 1.0f;
 }
 #else
 LIT4_WORD_AT(1, D_005F57CC, 0x3FC90FDB);
@@ -1037,10 +1042,16 @@ INCLUDE_ASM("asm/nonmatchings/geometry_b", func_00349D70);
 /* NON_MATCHING: hand-written VU0 assembly, as func_00349D70 with the rotations in another order. */
 #if 0
 void func_00349EE0(Vu0Matrix m, f32 *ang) {
-    Mtx_Unit(m);
-    sceVu0RotMatrixZ(m, m, ang[2]);
-    sceVu0RotMatrixY(m, m, ang[1]);
-    sceVu0RotMatrixX(m, m, ang[0]);
+    Vu0Matrix r;
+
+    /* rows 0-2 only: row 3 is kept (port: port/src/vu0_pc.c) */
+    Mtx_Unit(r);
+    sceVu0RotMatrixZ(r, r, ang[2]);
+    sceVu0RotMatrixY(r, r, ang[1]);
+    sceVu0RotMatrixX(r, r, ang[0]);
+    *(u128 *)m[0] = *(u128 *)r[0];
+    *(u128 *)m[1] = *(u128 *)r[1];
+    *(u128 *)m[2] = *(u128 *)r[2];
 }
 #else
 LIT4_WORD_AT(1, D_005F57D8, 0x3FC90FDB);

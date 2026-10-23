@@ -312,6 +312,108 @@ void sceVu0OuterProduct(uint32_t *v0, const uint32_t *v1, const uint32_t *v2);
 void sceVu0InversMatrix(uint32_t *m0, const uint32_t *m1);
 void sceVu0DivVectorXYZ(uint32_t *v0, const uint32_t *v1, w32 q);
 void sceVu0ScaleVectorXYZ(uint32_t *v0, const uint32_t *v1, w32 s);
+void sceVu0UnitMatrix(uint32_t *m);
+void sceVu0RotMatrixX(uint32_t *m0, const uint32_t *m1, w32 rx);
+void sceVu0RotMatrixY(uint32_t *m0, const uint32_t *m1, w32 ry);
+void sceVu0RotMatrixZ(uint32_t *m0, const uint32_t *m1, w32 rz);
+void sceVu0TransMatrix(uint32_t *m0, const uint32_t *m1, const uint32_t *tv);
+void sceVu0ViewScreenMatrix(uint32_t *m, w32 scrz, w32 ax, w32 ay, w32 cx, w32 cy, w32 zmin, w32 zmax, w32 nearz,
+                            w32 farz);
+int sceVu0ClipAll(const uint32_t *minv, const uint32_t *maxv, const uint32_t *ms, const uint32_t *vm, int n);
+
+/* sceVu0Rot*: the library's own cos / sin (0x34AAF0, called by RotMatrixX / Y / Z), not libm: the FPU's add.s / sub.s
+   folds the angle t into a = pi/2 -/+ t (0x3FC90FDB), the VU0 sums cos = a + w a^3 + z a^5 + y a^7 + x a^9 with the
+   coefficients at 0x4F5700 (the highest powers last), and sin = +/-sqrt(1 - cos^2) (vsqrt), negative when t < 0. */
+/* The game's hand-written VU0 rotation builders (src/geometry_b.c, 0x349D70 / 0x349EE0 / 0x34A050 / 0x34A0D0) on
+   the kernel func_00349CF8 (the library's series, coefficients D_0046B040): they store rows 0-2 only (0x349D70 also
+   m[3][3] = 1.0, 0x34A050 row 3 = vf0), so a joint's translation in row 3 survives (joints 7-0x1C of
+   func_00347760 keep their bone offsets). */
+void func_00349D70(uint32_t *m, const uint32_t *ang);
+void func_00349EE0(uint32_t *m, const uint32_t *ang);
+void func_0034A050(uint32_t *m, w32 a);
+void func_0034A0D0(uint32_t *m, w32 a);
+
+static void group_vu0_rot(void) {
+    static const uint32_t ang[4] = {0x3F800000u, 0, 0, 0}; /* (1, 0, 0) */
+    uint32_t m[16];
+    int i;
+
+    for (i = 0; i < 16; i++) {
+        m[i] = 0x40A00000u; /* 5.0 everywhere */
+    }
+    func_00349D70(m, ang);
+    expect("func_00349D70 keeps the translation x", m[12], 0x40A00000u);
+    expect("func_00349D70 keeps the translation z", m[14], 0x40A00000u);
+    expect("func_00349D70 m[3][3] = 1", m[15], 0x3F800000u);
+    expect("func_00349D70 Rx(1) cos (series)", m[5], 0x3F0A513Fu);
+    expect("func_00349D70 Rx(1) sin", m[6], 0x3F576AA5u);
+    expect("func_00349D70 row 0 w", m[3], 0);
+    for (i = 0; i < 16; i++) {
+        m[i] = 0x40A00000u;
+    }
+    func_00349EE0(m, ang);
+    expect("func_00349EE0 keeps row 3 (w too)", m[15], 0x40A00000u);
+    expect("func_00349EE0 Rx(1) -sin", m[9], 0xBF576AA5u);
+    func_0034A0D0(m, 0x3F800000u);
+    expect("func_0034A0D0 Rz(1) cos", m[0], 0x3F0A513Fu);
+    expect("func_0034A0D0 keeps row 3", m[12], 0x40A00000u);
+    expect("func_0034A0D0 row 2 = (0, 0, 1, 0)", m[10], 0x3F800000u);
+    func_0034A050(m, 0x3F800000u);
+    expect("func_0034A050 Rx(1) sin", m[6], 0x3F576AA5u);
+    expect("func_0034A050 row 3 = vf0 (0, 0, 0, 1)", m[12] | m[13] | m[14], 0);
+}
+
+static void group_libvu0_rot(void) {
+    uint32_t m[16], m1[16];
+    static const uint32_t I[16] = {0x3F800000u, 0, 0, 0, 0, 0x3F800000u, 0, 0, 0, 0, 0x3F800000u, 0,
+                                   0, 0, 0, 0x3F800000u};
+    static const uint32_t minv[4] = {0xBF800000u, 0xBF800000u, 0, 0x3F800000u};  /* (-1, -1, 0, 1) */
+    static const uint32_t maxv[4] = {0x3F800000u, 0x3F800000u, 0, 0x40000000u};  /* (1, 1, 0, 2) */
+    static const uint32_t in[8] = {0x3F000000u, 0, 0, 0x3F99999Au,               /* (0.5, 0, 0, 1.2): inside */
+                                   0x40000000u, 0, 0, 0x3F99999Au};              /* x = 2 > w: outside */
+    static const uint32_t edge[4] = {0x3F800000u, 0, 0, 0x3F800000u};           /* x = w = max.x w: on the edge */
+
+    sceVu0RotMatrixZ(m, I, 0x3F800000u); /* 1 rad */
+    expect("sceVu0RotMatrixZ(1) cos (library series)", m[0], 0x3F0A513Fu);
+    expect("sceVu0RotMatrixZ(1) sin (sqrt(1 - cos^2))", m[1], 0x3F576AA5u);
+    expect("sceVu0RotMatrixZ(1) -sin", m[4], 0xBF576AA5u);
+    expect("sceVu0RotMatrixZ(1) cos at [1][1]", m[5], 0x3F0A513Fu);
+    sceVu0RotMatrixZ(m, I, 0x40000000u); /* 2 rad: a = pi/2 - 2 < 0 */
+    expect("sceVu0RotMatrixZ(2) cos", m[0], 0xBED51130u);
+    expect("sceVu0RotMatrixZ(2) sin", m[1], 0x3F68C7B7u);
+    sceVu0RotMatrixX(m, I, 0x3F490FDBu); /* pi/4 */
+    expect("sceVu0RotMatrixX(pi/4) cos", m[5], 0x3F3504F2u);
+    expect("sceVu0RotMatrixX(pi/4) sin", m[6], 0x3F3504F4u);
+    expect("sceVu0RotMatrixX(pi/4) -sin", m[9], 0xBF3504F4u);
+    expect("sceVu0RotMatrixX(pi/4) cos at [2][2]", m[10], 0x3F3504F2u);
+    sceVu0RotMatrixY(m, I, 0xBF800000u); /* -1 rad: sin = -sqrt */
+    expect("sceVu0RotMatrixY(-1) cos", m[0], 0x3F0A513Fu);
+    expect("sceVu0RotMatrixY(-1) -sin at [0][2]", m[2], 0x3F576AA5u);
+    expect("sceVu0RotMatrixY(-1) sin at [2][0]", m[8], 0xBF576AA5u);
+    expect("sceVu0RotMatrixY(-1) [1][1]", m[5], 0x3F800000u);
+    sceVu0RotMatrixZ(m, I, 0);
+    expect("sceVu0RotMatrixZ(0) sin", m[1], 0);
+
+    /* 0x34AA20: the translation is loaded (lqc2 vf4, 0(a2)) before any store, so tv may be m0's own row 3 */
+    memcpy(m1, I, sizeof m1);
+    m1[12] = 0x3F800000u;
+    memcpy(m, I, sizeof m);
+    m[12] = 0x41200000u; /* m0 row 3 x = 10, used as tv */
+    sceVu0TransMatrix(m, m1, &m[12]);
+    expect("sceVu0TransMatrix tv read before m0 is written", m[12], 0x41300000u); /* 1 + 10 */
+
+    /* 0x34AFB0: az / cz with the FPU's add.s / mul.s / div.s (EE code), not the VU's; m[2][2] = cz, m[3][2] = az */
+    sceVu0ViewScreenMatrix(m, 0x44000000u, 0x3F800000u, 0x3F800000u, 0x45000000u, 0x45000000u, 0x3F800000u,
+                           0x4B7FFFFFu, 0x3DCCCCCDu, 0x47C35000u);
+    expect("sceVu0ViewScreenMatrix cz (FPU add.s / div.s)", m[10], 0xC17C6F8Au);
+    expect("sceVu0ViewScreenMatrix az (FPU div.s)", m[14], 0x49CCCCD8u);
+
+    /* 0x34B3F8: 0 as soon as one vertex has x - min.x w, y - min.y w, w - min.w, max.x w - x, max.y w - y and
+       max.w - w all > 0 (sticky sign / zero flags clear); 1 when none has (z is not tested) */
+    expect("sceVu0ClipAll one vertex inside", (uint32_t)sceVu0ClipAll(minv, maxv, I, in, 2), 0);
+    expect("sceVu0ClipAll vertex outside", (uint32_t)sceVu0ClipAll(minv, maxv, I, in + 4, 1), 1);
+    expect("sceVu0ClipAll vertex on the edge (zero flag)", (uint32_t)sceVu0ClipAll(minv, maxv, I, edge, 1), 1);
+}
 
 static void group_libvu0(void) {
     static const uint32_t v[4] = {0x40400000u, 0, 0x40800000u, 0x41200000u};  /* (3, 0, 4, 10) */
@@ -343,6 +445,8 @@ static void group_libvu0(void) {
     /* 0x34A978: vmulq.xyz keeps w */
     sceVu0DivVectorXYZ(r, v, 0x40000000u);
     expect("sceVu0DivVectorXYZ keeps w", r[3], 0x41200000u);
+    group_libvu0_rot();
+    group_vu0_rot();
     printf("ttt: float: libvu0: %d cases\n", sCases);
 }
 

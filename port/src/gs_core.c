@@ -417,6 +417,14 @@ static uint32_t fogged(uint32_t c, uint32_t f) {
 /* ------------------------------------------------------------------------------------------------ pixels */
 
 static int tex_on(void);
+/* TTT_GS_TRACE_PRIMS with TTT_GS_TRACE_PIXEL: why a pixel at the traced position was not written. */
+#define TRACE_REJECT(why)                                                                                              \
+    do {                                                                                                               \
+        if (sTracePrimVb != 0 && sCurVb == sTracePrimVb && x == sTraceX && y == sTraceY) {                             \
+            printf("gs-reject %d,%d %s src %08X z %08X prim %03llX test %llX zbuf %llX\n", x, y, why, src, z,            \
+                   (unsigned long long)gs.prim, (unsigned long long)test, (unsigned long long)zb);                     \
+        }                                                                                                              \
+    } while (0)
 static void pixel(int ctx, int x, int y, uint32_t z, uint32_t src) {
     uint64_t test = gs.test[ctx], al = gs.alpha[ctx], zb = gs.zbuf[ctx], pr = gs.prim, sc = gs.scissor[ctx], fr = gs.frame[ctx];
     uint32_t fbp = (uint32_t)(fr & 0x1FF) << 5, fbw = (fr >> 16) & 0x3F, fpsm = (fr >> 24) & 0x3F;
@@ -425,6 +433,7 @@ static void pixel(int ctx, int x, int y, uint32_t z, uint32_t src) {
 
     if (x < (int)(sc & 0x7FF) || x > (int)((sc >> 16) & 0x7FF) || y < (int)((sc >> 32) & 0x7FF) || y > (int)((sc >> 48) & 0x7FF) || x < 0 ||
         y < 0) {
+        TRACE_REJECT("scissor");
         return;
     }
     if (test & 1) { /* alpha test */
@@ -442,7 +451,7 @@ static void pixel(int ctx, int x, int y, uint32_t z, uint32_t src) {
         }
         if (!pass) {
             switch ((test >> 12) & 3) {
-            case 0: return;                          /* KEEP */
+            case 0: TRACE_REJECT("alpha test"); return; /* KEEP */
             case 1: write_z = 0; break;              /* FB_ONLY */
             case 2: write_rgb = write_a = 0; break;  /* ZB_ONLY */
             default: write_z = 0; write_a = 0; break; /* RGB_ONLY */
@@ -454,6 +463,7 @@ static void pixel(int ctx, int x, int y, uint32_t z, uint32_t src) {
         if (fbits == 32 || fbits == 16) {
             bit = fbits == 32 ? dv >> 31 : (dv >> 15) & 1;
             if (bit != ((test >> 15) & 1)) {
+                TRACE_REJECT("destination alpha test");
                 return;
             }
         }
@@ -468,10 +478,10 @@ static void pixel(int ctx, int x, int y, uint32_t z, uint32_t src) {
     if ((test >> 16) & 1) { /* depth test */
         uint32_t zd = vram_rw(zbp, fbw, zpsm, (uint32_t)x, (uint32_t)y, 0, 0);
         switch ((test >> 17) & 3) {
-        case 0: return;
+        case 0: TRACE_REJECT("depth test NEVER"); return;
         case 1: break;
-        case 2: if (z < zd) { return; } break;
-        default: if (z <= zd) { return; } break;
+        case 2: if (z < zd) { TRACE_REJECT("depth test GEQUAL"); return; } break;
+        default: if (z <= zd) { TRACE_REJECT("depth test GREATER"); return; } break;
         }
     }
     if (write_rgb) {
@@ -790,9 +800,9 @@ static void vertex(uint32_t x, uint32_t y, uint32_t z, uint32_t f, int kick) {
         gs.vtx[1] = gs.vtx[2];
         gs.vtx[2] = v;
     }
-    if (kick && sTracePrimVb != 0 && sCurVb == sTracePrimVb) {
-        printf("gs-prim t%d ctx%d prim %03llX xy %d,%d z %X uv %d,%d st %08X,%08X q %08X rgba %08X tex0 %016llX tex1 %llX clamp %llX frame %llX test %llX alpha %llX texa %llX\n",
-               type, ctx, (unsigned long long)gs.prim, v.x >> 4, v.y >> 4, v.z, v.u >> 4, v.v >> 4, v.s, v.t, v.q, v.rgba,
+    if (sTracePrimVb != 0 && sCurVb == sTracePrimVb) { /* gs-adc: a vertex that only queues (XYZ3, ADC) */
+        printf("%s t%d ctx%d prim %03llX xy %d,%d z %X uv %d,%d st %08X,%08X q %08X rgba %08X tex0 %016llX tex1 %llX clamp %llX frame %llX test %llX alpha %llX texa %llX\n",
+               kick ? "gs-prim" : "gs-adc", type, ctx, (unsigned long long)gs.prim, v.x >> 4, v.y >> 4, v.z, v.u >> 4, v.v >> 4, v.s, v.t, v.q, v.rgba,
                (unsigned long long)gs.tex0[ctx], (unsigned long long)gs.tex1[ctx], (unsigned long long)gs.clamp[ctx], (unsigned long long)gs.frame[ctx],
                (unsigned long long)gs.test[ctx], (unsigned long long)gs.alpha[ctx], (unsigned long long)gs.texa);
     }
