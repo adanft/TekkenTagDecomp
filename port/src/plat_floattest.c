@@ -13,6 +13,9 @@
  *          The general libm results need a PCSX2 run of port/tests/ps2float/libm_test.c (PENDING); when
  *          port/tests/ps2float/pcsx2_libm.txt exists it is compared too.
  *   rand   newlib's rand / srand (the executable's 0x40FBD0 / 0x40FBC0 algorithm) on the game's own state word.
+ *   libvu0 the fields the SDK's VU0 helpers (plat_vu0.c) write, read off the executable's code (0x34A7A8..): which
+ *          of x / y / z / w each one computes, keeps or clears. A w left over where the library writes 0 turns a
+ *          rotation into a projective matrix (the fighters' spiky heads and hair of T29).
  * The data directory is TTT_FLOATDATA, or port/tests/ps2float next to build/port/ttt.
  */
 #include <errno.h>
@@ -303,11 +306,52 @@ static void group_rand(void) {
     printf("ttt: float: rand: %d cases\n", sCases);
 }
 
+/* ---- libvu0 fields ---- */
+void func_0034A868(uint32_t *v0, const uint32_t *v1); /* sceVu0Normalize */
+void sceVu0OuterProduct(uint32_t *v0, const uint32_t *v1, const uint32_t *v2);
+void sceVu0InversMatrix(uint32_t *m0, const uint32_t *m1);
+void sceVu0DivVectorXYZ(uint32_t *v0, const uint32_t *v1, w32 q);
+void sceVu0ScaleVectorXYZ(uint32_t *v0, const uint32_t *v1, w32 s);
+
+static void group_libvu0(void) {
+    static const uint32_t v[4] = {0x40400000u, 0, 0x40800000u, 0x41200000u};  /* (3, 0, 4, 10) */
+    static const uint32_t u[4] = {0x3F800000u, 0, 0, 0x3F000000u};            /* (1, 0, 0, 0.5) */
+    static const uint32_t m[16] = {0, 0x3F800000u, 0, 0x3F000000u,           /* rotation about z, w column */
+                                   0xBF800000u, 0, 0, 0x3F000000u,           /* filled with 0.5, translation */
+                                   0, 0, 0x3F800000u, 0x3F000000u,           /* (1, 2, 3), w 2 */
+                                   0x3F800000u, 0x40000000u, 0x40400000u, 0x40000000u};
+    uint32_t r[16];
+
+    sCases = 0;
+    /* 0x34A868: vmul.xyz / vaddy.x / vaddz.x / vsqrt / vdiv; vsub.xyzw vf6, vf0, vf0; vmulq.xyz vf6, vf4, Q */
+    func_0034A868(r, v);
+    expect("sceVu0Normalize x (vdiv and vmul cut)", r[0], 0x3F199999u);
+    expect("sceVu0Normalize z", r[2], 0x3F4CCCCCu);
+    expect("sceVu0Normalize clears w", r[3], 0);
+    /* 0x34A820: vopmula.xyz / vopmsub.xyz; vsub.w vf6, vf6, vf6 */
+    sceVu0OuterProduct(r, u, v);
+    expect("sceVu0OuterProduct clears w", r[3], 0);
+    /* 0x34A8E8: rows 0-2 transposed with (0, 0, 0, w) as the fourth row: their w is 0; row 3 keeps m1's w */
+    sceVu0InversMatrix(r, m);
+    expect("sceVu0InversMatrix row 0 w", r[3], 0);
+    expect("sceVu0InversMatrix row 1 w", r[7], 0);
+    expect("sceVu0InversMatrix row 2 w", r[11], 0);
+    expect("sceVu0InversMatrix row 3 x", r[12], 0xC0000000u);
+    expect("sceVu0InversMatrix row 3 y", r[13], 0x3F800000u);
+    expect("sceVu0InversMatrix row 3 z", r[14], 0xC0400000u);
+    expect("sceVu0InversMatrix row 3 keeps w", r[15], 0x40000000u);
+    /* 0x34A978: vmulq.xyz keeps w */
+    sceVu0DivVectorXYZ(r, v, 0x40000000u);
+    expect("sceVu0DivVectorXYZ keeps w", r[3], 0x41200000u);
+    printf("ttt: float: libvu0: %d cases\n", sCases);
+}
+
 void Port_FloatSelfTest(void) {
     group_pcsx2();
     group_rules();
     group_libm();
     group_rand();
+    group_libvu0();
     if (!sFailed) {
         printf("ttt: float self-test OK\n");
     }

@@ -50,6 +50,7 @@ class FloatSelfTest(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("ttt: float self-test OK", r.stdout)
         self.assertIn("pcsx2 (verified): 1500 cases", r.stdout)
+        self.assertIn("ttt: float: libvu0:", r.stdout)
 
     def test_no_host_float_code(self):
         """Every float operation goes through the EE model: the program's code has no x87 or SSE float instruction."""

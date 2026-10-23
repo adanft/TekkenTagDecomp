@@ -17,7 +17,8 @@ writes everything under `build/port/`, which git ignores.
   590 frames. Left alone, the menu returns to the title after about 480 frames and enters the attract cycle's
   loading mode (11) at VBlank 699 and runs the attract demo (mode 11, sub-state 2) through the VU0 blend
   (`func_0034A180`) and the VU0 skinning programs: `TTT_FRAMES=3000 TTT_SEED=1` ends at VBlank 3000 (2606 frames)
-  with no stop, and two runs with the same seed end in the same state (`sbss-hash 0x82bb5654` since T29 batch 2, where the fighter packets are sent with their real size).
+  with no stop, and two runs with the same seed end in the same state (`sbss-hash 0x82bb5654` in T29 batch 2, where the fighter packets are sent with their real size; the joint
+  matrices of batch 3 change it again: `TTT_FRAMES=2551 TTT_SEED=1` ends with `0x27e2f897`).
 - The GS path draws ([GS path](#gs-path)): the display lists go DMA -> VIF1 -> GIF -> GS memory and the software
   reference rasteriser; `TTT_DUMP=<dir>` writes the displayed picture as PNG. The title and the main menu come out
   complete (logo, menu text, highlight bar). Since T29 the game's VU1 programs run ([VU1](#vu1)): the attract path's
@@ -25,9 +26,9 @@ writes everything under `build/port/`, which git ignores.
   from the camera cut (script frame 488, about VBlank 1571) the two fighters of the demo fight. T29 batch 2 fixed the
   picture that froze on the lightning flash there (the fighter packets' size is read from a DMA tag that toSPR copies
   into the scratchpad, gotcha 15), the title's header text (the same cause), and the blocky stage textures (bilinear
-  filtering, and the precision of S / Q for far vertices: [GS path](#gs-path)). Open: the fighters' heads and hair
-  come out as long spikes (a few vertices far off; the look-at draft `func_00351E98` is not the cause: skipping it
-  changes nothing).
+  filtering, and the precision of S / Q for far vertices: [GS path](#gs-path)). T29 batch 3 fixed the fighters' heads
+  and hair, which came out as long spikes (gotcha 16: `sceVu0Normalize` kept a w the library clears), and the dump
+  merges both read circuits as PMODE asks.
 - With the real libgraph set-up (T28) the game reads the display position DX 636 / DY 50 back into `options.c`'s
   `D_005F6DB0` / `D_005F6DB4` (zeros with the old placeholders), and new port code moves host addresses the game
   keeps in `.sbss`: the state hash of a given `TTT_FRAMES` / `TTT_SEED` differs from T23's. The GS itself writes no
@@ -181,7 +182,7 @@ wait loops drive the hardware.
 | `plat_libc.c` | newlib's `rand` / `srand` (the executable's 0x40FBD0 / 0x40FBC0) on `_impure_ptr->_rand_next` |
 | `plat_floattest.c` | `TTT_DUMP=<dir>` | Write the displayed picture as `<dir>/frame_<vblank>.png` (8-bit RGB) every `TTT_DUMP_EVERY` VBlanks. Put it under `build/` (ignored by git): the pictures are the game's. |
 | `TTT_DUMP_EVERY=<n>` | The dump's period in VBlanks (default 60). |
-| `TTT_SELFTEST=gs` | GS memory layout of every format, the upload paths, a GIF PACKED packet on the GIF channel (flat, CLUT-textured, blended, depth-tested, scissored sprites, a triangle), VIF1 UNPACK modes / STCYCL / masks / double buffer / MPG, DIRECT and FINISH (`tests/test_port_gs.py`). |
+| `TTT_SELFTEST=gs` | GS memory layout of every format, the upload paths, a GIF PACKED packet on the GIF channel (flat, CLUT-textured, blended, depth-tested, scissored sprites, a triangle), the read circuits' merge (ALP / circuit 1 alpha, SLBG, DISPLAY position), VIF1 UNPACK modes / STCYCL / masks / double buffer / MPG, DIRECT and FINISH (`tests/test_port_gs.py`). |
 | `TTT_SELFTEST=float` |
 | `vu0_micro.c` | VIF0 (MPG uploads) and the VU0 program start (vcallms) on `vu_micro.c` |
 
@@ -219,10 +220,10 @@ Switches:
 | `TTT_DUMP=<dir>` | Write the displayed picture as `<dir>/frame_<vblank>.png` (8-bit RGB) every `TTT_DUMP_EVERY` VBlanks. Put it under `build/` (ignored by git): the pictures are the game's. |
 | `TTT_DUMP_EVERY=<n>` | The dump's period in VBlanks (default 60). |
 | `TTT_SELFTEST=gs` | GS memory layout of every format, the upload paths, a GIF PACKED packet on the GIF channel (flat, CLUT-textured, blended, depth-tested, scissored sprites, a triangle), VIF1 UNPACK modes / STCYCL / masks / double buffer / MPG, DIRECT and FINISH (`tests/test_port_gs.py`). |
-| `TTT_SELFTEST=float` | The EE float model against PCSX2 data, EE rules, exact libm cases, newlib `rand` (`tests/test_port_float.py`). `TTT_FLOATDATA` overrides the data directory (`port/tests/ps2float`). |
+| `TTT_SELFTEST=float` | The EE float model against PCSX2 data, EE rules, exact libm cases, newlib `rand`, the fields libvu0's helpers write (`tests/test_port_float.py`). `TTT_FLOATDATA` overrides the data directory (`port/tests/ps2float`). |
 | `TTT_SELFTEST=vu1` | Hand-assembled VU1 programs sent through VIF1: pairing, delay slots, E bit, Q / P latency, flag delays, integer / EFU instructions, XTOP / XITOP, XGKICK (`tests/test_port_gs.py`). |
 | `TTT_VU1_CALLS=1` | With `TTT_FRAMES`: the report also lists the VU1 runs per entry address. |
-| `TTT_GS_TRACE=1` | Per VBlank: pixels written per frame buffer (FBP) with the last FRAME / TEX0 / TEST / ALPHA, each GIF path's tag count and tag state, DISPFB1 / 2 and PMODE, every transfer (BITBLTBUF / TRXPOS / TRXREG / TRXDIR), and the first GIF tags with reserved bits set (`bad tag`, with the DMA block they came in). |
+| `TTT_GS_TRACE=1` | Per VBlank: pixels written per frame buffer (FBP) with the last FRAME / TEX0 / TEST / ALPHA, each GIF path's tag count and tag state, DISPFB1 / 2, PMODE, DISPLAY1 / 2 and BGCOLOR, every transfer (BITBLTBUF / TRXPOS / TRXREG / TRXDIR), and the first GIF tags with reserved bits set (`bad tag`, with the DMA block they came in). |
 | `TTT_GS_TRACE_PRIMS=<vblank>` | Every vertex kick drawn before that VBlank (type, context, coordinates, UV / STQ, colour, TEX0 / TEX1 / CLAMP / FRAME / TEST / ALPHA). With `TTT_GS_TRACE_PIXEL=<x>,<y>`: every write to that pixel then, with its source and result. |
 | `TTT_GS_TEXDUMP=<vblank>:<tex0 hex>:<x>:<y>:<w>:<h>` | With `TTT_DUMP`: writes that region of the texture TEX0 describes (through a CLUT loaded from it) as `tex_<vblank>.png`. |
 | `TTT_STUB_RETURN=<n>` | Generated stubs return n instead of stopping. |
@@ -262,10 +263,15 @@ VU1 XGKICK (gs_vu1.c) ->  PATH1 ------------------------------------------------
   CLUT; the game uses TEX1 0x61 (LCM, MMAG and MMIN linear) on the 3D stage. Level 0 only (no mip-maps: MXL is 0
   in the game's TEX1 values seen); no dithering or anti-aliasing.
 - **Display and dump.** The libgraph set-up writes PMODE / SMODE2 / DISPFB2 / DISPLAY2 / BGCOLOR and the game writes
-  DISPFB1 / DISPLAY1 itself (`Gfx_ShowBuffer`). At each VBlank start, before the handlers run, `TTT_DUMP` reads the
-  circuit PMODE enables (circuit 1 first): DISPFB's buffer from (DBX, DBY), (DW + 1) / (MAGH + 1) pixels by
-  (DH + 1) / (MAGV + 1) lines, interlaced frame mode doubling each buffer line. The PNG writer is the port's own
-  (stored deflate blocks, no library).
+  DISPFB1 / DISPLAY1 itself (`Gfx_ShowBuffer`). At each VBlank start, before the handlers run, `TTT_DUMP` merges the
+  two read circuits as the PCRTC does: each circuit is DISPFB's buffer from (DBX, DBY), (DW + 1) / (MAGH + 1) pixels by
+  (DH + 1) / (MAGV + 1) lines placed at its DISPLAY (DX / (MAGH + 1), DY / (MAGV + 1)), interlaced frame mode doubling
+  each buffer line; the background is circuit 2 (EN2 and SLBG 0) or BGCOLOR (SLBG 1, or where circuit 2 shows
+  nothing), and circuit 1 (EN1) goes over it as c1 * a + bg * (255 - a), a = ALP (MMOD 1) or circuit 1's own alpha
+  with 0x80 = 1.0 (MMOD 0), in integers rounded to nearest [I: the PCRTC's rounding; a PSMCT24 buffer's alpha is taken
+  as 0x80]. The picture has the size and position of the first enabled circuit. The game sets PMODE 0x7F23 (both
+  circuits, MMOD 1, ALP 0x7F) with the same DISPFB / DISPLAY on both, so its picture is circuit 1's exactly. The PNG
+  writer is the port's own (stored deflate blocks, no library).
 - **VU1.** See [VU1](#vu1).
 
 ## VU1
@@ -391,6 +397,17 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
     the display copy into FBP 0x8C among them: the frozen picture. `TTT_GS_TRACE=1` shows such a path (`loops`
     never back to 0, `bad tag`).
 
+16. **Library fields the C did not write.** libvu0's `sceVu0Normalize` (0x34A868) clears the result register
+    (`vsub.xyzw vf6, vf0, vf0`) and writes only xyz, so w is 0; the port's C kept the input's w. The game's
+    `func_00348988` / `func_00348C68` build matrices on the stack whose w column they never set and rely on that
+    normalize (and `sceVu0OuterProduct`, `vsub.w`) to clear it. With the stack garbage kept, the local matrices of the
+    secondary joints `func_00347E28` builds (joints 30, 32, 33, 57 and 58 in the demo fight) had w terms up to 7.7e8, and
+    parent world * local mixed the parent's translation into the rotation rows: the skinned head and hair vertices
+    shot off as spikes while the VU0 skinning itself was exact. Found by logging every skinned vertex with its bone
+    blocks (the interpreter's results, guard-band ADC bits included, agreed with a recomputation), then the joint
+    whose world matrix was not a rotation, then a gdb watchpoint on its local matrix. `sceVu0InversMatrix` keeps
+    row 3's w the same way. `TTT_SELFTEST=float` checks these fields against the executable's code.
+
 ## EE float model
 
 - **Arithmetic** (`port/src/softfloat_ps2_inl.h`, `softfloat_ps2.c`; the hardware-level model of the reference
@@ -421,6 +438,8 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
 
 ## Next
 
-The fighters' spiky heads and hair (see Status); the seven Tekken Bowl m2c drafts
+The fighters' heads: since batch 3 no spikes, but in the demo fight frames (e.g. VBlank 1950, 2400) the head is
+not seen above the neck although its vertices are skinned into that area, unclipped (VU0 output checked); the
+GS side of those strips (depth, texture, alpha) is next. The seven Tekken Bowl m2c drafts
 around VU0 code (`portsrc.REPLACED`, still placeholders: not reached by the attract demo); the libm PCSX2 run; pads,
 memory cards, sound (RSPU2DRV) and movies.

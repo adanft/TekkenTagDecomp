@@ -78,13 +78,15 @@ void sceVu0OuterProduct(FVec v0, const FVec v1, const FVec v2) {
     v0[2] = z;
     v0[3] = 0.0f;
 }
-/* 0x34A868, after sceVu0InnerProduct in the library: sceVu0Normalize (xyz / |xyz|, w kept). */
+/* 0x34A868, after sceVu0InnerProduct in the library: sceVu0Normalize, xyz / |xyz| and w = 0 (the result register
+ * is cleared with vsub.xyzw vf6, vf0, vf0 before vmulq.xyz). Callers normalise vectors whose w they never set (stack
+ * matrices of func_00348988 / func_00348C68): keeping that w put garbage into the fighters' head and hair joints. */
 void func_0034A868(FVec v0, const FVec v1) {
     float r = 1.0f / sqrtf(sceVu0InnerProduct(v1, v1));
     v0[0] = v1[0] * r;
     v0[1] = v1[1] * r;
     v0[2] = v1[2] * r;
-    v0[3] = v1[3];
+    v0[3] = 0.0f;
 }
 void sceVu0FTOI4Vector(IVec v0, const FVec v1) {
     int i;
@@ -151,7 +153,8 @@ void sceVu0TransMatrix(FMat m0, const FMat m1, const FVec tv) {
     m0[3][1] += tv[1];
     m0[3][2] += tv[2];
 }
-/* Inverse of a rotation + translation: the transposed rotation, and the translation brought back through it. */
+/* Inverse of a rotation + translation (0x34A8E8): the transposed rotation (rows 0-2 get w = 0 from the zeroed
+ * translation row they are transposed with), and row 3 = 0 - R^T t (vsub from a register that keeps m1's row 3 w). */
 void sceVu0InversMatrix(FMat m0, const FMat m1) {
     float r[4][4];
     int i, j;
@@ -162,9 +165,9 @@ void sceVu0InversMatrix(FMat m0, const FMat m1) {
         r[i][3] = 0.0f;
     }
     for (j = 0; j < 3; j++) {
-        r[3][j] = -(r[0][j] * m1[3][0] + r[1][j] * m1[3][1] + r[2][j] * m1[3][2]);
+        r[3][j] = 0.0f - (r[0][j] * m1[3][0] + r[1][j] * m1[3][1] + r[2][j] * m1[3][2]);
     }
-    r[3][3] = 1.0f;
+    r[3][3] = m1[3][3];
     memcpy(m0, r, 64);
 }
 static void rot(FMat m0, const FMat m1, int a, int b, float t) {

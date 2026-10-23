@@ -22,8 +22,8 @@
  * transfers (counted), the exact rasterisation rules of the hardware beyond the top-left fill convention.
  *
  * TTT_DUMP=<dir> writes the displayed picture as <dir>/frame_<vblank>.png every TTT_DUMP_EVERY VBlanks (default 60):
- * the read circuit enabled in PMODE (circuit 1 first), its DISPFB / DISPLAY, interlaced frame mode doubled to the
- * TV's lines. TTT_SELFTEST=gs checks the memory layout, the GIF and the rasteriser and exits.
+ * both read circuits (DISPFB / DISPLAY each) merged as PMODE asks (EN1 / EN2, MMOD / ALP, SLBG with BGCOLOR),
+ * interlaced frame mode doubled to the TV's lines. TTT_SELFTEST=gs checks the memory layout, the GIF and the rasteriser and exits.
  */
 #include <stdint.h>
 #include <stdio.h>
@@ -1202,54 +1202,105 @@ static int write_png(const char *path, uint32_t w, uint32_t h, const uint8_t *rg
     return 1;
 }
 
-/* The picture the display circuits show now, as RGB: the circuit PMODE enables (1 first), its DISPFB and DISPLAY.
-   Interlaced frame mode (SMODE2 INT and FFMD) shows each buffer line in both fields: doubled. *w / *h: the size. */
-static uint8_t *displayed(uint32_t *w, uint32_t *h) {
-    uint64_t pmode = PRIV(GS_PMODE), smode2 = PRIV(GS_SMODE2), fb, disp;
-    uint32_t fbp, fbw, psm, dbx, dby, magh, magv, dw, dh, width, lines, buflines, x, y, dbl;
-    uint8_t *rgb;
-    int second = !(pmode & 1) && (pmode & 2);
+/* One read circuit (k = 0, 1): its DISPFB buffer and its DISPLAY area in output pixels / raster lines. */
+typedef struct {
+    uint32_t fbp, fbw, psm, dbx, dby, x0, y0, width, lines;
+} Circuit;
 
-    fb = PRIV(second ? GS_DISPFB2 : GS_DISPFB1);
-    disp = PRIV(second ? GS_DISPLAY2 : GS_DISPLAY1);
-    fbp = (uint32_t)(fb & 0x1FF) << 5;
-    fbw = (uint32_t)(fb >> 9) & 0x3F;
-    psm = (uint32_t)(fb >> 15) & 0x1F;
-    dbx = (uint32_t)(fb >> 32) & 0x7FF;
-    dby = (uint32_t)(fb >> 43) & 0x7FF;
-    magh = (uint32_t)(disp >> 23) & 15;
-    magv = (uint32_t)(disp >> 27) & 3;
-    dw = (uint32_t)(disp >> 32) & 0xFFF;
-    dh = (uint32_t)(disp >> 44) & 0x7FF;
-    width = (dw + 1) / (magh + 1);
-    lines = (dh + 1) / (magv + 1);
-    if (disp == 0 || width == 0 || lines == 0) { /* nothing set up yet: the usual 640 x 448 */
-        width = 640;
-        lines = 448;
+static void circuit(int k, Circuit *c) {
+    uint64_t fb = PRIV(k ? GS_DISPFB2 : GS_DISPFB1), disp = PRIV(k ? GS_DISPLAY2 : GS_DISPLAY1);
+    uint32_t magh = (uint32_t)(disp >> 23) & 15, magv = (uint32_t)(disp >> 27) & 3;
+
+    c->fbp = (uint32_t)(fb & 0x1FF) << 5;
+    c->fbw = (uint32_t)(fb >> 9) & 0x3F;
+    c->psm = (uint32_t)(fb >> 15) & 0x1F;
+    c->dbx = (uint32_t)(fb >> 32) & 0x7FF;
+    c->dby = (uint32_t)(fb >> 43) & 0x7FF;
+    c->x0 = ((uint32_t)disp & 0xFFF) / (magh + 1);
+    c->y0 = ((uint32_t)(disp >> 12) & 0x7FF) / (magv + 1);
+    c->width = ((uint32_t)(disp >> 32) & 0xFFF) / (magh + 1) + 1 - (magh != 0 && ((disp >> 32) & 0xFFF) % (magh + 1) == 0);
+    c->width = (((uint32_t)(disp >> 32) & 0xFFF) + 1) / (magh + 1);
+    c->lines = (((uint32_t)(disp >> 44) & 0x7FF) + 1) / (magv + 1);
+    if (disp == 0 || c->width == 0 || c->lines == 0) { /* nothing set up yet: the usual 640 x 448 */
+        c->width = 640;
+        c->lines = 448;
     }
-    if (width > 1024) { width = 1024; }
-    if (lines > 1024) { lines = 1024; }
-    dbl = (smode2 & 3) == 3 ? 2 : 1;
-    buflines = lines / dbl;
-    rgb = calloc((size_t)width * buflines * dbl, 3);
+    if (c->width > 1024) { c->width = 1024; }
+    if (c->lines > 1024) { c->lines = 1024; }
+}
+
+/* Circuit c's pixel at output column x, raster line r (dbl raster lines per buffer line) as 0xAABBGGRR; *in = 0 when
+   its DISPLAY area does not cover that point. */
+static uint32_t circuit_pixel(const Circuit *c, int32_t x, int32_t r, uint32_t dbl, int *in) {
+    uint32_t v;
+
+    if (x < 0 || r < 0 || (uint32_t)x >= c->width || (uint32_t)r >= c->lines) {
+        *in = 0;
+        return 0;
+    }
+    *in = 1;
+    v = vram_rw(c->fbp, c->fbw, c->psm, c->dbx + (uint32_t)x, c->dby + (uint32_t)r / dbl, 0, 0);
+    if ((int)x == sTraceX && (int)r / (int)dbl == sTraceY) {
+        printf("gs-disp %d,%d fbp %X fbw %u psm %X dbx %u dby %u -> %08X\n", x, r / (int)dbl, c->fbp, c->fbw, c->psm, c->dbx, c->dby, v);
+    }
+    switch (psm_bits(c->psm)) {
+    case 16: return (v & 31) << 3 | ((v >> 5) & 31) << 11 | ((v >> 10) & 31) << 19 | (v & 0x8000u ? 0x80000000u : 0);
+    case 24: return v | 0x80000000u; /* [I] no alpha in the buffer: taken as 0x80 (1.0) for MMOD 0 */
+    default: return v;
+    }
+}
+
+/* The picture the display circuits show now, as RGB, merged as the PCRTC does (PMODE): circuit 2 (EN2, SLBG 0) or
+   BGCOLOR (SLBG 1, or where circuit 2 shows nothing) is the background; circuit 1 (EN1) goes over it weighted by
+   ALP (MMOD 1) or by its own alpha (MMOD 0, 0x80 = 1.0), out = c1 * a + bg * (255 - a), a in 0..255, rounded [I: the
+   PCRTC's rounding]. The picture has the size and position of the first enabled circuit; each circuit sits at its own
+   DISPLAY.DX / DY. Interlaced frame mode (SMODE2 INT and FFMD) shows each buffer line in both fields: doubled.
+   *w / *h: the size. */
+static uint8_t *displayed(uint32_t *w, uint32_t *h) {
+    uint64_t pmode = PRIV(GS_PMODE), smode2 = PRIV(GS_SMODE2), bg = PRIV(GS_BGCOLOR);
+    int en1 = (int)(pmode & 1), en2 = (int)(pmode >> 1) & 1, mmod = (int)(pmode >> 5) & 1, slbg = (int)(pmode >> 7) & 1;
+    uint32_t alp = (uint32_t)(pmode >> 8) & 0xFF, dbl = (smode2 & 3) == 3 ? 2 : 1, x, r;
+    Circuit c[2];
+    const Circuit *main;
+    uint8_t *rgb;
+
+    circuit(0, &c[0]);
+    circuit(1, &c[1]);
+    main = !en1 && en2 ? &c[1] : &c[0];
+    rgb = calloc((size_t)main->width * main->lines, 3);
     if (rgb == NULL) {
         return NULL;
     }
-    for (y = 0; y < buflines; y++) {
-        for (x = 0; x < width; x++) {
-            uint32_t c = vram_rw(fbp, fbw, psm, dbx + x, dby + y, 0, 0), k;
-            if ((int)x == sTraceX && (int)y == sTraceY) { printf("gs-disp %d,%d fbp %X fbw %u psm %X dbx %u dby %u -> %08X\n", x, y, fbp, fbw, psm, dbx, dby, c); }
-            if (psm_bits(psm) == 16) {
-                c = (c & 31) << 3 | ((c >> 5) & 31) << 11 | ((c >> 10) & 31) << 19;
+    for (r = 0; r < main->lines; r++) {
+        for (x = 0; x < main->width; x++) {
+            int32_t ax = (int32_t)(x + main->x0), ar = (int32_t)(r + main->y0);
+            uint32_t base = (uint32_t)bg & 0xFFFFFF, out, k;
+            int in;
+
+            if (en2 && !slbg) {
+                uint32_t p = circuit_pixel(&c[1], ax - (int32_t)c[1].x0, ar - (int32_t)c[1].y0, dbl, &in);
+                if (in) {
+                    base = p;
+                }
             }
-            for (k = 0; k < dbl; k++) {
-                uint8_t *o = &rgb[((size_t)(y * dbl + k) * width + x) * 3];
-                o[0] = (uint8_t)c; o[1] = (uint8_t)(c >> 8); o[2] = (uint8_t)(c >> 16);
+            out = base;
+            if (en1) {
+                uint32_t p = circuit_pixel(&c[0], ax - (int32_t)c[0].x0, ar - (int32_t)c[0].y0, dbl, &in);
+                if (in) {
+                    uint32_t a = mmod ? alp : (p >> 24) * 2 > 255 ? 255 : (p >> 24) * 2;
+                    out = 0;
+                    for (k = 0; k < 24; k += 8) {
+                        out |= ((((p >> k) & 0xFF) * a + ((base >> k) & 0xFF) * (255 - a) + 127) / 255) << k;
+                    }
+                }
             }
+            rgb[((size_t)r * main->width + x) * 3 + 0] = (uint8_t)out;
+            rgb[((size_t)r * main->width + x) * 3 + 1] = (uint8_t)(out >> 8);
+            rgb[((size_t)r * main->width + x) * 3 + 2] = (uint8_t)(out >> 16);
         }
     }
-    *w = width;
-    *h = buflines * dbl;
+    *w = main->width;
+    *h = main->lines;
     return rgb;
 }
 
@@ -1298,8 +1349,9 @@ void Gs_VBlank(uint32_t vblank) {
                        (unsigned long long)sPath[k].lo, (unsigned long long)sPath[k].hi);
                 sPathTags[k] = 0;
             }
-            printf("gs-trace %u dispfb1 %llX dispfb2 %llX pmode %llX\n", (unsigned)vblank, (unsigned long long)PRIV(GS_DISPFB1),
-                   (unsigned long long)PRIV(GS_DISPFB2), (unsigned long long)PRIV(GS_PMODE));
+            printf("gs-trace %u dispfb1 %llX dispfb2 %llX pmode %llX display1 %llX display2 %llX bgcolor %llX\n", (unsigned)vblank,
+                   (unsigned long long)PRIV(GS_DISPFB1), (unsigned long long)PRIV(GS_DISPFB2), (unsigned long long)PRIV(GS_PMODE),
+                   (unsigned long long)PRIV(GS_DISPLAY1), (unsigned long long)PRIV(GS_DISPLAY2), (unsigned long long)PRIV(GS_BGCOLOR));
         }
     }
     { /* TTT_GS_TEXDUMP=<vblank>:<tex0>:<x>:<y>:<w>:<h> writes that texture region (through a CLUT loaded from TEX0) */
@@ -1662,12 +1714,70 @@ static void selftest_draw(void) {
     }
 }
 
+/* The read circuits' merge (PMODE): circuit 1 over circuit 2 or the background colour, by ALP or circuit 1's alpha,
+   each circuit at its own DISPLAY position. Two 64 x 32 PSMCT32 buffers (FBW 1) at FBP 0x100 and 0x140. */
+static void selftest_display(void) {
+    uint32_t x, y, w, h;
+    uint8_t *rgb;
+    uint64_t disp = 63ull << 32 | 31ull << 44; /* DW 63, DH 31, MAGH / MAGV 0 */
+
+    for (y = 0; y < 32; y++) {
+        for (x = 0; x < 64; x++) {
+            vram_rw(0x100 << 5, 1, 0, x, y, 1, 0x40000000u | (x < 32 ? 0xC8u : 0x10u)); /* red 200 / 16, alpha 0x40 */
+            vram_rw(0x140 << 5, 1, 0, x, y, 1, 0x80006400u);                            /* green 100 */
+        }
+    }
+    PRIV(GS_SMODE2) = 0;
+    PRIV(GS_DISPFB1) = 0x100 | 1ull << 9;
+    PRIV(GS_DISPFB2) = 0x140 | 1ull << 9;
+    PRIV(GS_DISPLAY1) = disp;
+    PRIV(GS_DISPLAY2) = disp | 1ull << 12; /* DY 1: circuit 2 one line lower */
+    PRIV(GS_BGCOLOR) = 0x00320000u;        /* blue 50 */
+    /* both circuits, MMOD 1 (ALP 0x7F), SLBG 0: c1 * 127/255 + c2 * 128/255 */
+    PRIV(GS_PMODE) = 3 | 1u << 5 | 0x7Fu << 8;
+    rgb = displayed(&w, &h);
+    expect(rgb != NULL && w == 64 && h == 32, "display: circuit 1's size");
+    if (rgb != NULL) {
+        expect(rgb[(1 * 64 + 0) * 3 + 0] == (200 * 127 + 127) / 255 && rgb[(1 * 64 + 0) * 3 + 1] == (100 * 128 + 127) / 255,
+               "display: ALP blends circuit 1 over circuit 2");
+        expect(rgb[(1 * 64 + 40) * 3 + 0] == (16 * 127 + 127) / 255, "display: ALP blend, second half");
+        expect(rgb[0] == (200 * 127 + 127) / 255 && rgb[1] == 0 && rgb[2] == (50 * 128 + 127) / 255,
+               "display: background where circuit 2 shows nothing (its DISPLAY.DY)");
+        free(rgb);
+    }
+    /* MMOD 0: circuit 1's own alpha (0x40 = 0.5, 0x80 = 1.0) */
+    PRIV(GS_PMODE) = 3;
+    rgb = displayed(&w, &h);
+    if (rgb != NULL) {
+        expect(rgb[(1 * 64 + 0) * 3 + 0] == (200 * 128 + 127) / 255 && rgb[(1 * 64 + 0) * 3 + 1] == (100 * 127 + 127) / 255,
+               "display: MMOD 0 takes circuit 1's alpha");
+        free(rgb);
+    }
+    /* SLBG 1: the background colour instead of circuit 2 */
+    PRIV(GS_PMODE) = 3 | 1u << 5 | 1u << 7 | 0x80u << 8;
+    rgb = displayed(&w, &h);
+    if (rgb != NULL) {
+        expect(rgb[(5 * 64 + 0) * 3 + 1] == 0 && rgb[(5 * 64 + 0) * 3 + 2] == (50 * 127 + 127) / 255,
+               "display: SLBG 1 blends with BGCOLOR");
+        free(rgb);
+    }
+    /* circuit 2 alone: its own picture */
+    PRIV(GS_PMODE) = 2;
+    rgb = displayed(&w, &h);
+    if (rgb != NULL) {
+        expect(rgb[(5 * 64 + 3) * 3 + 0] == 0 && rgb[(5 * 64 + 3) * 3 + 1] == 100, "display: circuit 2 alone");
+        free(rgb);
+    }
+    PRIV(GS_PMODE) = 0;
+}
+
 int Port_GsVifSelfTest(void); /* gs_vif1.c */
 
 void Port_GsSelfTest(void) {
     tables_init();
     selftest_swizzle();
     selftest_draw();
+    selftest_display();
     sFails += Port_GsVifSelfTest();
     memset(sVram, 0, sizeof sVram);
     Gs_Reset();

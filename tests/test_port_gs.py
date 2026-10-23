@@ -45,7 +45,8 @@ class GsSelfTest(unittest.TestCase):
     def test_gs(self):
         """GS memory swizzles (PSMCT32/24/16/16S, PSMT8/8H/4/4HL/4HH, the Z formats) against the GS's layout and
         between the per-pixel and the upload paths; a GIF PACKED packet on the GIF channel drawing a sprite (flat,
-        textured through a CLUT, alpha blended, Z tested, scissored); VIF1 UNPACK modes, STCYCL, masks and DIRECT."""
+        textured through a CLUT, alpha blended, Z tested, scissored); the read circuits' PMODE merge (ALP or circuit 1
+        alpha, SLBG, DISPLAY position); VIF1 UNPACK modes, STCYCL, masks and DIRECT."""
         r = run_ttt(TTT_SELFTEST="gs", TTT_FRAMES="1")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertNotIn("FAILED", r.stdout)
