@@ -248,6 +248,8 @@ though an edge could still fall between two objects that are both inside the ran
 
 ## 6. Random numbers
 
+Quirks of the RNG, timing and floats that a port must keep: [known_bugs.md](known_bugs.md).
+
 Two generators [V]:
 
 1. **newlib `rand`** 0x40FBD0: `next = next * 0x41C64E6D + 0x3039`, returns `next & 0x7FFFFFFF`; state is the
