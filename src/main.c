@@ -470,7 +470,11 @@ void Mode_Dispatch(void) {
         Mode_Ending();
         break;
     case 9:
+#ifdef PORT
+        PORT_DIFF(0x3B4B20, Mode_Options, "i", 0); /* TTT_DIFF: the mode against the original code */
+#else
         Mode_Options();
+#endif
         break;
     case 10:
         Mode_Results();

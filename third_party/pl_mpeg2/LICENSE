@@ -1,0 +1,26 @@
+The MPEG-2 video decoder in this directory (m2v.c, m2v.h, m2v_tables.h) is derived from PL_MPEG by Dominic
+Szablewski (https://github.com/phoboslab/pl_mpeg, pl_mpeg.h at commit c871f2be022ece7ef4f64230b4fb8e1fb9eb6023,
+SPDX-License-Identifier: MIT): its bit reader, its VLC trees (macroblock address increment, macroblock types, coded
+block pattern, motion codes, DC sizes, DCT coefficients table B-14), its macroblock prediction and its integer IDCT.
+PL_MPEG decodes MPEG-1 only; the MPEG-2 parts (sequence / picture coding / quant matrix extensions, per-component
+f_codes, the non-linear quantiser scale, MPEG-2 inverse quantisation with saturation and mismatch control, table B-15
+for intra blocks, the MPEG-2 escape code, the DC precision) were added for the Tekken Tag Tournament PC port. The
+table B-15 codes are those of ISO/IEC 13818-2 annex B. Both parts are under the MIT license below.
+
+MIT License
+
+Copyright (c) 2019 Dominic Szablewski
+Copyright (c) 2026 the Tekken Tag Tournament decompilation and PC port contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the Software without restriction, including without limitation the
+rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit
+persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the
+Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

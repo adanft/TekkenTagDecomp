@@ -393,6 +393,17 @@ static void dma_poll(void) {
     }
 }
 
+/* The GIF channel's transfer carried out now, if one was started (the movie player, T33): on the PS2 sceGsSyncPath
+   waits for it, and a second kick right after (func_0039D320 then func_0039D9F0) must not replace the first. The
+   time does not advance; the channel's interrupt is delivered at the next poll, as before. */
+void Port_GifSync(void) {
+    if (!sInPoll && (REG(kDmaBase[2] + CHCR) & 0x100u)) {
+        sInPoll = 1;
+        dma_run(2);
+        sInPoll = 0;
+    }
+}
+
 /* ---- timers and VBlank ---- */
 static void timers(void) {
     int t;

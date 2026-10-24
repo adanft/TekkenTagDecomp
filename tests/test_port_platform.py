@@ -24,10 +24,13 @@ def disc():
 
 def run_ttt(timeout=120, **env):
     """Runs the program with only the given TTT_ variables. Without TTT_SAVES the memory card is an empty card in a
-    temporary directory (plat_mc.c), so no run reads or writes the repository's saves/."""
+    temporary directory (plat_mc.c), so no run reads or writes the repository's saves/. Without TTT_MOVIES the movies
+    are skipped (TTT_MOVIES=0), as before T33: the intro movie would fill the first 4000 VBlanks of every run
+    (tests/test_port_movie.py plays them)."""
     e = {k: v for k, v in os.environ.items() if not k.startswith("TTT_")}
     if disc() is not None:
         e["TTT_DISC"] = str(disc())
+    e["TTT_MOVIES"] = "0"
     e.update(env)
     if "TTT_SAVES" in e:
         return subprocess.run([str(EXE)], env=e, capture_output=True, text=True, timeout=timeout)
@@ -110,6 +113,7 @@ class ProgramElsewhere(unittest.TestCase):
         if disc_dir is not None:
             e["TTT_DISC"] = str(disc_dir)
         e["TTT_SAVES"] = str(Path(self.tmp.name) / "saves")  # an empty card, whatever the repository's saves/ holds
+        e["TTT_MOVIES"] = "0"  # as run_ttt
         e.update(env)
         return subprocess.run([str(exe)], env=e, cwd=self.dir, capture_output=True, text=True, timeout=120)
 

@@ -2,7 +2,7 @@
  * Sony SDK libraries of the game on PC: the GS set-up (libgraph), DMA / VU resets (libdma, libvu0), and those that
  * only need an answer for now (pads: plat_pad.c; memory cards: plat_mc.c).
  * A function that is only a placeholder records itself (Port_Hit, plat_stub.c), so a headless run lists what still
- * waits for its real implementation: movies.
+ * waits for its real implementation (none on the paths checked so far).
  */
 #include <stdint.h>
 #include <string.h>
@@ -138,12 +138,7 @@ int sceGsSwapDBuff(void *p, int id) {
 
 /* libmc: plat_mc.c (memory cards over host files). */
 
-/* ---- movies: not played yet (libmpeg, the IPU, the decoder threads come with the movie task). The game's
-   movie function (movie.c func_0039C878) asks first and skips the movie as when the stream does not go idle. */
-int Port_MoviePlayable(void) {
-    Port_Hit("movie (skipped)");
-    return 0;
-}
+/* ---- movies: plat_movie.c (Port_MoviePlayable, the player's pictures and audio). */
 
 /* ---- libkernel ---- */
 /* func_00401F58(buf, size): a data cache write-back / invalidate of a range (file.c, before a SIF transfer).

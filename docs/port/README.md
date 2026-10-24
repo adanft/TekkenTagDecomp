@@ -58,8 +58,15 @@ writes everything under `build/port/`, which git ignores.
   threads with fewer wake-ups between the threads ([Speed](#speed), [GL back end](#gl-back-end)).
 - libm (T30 batch 3, F03): `third_party/newlib_libm` gives the executable's asinf / atan2f bits (`TTT_SELFTEST=ee`:
   no difference left); the 2551-VBlank run keeps its frames and `sbss-hash 0xcf8bdf40` (those inputs never come up).
-- Placeholders still reached on that path (listed at the end of a `TTT_FRAMES` run): `scePadGetState` (no pad),
-  the boot movie (skipped). libmc is real since T35 ([Memory cards](#memory-cards)).
+- Placeholders still reached on that path (listed at the end of a `TTT_FRAMES` run): `scePadGetState` (no pad), and
+  with `TTT_MOVIES=0` the boot movie (skipped). libmc is real since T35 ([Memory cards](#memory-cards)).
+- Movies and menu texts (T33 batch 1): the game's MPEG-2 movies play ([movies.md](movies.md)): the intro starts at
+  VBlank 176 of the boot (2034 pictures, about 68 s, skippable with Start from the 11th picture), its audio on the BGM
+  voices. `TTT_MOVIES=0` skips them as before; the tests run with it unless they ask for movies, and the 2551-VBlank
+  run with `TTT_MOVIES=0` keeps its 17 frames and modes, its hash moving to `0x6f92650e` only in the two function
+  pointers of gotcha 20 (word by word against T35's build). Without `TTT_MOVIES=0` that run is the intro from VBlank
+  176 to its end. The memory card menu's message windows and the option menus' help line show their text again
+  (gotchas 25, 26).
 - Memory cards (T35): libmc over host files, the first slot (port 0) an empty formatted 8 MB card by default; the game's own menus
   save (OPTIONS > MEMORY CARD (PS2)) and the next boot loads the save. The boot's card check now sees an empty card
   instead of no card: one more request (GetDir) and the fixed busy polls make the boot 6 VBlanks longer, and every
@@ -217,11 +224,12 @@ wait loops drive the hardware.
 |---|---|
 | `plat_hw.c` | Bus-cycle clock, timers 0-3, VBlank (59.94 Hz, GS CSR FIELD / VSINT), INTC / DMAC handlers (`AddIntcHandler`, `AddDmacHandler`, `EnableIntc`...), DMA channels, MFIFO, `TTT_FRAMES` report, `TTT_SELFTEST=hw` |
 | `plat_sys.c` | Kernel (cache, threads, semaphores), SIF (IOP reboot, module loads, commands, `sceSifBindRpc` / `sceSifCallRpc` and the table of IOP servers), CD init, `TTT_SELFTEST=rpc` |
-| `plat_file.c` | The disc (`TTT_DISC`: a directory with `TEKKEN.BIN` or the `.iso`; without it the program stops at the first read, exit code 2) and `sceSdRemote`: RSPU2DRV's file reads (0x204E / 0x2045), status (0x2030), the sound commands passed to `plat_snd.c`, the movie stream refused |
+| `plat_file.c` | The disc (`TTT_DISC`: a directory with `TEKKEN.BIN` or the `.iso`; without it the program stops at the first read, exit code 2) and `sceSdRemote`: RSPU2DRV's file reads (0x204E / 0x2045), status (0x2030), the sound commands passed to `plat_snd.c`, the movie stream's arguments (0x2058) |
 | `spu2.c` | The SPU2 model: 2 MB sound RAM, 2 x 24 voices, PS-ADPCM, pitch, ADSR, the 48 kHz mix, `TTT_SELFTEST=spu` ([sound.md](sound.md)) |
 | `plat_snd.c` | libspu2's commands of RSPU2DRV on the model, the per-VBlank mix, `TTT_WAV`, the ring to the window's audio ([sound.md](sound.md)) |
 | `plat_bgm.c` | RSPU2DRV's BGM stream engine: the 28 tracks, the sound queue (0x7F0F), status bits 4 / 6, the double buffers ([sound.md](sound.md)) |
-| `plat_lib.c` | libgraph (`sceGsSyncV` waits for the next VBlank; `sceGsResetGraph`, `sceGsSetDefDBuff`, `sceGsSetDefDispEnv`, `sceGsPutDispEnv`, `sceGsSwapDBuff` build the environments and write the GS), movie skip, a cache call |
+| `plat_lib.c` | libgraph (`sceGsSyncV` waits for the next VBlank; `sceGsResetGraph`, `sceGsSetDefDBuff`, `sceGsSetDefDispEnv`, `sceGsPutDispEnv`, `sceGsSwapDBuff` build the environments and write the GS), a cache call |
+| `plat_movie.c` | The movies' pictures (the video of the interleaved file, PSS split, `third_party/pl_mpeg2` MPEG-2 decoder, the IPU's RGBA32 layout) and audio track (the driver's per-movie table), `TTT_MOVIES` ([movies.md](movies.md)) |
 | `plat_mc.c` | libmc: memory cards as directories under `TTT_SAVES`, asynchronous requests finished by `sceMcSync` after a fixed number of polls, atomic writes, `TTT_SELFTEST=mc` ([Memory cards](#memory-cards)) |
 | `plat_pad.c` | libpad / libmtap: two DualShock 2 pads on ports 0 and 1, no multitap, the per-VBlank latch, `TTT_INPUT_PLAY` / `TTT_INPUT_RECORD`, `TTT_SELFTEST=pad` ([Input](#input)) |
 | `gs_core.c` | GS: GIF paths (PACKED / REGLIST / IMAGE), registers, 4 MB GS memory with its layout, CLUT buffer, the software reference rasteriser, the frame dump, `TTT_SELFTEST=gs` |
@@ -291,6 +299,7 @@ Switches:
 | `TTT_FRAMES=<n>` | Stop after n VBlanks with a report: VBlanks and frames, `modes:` (mode@VBlank of each change), last mode and sub-state, `state:` (seed, `gRngSpin`, a hash of the first 4 KB of `.sbss`, cycles), placeholders hit. Exit code 0. Implies headless. |
 | `TTT_HEADLESS=0/1` | Force the real-time or the headless clock. |
 | `TTT_SEED=<n>` | Pin the boot seed `Rng_Init` takes from Timer 0 (`src/rng_misc.c`, `docs/known_bugs.md` section 8). With the headless clock the seed is already repeatable; this sets its value, and makes real-time runs start alike. |
+| `TTT_MOVIES=0` | Skip the movies (the intro at boot, the attract and ending movies) as before T33: the player sees the stream never go idle. Default: they play ([movies.md](movies.md)). |
 | `TTT_SELFTEST=hw / rpc / mem` | Check the DMA, timers, VBlank and interrupts / the SIF, RPC and disc reads / the memory map, and exit (`tests/test_port_platform.py`, `tests/test_port_mem.py`). |
 | `TTT_DUMP=<dir>` | Write the displayed picture as `<dir>/frame_<vblank>.png` (8-bit RGB) every `TTT_DUMP_EVERY` VBlanks. Put it under `build/` (ignored by git): the pictures are the game's. |
 | `TTT_DUMP_EVERY=<n>` | The dump's period in VBlanks (default 60). |
@@ -678,9 +687,9 @@ a sequence of libmc calls, each started and then polled with `sceMcSync(1, ...)`
   save data'), and the save through the menus by `TTT_INPUT_PLAY` (AUTO SAVE on, YES): the five files appear, 0x480
   bytes of save data, no temporary file; a second run loads the save at boot (the AUTO SAVE byte `D_00439C92` is 1,
   0 after an empty card's boot).
-- **Open.** The message windows of the card menu open at the right size but their text (`Text_DrawId`) does not show
-  in the frames; the help line at the bottom of the option menus is empty too. The YES / NO line (`Text_Printf`)
-  shows. Not a card problem; not looked into yet.
+- **Texts (T33 batch 1).** The message windows' text and the option menus' help line (`Text_DrawId`) were empty: not
+  a card problem but the command printer's m2c draft and an uninitialised width (gotchas 25, 26). The window was two
+  rows high, not one, for the same reason. `tests/test_port_mc.py` checks the grey text pixels of both in a dump.
 
 ## VU1
 
@@ -811,7 +820,10 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
 - `dma_gif.c` `func_00345780`: takes the update callback its callers pass and hands it to `func_003464F8` (on the
   EE it is still in `$a0`).
 - `rng_misc.c` `Rng_Init`: the seed goes through `Port_BootSeed` (Timer 0 brought up to date, or `TTT_SEED`).
-- `movie.c` draft `func_0039C878`: `Port_MoviePlayable()` before the movie.
+- `movie.c` draft `func_0039C878`: `Port_MoviePlayable()` before the movie, then the PC player `Port_MoviePlay` in
+  place of `Movie_Open` / `func_0039CAC8` / `Movie_Close` (threads, IPU and VBlank interrupt), and `Port_GifSync`
+  after each GS kick (gotcha 27) ([movies.md](movies.md)).
+- `menu_bg.c` `Text_LineCount`: its width starts at the text id, as the original's register does (gotcha 26).
 - `PORT_RET(t)` on 21 functions returning `s8` / `u8` / `s16` / `u16` that some callers declare `s32`.
 - `EE_HW_POLL()` in the hardware wait loops (above).
 
@@ -954,6 +966,23 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
     `func_0034BDD8` (`geometry_c.c`) stored a `sqrt` back over the value it was taken from, where the original keeps
     it in a register: `unk274` must stay the squared distance, which the cylinder test compares with squared
     distances later.
+25. **m2c drafts of variadic functions read nothing.** The command printer `func_003DFA00` (`demo.c`: position,
+    colour, width and strings as `0xFF` commands, the start of every `Text_DrawId`) was an m2c draft that never read
+    its variadic arguments and stored uninitialised locals as the text position and colour: the memory card
+    messages and the option menus' help line were drawn off screen, in colour 0. Typed from the asm (T33 batch 1),
+    reading its arguments as 4-byte i386 stack slots like `Text_Printf` (`DFA_ARG`). `TTT_DIFF` on the new
+    `Mode_Options` hook (`main.c`) found it (`D_005F7060` 0 against 0x0186001E) and now finds VBlanks 500-1000 of
+    the AUTO SAVE flow equal to the original code.
+26. **Matched C that reads an uninitialised variable.** `Text_LineCount` (`menu_bg.c`, matching) adds glyph widths to
+    a `w` it never sets: the original's `w` is `s0`, which its only caller `func_00360A30` (`font_tex.c`) holds as
+    the text id it passes. A host garbage `w` made `w / 580` one more line, and the message window two rows high.
+    Under `PORT` it starts as the id.
+27. **Two GS kicks with no wait between.** The port's `sceGsSyncPath` returns at once and a DMA transfer happens at
+    the next poll, so a second kick of the GIF channel before a poll replaced the first: `func_0039D320`'s GS set-up
+    packet (FRAME, TEST, SCISSOR of the movie's frame buffers) was never sent, and the movie's sprites drew nothing.
+    `Port_GifSync` (`plat_hw.c`) carries a started GIF transfer out at once, without moving the clock; the movie
+    code calls it after each kick. With `TTT_MOVIES=0` the set-up packet is now sent too: the dumps and the state do
+    not change.
 
 ## EE float model
 
@@ -995,5 +1024,5 @@ skinning are the limits now ([Speed](#speed)); T31's native replacements. libgra
 seven Tekken Bowl m2c drafts around VU0 code (`portsrc.REPLACED`, still placeholders: not reached by the attract
 demo); the libm PCSX2 run; the other game types after the character select (VS, team, survival: the same step
 function, not checked frame by frame) and the leftover-register calls of gotcha 23 off the fight's path; the multitap,
-vibration and rebinding; movies (with their audio, [sound.md](sound.md)); the memory card messages' text
-([Memory cards](#memory-cards)).
+vibration and rebinding; the open movie items of [movies.md](movies.md) (the attract and ending movies through the
+game's own paths, the driver's movie timing).

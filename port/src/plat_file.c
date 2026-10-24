@@ -13,8 +13,9 @@
  * Without a disc the first read stops the program (exit code 2). Nothing of the disc is ever written.
  *
  * Every other RSPU2DRV command is sound (T32): libspu2's commands in plat_snd.c on the SPU2 model (spu2.c), the BGM
- * tracks, the sound queue and the status bits 4 / 6 in plat_bgm.c (docs/port/sound.md). The movie stream refuses to
- * start (no movies yet).
+ * tracks, the sound queue and the status bits 4 / 6 in plat_bgm.c (docs/port/sound.md). The movie stream (0x2058)
+ * only records its arguments: the port's movie player reads the video (plat_movie.c), the BGM engine the audio
+ * (docs/port/movies.md).
  */
 #include <stdint.h>
 #include <stdio.h>
@@ -162,7 +163,76 @@ int Port_DiscRead(uint32_t sector, uint32_t offset, void *dst, uint32_t bytes) {
     return fread(dst, 1, bytes, sDisc) == bytes;
 }
 
+/* A file of the disc outside TEKKEN.BIN (`dir`/`name`, e.g. IRX/RSPU2DRV.IRX) into `dst`: its size, or -1. The
+   disc directory, or the ISO image's root directory and one subdirectory. */
+static long find_iso_entry(uint32_t lba, uint32_t size, const char *name, uint32_t *outLba) {
+    uint8_t dir[SECTOR];
+    size_t nl = strlen(name);
+    uint32_t off;
+    for (off = 0; off < size; off += SECTOR) {
+        uint32_t i = 0;
+        if (fseeko(sDisc, (long long)(lba + off / SECTOR) * SECTOR, SEEK_SET) != 0 || fread(dir, 1, SECTOR, sDisc) != SECTOR) {
+            return -1;
+        }
+        while (i < SECTOR && dir[i] != 0) {
+            uint8_t len = dir[i], n = dir[i + 32];
+            if (n >= nl && memcmp(dir + i + 33, name, nl) == 0 && (n == nl || dir[i + 33 + nl] == ';')) {
+                *outLba = le32(dir + i + 2);
+                return (long)le32(dir + i + 10);
+            }
+            i += len;
+        }
+    }
+    return -1;
+}
+
+long Port_DiscReadFile(const char *dirName, const char *name, void *dst, long max) {
+    char path[1300];
+    FILE *f;
+    long n;
+    if (!Port_DiscOpen()) {
+        return -1;
+    }
+    if (sArchive == 0) { /* a directory */
+        snprintf(path, sizeof path, "%s/%s/%s", sDiscName, dirName, name);
+        f = fopen(path, "rb");
+        if (f == NULL) {
+            return -1;
+        }
+        n = (long)fread(dst, 1, (size_t)max, f);
+        fclose(f);
+        return n;
+    } else { /* an ISO image */
+        uint8_t pvd[SECTOR];
+        uint32_t lba;
+        long size;
+        if (fseeko(sDisc, 16LL * SECTOR, SEEK_SET) != 0 || fread(pvd, 1, SECTOR, sDisc) != SECTOR) {
+            return -1;
+        }
+        size = find_iso_entry(le32(pvd + 156 + 2), le32(pvd + 156 + 10), dirName, &lba);
+        if (size < 0 || (size = find_iso_entry(lba, (uint32_t)size, name, &lba)) < 0) {
+            return -1;
+        }
+        n = size < max ? size : max;
+        if (fseeko(sDisc, (long long)lba * SECTOR, SEEK_SET) != 0 || fread(dst, 1, (size_t)n, sDisc) != (size_t)n) {
+            return -1;
+        }
+        return n;
+    }
+}
+
 /* ---- RSPU2DRV ---- */
+static uint32_t sMovieStream[5]; /* 0x2058's arguments (sector, movie, audio sectors, video sectors), active */
+
+/* The movie stream 0x2058 started (plat_movie.c, plat_bgm.c): 1 and its arguments while it runs. */
+int Port_MovieStreamArgs(uint32_t *sector, uint32_t *movie, uint32_t *audio, uint32_t *video) {
+    *sector = sMovieStream[0];
+    *movie = sMovieStream[1];
+    *audio = sMovieStream[2];
+    *video = sMovieStream[3];
+    return (int)sMovieStream[4];
+}
+
 static uint32_t sStatus;                 /* 0x2030: bit 0 read pending, bit 2 disc error (bits 4, 6: plat_bgm.c) */
 uint32_t gPortFileReads, gPortFileBytes;
 
@@ -224,11 +294,18 @@ static int rspu2(int cmd, const uint32_t *a) {
         Port_DiscOpen();
         Port_SndDriverStart();
         return 0;
-    case 0x2058: /* movie stream start: no movies yet, refused (the player gives up on -1) [T: movie task] */
-        return -1;
-    case 0x2059: /* next movie chunk */
+    case 0x2058: /* movie stream start: file sector, movie, audio and video sectors of each interleave chunk (7,
+                    0x80). The port's player (plat_movie.c) reads the video itself; the audio is code 0x5C's. */
+        sMovieStream[0] = a[0];
+        sMovieStream[1] = a[1];
+        sMovieStream[2] = a[2];
+        sMovieStream[3] = a[3];
+        sMovieStream[4] = 1;
+        return 0;
+    case 0x2059: /* next movie chunk: the port's player never asks (it reads the disc directly) */
         return -1;
     case 0x205A: /* 0: stop the movie stream; 1: back to file mode, non-zero once there (func_0039C878 waits on it) */
+        sMovieStream[4] = 0;
         return a[0] == 1 ? 1 : 0;
     default:
         /* 1 SpuInit, 2 SpuSetCore, 5 key off, 0x7xxx attribute sets, 0x7F0F sound queue, 0x205E BGM tracks

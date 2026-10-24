@@ -1495,243 +1495,179 @@ end:
 }
 
 #if 0
-/* NON_MATCHING: 328 lines: m2c draft (variadic command printer; its switch emits a C jump table when enabled) */
-#define M2C_UNK u8
-#define M2C_FIELD(expr, type, offset) (*(type)((u8 *)(expr) + (offset)))
-#define M2C_BITWISE(type, expr) ((type)(s32)(expr))
+/* NON_MATCHING: 328 lines: typed from the asm (T33 b1; was an m2c draft that never read its variadic arguments);
+ * the original keeps the state in s1-s7 / fp and its switch is the jump table jtbl_00522D20 */
+#ifdef PORT
+/* i386 cdecl: the variadic arguments are 4-byte stack slots right after fmt. */
+#define DFA_ARG() (ap += 4, *(s32 *)(ap - 4))
+#define DFA_START(fmt) ((u8 *)__builtin_next_arg(fmt))
+#else
+#define DFA_ARG() (ap += 8, *(s32 *)(ap - 8))
+#define DFA_START(fmt) ((u8 *)__builtin_next_arg(fmt) - 7 * 8) /* fake: the EABI register save area */
+#endif
 s32 exit(s32);
 
-u8 *func_003DFA00(u8 *arg0, ...) {
-    u8 sp[0x200];
-    s32 subroutine_arg0, subroutine_arg1, subroutine_arg2, subroutine_arg3, subroutine_arg4, subroutine_arg5;
-    s32 sp10;
-    s32 sp14;
-    s32 sp18;
-    s32 *sp1C;
-    s64 sp108;
-    s64 sp110;
-    s64 sp118;
-    s64 sp120;
-    s64 sp128;
-    s64 sp130;
-    s64 sp138;
-    s32 temp_a2;
-    s32 temp_a2_2;
-    s32 var_fp;
-    s32 var_s5;
-    s32 var_s6;
-    s32 var_s7;
-    s64 *var_s4;
-    u16 temp_v0;
-    u16 temp_v0_2;
-    u16 temp_v1;
-    u16 var_a1;
-    u16 var_s1_4;
-    u32 temp_v1_2;
-    u32 var_s1_3;
-    u8 *temp_s0;
-    u8 *var_a0;
-    u8 *var_s0;
-    u8 *var_s2;
-    u8 *var_s3;
-    u8 var_s1;
-    u8 var_s1_2;
+/* Command printer of the command font: 0xFF starts a command (H / V: x / y, h / v: x * 16 / y * 20, i: colour,
+ * w: line width, L: highlighted icon count, s: a string argument, n: new line), 0xFC 0xFF right-aligns the rest,
+ * 0xDC-0xEB / 0xEC-0xFB / 0xDB are button icons; the position, line start and colour persist in D_005F7060-68
+ * for func_003E06A0. Returns the end of fmt (past its terminator). */
+u8 *func_003DFA00(u8 *fmt, ...) {
+    DemoTextPos t;
+    u8 *ap = DFA_START(fmt);
+    u8 *s;
+    u8 *next;
+    u8 *str;
+    s32 n;      /* sp10: the spaces of the line */
+    s32 sw;     /* sp14: the space width */
+    s32 right;  /* sp18: right-aligned */
+    s32 spaces; /* fp */
+    s32 paren;  /* s7 */
+    s32 esc;    /* s6 */
+    s32 k;      /* s5: glyph index */
+    u32 c;      /* s1 */
+    u16 cnt;
 
-    var_s4 = &sp108;
-    var_fp = 0;
-    var_s7 = 0;
-    var_s6 = 0;
-    var_s5 = 0;
-    sp18 = 0;
+    t.x0 = D_005F7060[0];
+    t.y0 = D_005F7060[1];
+    t.g.x = D_005F7064[0];
+    t.g.y = D_005F7064[1];
+    *(u32 *)t.g.c = D_005F7068;
+    spaces = 0;
+    paren = 0;
+    esc = 0;
+    k = 0;
+    right = 0;
     D_005F6934 = 0;
     func_003DECE0();
-    sp1C = &sp10;
-    var_s1 = *arg0;
-    sp14 = func_003DF808(&sp10, arg0, D_005F6930);
-    var_s3 = arg0 + 1;
-    if (var_s1 != 0) {
-        do {
-            switch (var_s1) {                       /* switch 1; irregular */
-            case 0xFC:                              /* switch 1 */
-                var_s3 += 1;
-                if (*var_s3 == 0xFF) {
-                    var_a0 = var_s3;
-                    sp18 = 1;
-block_14:
-                    var_s2 = var_s3 + 1;
-                    PracFont_StrWidth(var_a0);
+    sw = func_003DF808(&n, (char *)fmt, D_005F6930);
+    c = *fmt;
+    s = fmt + 1;
+    while (c != 0) {
+        next = s + 1;
+        if (c == 0xFC) {
+            c = *s++;
+            next = s + 1;
+            if (c == 0xFF) {
+                right = 1;
+                t.g.x = t.x0 + D_005F6930 - PracFont_StrWidth(s);
+            }
+            goto tail;
+        }
+        if (c == 0xFF) {
+            if (esc != 1) {
+                esc = 1;
+                goto tail;
+            }
+            esc = 0;
+        }
+        if (esc != 0) {
+            esc = 0;
+            switch (c) {
+            case 'n':
+                t.g.y = t.y0 += 20;
+                if (right != 0) {
+                    t.g.x = t.x0 + D_005F6930 - PracFont_StrWidth(s);
                 } else {
-block_61:
-                    var_s2 = var_s3 + 1;
+                    t.g.x = t.x0;
                 }
                 break;
-            case 0xFF:                              /* switch 1 */
-                var_s6 = 1;
-                if (var_s6 == 1) {
-                    var_s6 = 0;
-                default:                            /* switch 1 */
-                    if (var_s6 != 0) {
-                        var_s2 = var_s3 + 1;
-                        if (var_s6 == 1) {
-                            var_s6 = 0;
-                            switch (var_s1) {       /* switch 2 */
-                            case 0x6E:              /* switch 2 */
-                                var_a0 = var_s3;
-                                if (sp18 != 0) {
-                                    goto block_14;
-                                }
-                                var_s2 = var_s3 + 1;
-                                break;
-                            case 0x73:              /* switch 2 */
-                                var_s4 += 8;
-                                temp_s0 = M2C_FIELD(var_s4, u8 **, -8);
-                                var_s1_2 = *temp_s0;
-                                var_s0 = temp_s0 + 1;
-                                if (var_s1_2 != 0) {
-                                    var_s2 = var_s3 + 1;
-                                    do {
-                                        PracFont_DrawGlyph(sp, var_s1_2, var_s5);
-                                        var_s5 += 1;
-                                        var_s1_2 = *var_s0;
-                                        var_s0 += 1;
-                                    } while (var_s1_2 != 0);
-                                } else {
-                                    goto block_61;
-                                }
-                                break;
-                            case 0x48:              /* switch 2 */
-                                var_s4 += 8;
-                                var_s2 = var_s3 + 1;
-                                break;
-                            case 0x56:              /* switch 2 */
-                                var_s4 += 8;
-                                var_s2 = var_s3 + 1;
-                                break;
-                            case 0x68:              /* switch 2 */
-                                var_s4 += 8;
-                                var_s2 = var_s3 + 1;
-                                break;
-                            case 0x76:              /* switch 2 */
-                                var_s4 += 8;
-                                var_s2 = var_s3 + 1;
-                                break;
-                            case 0x77:              /* switch 2 */
-                                var_s4 += 8;
-                                var_s2 = var_s3 + 1;
-                                D_005F6930 = M2C_FIELD(var_s4, u16 *, -8);
-                                break;
-                            case 0x69:              /* switch 2 */
-                                var_s4 += 8;
-                                var_s5 = 0;
-                                var_s2 = var_s3 + 1;
-                                break;
-                            case 0x4C:              /* switch 2 */
-                                var_s4 += 8;
-                                var_s2 = var_s3 + 1;
-                                D_005F6932 = M2C_FIELD(var_s4, u16 *, -8);
-                                break;
-                            default:                /* switch 2 */
-                                exit(0);
-                                goto block_30;
-                            }
-                        }
-                    } else {
-block_30:
-                        temp_v1 = var_s1 - 0xDC;
-                        if (temp_v1 >= 0x10U) {
-                            temp_v1_2 = var_s1 - 0xEC;
-                            if (temp_v1_2 < 0x10U) {
-                                var_s1_3 = temp_v1_2;
-                                var_s5 = 0;
-                                if (var_s7 == 0) {
-                                    temp_v0 = D_005F6932 - 1;
-                                    if (D_005F6932 != 0) {
-                                        D_005F6932 = temp_v0;
-                                        if (!(temp_v0 & 0xFFFF)) {
-                                            D_005F6934 = var_s1_3 | 0x20;
-                                        }
-                                        var_s1_3 |= 0x10;
-                                    }
-                                }
-                                var_s2 = var_s3 + 1;
-                                func_003DF150(subroutine_arg0, (s16) subroutine_arg0 + 2, var_s1_3);
-                            } else {
-                                switch (var_s1) {   /* switch 3; irregular */
-                                case 0xDB:          /* switch 3 */
-                                    var_s2 = var_s3 + 1;
-                                    func_003DF500(subroutine_arg0, (s16) subroutine_arg0 + 2, 0x20U);
-                                    break;
-                                case 0x20:          /* switch 3 */
-                                    var_fp += 1;
-                                    if (var_fp == sp10) {
-                                        var_fp = 0;
-                                        var_s2 = var_s3 + 1;
-                                        sp14 = func_003DF808(sp1C, var_s3, D_005F6930);
-                                    } else {
-                                        var_s2 = var_s3 + 1;
-                                    }
-                                    break;
-                                case 0x28:          /* switch 3 */
-                                    temp_a2 = var_s5;
-                                    var_s5 += 1;
-                                    PracFont_DrawGlyph(sp, 0x28U, temp_a2);
-                                    var_s7 = 1;
-                                    var_s2 = var_s3 + 1;
-                                    break;
-                                case 0x29:          /* switch 3 */
-                                    temp_a2_2 = var_s5;
-                                    var_s5 += 1;
-                                    PracFont_DrawGlyph(sp, 0x29U, temp_a2_2);
-                                    var_s7 = 0;
-                                    var_s2 = var_s3 + 1;
-                                    break;
-                                default:            /* switch 3 */
-                                    var_s5 += 1;
-                                    PracFont_DrawGlyph(sp, var_s1, var_s5);
-                                    var_s2 = var_s3 + 1;
-                                    break;
-                                }
-                            }
-                        } else {
-                            var_s1_4 = temp_v1;
-                            var_s5 = 0;
-                            if (var_s7 == 0) {
-                                temp_v0_2 = D_005F6932 - 1;
-                                if (D_005F6932 != 0) {
-                                    D_005F6932 = temp_v0_2;
-                                    if (!(temp_v0_2 & 0xFFFF)) {
-                                        var_a1 = var_s1_4 | 0x10;
-                                        D_005F6934 = var_a1;
-                                    } else {
-                                        var_a1 = var_s1_4 | 0x10;
-                                    }
-                                    var_s1_4 = var_a1;
-                                }
-                            }
-                            var_s2 = var_s3 + 1;
-                            func_003DF500(subroutine_arg0, (s16) subroutine_arg0 + 2, var_s1_4);
-                        }
-                    }
-                } else {
-                    goto block_61;
+            case 's':
+                str = (u8 *)DFA_ARG();
+                c = *str++;
+                while (c != 0) {
+                    PracFont_DrawGlyph(&t.g, c, k);
+                    k++;
+                    c = *str++;
                 }
+                break;
+            case 'H':
+                t.g.x = t.x0 = DFA_ARG();
+                break;
+            case 'V':
+                t.g.y = t.y0 = DFA_ARG();
+                break;
+            case 'h':
+                t.g.x = t.x0 = DFA_ARG() << 4;
+                break;
+            case 'v':
+                t.g.y = t.y0 = DFA_ARG() * 20;
+                break;
+            case 'w':
+                D_005F6930 = DFA_ARG();
+                break;
+            case 'i':
+                k = 0;
+                *(u32 *)t.g.c = DFA_ARG();
+                break;
+            case 'L':
+                D_005F6932 = DFA_ARG();
+                break;
+            default:
+                exit(0);
                 break;
             }
-            var_s1 = *var_s3;
-            var_s3 = var_s2;
-        } while (var_s1 != 0);
+            goto tail;
+        }
+        if (c - 0xDC < 0x10) {
+            c -= 0xDC;
+            k = 0;
+            if (paren == 0 && D_005F6932 != 0) {
+                cnt = --D_005F6932;
+                if (cnt == 0) {
+                    D_005F6934 = c | 0x10;
+                }
+                c |= 0x10;
+            }
+            func_003DF500(t.g.x, t.g.y + 2, c);
+            t.g.x += 0x10;
+        } else if (c - 0xEC < 0x10) {
+            c -= 0xEC;
+            k = 0;
+            if (paren == 0 && D_005F6932 != 0) {
+                cnt = --D_005F6932;
+                if (cnt == 0) {
+                    D_005F6934 = c | 0x20;
+                }
+                c |= 0x10;
+            }
+            func_003DF150(t.g.x, t.g.y + 2, c);
+            t.g.x += 0x14;
+        } else if (c == 0xDB) {
+            func_003DF500(t.g.x, t.g.y + 2, 0x20);
+            t.g.x += 0xE;
+        } else if (c == ' ') {
+            if (++spaces == n) {
+                t.g.x = t.x0;
+                t.g.y = t.y0 += 20;
+                spaces = 0;
+                sw = func_003DF808(&n, (char *)s, D_005F6930);
+            } else {
+                t.g.x += sw;
+            }
+        } else {
+            PracFont_DrawGlyph(&t.g, c, k);
+            k++;
+            if (c == '(') {
+                paren = 1;
+            } else if (c == ')') {
+                paren = 0;
+            }
+            t.g.x += D_004572E0[c - 0x20];
+        }
+    tail:
+        c = *s;
+        s = next;
     }
-    M2C_FIELD(((u8 *)&D_005F7060), u16 *, 0) = (u16) subroutine_arg2;
-    M2C_FIELD(((u8 *)&D_005F7060), u16 *, 2) = (u16) subroutine_arg2;
-    M2C_FIELD(((u8 *)&D_005F7064), u16 *, 0) = (u16) subroutine_arg0;
-    M2C_FIELD(((u8 *)&D_005F7064), u16 *, 2) = (u16) subroutine_arg0;
-    D_005F7068 = subroutine_arg1;
+    D_005F7060[0] = t.x0;
+    D_005F7060[1] = t.y0;
+    D_005F7064[0] = t.g.x;
+    D_005F7064[1] = t.g.y;
+    D_005F7068 = *(u32 *)t.g.c;
     func_003DED90();
-    return var_s3;
+    return s;
 }
-#undef M2C_UNK
-#undef M2C_FIELD
-#undef M2C_BITWISE
+#undef DFA_ARG
+#undef DFA_START
 #else
 INCLUDE_RODATA("asm/nonmatchings/demo", jtbl_00522D20);
 INCLUDE_ASM("asm/nonmatchings/demo", func_003DFA00);

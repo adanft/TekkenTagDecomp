@@ -1479,6 +1479,12 @@ s32 Text_LineCount(s32 n) {
     s32 w;
     u8 *p = D_0046AF40[0];
 
+#ifdef PORT
+    /* w is never initialised: the original adds to whatever its caller left in s0, which in its only caller
+     * (font_tex.c func_00360A30) is the text id it passes, n. A host garbage w gave two rows instead of one. */
+    w = n;
+#endif
+
     for (; i < n; i++) {
         p = func_003E4FA0(p);
     }

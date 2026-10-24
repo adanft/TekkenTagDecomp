@@ -14,7 +14,7 @@ import re
 import subprocess
 import sys
 
-from toolchain import (BUILD, DATA_OBJ, HOT_CFLAGS, HOT_FILES, NEWLIB, NEWLIB_CFLAGS, OBJ, PORT_CFLAGS, ROOT, SIMD_CFLAGS,
+from toolchain import (BUILD, DATA_OBJ, HOT_CFLAGS, HOT_FILES, MPEG2, NEWLIB, NEWLIB_CFLAGS, OBJ, PORT_CFLAGS, ROOT, SIMD_CFLAGS,
                        SIMD_FILES, VU_FILES, cc, game_cflags,
                        vu_redefine_args)
 import portsrc
@@ -83,6 +83,8 @@ def jobs():
                     + (SIMD_CFLAGS if f.name in SIMD_FILES else [])))
     for f in sorted(NEWLIB.glob("*.c")):  # the PS2's maths library, on the EE float model
         out.append(("gcc", f, OBJ / f"nl_{f.stem}.o", NEWLIB_CFLAGS))
+    for f in sorted(MPEG2.glob("*.c")):  # the MPEG-2 video decoder of the movies (integer only), -O3 like the hot paths
+        out.append(("gcc", f, OBJ / f"tp_{f.stem}.o", PORT_CFLAGS + HOT_CFLAGS))
     return out, missing
 
 

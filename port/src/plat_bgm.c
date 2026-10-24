@@ -5,7 +5,11 @@
  *  - 28 tracks registered by 0x205E: type (1 disc, 2 SPU-resident, 3 EE memory), a play count (negative: for ever),
  *    a volume scale, the table sector, the biased size, the loop sector.
  *  - The sound queue (0x7F0F) sets requests: 0x40 n play (bit 7: load and hold), 0x43 stop, 0x44 v t fade,
- *    0x45 v option volume, 0x50 / 0x51 stereo / mono, 0x5C n movie audio (no movies: ignored), 0x5D stop flag.
+ *    0x45 v option volume, 0x50 / 0x51 stereo / mono, 0x5C n movie audio, 0x5D stop flag.
+ *  - Movie audio (0x5C n, T33): a stream track of its own (type 4) on the same voices, buffers and state machine: the
+ *    ADPCM sectors of the movie file 0x2058 started (each chunk of the file is 7 audio sectors, then 0x80 of video),
+ *    played once, with the length and the volume scale of the driver's per-movie table (plat_movie.c) [I: the
+ *    driver's movie mode reads the same interleave; its own timing is not modelled].
  *  - A state machine stepped on the stream thread's timer, H-line / 66 (about 238.4 Hz, 3.98 ticks a VBlank):
  *    1 idle, 2 prefill, 3 ready (held while the hold flag is set), 4 playing, 5 stopped (back to 1). Status (0x2030)
  *    bit 4 = state 3, bit 6 = no stream active.
@@ -27,6 +31,8 @@
 #include "spu2.h"
 
 int Port_DiscRead(uint32_t sector, uint32_t offset, void *dst, uint32_t bytes); /* plat_file.c */
+int Port_MovieAudio(int movie, uint32_t *sector, uint32_t *audio, uint32_t *video, uint32_t *bytes,
+                    uint32_t *scale); /* plat_movie.c */
 
 #define BGM_L 22
 #define BGM_R 23
@@ -34,6 +40,7 @@ int Port_DiscRead(uint32_t sector, uint32_t offset, void *dst, uint32_t bytes); 
 #define BUF_R 0x1EE800u
 #define HALF 1024u
 #define TRACKS 28
+#define MOVIE_TRACK TRACKS /* the track slot of code 0x5C */
 #define SIZE_BIAS 0x350Au
 #define PREFILL_TICKS 9
 #define EE_STREAM_BASE 0x005F61D4u /* gEeStreamBase: type 3 tracks come from EE memory there */
@@ -43,11 +50,13 @@ typedef struct {
     int8_t count;
     uint16_t scale;
     uint32_t sector, bytes, loop; /* loop: byte offset of the loop start */
+    uint32_t audio, video;        /* type 4 (movie): sectors of audio, then of video, in each chunk of the file */
 } Track;
 
 static struct {
-    Track tracks[TRACKS];
+    Track tracks[TRACKS + 1];
     int req;                 /* requested track, -1 none */
+    int movieReq;            /* the request is code 0x5C's (MOVIE_TRACK) */
     int hold, stopReq;
     int state, mode;         /* state machine; mode 1 idle, 2 BGM */
     int cur;                 /* current track */
@@ -150,9 +159,21 @@ void Port_BgmQueue(const uint8_t *q) {
             sB.stereo = q[i] == 0x50;
             i += 1;
             break;
-        case 0x5C: /* the audio of movie n: no movies yet */
+        case 0x5C: { /* the audio of movie n: a track of its own */
+            Track *t = &sB.tracks[MOVIE_TRACK];
+            uint32_t scale;
+            if (Port_MovieAudio(q[i + 1], &t->sector, &t->audio, &t->video, &t->bytes, &scale)) {
+                t->type = 4;
+                t->count = 1;
+                t->scale = (uint16_t)scale;
+                t->loop = 0;
+                sB.req = MOVIE_TRACK;
+                sB.movieReq = 1;
+                sB.hold = 0;
+            }
             i += 2;
             break;
+        }
         case 0x5D:
             sB.stopReq = 1;
             i += 1;
@@ -176,6 +197,9 @@ static void next_sector(uint8_t *sec) {
         if (base != 0 && Port_IsEeRam(base + sB.pos)) {
             memcpy(sec, Port_Ptr(base + sB.pos), 2048);
         }
+    } else if (t->type == 4) { /* movie: audio sector j of the interleaved file */
+        uint32_t j = sB.pos / 2048;
+        Port_DiscRead(t->sector, ((j / t->audio) * (t->audio + t->video) + j % t->audio) * 2048, sec, 2048);
     } else if (sB.pos < t->bytes) {
         Port_DiscRead(t->sector, sB.pos, sec, t->bytes - sB.pos < 2048 ? t->bytes - sB.pos : 2048);
     }
@@ -240,7 +264,8 @@ static void stop_now(void) {
 void Port_BgmTick(void) {
     switch (sB.state) {
     case 1:
-        if (sB.req >= 0 && sB.req < TRACKS) {
+        if ((sB.req >= 0 && sB.req < TRACKS) || (sB.req == MOVIE_TRACK && sB.movieReq)) {
+            sB.movieReq = 0;
             const Track *t = &sB.tracks[sB.req];
             sB.cur = sB.req;
             sB.req = -1;

@@ -9,6 +9,7 @@ from pathlib import Path
 
 from test_port_platform import EXE, disc, run_ttt
 from test_port_input import peek, stream
+from test_port_gs import read_png
 
 UP, DOWN, LEFT, RIGHT, START, CROSS = 0x1000, 0x4000, 0x8000, 0x2000, 0x0800, 0x0040
 MC_FLAGS = "617374"  # gMc.flags (D_00617300 + 0x74): 1 no card, 2 card changed, 0x200 no save data, 0x8000 busy (added)
@@ -101,6 +102,27 @@ class GameSaves(unittest.TestCase):
             self.assertEqual((d / MAIN).read_bytes(), saved)  # loading writes nothing
         with tempfile.TemporaryDirectory() as empty:
             self.assertEqual(self.option(self.play(empty, 260)), 0)
+
+    def test_menu_texts_drawn(self):
+        """The memory card menu's texts are drawn (T33 b1): the help line at the bottom (Text_DrawId at y 0x186) and
+        the message of the message window ('no save data' after LOAD DATA on an empty card). Both were empty: the m2c
+        draft of the command printer func_003DFA00 never read its variadic arguments (position, colour, width), and
+        Text_LineCount added to an uninitialised width, which made the window two rows high (TTT_DIFF on Mode_Options
+        now finds VBlanks 500-1000 of the AUTO SAVE flow equal to the original code). The text is grey (r = g
+        = b, about 0xA6); the help bar is near black and the window brown, so grey pixels are text."""
+        with tempfile.TemporaryDirectory() as saves, tempfile.TemporaryDirectory() as dump:
+            r = self.play(saves, 760, TO_THE_CARD_MENU + LOAD, TTT_DUMP=dump, TTT_DUMP_EVERY="760")
+            menu = peek(r, MENU)
+            self.assertEqual((menu[0], (menu[5] >> 8) & 0xFF), (6, 0xB))
+            w, h, rows = read_png(Path(dump) / "frame_00760.png")
+            self.assertEqual((w, h), (640, 448))
+
+            def grey(y0, y1, x0, x1):
+                return sum(1 for y in range(y0, y1) for x in range(x0, x1)
+                           if rows[y][3 * x] == rows[y][3 * x + 1] == rows[y][3 * x + 2] >= 0x90)
+
+            self.assertGreater(grey(388, 412, 0, 640), 300)  # "Loads game data from MEMORY CARD(PS2)."
+            self.assertGreater(grey(222, 256, 76, 564), 600)  # "No data for this game found on MEMORY CARD(PS2)..."
 
 
 if __name__ == "__main__":

@@ -46,6 +46,10 @@ NEWLIB_CFLAGS = ["-m32", "-std=gnu89", "-O2", "-g", "-fno-pic", "-fno-strict-ali
                  "-fno-builtin", "-fno-stack-protector", "-Werror=implicit-function-declaration", "-msoft-float", "-mno-sse", "-mno-mmx", "-malign-double",
                  f"-I{NEWLIB}", "-include", "newlib_shim.h"]
 
+# The MPEG-2 video decoder of the movies (third_party/pl_mpeg2, MIT, derived from PL_MPEG): integer only, built with
+# the port's flags (T33).
+MPEG2 = ROOT / "third_party/pl_mpeg2"
+
 # Port files that are VU0 macro code on the PS2: their float operations are the vector unit's, not the FPU's
 # (port/src/softfloat_ps2.c). After compiling, their calls to the software-float helpers are renamed.
 VU_FILES = ("plat_vu0.c", "vu0_pc.c")

@@ -463,6 +463,71 @@ s32 func_0039C868(void) {
     return (&D_005F6CC0)[2];
 }
 
+#ifdef PORT
+s32 Port_MovieOpen(s32 movie, u32 bytes);
+s32 Port_MovieFrame(u32 dst, s32 *w, s32 *h);
+void Port_MovieClose(void);
+
+/* The GIF channel's transfer done: on the PS2 sceGsSyncPath waits for it; the port's hardware moves it at a poll. */
+void Port_GifSync(void);
+static void Port_MovieGifWait(void) {
+    Port_GifSync();
+}
+
+/* One VBlank of the PC movie player: shows field `field` (its frame buffer), waits for the VBlank, and reads the
+ * skip button as func_0039CAC8 does (from the 11th picture on, Start; a disc error stops too). 1 to stop. */
+static s32 Port_MovieField(s32 field, s32 pictures) {
+    func_0039D9B8(&D_00436598, field);
+    D_00436568.vcount++;
+    sceGsSyncV(0);
+    Pad_Update();
+    if ((pictures >= 11 && Input_SkipPressed() != 0) || D_005F6CC6 != 0) {
+        D_005F6CC4 = 1;
+        return 1;
+    }
+    return 0;
+}
+
+/* The movie player on PC (T33, docs/port/movies.md), in place of Movie_Open / func_0039CAC8 / Movie_Close: no
+ * read thread, decoder thread, IPU or VBlank interrupt. The stream starts as on the PS2 (Movie_StartStream: 0x2058),
+ * the pictures come decoded from port/src/plat_movie.c into the first picture buffer of the frame queue, in the
+ * layout sceMpegGetPicture writes, and the game's own packets (func_0039D580, built once as the decoder thread does
+ * at its first picture) upload each one and draw its even lines into the field 0 frame buffer and its odd lines
+ * into the field 1 one (func_0039E200, as the VBlank handler kicks them). Each picture shows for two VBlanks, field
+ * 0 then field 1 (func_0039D9B8), as the handler alternates them at 29.97 pictures a second. The audio (code 0x5C)
+ * starts with the first picture, as func_0039CAC8 starts it once the frame queue has one. */
+static void Port_MoviePlay(s32 movie) {
+    u8 *data = (u8 *)(((u32)D_005F6C8C & 0x0FFFFFFF) | 0x20000000);
+    u8 *tag = (u8 *)D_005F6C90;
+    s32 pictures = 0;
+    s32 w;
+    s32 h;
+
+    Movie_StartStream(movie);
+    if (Port_MovieOpen(movie, D_00436568.size) && Port_MovieFrame((u32)data, &w, &h)) {
+        pictures = 1;
+        func_0039D580(&D_00436598, tag + 0x40, data, 0, 0, 0, w, h >> 1, w, h);
+        func_0039D580(&D_00436598, tag + 0x1AB40, data, 1, 0, 0, w, h >> 1, w, h);
+        Movie_PlayAudio(movie);
+        Snd_Flush();
+        do {
+            func_0039E200((u32)(tag + 0x40));
+            Port_MovieGifWait();
+            func_0039E200((u32)(tag + 0x1AB40));
+            Port_MovieGifWait();
+            if (Port_MovieField(0, pictures) || Port_MovieField(1, pictures)) {
+                break;
+            }
+            pictures++;
+        } while (Port_MovieFrame((u32)data, &w, &h));
+    } else {
+        D_005F6CC4 = 1; /* no picture: as a movie that could not start */
+    }
+    sceSdRemote(1, 0x205A, 0);
+    Port_MovieClose();
+}
+#endif
+
 /* NON_MATCHING: 11 lines: register allocation and scheduling of the buffer address stores and the state clears */
 #if 0
 s32 func_0039C878(void) {
@@ -495,16 +560,21 @@ s32 func_0039C878(void) {
     D_00436568.unk10 = 0;
     D_00436568.unk1C = 0;
     func_0039D320(&D_00436598, 0x280, 0xE0);
+#ifdef PORT
+    Port_GifSync(); /* its GS set-up packet is sent before the next kick replaces it (sceGsSyncPath on the PS2) */
+#endif
     func_0039D9F0(&D_00436598, 0);
 #ifdef PORT
-    /* No movie player on PC yet (its decoder threads and the IPU): taken as the stream never going idle. */
+    Port_GifSync();
+    /* The PC player (Port_MoviePlay); with TTT_MOVIES=0 the movie is skipped as when the stream never goes idle. */
     if (Port_MoviePlayable() && Snd_WaitStreamIdle() == 0) {
+        Port_MoviePlay(D_005F6CC2);
 #else
     if (Snd_WaitStreamIdle() == 0) {
-#endif
         Movie_Open(D_005F6CC2);
         func_0039CAC8(&D_004365D0, D_005F6CA0);
         Movie_Close();
+#endif
     } else {
         D_005F6CC4 = 1;
     }
@@ -520,6 +590,9 @@ s32 func_0039C878(void) {
         }
     }
     func_0039D9F0(&D_00436598, white != 0 ? 0xFFFFFF : 0);
+#ifdef PORT
+    Port_GifSync();
+#endif
     func_0039D578(&D_00436598);
     FlushCache(0);
     func_0035D608();

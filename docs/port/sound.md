@@ -134,7 +134,7 @@ In mono, both get v * 65 / 100 on both sides.
 - The driver's 512 KB IOP ring and its CD timing. A sector is read from the disc (or from EE memory for type 3) when
   its half is refilled.
 - The SIF command 1 exchange for type 3 tracks. The engine reads EE memory directly.
-- Movie audio (code 0x5C).
+- Movie audio (code 0x5C) is handled as a one-shot track; see [movies.md](movies.md).
 
 ## 4. Time and determinism
 
