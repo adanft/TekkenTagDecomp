@@ -9,10 +9,12 @@
  *
  * The disc: TTT_DISC=<directory> holding TEKKEN.BIN (the copy scripts/setup_disc.py makes in iso/), or
  * TTT_DISC=<image.iso> (ISO 9660, 2048-byte sectors: TEKKEN.BIN is found in its root directory). Without TTT_DISC,
- * the repository's iso/ next to the program (build/port/ttt -> ../../iso). Nothing of the disc is ever written.
+ * the repository's iso/ (build/port/ttt -> ../../iso), iso/ beside the program, or iso/ in the working directory.
+ * Without a disc the first read stops the program (exit code 2). Nothing of the disc is ever written.
  *
- * Every other RSPU2DRV command (sound effects, BGM, the sound queue, movies) is answered harmlessly for now: keys
- * report off, the stream engine idle, the movie stream refuses to start. The real sound comes in T35+.
+ * Every other RSPU2DRV command is sound (T32): libspu2's commands in plat_snd.c on the SPU2 model (spu2.c), the BGM
+ * tracks, the sound queue and the status bits 4 / 6 in plat_bgm.c (docs/port/sound.md). The movie stream refuses to
+ * start (no movies yet).
  */
 #include <stdint.h>
 #include <stdio.h>
@@ -20,6 +22,13 @@
 #include <string.h>
 #include <unistd.h>
 #include "port_addr.h"
+#include "port_host.h"
+#include "spu2.h"
+
+int Port_SndCommand(int cmd, const uint32_t *a); /* plat_snd.c */
+void Port_SndGet(int cmd, uint8_t *out);
+void Port_SndDriverStart(void);
+uint32_t Port_BgmStatus(void); /* plat_bgm.c: bits 4 and 6 */
 
 #define SECTOR 2048
 #define ARCHIVE_SECTOR0 0x4820 /* the table's sectors count from here (systems/files.md) */
@@ -61,37 +70,10 @@ static int find_in_iso(FILE *f) {
     return 0;
 }
 
-static void default_disc(char *out, size_t n) {
-    char exe[1024];
-    ssize_t k = readlink("/proc/self/exe", exe, sizeof exe - 1);
-    char *slash;
-    out[0] = 0;
-    if (k <= 0) {
-        return;
-    }
-    exe[k] = 0;
-    slash = strrchr(exe, '/');
-    if (slash != NULL) {
-        *slash = 0;
-        snprintf(out, n, "%s/../../iso", exe); /* build/port/ttt -> iso/ */
-    }
-}
-
-/* Opens the disc once; 0 when there is none (reads then fail and the game waits, as with an empty drive). */
-int Port_DiscOpen(void) {
-    const char *d;
+/* Opens `name` as the disc: a directory holding TEKKEN.BIN, or an ISO 9660 image. */
+static int try_disc(const char *name) {
     char path[1200];
-    if (sDiscTried) {
-        return sDisc != NULL;
-    }
-    sDiscTried = 1;
-    d = getenv("TTT_DISC");
-    if (d != NULL && *d) {
-        snprintf(sDiscName, sizeof sDiscName, "%s", d);
-    } else {
-        default_disc(sDiscName, sizeof sDiscName);
-    }
-    snprintf(path, sizeof path, "%s/TEKKEN.BIN", sDiscName);
+    snprintf(path, sizeof path, "%s/TEKKEN.BIN", name);
     sDisc = fopen(path, "rb");
     if (sDisc != NULL) {
         sArchive = 0;
@@ -99,7 +81,7 @@ int Port_DiscOpen(void) {
         sArchiveSize = ftello(sDisc);
         return 1;
     }
-    sDisc = fopen(sDiscName, "rb");
+    sDisc = fopen(name, "rb");
     if (sDisc != NULL && find_in_iso(sDisc)) {
         return 1;
     }
@@ -107,9 +89,56 @@ int Port_DiscOpen(void) {
         fclose(sDisc);
         sDisc = NULL;
     }
-    printf("ttt: no disc: set TTT_DISC to a directory with TEKKEN.BIN or to the game's .iso (tried %s)\n",
-           sDiscName);
     return 0;
+}
+
+/* Opens the disc once; 0 when there is none. Without TTT_DISC: the repository's iso/ (build/port/ttt -> ../../iso),
+   then iso/ beside the program, then iso/ in the working directory. The program's own directory comes from
+   /proc/self/exe (symbolic links resolved), so a copy of the program elsewhere finds only the last two. */
+int Port_DiscOpen(void) {
+    static const char *const kNear[] = { "/../../iso", "/iso" };
+    const char *d;
+    char exe[1024];
+    ssize_t k;
+    unsigned i;
+    if (sDiscTried) {
+        return sDisc != NULL;
+    }
+    sDiscTried = 1;
+    d = getenv("TTT_DISC");
+    if (d != NULL && *d) {
+        snprintf(sDiscName, sizeof sDiscName, "%s", d);
+        return try_disc(sDiscName);
+    }
+    k = readlink("/proc/self/exe", exe, sizeof exe - 1);
+    if (k > 0) {
+        char *slash;
+        exe[k] = 0;
+        slash = strrchr(exe, '/');
+        if (slash != NULL) {
+            *slash = 0;
+            for (i = 0; i < sizeof kNear / sizeof kNear[0]; i++) {
+                snprintf(sDiscName, sizeof sDiscName, "%s%s", exe, kNear[i]);
+                if (try_disc(sDiscName)) {
+                    return 1;
+                }
+            }
+        }
+    }
+    snprintf(sDiscName, sizeof sDiscName, "iso");
+    return try_disc(sDiscName);
+}
+
+/* The game cannot run without its data: on the PS2 a read error is retried for ever, here a missing disc would let
+   the boot go on over memory the reads never filled (it crashed in func_00345410 when the program was copied away
+   from the repository's iso/, with the message lost in stdout's buffer). Stop at the first read instead. */
+static void no_disc(void) {
+    fflush(stdout);
+    fprintf(stderr,
+            "ttt: no disc: set TTT_DISC to a directory with TEKKEN.BIN or to the game's .iso "
+            "(or put iso/ beside the program; last tried %s)\n",
+            sDiscName);
+    _exit(2);
 }
 
 /* `bytes` of the archive from table sector `sector` into `dst`; 0 on a failed read. */
@@ -124,9 +153,17 @@ static int read_archive(uint32_t sector, void *dst, uint32_t bytes) {
     return fread(dst, 1, bytes, sDisc) == bytes;
 }
 
+/* `bytes` from `offset` of the file at table sector `sector` (the BGM streams, plat_bgm.c); 0 on a failed read. */
+int Port_DiscRead(uint32_t sector, uint32_t offset, void *dst, uint32_t bytes) {
+    long long off = ((long long)sector - ARCHIVE_SECTOR0) * SECTOR + offset;
+    if (!Port_DiscOpen() || off < 0 || off + bytes > sArchiveSize || fseeko(sDisc, sArchive + off, SEEK_SET) != 0) {
+        return 0;
+    }
+    return fread(dst, 1, bytes, sDisc) == bytes;
+}
+
 /* ---- RSPU2DRV ---- */
-static uint8_t sSpuRam[2 * 1024 * 1024]; /* SPU2 sound RAM: 0x2045 reads land here (the sound of T35+ plays it) */
-static uint32_t sStatus = 0x40;          /* 0x2030: bit 0 read pending, bit 2 disc error, bit 6 stream idle */
+static uint32_t sStatus;                 /* 0x2030: bit 0 read pending, bit 2 disc error (bits 4, 6: plat_bgm.c) */
 uint32_t gPortFileReads, gPortFileBytes;
 
 /* A read of `size + 0x350A` (the table's biased size) from `sector` into EE memory or SPU2 RAM. The IOP moves the
@@ -139,11 +176,11 @@ static int file_read(uint32_t sector, uint32_t dest, uint32_t biased, int toSpu)
     }
     if (toSpu) {
         size = (size + 63) & ~63u;
-        if (dest >= sizeof sSpuRam || size > sizeof sSpuRam - dest) {
+        if (dest >= SPU2_RAM_SIZE || size > SPU2_RAM_SIZE - dest) {
             sStatus |= 4;
             return 0;
         }
-        dst = sSpuRam + dest;
+        dst = Spu2_Ram() + dest; /* SPU2 sound RAM (spu2.c) */
     } else {
         size = (size + 15) & ~15u;
         if (!Port_IsEeRam(dest) || Port_EePhys(dest) + size > PORT_EE_RAM_SIZE) {
@@ -151,6 +188,9 @@ static int file_read(uint32_t sector, uint32_t dest, uint32_t biased, int toSpu)
             return 0;
         }
         dst = Port_DmaPtr(dest);
+    }
+    if (!Port_DiscOpen()) {
+        no_disc();
     }
     if (!read_archive(sector, dst, size)) {
         sStatus |= 4; /* the driver's disc error flag */
@@ -168,7 +208,7 @@ static int sStatusPolls;
 static int rspu2(int cmd, const uint32_t *a) {
     switch (cmd) {
     case 0x2030: { /* status */
-        uint32_t s = sStatus;
+        uint32_t s = (sStatus & ~0x50u) | Port_BgmStatus();
         sStatus &= ~1u; /* a read shown pending once is finished at the next poll */
         sStatusPolls++;
         return (int)s;
@@ -180,8 +220,9 @@ static int rspu2(int cmd, const uint32_t *a) {
     case 0x2050: /* abort the read: it has finished already */
         sStatus &= ~1u;
         return 0;
-    case 0x2000: /* driver start (finds TEKKEN.BIN on the disc) */
+    case 0x2000: /* driver start (finds TEKKEN.BIN on the disc; the SPU2 and the BGM engine: plat_snd.c) */
         Port_DiscOpen();
+        Port_SndDriverStart();
         return 0;
     case 0x2058: /* movie stream start: no movies yet, refused (the player gives up on -1) [T: movie task] */
         return -1;
@@ -190,9 +231,9 @@ static int rspu2(int cmd, const uint32_t *a) {
     case 0x205A: /* 0: stop the movie stream; 1: back to file mode, non-zero once there (func_0039C878 waits on it) */
         return a[0] == 1 ? 1 : 0;
     default:
-        /* 1 SpuInit, 2 SpuSetCore, 5 key off, 0x7xxx attribute sets, 0x7F0F sound queue, 0x2051 semaphore tick,
-           0x205E BGM track table: accepted, nothing to do yet. */
-        return 0;
+        /* 1 SpuInit, 2 SpuSetCore, 5 key off, 0x7xxx attribute sets, 0x7F0F sound queue, 0x205E BGM tracks
+           (plat_snd.c, plat_bgm.c); 0x2051 semaphore tick: nothing to do. */
+        return Port_SndCommand(cmd, a);
     }
 }
 
@@ -200,9 +241,9 @@ static int rspu2(int cmd, const uint32_t *a) {
 int sceSdRemote(int mode, int cmd, int a0, int a1, int a2, int a3, int a4, int a5) {
     uint32_t a[6] = { (uint32_t)a0, (uint32_t)a1, (uint32_t)a2, (uint32_t)a3, (uint32_t)a4, (uint32_t)a5 };
     (void)mode;
-    if ((cmd & 0xF000) == 0x6000) { /* get: 0x40 bytes into the buffer a0 points to; keys off, attributes zero */
+    if ((cmd & 0xF000) == 0x6000) { /* get: 0x40 bytes into the buffer a0 points to (plat_snd.c) */
         if (a0 != 0) {
-            memset(Port_Ptr(a0), 0, 0x40);
+            Port_SndGet(cmd, Port_Ptr(a0));
         }
         return 0;
     }
