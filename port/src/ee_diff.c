@@ -1428,19 +1428,6 @@ typedef struct {
     uint32_t fl[4];
 } EeCase;
 
-/* Known divergences of port code the self-test reports without failing (KNOWN lines): the libm of
-   third_party/newlib_libm has the newer fdlibm constants pio2_hi 0x3FC90FDB / pio2_lo -4.37e-8 in ef_asin.c (the
-   executable's newlib: 0x3FC90FDA / 0x33A22168), and atan2f's |y / x| > 2^26 result differs by one unit the same
-   way (pi_o_2 + pi_lo): float results that differ by one or two units in the last place there. */
-static int known_libm(const EeCase *t, uint32_t rc, uint32_t ri) {
-    uint32_t d = rc > ri ? rc - ri : ri - rc;
-    return (strcmp(t->name, "asinf") == 0 || strcmp(t->name, "__ieee754_asinf") == 0 ||
-            (strcmp(t->name, "atan2f") == 0 && (rc & 0x7FFFFFFFu) == 0x3FC90FDAu)) &&
-           d <= 2 && (rc & SF_SIGN) == (ri & SF_SIGN);
-}
-
-static unsigned sKnown;
-
 static int ee_case(const EeCase *t) {
     uint32_t ac[8] = {0}, ai[8] = {0}, rc, ri, k, n = (uint32_t)strlen(t->sig), bad = 0;
     Ee *e = calloc(1, sizeof *e);
@@ -1465,14 +1452,8 @@ static int ee_case(const EeCase *t) {
     }
     ri = t->ret == 'f' ? e->f[0] : (uint32_t)e->r[2].lo;
     if (t->ret != 0 && rc != ri) {
-        if (known_libm(t, rc, ri)) {
-            if (sKnown++ < 4) {
-                printf("ee: KNOWN %s: result %08X, original %08X (third_party libm constants)\n", t->name, rc, ri);
-            }
-        } else {
-            printf("ee: %s: result %08X, original %08X\n", t->name, rc, ri);
-            bad = 1;
-        }
+        printf("ee: %s: result %08X, original %08X\n", t->name, rc, ri);
+        bad = 1;
     }
     for (k = 0; k < BUFW; k++) {
         if (sBufC[k] != sBufI[k]) {
@@ -1588,7 +1569,7 @@ int Port_EeSelfTest(void) {
     printf(fails ? "ttt: ee self-test FAILED (%u of %u)\n" : "ttt: ee self-test OK (%u of %u)",
            fails ? fails : (unsigned)(sizeof cases / sizeof cases[0]), (unsigned)(sizeof cases / sizeof cases[0]));
     if (!fails) {
-        printf(", %u known libm results, 4000 generated cases\n", sKnown);
+        printf(", 4000 generated cases\n");
     }
     return (int)fails;
 }

@@ -38,6 +38,7 @@ static struct {
 } vif;
 
 void Gs_Vif1Reset(void) {
+    Gs_AsyncDrain(); /* the game's thread (sceGsResetGraph, self-tests): after what the GS thread still has */
     memset(&vif, 0, sizeof vif);
 }
 

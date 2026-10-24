@@ -33,6 +33,7 @@
 #include <time.h>
 #include "port_addr.h"
 #include "gs.h"
+#include "gs_int.h"
 
 #define PRIV(off) (*(volatile uint64_t *)Port_Ptr(0x12000000u + (off)))
 
@@ -187,14 +188,6 @@ static uint32_t vram_rw(uint32_t bp, uint32_t bw, uint32_t psm, uint32_t x, uint
 
 /* ------------------------------------------------------------------------------------------------ state */
 
-typedef struct Vtx {
-    int32_t x, y;        /* window coordinates (XYOFFSET taken off), 12.4 */
-    uint32_t z;
-    uint32_t s, t, q;    /* float bits */
-    int32_t u, v;        /* texel coordinates, 10.4 */
-    uint32_t rgba;
-    uint32_t f;          /* fog coefficient */
-} Vtx;
 
 /* The registers (the front end: GIF, register writes, the vertex queue; the calling thread). */
 static struct {
@@ -228,18 +221,21 @@ static void gs_sync(void);
 static void raster_reset(void);
 
 uint32_t Gs_VramRead(uint32_t bp, uint32_t bw, uint32_t psm, uint32_t x, uint32_t y) {
+    Gs_AsyncDrain();
     tables_init();
     gs_sync();
     return vram_rw(bp, bw, psm, x, y, 0, 0);
 }
 
 void Gs_VramWrite(uint32_t bp, uint32_t bw, uint32_t psm, uint32_t x, uint32_t y, uint32_t v) {
+    Gs_AsyncDrain();
     tables_init();
     gs_sync();
     vram_rw(bp, bw, psm, x, y, 1, v);
 }
 
 void Gs_Reset(void) {
+    Gs_AsyncDrain(); /* sceGsResetGraph: the GS thread has finished what was sent before (gs_async.c) */
     tables_init();
     gs_sync();
     memset(&gs, 0, sizeof(gs));
@@ -339,32 +335,6 @@ static uint32_t clut_read(const uint16_t *clut, uint64_t t0, uint32_t index, int
 
 /* ------------------------------------------------------------------------------------------------ primitive state */
 
-/* What the pixels of one primitive read from the registers, decoded once when the primitive is queued (the front end
-   may change the registers while the back end still draws it). The decoding is the one the per-pixel code did. */
-typedef struct Draw {
-    int ctx;
-    uint64_t prim, tex0, texa, fogcol, test, alpha, zbuf, frame;
-    uint32_t clutVer;
-    int scx0, scx1, scy0, scy1;                      /* SCISSOR, inclusive */
-    uint32_t fbp, fbw, fpsm, fbits, fbmsk;           /* FRAME */
-    uint32_t zbp, zpsm, zmax;                        /* ZBUF */
-    int zwrite, ztest;
-    uint32_t ztst;
-    int atest;                                       /* TEST: alpha test, destination alpha test */
-    uint32_t atst, aref, afail, datm;
-    int date;
-    int blend, pabe, colclamp, fba;                  /* ALPHA, PABE, COLCLAMP, FBA */
-    uint32_t asel, bsel, csel, dsel, afix;
-    int tex, fst, fog, gouraud;                      /* PRIM */
-    uint32_t tbp, tbw, tpsm, tbits, tfx, tcc;        /* TEX0 */
-    int tw, th, lw, lh;
-    uint32_t wms, wmt;                               /* CLAMP */
-    int minu, maxu, minv, maxv;
-    uint32_t ta0, ta1, aem;                          /* TEXA */
-    int filter;                                      /* 0 nearest, 1 linear, 2 by the level of detail (TEX1) */
-    int32_t lodk;
-    int lcm, lodl, mmagLinear, mminLinear;
-} Draw;
 
 static void draw_setup(Draw *d, int ctx) {
     uint64_t test = gs.test[ctx], al = gs.alpha[ctx], zb = gs.zbuf[ctx], sc = gs.scissor[ctx], fr = gs.frame[ctx];
@@ -1113,25 +1083,8 @@ static void draw_line(Raster *r, const Draw *d, const Vtx *a, const Vtx *b) {
 
 /* The front end turns primitives and the operations on GS memory into commands; the back end carries them out in
    order. Without GS threads a command runs at once; with them it goes into a ring that the raster workers read. */
-enum { CMD_POINT, CMD_LINE, CMD_TRIANGLE, CMD_SPRITE, CMD_UPLOAD, CMD_COPY, CMD_CLUT, CMD_SHOW, CMD_BARRIER };
 
-/* The display registers at a VBlank (the picture the dump and the window show). */
-typedef struct DispRegs {
-    uint64_t pmode, smode2, bgcolor, dispfb[2], display[2];
-} DispRegs;
 
-typedef struct Cmd {
-    uint8_t type;
-    uint8_t serial;   /* worker 0 alone carries it out, the others wait (operations on GS memory) */
-    uint8_t barrier;  /* the workers first wait for each other (the command reads what an earlier one wrote) */
-    union {
-        struct { Draw d; Vtx v[3]; } prim;
-        struct { uint64_t bitbltbuf; uint32_t tx, ty, tw, th, tpos, bytes; uint8_t *data; } upload;
-        struct { uint64_t bitbltbuf, trxpos; uint32_t tx, ty, tw, th; } copy;
-        struct { uint64_t t0, texclut; } clut;
-        struct { DispRegs regs; uint32_t vblank; uint8_t *rgb; } show; /* rgb: the window's picture, else the dump */
-    } u;
-} Cmd;
 
 static void exec_upload(const Cmd *c);
 static void exec_copy(const Cmd *c);
@@ -1180,6 +1133,10 @@ static void exec_cmd(Raster *r, const Cmd *c) {
 #include "port_host.h"
 
 #define RING 8192u /* commands; a power of two */
+#define GL_RING 65536u /* with the GL back end: more than a fight's VBlank, so the front end runs on while the window
+                          thread presents */
+static uint32_t sRingN = RING;
+static int sGl; /* the GL back end (gs_gl.c) on the window thread is the one consumer of the ring */
 
 static int sThreads = -1;   /* raster workers; 0 until started */
 static Raster sSync = {0, 1};
@@ -1265,7 +1222,7 @@ static void *worker_main(void *arg) {
                 head = ld(&sHead);
             }
         }
-        c = &sRing[i & (RING - 1)];
+        c = &sRing[i & (sRingN - 1)];
         sync = c->serial || c->barrier;
         if (sync) {
             /* everyone has finished the commands before this one */
@@ -1309,6 +1266,16 @@ static void threads_start(void) {
     }
     if (getenv("TTT_GS_TRACE") || getenv("TTT_GS_TRACE_PRIMS")) {
         n = 0; /* the traces print from the pixels, in order */
+    } else if (Port_WindowGl()) { /* the window thread draws everything (Gs_GlPump): one consumer, no raster threads */
+        sRing = calloc(GL_RING, sizeof(Cmd));
+        if (sRing != NULL) {
+            sRingN = GL_RING;
+            sGl = 1;
+            sThreads = 1;
+            return;
+        }
+        fprintf(stderr, "ttt: gs: no memory for the GL back end's ring\n");
+        exit(2);
     }
     if (n > 16) {
         n = 16;
@@ -1346,8 +1313,73 @@ static void gs_sync(void) {
 static int has_room(void *a) {
     (void)a;
     sMinTail = min_tail();
-    return sHead - sMinTail < RING;
+    return sHead - sMinTail < sRingN;
 }
+
+static uint32_t sGlShows; /* window pictures queued for the GL back end and not yet drawn */
+static uint32_t sGlCpuMs; /* the window thread's CPU time in ms as of its last commands (TTT_GS_STATS); 32 bits: 64-bit
+                             atomics would call libatomic through new PLT entries (gotcha 20) */
+int gGsGlSkip;
+
+/* The GL back end's side of the ring (the window thread, plat_window.c): runs the queued commands on gs_gl.c, waiting up
+   to ms milliseconds when there are none (the window thread also reads the input events). A window picture is only
+   shown when no newer one is queued: the back end catches up with the front end instead of presenting every one. */
+int Gs_GlPump(int ms) {
+    static uint32_t next;
+    uint32_t head = ld(&sHead);
+    int n = 0;
+
+    if (next == head) {
+        struct timespec ts;
+        int spin;
+        wake(&sIdle);
+        for (spin = 0; spin < 100 && ld(&sHead) == next; spin++) {
+            __builtin_ia32_pause();
+        }
+        if (ld(&sHead) == next) {
+            clock_gettime(CLOCK_REALTIME, &ts);
+            ts.tv_nsec += (long)ms * 1000000;
+            while (ts.tv_nsec >= 1000000000) {
+                ts.tv_sec++;
+                ts.tv_nsec -= 1000000000;
+            }
+            pthread_mutex_lock(&sLock);
+            __atomic_add_fetch(&sSleepWake, 1, __ATOMIC_SEQ_CST);
+            while (ld(&sHead) == next && pthread_cond_timedwait(&sWake, &sLock, &ts) == 0) {
+            }
+            __atomic_sub_fetch(&sSleepWake, 1, __ATOMIC_SEQ_CST);
+            pthread_mutex_unlock(&sLock);
+        }
+        head = ld(&sHead);
+    }
+    while (next != head && sRing != NULL) {
+        const Cmd *c = &sRing[next & (sRingN - 1)];
+        if (c->type == CMD_SHOW && c->u.show.window) {
+            gGsGlSkip = __atomic_sub_fetch(&sGlShows, 1, __ATOMIC_RELAXED) != 0;
+        }
+        Gl_Exec(c);
+        next++;
+        __atomic_store_n(&sTail(0), next, __ATOMIC_RELEASE);
+        if ((next & 31) == 0) {
+            wake(&sIdle);
+        }
+        if (++n >= 4096) {
+            break; /* back to the window's events now and then */
+        }
+        if (next == head) {
+            head = ld(&sHead);
+        }
+    }
+    wake(&sIdle);
+    if (n > 0) {
+        struct timespec ts;
+        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+        __atomic_store_n(&sGlCpuMs, (uint32_t)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000), __ATOMIC_RELAXED);
+    }
+    return n;
+}
+
+uint32_t Gs_GlCpuMs(void) { return __atomic_load_n(&sGlCpuMs, __ATOMIC_RELAXED); }
 
 static int64_t sWaitNs; /* the front end's CPU time spent waiting for room in the ring (TTT_GS_STATS) */
 
@@ -1371,13 +1403,16 @@ static void submit(const Cmd *c) {
         exec_cmd(&sSync, c);
         return;
     }
-    if (sHead - sMinTail >= RING && !has_room(NULL)) { /* full as far as last seen: look again, then wait */
+    if (sHead - sMinTail >= sRingN && !has_room(NULL)) { /* full as far as last seen: look again, then wait */
         int64_t t0 = thread_ns();
         wake(&sWake);
         wait_until(has_room, NULL, &sIdle);
         sWaitNs += thread_ns() - t0;
     }
-    sRing[sHead & (RING - 1)] = *c;
+    sRing[sHead & (sRingN - 1)] = *c;
+    if (sGl && c->type == CMD_SHOW && c->u.show.window) {
+        __atomic_add_fetch(&sGlShows, 1, __ATOMIC_RELAXED);
+    }
     __atomic_store_n(&sHead, sHead + 1, __ATOMIC_RELEASE);
     /* sleeping workers are woken for a batch of commands; at once for one the others will wait for (a worker
        waiting at a barrier is woken by the workers' progress) */
@@ -1422,7 +1457,8 @@ static struct {
 
 /* The pages (8 KB, 512 of them) of the pixels x0..x1, y0..y1 of a buffer (as vram_loc addresses them). */
 static void pages_of(uint32_t *set, uint32_t bp, uint32_t bw, uint32_t psm, uint32_t x0, uint32_t x1, uint32_t y0, uint32_t y1) {
-    uint32_t bits = (uint32_t)psm_bits(psm), pw = bits >= 16 ? 64 : 128, ph = bits == 32 || bits == 24 ? 32 : bits == 4 ? 128 : 64;
+    /* PSMT8H / 4HL / 4HH are fields of 32-bit pixels: their pages are the 32-bit layout's (T30 batch 3) */
+    uint32_t bits = (uint32_t)psm_bits(psm == 0x1B || psm == 0x24 || psm == 0x2C ? 0 : psm), pw = bits >= 16 ? 64 : 128, ph = bits == 32 || bits == 24 ? 32 : bits == 4 ? 128 : 64;
     uint32_t bwp, lo, hi, p;
 
     if (bw == 0) {
@@ -1490,7 +1526,7 @@ static void classify_clut(Cmd *c) {
     uint64_t t0 = c->u.clut.t0, tc = c->u.clut.texclut;
     uint32_t cp[16] = {0}, cbp = (t0 >> 37) & 0x3FFF, cpsm = (t0 >> 51) & 15, csm = (t0 >> 55) & 1;
 
-    if (sThreads <= 0) {
+    if (sThreads <= 0 || sGl) {
         return;
     }
     if (csm) {
@@ -1513,7 +1549,7 @@ static void classify(Cmd *c) {
     int zused = (d->ztest && d->ztst >= 2) || d->zwrite;
     int x0 = d->scx0, x1 = d->scx1, y0 = d->scy0, y1 = d->scy1;
 
-    if (sThreads <= 0) {
+    if (sThreads <= 0 || sGl) {
         return;
     }
     if (c->type == CMD_SPRITE) { /* a sprite's pixels lie inside its rectangle */
@@ -1629,10 +1665,11 @@ static void vertex(uint32_t x, uint32_t y, uint32_t z, uint32_t f, int kick) {
         gs.vtx[2] = v;
     }
     if (sTracePrimVb != 0 && sCurVb == sTracePrimVb) { /* gs-adc: a vertex that only queues (XYZ3, ADC) */
-        printf("%s t%d ctx%d prim %03llX xy %d,%d z %X uv %d,%d st %08X,%08X q %08X rgba %08X tex0 %016llX tex1 %llX clamp %llX frame %llX test %llX alpha %llX texa %llX\n",
+        printf("%s t%d ctx%d prim %03llX xy %d,%d z %X uv %d,%d st %08X,%08X q %08X rgba %08X tex0 %016llX tex1 %llX clamp %llX frame %llX test %llX alpha %llX texa %llX zbuf %llX scissor %llX\n",
                kick ? "gs-prim" : "gs-adc", type, ctx, (unsigned long long)gs.prim, v.x >> 4, v.y >> 4, v.z, v.u >> 4, v.v >> 4, v.s, v.t, v.q, v.rgba,
                (unsigned long long)gs.tex0[ctx], (unsigned long long)gs.tex1[ctx], (unsigned long long)gs.clamp[ctx], (unsigned long long)gs.frame[ctx],
-               (unsigned long long)gs.test[ctx], (unsigned long long)gs.alpha[ctx], (unsigned long long)gs.texa);
+               (unsigned long long)gs.test[ctx], (unsigned long long)gs.alpha[ctx], (unsigned long long)gs.texa,
+               (unsigned long long)gs.zbuf[ctx], (unsigned long long)gs.scissor[ctx]);
     }
     switch (type) {
     case 0:
@@ -1908,13 +1945,23 @@ static void reg_write(uint32_t addr, uint64_t d) {
     case 0x53: gs.trxdir = d; transfer_begin(); break;
     case 0x60: { /* SIGNAL: SIGLBLID.SIGID under the mask, CSR.SIGNAL */
         uint64_t id = PRIV(GS_SIGLBLID), m = d >> 32;
+        if (Gs_AsyncRegWrite(1, m & 0xFFFFFFFFull, d)) {
+            break; /* the GS thread: the game's thread writes the registers (gs_async.c) */
+        }
         PRIV(GS_SIGLBLID) = (id & ~m) | (d & m & 0xFFFFFFFFull);
         PRIV(GS_CSR) |= 1;
         break;
     }
-    case 0x61: PRIV(GS_CSR) |= 2; break; /* FINISH */
+    case 0x61: /* FINISH */
+        if (!Gs_AsyncRegWrite(2, 0, 0)) {
+            PRIV(GS_CSR) |= 2;
+        }
+        break;
     case 0x62: { /* LABEL: SIGLBLID.LBLID under the mask */
         uint64_t id = PRIV(GS_SIGLBLID), m = (d >> 32) << 32;
+        if (Gs_AsyncRegWrite(0, m, d << 32)) {
+            break;
+        }
         PRIV(GS_SIGLBLID) = (id & ~m) | ((d << 32) & m);
         break;
     }
@@ -2108,10 +2155,6 @@ static int write_png(const char *path, uint32_t w, uint32_t h, const uint8_t *rg
     return 1;
 }
 
-/* One read circuit (k = 0, 1): its DISPFB buffer and its DISPLAY area in output pixels / raster lines. */
-typedef struct {
-    uint32_t fbp, fbw, psm, dbx, dby, x0, y0, width, lines;
-} Circuit;
 
 static void circuit(const DispRegs *regs, int k, Circuit *c) {
     uint64_t fb = regs->dispfb[k], disp = regs->display[k];
@@ -2263,7 +2306,7 @@ static int cmd_done(uint32_t idx) {
     return sThreads <= 0 || (int32_t)(min_tail() - (idx + 1)) >= 0;
 }
 
-static void window_frames(void) {
+static void window_frames(const DispRegs *regs) {
     int k, newest = -1;
     Cmd c;
 
@@ -2271,6 +2314,20 @@ static void window_frames(void) {
         printf("ttt: window closed\n");
         fflush(stdout);
         exit(0);
+    }
+    if (sThreads < 0) {
+        threads_start();
+    }
+    if (sGl) { /* the GL back end draws the picture in order with the primitives and shows it */
+        c.type = CMD_SHOW;
+        c.serial = 0;
+        c.barrier = 1; /* wakes the window thread */
+        c.u.show.regs = *regs;
+        c.u.show.vblank = 0;
+        c.u.show.rgb = NULL;
+        c.u.show.window = 1;
+        submit(&c);
+        return;
     }
     for (k = 0; k < 3; k++) {
         if (sWin[k].busy && cmd_done(sWin[k].idx) && (newest < 0 || (int32_t)(sWin[k].idx - sWin[newest].idx) > 0)) {
@@ -2300,9 +2357,10 @@ static void window_frames(void) {
     c.type = CMD_SHOW;
     c.serial = 0;
     c.barrier = 0;
-    disp_regs(&c.u.show.regs);
+    c.u.show.regs = *regs;
     c.u.show.vblank = 0;
     c.u.show.rgb = sWin[k].rgb;
+    c.u.show.window = 0;
     display_into(&c.u.show.regs, NULL, &sWin[k].w, &sWin[k].h, NULL);
     if (sThreads > 0) { /* it reads what everything before it drew, and nothing after it may draw there before it read */
         c.barrier = 1;
@@ -2315,7 +2373,17 @@ static void window_frames(void) {
     submit(&c);
 }
 
+/* At each VBLANK_START (plat_hw.c, the game's thread): the display registers now; the picture is made in order with the
+   drawing, by the GS thread when there is one (gs_async.c). */
 void Gs_VBlank(uint32_t vblank) {
+    DispRegs regs;
+    disp_regs(&regs);
+    if (!Gs_AsyncVBlank(vblank, &regs)) {
+        Gs_VBlankRun(vblank, &regs);
+    }
+}
+
+void Gs_VBlankRun(uint32_t vblank, const DispRegs *regs) {
     static int init;
 
     if (!init) {
@@ -2356,8 +2424,8 @@ void Gs_VBlank(uint32_t vblank) {
                 sPathTags[k] = 0;
             }
             printf("gs-trace %u dispfb1 %llX dispfb2 %llX pmode %llX display1 %llX display2 %llX bgcolor %llX\n", (unsigned)vblank,
-                   (unsigned long long)PRIV(GS_DISPFB1), (unsigned long long)PRIV(GS_DISPFB2), (unsigned long long)PRIV(GS_PMODE),
-                   (unsigned long long)PRIV(GS_DISPLAY1), (unsigned long long)PRIV(GS_DISPLAY2), (unsigned long long)PRIV(GS_BGCOLOR));
+                   (unsigned long long)regs->dispfb[0], (unsigned long long)regs->dispfb[1], (unsigned long long)regs->pmode,
+                   (unsigned long long)regs->display[0], (unsigned long long)regs->display[1], (unsigned long long)regs->bgcolor);
         }
     }
     { /* TTT_GS_TEXDUMP=<vblank>:<tex0>:<x>:<y>:<w>:<h> writes that texture region (through a CLUT loaded from TEX0) */
@@ -2400,7 +2468,7 @@ void Gs_VBlank(uint32_t vblank) {
         }
     }
     if (Port_WindowOpen()) {
-        window_frames();
+        window_frames(regs);
     }
     if (sDumpDir == NULL || *sDumpDir == 0 || vblank % sDumpEvery != 0) {
         return;
@@ -2409,29 +2477,77 @@ void Gs_VBlank(uint32_t vblank) {
     {
         Cmd c;
         c.type = CMD_SHOW;
-        disp_regs(&c.u.show.regs);
+        c.u.show.regs = *regs;
         c.u.show.vblank = vblank;
         c.u.show.rgb = NULL;
+        c.u.show.window = 0;
         submit_serial(&c);
     }
 }
 
 void Gs_Report(void) {
+    Gs_AsyncDrain();
     gs_sync();
     if (sThreads > 0 && getenv("TTT_GS_STATS") != NULL) {
         struct timespec ts;
         clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
         fprintf(stderr, "gs-stats: %d raster threads; %u commands, %u serial, %u after a barrier; main thread %ld.%03ld s CPU, %ld ms of it "
-                "waiting for the raster threads\n", sThreads, sCmdCount[0], sCmdCount[1], sCmdCount[2], (long)ts.tv_sec, ts.tv_nsec / 1000000,
-                (long)(sWaitNs / 1000000));
+                "waiting for the raster threads, %ld ms for the GS thread; GS thread %ld ms CPU; window thread %ld ms CPU\n", sThreads, sCmdCount[0],
+                sCmdCount[1], sCmdCount[2], (long)ts.tv_sec, ts.tv_nsec / 1000000, (long)(sWaitNs / 1000000), (long)(Gs_AsyncWaitNs() / 1000000),
+                (long)Gs_AsyncCpuMs(), (long)Gs_GlCpuMs());
     }
     sStat.pixels = gs_pixels();
     printf("ttt: gs: %u GIF tags, %u register writes, %u primitives, %u pixels, %u image qwords, %u local copies, "
            "%u readbacks (not modelled)\n",
            sStat.tags, sStat.regs, sStat.prims, sStat.pixels, sStat.imageQw, sStat.localCopies, sStat.readbacks);
     Gs_Vu1Report();
+    Gl_Report();
     Port_WindowReport();
 }
+
+/* ------------------------------------------------------------------------------------------------ for gs_gl.c */
+
+uint32_t *Gs_Vram(void) { return sVram; }
+
+/* Whether the GS has raster threads or the GL back end (the GS thread of gs_async.c is then on by default). */
+int Gs_ThreadsWanted(void) {
+    if (sThreads < 0) {
+        threads_start();
+    }
+    return sThreads > 0;
+}
+int Gs_PsmBits(uint32_t psm) { return psm_bits(psm); }
+
+const uint16_t *Gs_PageTable(int k) {
+    tables_init();
+    switch (k) {
+    case 0: return &sIn32[0][0];
+    case 1: return &sIn16[0][0][0];
+    case 2: return &sIn16[1][0][0];
+    case 3: return &sIn8[0][0];
+    default: return &sIn4[0][0];
+    }
+}
+
+void Gs_PagesOf(uint32_t set[16], uint32_t bp, uint32_t bw, uint32_t psm, uint32_t x0, uint32_t x1, uint32_t y0, uint32_t y1) {
+    pages_of(set, bp, bw, psm, x0, x1, y0, y1);
+}
+
+void Gs_TexRange(uint32_t wm, int size, int mn, int mx, uint32_t *lo, uint32_t *hi) { tex_range(wm, size, mn, mx, lo, hi); }
+void Gs_CpuUpload(const Cmd *c) { exec_upload(c); }
+void Gs_CpuCopy(const Cmd *c) { exec_copy(c); }
+void Gs_ClutFill(uint16_t clut[512], uint64_t t0, uint64_t texclut) { clut_fill(clut, t0, texclut); }
+
+void Gs_Palette(const uint16_t clut[512], const Draw *d, uint32_t out[256]) {
+    uint32_t i;
+    for (i = 0; i < (d->tbits == 8 ? 256u : 16u); i++) {
+        out[i] = clut_read(clut, d->tex0, i, (int)d->tbits, d->texa);
+    }
+}
+
+void Gs_Circuit(const DispRegs *regs, int k, Circuit *c) { circuit(regs, k, c); }
+int Gs_WritePng(const char *path, uint32_t w, uint32_t h, const uint8_t *rgb) { return write_png(path, w, h, rgb); }
+const char *Gs_DumpDir(void) { return sDumpDir != NULL && *sDumpDir != 0 ? sDumpDir : NULL; }
 
 /* ------------------------------------------------------------------------------------------------ self-test */
 

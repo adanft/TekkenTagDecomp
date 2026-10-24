@@ -24,10 +24,12 @@ class EeSelfTest(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("ttt: ee self-test OK", r.stdout)
 
-    def test_known_libm_divergences_are_only_the_third_party_constants(self):
+    def test_libm_agrees_with_the_executable(self):
+        """F03: third_party/newlib_libm has the executable's asinf constants and atanf's run-time sum, so asinf /
+        atan2f give the original's bits (no tolerated difference is left)."""
         r = run_ttt(TTT_SELFTEST="ee")
-        known = re.findall(r"ee: KNOWN (\S+):", r.stdout)
-        self.assertTrue(set(known) <= {"asinf", "__ieee754_asinf", "atan2f"}, r.stdout)
+        self.assertNotRegex(r.stdout, r"ee: (__ieee754_)?(asinf|atan2f)\b")
+        self.assertNotIn("KNOWN", r.stdout)
 
 
 @unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")

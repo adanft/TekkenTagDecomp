@@ -22,8 +22,8 @@ static float
 #endif
 one =  1.0000000000e+00, /* 0x3F800000 */
 huge =  1.000e+30,
-pio2_hi = 1.57079637050628662109375f,
-pio2_lo = -4.37113900018624283e-8f,
+pio2_hi =  1.5707962513e+00, /* 0x3fc90fda: the executable's newlib (F03), not the later 0x3fc90fdb */
+pio2_lo =  7.5497894159e-08, /* 0x33a22168: the executable's newlib (F03), not the later -4.37e-8 */
 pio4_hi = 0.785398185253143310546875f,
 	/* coefficient for R(x^2) */
 pS0 =  1.6666667163e-01, /* 0x3e2aaaab */

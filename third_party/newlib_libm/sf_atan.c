@@ -79,8 +79,10 @@ huge   = 1.0e30;
 	if(ix>=0x50800000) {	/* if |x| >= 2^34 */
 	    if(FLT_UWORD_IS_NAN(ix))
 		return x+x;		/* NaN */
-	    if(hx>0) return  atanhi[3]+atanlo[3];
-	    else     return -atanhi[3]-atanlo[3];
+	    /* F03: the executable adds these at run time (EE rounding toward zero: 0x3fc90fda); read through
+	       volatile so the compiler does not fold the sum with round-to-nearest (0x3fc90fdb) */
+	    if(hx>0) return  *(volatile const float *)&atanhi[3]+atanlo[3];
+	    else     return -*(volatile const float *)&atanhi[3]-atanlo[3];
 	} if (ix < 0x3ee00000) {	/* |x| < 0.4375 */
 	    if (ix < 0x31000000) {	/* |x| < 2^-29 */
 		if(huge+x>one) return x;	/* raise inexact */

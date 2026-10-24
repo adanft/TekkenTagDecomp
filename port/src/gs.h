@@ -12,6 +12,11 @@ void Gs_VramWrite(uint32_t bp, uint32_t bw, uint32_t psm, uint32_t x, uint32_t y
 void Gs_Reset(void);                                   /* sceGsResetGraph: drawing state back to power-on */
 void Gs_VBlank(uint32_t vblank);                       /* plat_hw.c, at each VBLANK_START: the frame dump */
 void Gs_Report(void);                                  /* TTT_FRAMES report line */
+/* The DMA channels' data for VIF1 and the GIF (PATH3): carried out by the GS thread (gs_async.c) or at once. */
+void Gs_DmaVif1(const uint32_t *w, uint32_t count);
+void Gs_DmaGif3(const uint8_t *p, uint32_t qwc);
+int Gs_AsyncOn(void);
+void Gs_AsyncDrain(void);                              /* waits until the GS thread did everything queued (game's thread) */
 
 /* The window (plat_window.c, SDL3 loaded at run time): Port_WindowOpen opens it when the run asks for one (TTT_WINDOW,
    or real time) and says so (0: headless); Port_WindowPresent hands it a picture (RGB); Port_WindowClosed: the user

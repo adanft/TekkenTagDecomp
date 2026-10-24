@@ -221,10 +221,10 @@ static void dma_block(int ch, uint32_t addr, uint32_t qwc) {
         Port_Vif0Feed((const uint32_t *)Port_DmaPtr(addr), qwc * 4);
     }
     if (ch == 1 && qwc != 0) { /* VIF1: VU1 and PATH2 (gs_vif1.c) */
-        Gs_Vif1((const uint32_t *)Port_DmaPtr(addr), qwc * 4);
+        Gs_DmaVif1((const uint32_t *)Port_DmaPtr(addr), qwc * 4);
     }
     if (ch == 2 && qwc != 0) { /* GIF: PATH3 (gs_core.c) */
-        Gs_Gif(3, (const uint8_t *)Port_DmaPtr(addr), qwc);
+        Gs_DmaGif3((const uint8_t *)Port_DmaPtr(addr), qwc);
     }
     /* IPU / SIF: dropped here. */
 }
@@ -271,7 +271,7 @@ static int dma_source_chain(int ch) {
             Port_Vif0Feed(&tag[2], 2);
         }
         if (ch == 1 && (REG(base + CHCR) & 0x40u)) { /* the same for VIF1 */
-            Gs_Vif1(&tag[2], 2);
+            Gs_DmaVif1(&tag[2], 2);
         }
         if (ch == 9 && (REG(base + CHCR) & 0x40u)) { /* toSPR with TTE: the whole tag quadword goes in front of its data */
             uint32_t sadr = REG(base + SADR);

@@ -17,10 +17,12 @@
 int __real_main(int argc, char **argv);
 int Port_WindowOpen(void); /* plat_window.c */
 void Port_PadSelfTest(void); /* plat_pad.c: TTT_SELFTEST=pad */
+void Port_WindowSelfTest(void); /* plat_window.c: TTT_SELFTEST=window */
 
 int __wrap_main(int argc, char **argv) {
     /* the window first, on the host stack: SDL's start-up is neither for the EE stack nor for the game's clock */
     Port_PadSelfTest();
+    Port_WindowSelfTest();
     Port_WindowOpen();
     __asm__ volatile("movl %0, %%esp\n\t"
                      "subl $8, %%esp\n\t" /* 16-byte aligned at the call */

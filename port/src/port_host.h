@@ -21,6 +21,7 @@ PORT_NOPLT(dlsym);
 PORT_NOPLT(dlerror);
 PORT_NOPLT(dlclose);
 PORT_NOPLT(sysconf);
+PORT_NOPLT(_exit);
 #undef PORT_NOPLT
 
 #endif
