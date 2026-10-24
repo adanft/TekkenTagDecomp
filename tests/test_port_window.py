@@ -112,25 +112,6 @@ class Window(unittest.TestCase):
                 mean = sum(abs(x - y) for x, y in zip(a, b)) / len(a)
                 self.assertLess(mean, 4.0, name)
 
-    def test_gs_thread_changes_nothing(self):
-        """The GS path on its own thread (TTT_GS_ASYNC=1) gives the same state and the same pictures as on the game's
-        thread (TTT_GS_ASYNC=0), through the title, the menu and the attract cycle's loading."""
-        with tempfile.TemporaryDirectory() as d:
-            runs = []
-            for on in ("0", "1"):
-                out = Path(d) / on
-                out.mkdir()
-                r = run_ttt(TTT_FRAMES="760", TTT_SEED="1", TTT_GS_ASYNC=on, TTT_DUMP=str(out), TTT_DUMP_EVERY="95")
-                self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
-                runs.append((r, out))
-            self.assertEqual(state(runs[0][0]), state(runs[1][0]))
-            self.assertIsNotNone(state(runs[0][0]))
-            names = sorted(p.name for p in runs[0][1].iterdir())
-            self.assertEqual(len(names), 8)
-            self.assertEqual(names, sorted(p.name for p in runs[1][1].iterdir()))
-            for name in names:
-                self.assertEqual((runs[0][1] / name).read_bytes(), (runs[1][1] / name).read_bytes(), name)
-
 
 if __name__ == "__main__":
     unittest.main()

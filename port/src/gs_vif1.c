@@ -220,7 +220,7 @@ void Gs_Vif1(const uint32_t *w, uint32_t count) {
             if (qwc == 0) {
                 break; /* not a whole quadword left: GIF data is quadword aligned */
             }
-            Gs_Gif(2, (const uint8_t *)&w[i], qwc);
+            Gs_AsyncGif(2, (const uint8_t *)&w[i], qwc);
             i += qwc * 4;
             vif.direct -= qwc;
             continue;

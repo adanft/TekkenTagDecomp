@@ -6,6 +6,9 @@
 
 /* GIF paths: 1 = VU1 XGKICK, 2 = VIF1 DIRECT / DIRECTHL, 3 = the GIF DMA channel. Each keeps its own tag. */
 void Gs_Gif(int path, const uint8_t *p, uint32_t qwc);
+void Gs_AsyncGif(int path, const uint8_t *p, uint32_t qwc); /* VIF1 / VU1's GIF data: to the GIF thread, or Gs_Gif */
+uint8_t *Gs_AsyncGifReserve(uint32_t maxQwc);              /* XGKICK: room in the GIF thread's queue (NULL: none) */
+void Gs_AsyncGifCommit(int path, uint32_t qwc);            /* ... and the quadwords written there */
 void Gs_RegWrite(uint32_t addr, uint64_t d);           /* one GS register (A+D addresses) */
 uint32_t Gs_VramRead(uint32_t bp, uint32_t bw, uint32_t psm, uint32_t x, uint32_t y);
 void Gs_VramWrite(uint32_t bp, uint32_t bw, uint32_t psm, uint32_t x, uint32_t y, uint32_t v);
@@ -16,6 +19,7 @@ void Gs_Report(void);                                  /* TTT_FRAMES report line
 void Gs_DmaVif1(const uint32_t *w, uint32_t count);
 void Gs_DmaGif3(const uint8_t *p, uint32_t qwc);
 int Gs_AsyncOn(void);
+void Gs_Finish(void);                                  /* the GS thread(s) and the back end have finished (game's thread) */
 void Gs_AsyncDrain(void);                              /* waits until the GS thread did everything queued (game's thread) */
 
 /* The window (plat_window.c, SDL3 loaded at run time): Port_WindowOpen opens it when the run asks for one (TTT_WINDOW,

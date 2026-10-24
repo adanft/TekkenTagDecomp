@@ -15,11 +15,15 @@
  *     bytes of its words (the game keeps PSMT8H / 4HL / 4HH fonts in the top byte of its frame buffer).
  *   - Per page the back end knows which bytes the CPU wrote and the mirror has not seen yet (pushed before the next
  *     GPU use, with a colour mask when only some bytes changed) and which bytes the GPU wrote that the CPU copy lacks
- *     (read back before the CPU writes or reads those bytes: CLUT loads and uploads into resolved pages).
+ *     (read back before the CPU writes or reads those bytes: uploads and local copies into resolved pages; a CLUT load
+ *     from them runs on the GPU instead, see clut()).
  *   - Primitives become vertices (integer attributes: 12.4 positions, Z, colour, S / T / Q float bits or U / V, fog)
  *     and a per-primitive state record (texture, CLUT row, wrap, filter, TFX / TCC, fog, alpha test, scissor, blend
  *     selects) in a texture buffer; a draw call covers every primitive until the target or a fixed-function setting
- *     changes (blend equation, depth test / write, colour mask, the alpha test's fail mode).
+ *     changes (blend equation, depth test / write, colour mask, the alpha test's fail mode). Both buffers are rings
+ *     written unsynchronised (T30 batch 4). An alpha test with the same outcome for every pixel of a primitive (its
+ *     alpha range: alpha_range) is no test, and a repeated pass on the same vertices shares the depth write of the
+ *     first (same_depth): most two-pass batches of batch 3 are gone.
  *   - The shader computes everything the GS does per pixel in integers (texel addressing, wrap modes, CLUT, TEXA,
  *     bilinear with 4-bit fractions, TFX / TCC, fog, alpha test, FBA); the blend ((A - B) * C >> 7) + D is fixed-function
  *     dual-source blending: the shader outputs Cs * |ks| and |kd| for the batch's equation (add, subtract or reverse
@@ -121,6 +125,11 @@ typedef char GLchar;
 #define GL_RENDERER 0x1F01
 #define GL_PACK_ALIGNMENT 0x0D05
 #define GL_UNPACK_ALIGNMENT 0x0CF5
+#define GL_MAX_TEXTURE_BUFFER_SIZE 0x8C2B
+#define GL_MAP_WRITE_BIT 0x0002
+#define GL_MAP_INVALIDATE_RANGE_BIT 0x0004
+#define GL_MAP_INVALIDATE_BUFFER_BIT 0x0008
+#define GL_MAP_UNSYNCHRONIZED_BIT 0x0020
 
 static struct {
     GLenum (*GetError)(void);
@@ -180,6 +189,9 @@ static struct {
     void (*Uniform4uiv)(GLint, GLsizei, const GLuint *);
     void (*DrawArrays)(GLenum, GLint, GLsizei);
     void (*Finish)(void);
+    void *(*MapBufferRange)(GLenum, GLintptr, GLsizeiptr, GLbitfield);
+    GLboolean (*UnmapBuffer)(GLenum);
+    void (*GetIntegerv)(GLenum, GLint *);
 } gl;
 
 static const struct {
@@ -196,13 +208,14 @@ static const struct {
     F(ShaderSource), F(CompileShader), F(GetShaderiv), F(GetShaderInfoLog), F(CreateProgram), F(AttachShader),
     F(LinkProgram), F(GetProgramiv), F(GetProgramInfoLog), F(UseProgram), F(GetUniformLocation), F(Uniform1i),
     F(Uniform2i), F(Uniform4i), F(Uniform1ui), F(Uniform4iv), F(Uniform4uiv), F(DrawArrays), F(Finish),
+    F(MapBufferRange), F(UnmapBuffer), F(GetIntegerv),
 #undef F
 };
 
 /* ------------------------------------------------------------------------------------------------ shaders */
 
 /* Texture units */
-enum { U_VRAM, U_TAB, U_INV, U_PAL, U_STATES, U_SRC, U_STAGE };
+enum { U_VRAM, U_TAB, U_INV, U_PAL, U_STATES, U_SRC, U_STAGE, U_CLUT };
 
 /* GS memory in the shader: the mirror and the page tables (gs_core.c's sIn32 / sIn16 / sIn16S / sIn8 / sIn4 at rows
    0 / 32 / 96 / 160 / 224 of a 128-wide R16UI texture), gs_read() = gs_core.c's vram_loc + vloc_read. */
@@ -459,6 +472,49 @@ static const char kStageFs[] =
     "out uvec4 oWord;\n"
     "void main() { oWord = texelFetch(uStage, ivec2(gl_FragCoord.xy), 0); }\n";
 
+/* The CLUT buffer on the GPU, for CLUT loads from pages the GPU drew (T30 batch 4: no read back). A row of a 512-wide
+   R16UI texture holds the whole buffer (gs_core.c's clut[512] halves); the halves the CPU copy knows come as uniforms,
+   the others from the previous GPU row. */
+static const char kClutLib[] =
+    "uniform usampler2D uClut;\n"
+    "uniform int uRow;\n"       /* the GPU row with the halves the CPU copy lacks (-1: none) */
+    "uniform uvec4 uCpu[64];\n" /* the CPU copy: two halves per word */
+    "uniform uvec4 uUnk[4];\n"  /* bit h: half h only on the GPU */
+    "uint half_(uint h) {\n"
+    "    if (uRow >= 0 && ((uUnk[h >> 7][(h >> 5) & 3u] >> (h & 31u)) & 1u) != 0u) return texelFetch(uClut, ivec2(int(h), uRow), 0).r;\n"
+    "    uint w = uCpu[h >> 3][(h >> 1) & 3u];\n"
+    "    return (h & 1u) != 0u ? w >> 16 : w & 0xFFFFu;\n"
+    "}\n";
+
+/* A CLUT load (gs_core.c's clut_fill) into a new row: the halves it writes from the mirror, the others kept. */
+static const char kClutLoadFs[] =
+    "uniform uvec4 uLd;\n" /* cbp, cpsm, entries | csa << 16 | csm << 31, TEXCLUT: cbw | cou << 6 | cov << 12 */
+    "out uvec4 oHalf;\n"
+    "void main() {\n"
+    "    uint h = uint(gl_FragCoord.x), cpsm = uLd.y, n = uLd.z & 0xFFFFu, csa = (uLd.z >> 16) & 31u, i = 512u;\n"
+    "    bool c32 = cpsm == 0u || cpsm == 1u;\n"
+    "    uint base = n == 256u ? 0u : (c32 ? (csa * 16u) & 255u : csa * 16u), e = c32 ? h & 255u : h;\n"
+    "    if (e >= base && e < base + n) i = e - base;\n"
+    "    if (i == 512u) { oHalf = uvec4(half_(h), 0u, 0u, 0u); return; }\n"
+    "    uint x, y, bw = 1u;\n"
+    "    if ((uLd.z >> 31) != 0u) { bw = uLd.w & 63u; x = ((uLd.w >> 6) & 63u) * 16u + i; y = (uLd.w >> 12) & 1023u; }\n"
+    "    else if (n == 256u) { uint k = (i & 0xE7u) | ((i & 8u) << 1) | ((i & 0x10u) >> 1); x = k & 15u; y = k >> 4; }\n"
+    "    else { x = i & 7u; y = i >> 3; }\n"
+    "    uint c = gs_read(uLd.x, bw, c32 ? 0u : cpsm, x, y);\n"
+    "    oHalf = uvec4(c32 && h >= 256u ? c >> 16 : c & 0xFFFFu, 0u, 0u, 0u);\n"
+    "}\n";
+
+/* A CLUT row for the draws (pal_row) from the buffer: gs_core.c's clut_read through TEXA. */
+static const char kClutExpandFs[] =
+    "uniform uvec4 uEx;\n" /* cpsm, csa, entries, TEXA: ta0 | ta1 << 8 | aem << 16 */
+    "out uvec4 oCol;\n"
+    "void main() {\n"
+    "    uint i = uint(gl_FragCoord.x), cpsm = uEx.x, e = uEx.z == 256u ? i : uEx.y * 16u + i;\n"
+    "    if (i >= uEx.z) { oCol = uvec4(0u); return; }\n"
+    "    if (cpsm == 0u || cpsm == 1u) { e &= 255u; oCol = unpack32(half_(e) | (half_(e + 256u) << 16)); return; }\n"
+    "    oCol = expandc(half_(e & 511u), 16u, uEx.w & 255u, (uEx.w >> 8) & 255u, ((uEx.w >> 16) & 1u) != 0u);\n"
+    "}\n";
+
 /* The display: gs_core.c's display_into() on the mirror. */
 static const char kDisplayFs[] =
     "uniform uvec4 uCa[2];\n" /* per circuit: fbp, fbw, psm, dbx | dby << 16 */
@@ -494,8 +550,10 @@ static const char kDisplayFs[] =
 #define MAX_RT 16
 #define RT_ROWS 1024 /* rows allocated per target (the GS addresses 2048; the game draws within 1024) */
 #define PAL_ROWS 2048
-#define MAX_VERTS (1 << 18)
+#define MAX_VERTS (1 << 18)   /* per draw-call flush */
 #define MAX_STATES 32768
+#define VB_RING (1 << 21)     /* vertices in the vertex buffer: written in turn, given new storage when it wraps */
+#define ST_RING (1 << 18)     /* state records in the state buffer, the same way */
 
 typedef struct Rt {
     int used, depth;
@@ -532,7 +590,18 @@ static int sCause; /* what asks for a resolve / read back (TTT_FRAMES report): 0
 static uint32_t sResBy[5], sRbBy[5];
 static GLuint sVramTex, sVramFbo, sTabTex, sInvTex, sPalTex, sStateBuf, sStateTex, sStageTex, sDispTex, sDispFbo;
 static GLuint sVbo, sVao, sEmptyVao;
-static GLuint sProgDraw, sProgResolve, sProgLoad, sProgStage, sProgDisplay;
+static GLuint sProgDraw, sProgResolve, sProgLoad, sProgStage, sProgDisplay, sProgClutLoad, sProgClutExpand;
+#define CLUT_ROWS 64 /* GPU CLUT buffers per texture; two textures, the rows taking turns (a pass reads the previous row) */
+static GLuint sClutTex[2], sClutFbo[2], sPalFbo;
+static struct { GLint rect, target, row, cpu, unk, arg; } uClutLoad, uClutExpand;
+/* The CLUT buffer's halves only the GPU has (sClutTex row sClutGpu: serial number, row (n >> 1) % CLUT_ROWS of texture
+   n & 1); sClutHash is then a serial number (with the top bit set) instead of the content's hash. */
+static uint32_t sClutUnk[16], sClutGpu, sClutSerial;
+static int sClutUnkAny;
+static uint32_t sMirrorGen; /* bumped whenever the mirror changes (resolves, pushes) */
+/* The last load run on the GPU: the same one again, on the buffer it left and the same mirror, changes nothing (the game
+   sends TEX0 with CLD 1 before every batch) */
+static struct { uint64_t key, ktc, after; uint32_t mirrorGen; } sLastGpuLoad;
 static struct { GLint size, zbits, zmax, pass; } uDraw;
 static struct { GLint rect, target, buf; } uResolve, uLoad, uStage;
 static struct { GLint rect, target, ca, cb, mode, main; } uDisp;
@@ -548,12 +617,14 @@ static int sChecked;
 static uint32_t sDirtyAny[16];     /* the CLUT buffer's content (64-bit FNV-1a of its words) */
 static uint16_t sClut[512];   /* the CLUT buffer, loaded in order with the primitives */
 static uint32_t (*sPal)[256];  /* CLUT rows waiting for the next draw call */
+static uint8_t sPalA[PAL_ROWS][2]; /* per CLUT row: its entries' smallest and largest alpha */
 static uint32_t sPalNext, sPalUp;
 static struct { uint64_t ver; uint32_t cpsm, csa, bits; uint64_t texa; int row; } sPalKey = {0, 0, 0, 0, 0, -1};
 static GlVtx *sV;
 static uint32_t sNv;
 static uint32_t (*sS)[12];
 static uint32_t sNs;
+static uint32_t sVbBase, sStBase, sStRing; /* where the next flush writes in the rings (vertices, state records) */
 /* A draw call: the primitives sharing the fixed-function state (a two-pass alpha test also needs the same state record,
    as the GS's own batches: its failing pixels are drawn after the passing ones of the whole batch). */
 typedef struct Batch {
@@ -564,7 +635,15 @@ typedef struct Batch {
 static Batch *sB;
 static uint32_t sNb;
 static struct { uint64_t tex0, clamp; uint32_t pages[16]; int valid; } sTexPages;
-static struct { uint32_t batches, draws, resolves, loads, pushes, readbacks, rts, date, ad, fbmsk, colclamp, pabe, overlapZ, shows; } sGlStat;
+/* The geometry of a primitive for same_depth(): type, vertex positions and Z, scissor. */
+typedef struct Geo {
+    int type;
+    int32_t xyz[3][3];
+    int sc[4];
+} Geo;
+/* The last primitive that wrote depth wherever it passed its depth test (see same_depth()). */
+static struct { int valid, zrt; Geo g; } sLastZ;
+static struct { uint32_t batches, draws, resolves, loads, pushes, readbacks, rts, date, ad, fbmsk, colclamp, pabe, overlapZ, shows, clutGpu; } sGlStat;
 
 /* ------------------------------------------------------------------------------------------------ helpers */
 
@@ -614,6 +693,7 @@ static GLuint program(const char *vs, const char *fs, const char *fsLib, char *w
 static void samplers(GLuint p) {
     static const struct { const char *name; int unit; } k[] = {
         {"uVram", U_VRAM}, {"uTab", U_TAB}, {"uInv", U_INV}, {"uPal", U_PAL}, {"uStates", U_STATES}, {"uSrc", U_SRC}, {"uStage", U_STAGE},
+        {"uClut", U_CLUT},
     };
     size_t i;
     gl.UseProgram(p);
@@ -753,6 +833,7 @@ static void push(void) {
             rect_pass(uStage.rect, uStage.target, 0, p * 2, 1024, q * 2, 1024, 1024);
         }
         sGlStat.pushes++;
+        sMirrorGen++;
         memset(sCpuDirty + p, 0, (size_t)(q - p));
         p = q;
     }
@@ -830,6 +911,7 @@ static void resolve(int i) {
     }
     sGlStat.resolves++;
     sResBy[sCause]++;
+    sMirrorGen++;
 }
 
 /* Whether target i drew pages of `set` (bytes `mask`) since its last resolve. */
@@ -877,6 +959,7 @@ static void rt_load(int i, uint32_t y0, uint32_t y1) {
     rect_pass(uLoad.rect, uLoad.target, 0, (int)y0, r->w, (int)y1, r->w, RT_ROWS);
     plain_state();
     sGlStat.loads++;
+    sLastZ.valid = 0;
 }
 
 static void rt_drop(int i) {
@@ -884,6 +967,7 @@ static void rt_drop(int i) {
     if (!sRt[i].used) {
         return;
     }
+    sLastZ.valid = 0;
     resolve(i);
     flush();
     for (k = 0; k < sizeof sFbo / sizeof sFbo[0]; k++) {
@@ -999,6 +1083,59 @@ static void set_masks(int cmask, int dwrite, int *curC, int *curD) {
     }
 }
 
+/* The CLUT rows made on the CPU since the last upload. */
+static void pal_upload(void) {
+    if (sPalNext > sPalUp) {
+        gl.ActiveTexture(GL_TEXTURE0 + U_PAL);
+        gl.TexSubImage2D(GL_TEXTURE_2D, 0, 0, (GLint)sPalUp, 256, (GLsizei)(sPalNext - sPalUp), GL_RGBA_INTEGER, GL_UNSIGNED_BYTE, sPal[sPalUp]);
+        gl.ActiveTexture(GL_TEXTURE0 + U_VRAM);
+        sPalUp = sPalNext;
+    }
+}
+
+/* The halves of the CLUT buffer that a load or a read with these fields writes / reads (gs_core.c's clut_fill /
+   clut_read): bits of out[16]. */
+static void clut_halves(uint32_t cpsm, uint32_t csa, uint32_t n, uint32_t out[16]) {
+    int c32 = cpsm == 0 || cpsm == 1;
+    memset(out, 0, 16 * sizeof *out);
+    if (n == 256) { /* entries 0..255: every half (32 bits), the low 256 (16 bits) */
+        memset(out, 0xFF, (c32 ? 16 : 8) * sizeof *out);
+    } else { /* 16 entries from CSA: half a word of the set (and the same 256 halves on, 32 bits) */
+        uint32_t e = c32 ? (csa * 16) & 255 : (csa * 16) & 511;
+        out[e >> 5] |= 0xFFFFu << (e & 31);
+        if (c32) {
+            out[(e + 256) >> 5] |= 0xFFFFu << (e & 31);
+        }
+    }
+}
+
+/* The uniforms of kClutLib for the current buffer. */
+static void clut_uniforms(GLint row, GLint cpu, GLint unk) {
+    GLuint words[256];
+    uint32_t i;
+    for (i = 0; i < 256; i++) {
+        words[i] = (GLuint)sClut[i * 2] | (GLuint)sClut[i * 2 + 1] << 16;
+    }
+    gl.Uniform4uiv(cpu, 64, words);
+    gl.Uniform4uiv(unk, 4, sClutUnk);
+    gl.ActiveTexture(GL_TEXTURE0 + U_CLUT);
+    gl.BindTexture(GL_TEXTURE_2D, sClutTex[sClutGpu & 1]);
+    gl.Uniform1i(row, sClutUnkAny ? (GLint)((sClutGpu >> 1) % CLUT_ROWS) : -1);
+    gl.ActiveTexture(GL_TEXTURE0 + U_VRAM);
+}
+
+/* Writes `bytes` bytes at `at` of the buffer bound to `target`; `fresh`: the ring wrapped (new storage). */
+static void ring_write(GLenum target, int fresh, GLintptr at, GLsizeiptr bytes, const void *data) {
+    void *p = gl.MapBufferRange(target, at, bytes, GL_MAP_WRITE_BIT | GL_MAP_UNSYNCHRONIZED_BIT |
+                                                   (fresh ? GL_MAP_INVALIDATE_BUFFER_BIT : GL_MAP_INVALIDATE_RANGE_BIT));
+    if (p == NULL) { /* not expected: the plain upload */
+        gl.BufferSubData(target, at, bytes, data);
+        return;
+    }
+    memcpy(p, data, (size_t)bytes);
+    gl.UnmapBuffer(target);
+}
+
 /* Carries out the queued primitives: their vertices and state records go to the GPU in one upload, then one draw call
    per batch (two with an alpha test that writes on failure), setting only the GL state that changes between them. */
 static void flush(void) {
@@ -1009,18 +1146,21 @@ static void flush(void) {
         return;
     }
     push();
-    if (sPalNext > sPalUp) {
-        gl.ActiveTexture(GL_TEXTURE0 + U_PAL);
-        gl.TexSubImage2D(GL_TEXTURE_2D, 0, 0, (GLint)sPalUp, 256, (GLsizei)(sPalNext - sPalUp), GL_RGBA_INTEGER, GL_UNSIGNED_BYTE, sPal[sPalUp]);
-        gl.ActiveTexture(GL_TEXTURE0 + U_VRAM);
-        sPalUp = sPalNext;
-    }
+    pal_upload();
+    /* Both go after what earlier flushes wrote, unsynchronised (the GPU still reads those parts, never these); a ring
+       that wraps gets new storage (the driver keeps the old one until the GPU is done with it). Giving the buffers new
+       storage at every flush cost the driver fresh pages each time (T30 batch 4: 700 page faults per fight VBlank). */
     gl.BindBuffer(GL_TEXTURE_BUFFER, sStateBuf);
-    gl.BufferData(GL_TEXTURE_BUFFER, (GLsizeiptr)MAX_STATES * 48, NULL, GL_STREAM_DRAW);
-    gl.BufferSubData(GL_TEXTURE_BUFFER, 0, (GLsizeiptr)sNs * 48, sS);
+    ring_write(GL_TEXTURE_BUFFER, sStBase == 0, (GLintptr)sStBase * 48, (GLsizeiptr)sNs * 48, sS);
+    sStBase += sNs;
+    if (sStBase + MAX_STATES > sStRing) {
+        sStBase = 0; /* put() numbers the next records from there */
+    }
     gl.BindBuffer(GL_ARRAY_BUFFER, sVbo);
-    gl.BufferData(GL_ARRAY_BUFFER, (GLsizeiptr)MAX_VERTS * (GLsizeiptr)sizeof(GlVtx), NULL, GL_STREAM_DRAW);
-    gl.BufferSubData(GL_ARRAY_BUFFER, 0, (GLsizeiptr)sNv * (GLsizeiptr)sizeof(GlVtx), sV);
+    if (sVbBase + sNv > VB_RING) {
+        sVbBase = 0;
+    }
+    ring_write(GL_ARRAY_BUFFER, sVbBase == 0, (GLintptr)sVbBase * (GLintptr)sizeof(GlVtx), (GLsizeiptr)sNv * (GLsizeiptr)sizeof(GlVtx), sV);
     gl.UseProgram(sProgDraw);
     gl.BindVertexArray(sVao);
     for (i = 0; i < sNb; i++) {
@@ -1064,16 +1204,17 @@ static void flush(void) {
             curPass = k->pass != 0;
             gl.Uniform1i(uDraw.pass, curPass);
         }
-        gl.DrawArrays(mode, (GLint)sB[i].first, (GLsizei)sB[i].count);
+        gl.DrawArrays(mode, (GLint)(sVbBase + sB[i].first), (GLsizei)sB[i].count);
         sGlStat.draws++;
         if (k->pass == 2) { /* the failing pixels: usually only the depth mask changes (FB_ONLY) */
             set_masks(k->fmask, k->fdwrite, &curCmask, &curDmask);
             gl.Uniform1i(uDraw.pass, 2);
             curPass = 2;
-            gl.DrawArrays(mode, (GLint)sB[i].first, (GLsizei)sB[i].count);
+            gl.DrawArrays(mode, (GLint)(sVbBase + sB[i].first), (GLsizei)sB[i].count);
             sGlStat.draws++;
         }
     }
+    sVbBase += sNv;
     plain_state();
     sGlStat.batches += sNb;
     sNv = 0;
@@ -1096,6 +1237,54 @@ static int pal_row(const Draw *d) {
     sPalKey.csa = csa;
     sPalKey.bits = d->tbits;
     sPalKey.texa = d->texa;
+    if (sClutUnkAny) { /* entries the CPU copy lacks: the row is made on the GPU (pal_gpu) */
+        uint32_t need[16];
+        int k, gpu = 0;
+        clut_halves(cpsm, csa, n, need);
+        for (k = 0; k < 16; k++) {
+            gpu |= (need[k] & sClutUnk[k]) != 0;
+        }
+        if (gpu) {
+            for (i = 0; i < 32; i++) {
+                if (cache[i].row >= 0 && cache[i].row < (int)sPalNext && cache[i].ver == sClutHash && cache[i].cpsm == cpsm &&
+                    cache[i].csa == csa && cache[i].bits == d->tbits && cache[i].texa == d->texa) {
+                    sPalKey.row = cache[i].row;
+                    return sPalKey.row;
+                }
+            }
+            if (sPalNext == PAL_ROWS) {
+                flush();
+                sPalNext = sPalUp = 0;
+                for (i = 0; i < 32; i++) {
+                    cache[i].row = -1;
+                }
+            }
+            pal_upload(); /* the CPU rows before it, so that a later upload does not cover it */
+            gl.BindFramebuffer(GL_FRAMEBUFFER, sPalFbo);
+            gl.Viewport(0, 0, 256, PAL_ROWS);
+            gl.UseProgram(sProgClutExpand);
+            plain_state();
+            clut_uniforms(uClutExpand.row, uClutExpand.cpu, uClutExpand.unk);
+            gl.Uniform4uiv(uClutExpand.arg, 1, (const GLuint[]){cpsm, csa, n, (GLuint)(d->texa & 0xFF) | (GLuint)((d->texa >> 32) & 0xFF) << 8 |
+                                                                  (GLuint)((d->texa >> 15) & 1) << 16});
+            rect_pass(uClutExpand.rect, uClutExpand.target, 0, (int)sPalNext, 256, (int)sPalNext + 1, 256, PAL_ROWS);
+            sGlStat.clutGpu++;
+            sPalA[sPalNext][0] = 0; /* not known here */
+            sPalA[sPalNext][1] = 255;
+            i = cacheNext++ & 31;
+            cache[i].ver = sClutHash;
+            cache[i].texa = d->texa;
+            cache[i].cpsm = cpsm;
+            cache[i].csa = csa;
+            cache[i].bits = d->tbits;
+            cache[i].hash = 0;
+            cache[i].n = 0; /* never matched by content */
+            cache[i].row = (int)sPalNext;
+            sPalKey.row = (int)sPalNext++;
+            sPalUp = sPalNext;
+            return sPalKey.row;
+        }
+    }
     /* the same CLUT content, entry range and TEXA give the same row (the game alternates a few CLUTs) */
     for (i = 0; i < 32; i++) {
         if (cache[i].row >= 0 && cache[i].row < (int)sPalNext && cache[i].ver == sClutHash && cache[i].cpsm == cpsm && cache[i].csa == csa &&
@@ -1123,6 +1312,13 @@ static int pal_row(const Draw *d) {
         }
     }
     memcpy(sPal[sPalNext], tmp, n * 4);
+    sPalA[sPalNext][0] = 255;
+    sPalA[sPalNext][1] = 0;
+    for (i = 0; i < n; i++) {
+        uint8_t a = (uint8_t)(tmp[i] >> 24);
+        sPalA[sPalNext][0] = a < sPalA[sPalNext][0] ? a : sPalA[sPalNext][0];
+        sPalA[sPalNext][1] = a > sPalA[sPalNext][1] ? a : sPalA[sPalNext][1];
+    }
     i = cacheNext++ & 31;
     cache[i].ver = sClutHash;
     cache[i].texa = d->texa;
@@ -1161,8 +1357,70 @@ static void state_of(const Draw *d, int palRow, uint32_t s[12]) {
     s[8] = (uint32_t)d->fogcol & 0xFFFFFF;
 }
 
-/* The fixed-function part of a primitive. */
-static void key_of(const Draw *d, int rt, int zrt, int kind, Key *k) {
+/* The alpha the shader tests, as a range over the primitive: the vertices' alpha (one less for Gouraud shading, where
+   the GPU's interpolation of equal values may land just below them), the texels' (a CLUT row's entries, TEXA for 24 /
+   16 bits; bilinear filtering stays between its texels' alpha) and TFX / TCC. */
+static void alpha_range(const Draw *d, const Vtx *v, int type, int palRow, uint32_t *lo, uint32_t *hi) {
+    uint32_t cl, ch, tl, th;
+    if (type == CMD_TRIANGLE && d->gouraud) {
+        uint32_t a0 = v[0].rgba >> 24, a1 = v[1].rgba >> 24, a2 = v[2].rgba >> 24;
+        cl = a0 < a1 ? a0 : a1;
+        cl = a2 < cl ? a2 : cl;
+        ch = a0 > a1 ? a0 : a1;
+        ch = a2 > ch ? a2 : ch;
+    } else { /* sprites and lines take the last vertex's colour, points their own */
+        cl = ch = v[type == CMD_POINT ? 0 : 1].rgba >> 24;
+    }
+    if (d->gouraud && cl > 0) {
+        cl--;
+    }
+    if (!d->tex || !d->tcc) {
+        *lo = cl;
+        *hi = ch;
+        return;
+    }
+    if (d->tbits <= 8) {
+        tl = sPalA[palRow][0];
+        th = sPalA[palRow][1];
+    } else if (d->tbits == 24) {
+        tl = d->aem ? 0 : d->ta0;
+        th = d->ta0;
+    } else if (d->tbits == 16) {
+        tl = d->ta0 < d->ta1 ? d->ta0 : d->ta1;
+        th = d->ta0 > d->ta1 ? d->ta0 : d->ta1;
+        tl = d->aem ? 0 : tl;
+    } else {
+        tl = 0;
+        th = 255;
+    }
+    switch (d->tfx) {
+    case 0: tl = (tl * cl) >> 7; th = (th * ch) >> 7; break;
+    case 2: tl += cl; th += ch; break;
+    default: break;
+    }
+    *lo = tl > 255 ? 255 : tl;
+    *hi = th > 255 ? 255 : th;
+}
+
+/* The alpha test's outcome over alpha range lo..hi: 1 every pixel passes, -1 every pixel fails, 0 it depends. */
+static int alpha_outcome(uint32_t atst, uint32_t aref, uint32_t lo, uint32_t hi) {
+    switch (atst & 7) {
+    case 0: return -1;
+    case 1: return 1;
+    case 2: return hi < aref ? 1 : lo >= aref ? -1 : 0;
+    case 3: return hi <= aref ? 1 : lo > aref ? -1 : 0;
+    case 4: return lo == aref && hi == aref ? 1 : aref < lo || aref > hi ? -1 : 0;
+    case 5: return lo >= aref ? 1 : hi < aref ? -1 : 0;
+    case 6: return lo > aref ? 1 : hi <= aref ? -1 : 0;
+    default: return aref < lo || aref > hi ? 1 : lo == aref && hi == aref ? -1 : 0;
+    }
+}
+
+/* The fixed-function part of a primitive. `outcome`: the alpha test's (alpha_outcome) when known for every pixel: such
+   a primitive needs one pass with the passing or the failing masks and no test in the shader, and joins the batches
+   of any state record (most of the fighters' and the stage's FB_ONLY surfaces: CLUT alpha all 0x80 against
+   GEQUAL 0x80). */
+static void key_of(const Draw *d, int rt, int zrt, int kind, int outcome, Key *k) {
     static const int kZ[4] = {GL_NEVER, GL_ALWAYS, GL_GEQUAL, GL_GREATER};
     uint32_t m = d->fbmsk;
     int cmask = 0, i, fmask, fdw;
@@ -1200,7 +1458,7 @@ static void key_of(const Draw *d, int rt, int zrt, int kind, Key *k) {
     k->dfunc = zrt >= 0 ? (d->ztest ? kZ[d->ztst & 3] : GL_ALWAYS) : 0;
     k->dwrite = zrt >= 0 && d->zwrite;
     k->cmask = cmask;
-    if (!d->atest) {
+    if (!d->atest || outcome > 0) {
         return;
     }
     switch (d->afail) {
@@ -1215,7 +1473,11 @@ static void key_of(const Draw *d, int rt, int zrt, int kind, Key *k) {
             fmask = cmask;
         }
     }
-    if (fmask == cmask && fdw == k->dwrite) {
+    if (outcome < 0) { /* every pixel fails: one pass with the failing masks */
+        k->cmask = fmask;
+        k->dwrite = fdw;
+        k->pass = 0;
+    } else if (fmask == cmask && fdw == k->dwrite) {
         k->pass = 0; /* the test changes nothing */
     } else if (fmask == 0 && fdw == 0) {
         k->pass = 1;
@@ -1226,10 +1488,82 @@ static void key_of(const Draw *d, int rt, int zrt, int kind, Key *k) {
     }
 }
 
+/* A primitive that should not write depth may when the write changes nothing: the fighters' and the stage's
+   multi-pass surfaces draw a strip several times on the same vertices, so the later passes share the batch of the
+   first instead of alternating the depth mask. P may write depth when its vertices (positions and Z, in order: the GPU
+   makes the same fragments and depths) are those of Q, the last primitive that wrote depth wherever it passed its
+   depth test (no per-pixel alpha test; ALWAYS, GEQUAL or GREATER), P's scissor lies inside Q's and P's test is GEQUAL
+   or GREATER: wherever P passes, the depth is already its own (Q wrote it, or Q failed only on an equal one). */
+static void geo_of(const Cmd *c, Geo *g) {
+    const Vtx *v = c->u.prim.v;
+    const Draw *d = &c->u.prim.d;
+    int n = c->type == CMD_TRIANGLE ? 3 : c->type == CMD_POINT ? 1 : 2, i;
+    memset(g, 0, sizeof *g);
+    g->type = c->type;
+    for (i = 0; i < n; i++) {
+        g->xyz[i][0] = v[i].x;
+        g->xyz[i][1] = v[i].y;
+        g->xyz[i][2] = (int32_t)v[i].z;
+    }
+    g->sc[0] = d->scx0;
+    g->sc[1] = d->scx1;
+    g->sc[2] = d->scy0;
+    g->sc[3] = d->scy1;
+}
+
+static void same_depth(const Cmd *c, Key *k) {
+    Geo g;
+    if (k->zrt < 0) {
+        return;
+    }
+    if (!k->dwrite) {
+        if (sLastZ.valid && sLastZ.zrt == k->zrt && k->pass != 2 && (k->dfunc == GL_GEQUAL || k->dfunc == GL_GREATER)) {
+            geo_of(c, &g);
+            if (g.type == sLastZ.g.type && memcmp(g.xyz, sLastZ.g.xyz, sizeof g.xyz) == 0 && g.sc[0] >= sLastZ.g.sc[0] &&
+                g.sc[1] <= sLastZ.g.sc[1] && g.sc[2] >= sLastZ.g.sc[2] && g.sc[3] <= sLastZ.g.sc[3]) {
+                k->dwrite = 1;
+            }
+        }
+        return;
+    }
+    if (k->pass == 0 && (k->dfunc == GL_ALWAYS || k->dfunc == GL_GEQUAL || k->dfunc == GL_GREATER)) {
+        sLastZ.valid = 1;
+        sLastZ.zrt = k->zrt;
+        geo_of(c, &sLastZ.g);
+    } else if (sLastZ.zrt == k->zrt) {
+        sLastZ.valid = 0;
+    }
+}
+
+/* The texels a UV primitive reads along one axis, from its vertices' coordinates cmin..cmax (10.4) as the shader
+   samples them: texel c >> 4 (nearest), or (c - 8) >> 4 and the next one (bilinear); an edge the primitive does not
+   cover (a sprite's right / bottom one: `open`) is never sampled. Left as the wrap mode's whole range when REPEAT
+   would move them. */
+static void uv_span(uint32_t wm, int size, int mn, int mx, int cmin, int cmax, int open, int linear, uint32_t *lo, uint32_t *hi) {
+    int a, b;
+    Gs_TexRange(wm, size, mn, mx, lo, hi);
+    if (wm > 1) {
+        return;
+    }
+    if (open && cmax > cmin) {
+        cmax--;
+    }
+    a = linear ? (cmin - 8) >> 4 : cmin >> 4;
+    b = linear ? ((cmax - 8) >> 4) + 1 : cmax >> 4;
+    if (wm == 1) { /* CLAMP */
+        a = a < 0 ? 0 : a > size - 1 ? size - 1 : a;
+        b = b < 0 ? 0 : b > size - 1 ? size - 1 : b;
+    } else if (a < 0 || b > size - 1) {
+        return;
+    }
+    *lo = (uint32_t)a;
+    *hi = (uint32_t)b;
+}
+
 /* Texture reads of pages a target drew: that target goes back to GS memory first. A UV sprite or triangle reads only
-   the texels between its vertices' UV (one more each side for the bilinear filter) when the wrap mode does not move
-   them, as gs_core.c's classify() for sprites: a copy of one buffer into another in strips then resolves its source
-   once, not per strip, and glyphs from a font in a frame buffer's top byte do not resolve the buffers next to it. */
+   the texels its vertices' UV reach (uv_span), as gs_core.c's classify() for sprites: a copy of one buffer into
+   another in strips then resolves its source once, not per strip, and glyphs from a font in a frame buffer's top byte
+   do not resolve the buffers next to it. */
 static void texture_hazard(const Draw *d, const Cmd *c) {
     uint64_t t0 = d->tex0 & 0x3FFFFFFFFull;
     uint64_t cl = (uint64_t)d->wms | (uint64_t)d->wmt << 2 | (uint64_t)d->minu << 4 | (uint64_t)d->maxu << 14 | (uint64_t)d->minv << 24 |
@@ -1239,23 +1573,21 @@ static void texture_hazard(const Draw *d, const Cmd *c) {
 
     if ((c->type == CMD_SPRITE || c->type == CMD_TRIANGLE) && d->fst) {
         const Vtx *v = c->u.prim.v;
-        int n = c->type == CMD_SPRITE ? 2 : 3, k, umin = v[0].u, umax = v[0].u, vmin = v[0].v, vmax = v[0].v;
-        int ua, ub, va, vb;
+        int n = c->type == CMD_SPRITE ? 2 : 3, k, iu0 = 0, iu1 = 0, iv0 = 0, iv1 = 0, linear = d->filter != 0;
+        int openU = 0;
         uint32_t u0, u1, v0, v1;
         for (k = 1; k < n; k++) {
-            umin = v[k].u < umin ? v[k].u : umin;
-            umax = v[k].u > umax ? v[k].u : umax;
-            vmin = v[k].v < vmin ? v[k].v : vmin;
-            vmax = v[k].v > vmax ? v[k].v : vmax;
+            iu0 = v[k].u < v[iu0].u ? k : iu0;
+            iu1 = v[k].u > v[iu1].u ? k : iu1;
+            iv0 = v[k].v < v[iv0].v ? k : iv0;
+            iv1 = v[k].v > v[iv1].v ? k : iv1;
         }
-        ua = (umin >> 4) - 1;
-        ub = (umax >> 4) + 1;
-        va = (vmin >> 4) - 1;
-        vb = (vmax >> 4) + 1;
-        Gs_TexRange(d->wms, d->tw, d->minu, d->maxu, &u0, &u1);
-        Gs_TexRange(d->wmt, d->th, d->minv, d->maxv, &v0, &v1);
-        if (d->wms <= 1 && ua >= 0 && ub <= d->tw - 1) { u0 = (uint32_t)ua; u1 = (uint32_t)ub; }
-        if (d->wmt <= 1 && va >= 0 && vb <= d->th - 1) { v0 = (uint32_t)va; v1 = (uint32_t)vb; }
+        if (n == 2) { /* the corner with the largest U on the sprite's right edge: not drawn (GL's fill rule leaves out
+                         right edges; which of the top and bottom edges it leaves out is the driver's: V keeps both) */
+            openU = iu1 != iu0 && v[iu1].x > v[iu0].x;
+        }
+        uv_span(d->wms, d->tw, d->minu, d->maxu, v[iu0].u, v[iu1].u, openU, linear, &u0, &u1);
+        uv_span(d->wmt, d->th, d->minv, d->maxv, v[iv0].v, v[iv1].v, 0, linear, &v0, &v1);
         memset(sTexPages.pages, 0, sizeof sTexPages.pages);
         Gs_PagesOf(sTexPages.pages, d->tbp, d->tbw, d->tpsm, u0, u1, v0, v1);
         sTexPages.valid = 0;
@@ -1327,7 +1659,7 @@ static void put(const Vtx *v, uint32_t z, uint32_t rgba, uint32_t s, uint32_t t,
         o->q = q;
     }
     o->fog = fog;
-    o->state = sNs - 1;
+    o->state = sStBase + sNs - 1;
     (void)v;
 }
 
@@ -1336,7 +1668,7 @@ static void prim(const Cmd *c) {
     const Vtx *v = c->u.prim.v;
     uint32_t rows = (uint32_t)d->scy1 + 1, st[12];
     int kind = c->type == CMD_LINE ? 1 : c->type == CMD_POINT ? 2 : 0;
-    int newState, zneed = (d->ztest && d->ztst != 1) || d->zwrite, rt, zrt = -1, palRow = 0, need = c->type == CMD_SPRITE ? 6 : 3;
+    int outcome = 0, newState, zneed = (d->ztest && d->ztst != 1) || d->zwrite, rt, zrt = -1, palRow = 0, need = c->type == CMD_SPRITE ? 6 : 3;
     Key k;
     uint32_t fpsm = d->fpsm;
 
@@ -1360,11 +1692,23 @@ static void prim(const Cmd *c) {
             palRow = pal_row(d);
         }
     }
-    key_of(d, rt, zrt, kind, &k);
+    if (d->atest) {
+        uint32_t lo, hi;
+        alpha_range(d, v, c->type, palRow, &lo, &hi);
+        outcome = alpha_outcome(d->atst, d->aref, lo, hi);
+    }
+    key_of(d, rt, zrt, kind, outcome, &k);
+    if (k.cmask == 0 && !k.dwrite) {
+        return; /* writes nothing (every pixel fails, KEEP) */
+    }
     if (sNv + (uint32_t)need > MAX_VERTS || sNs >= MAX_STATES || sNb >= MAX_BATCHES) {
         flush();
     }
+    same_depth(c, &k);
     state_of(d, palRow, st);
+    if (outcome != 0) {
+        st[0] &= ~(1u << 10); /* no test in the shader */
+    }
     newState = sNs == 0 || memcmp(st, sS[sNs - 1], sizeof st) != 0;
     if (sNb == 0 || memcmp(&k, &sB[sNb - 1].k, sizeof k) != 0 || (k.pass == 2 && newState)) {
         sB[sNb].k = k;
@@ -1482,7 +1826,7 @@ static uint64_t clut_hash(void) {
         w = (uint32_t)sClut[i] | (uint32_t)sClut[i + 1] << 16;
         h = (h ^ w) * 1099511628211ull;
     }
-    return h;
+    return h & 0x7FFFFFFFFFFFFFFFull; /* the top bit: a buffer the GPU holds part of */
 }
 
 static void clut(const Cmd *c) {
@@ -1496,7 +1840,56 @@ static void clut(const Cmd *c) {
     }
     sCause = 1;
     resolve_over(set, 0xF);
-    readback(set, 0xF);
+    {
+        uint32_t w, gpu = 0, n = Gs_PsmBits((uint32_t)(t0 >> 20) & 0x3F) == 8 ? 256 : 16, halves[16];
+        for (w = 0; w < 16 && !gpu; w++) {
+            uint32_t bits = set[w];
+            while (bits != 0 && !gpu) {
+                gpu = sGpuNewer[w * 32 + (uint32_t)__builtin_ctz(bits)] != 0;
+                bits &= bits - 1;
+            }
+        }
+        clut_halves(cpsm, (uint32_t)(t0 >> 56) & 31, n, halves);
+        if (gpu) { /* pages the GPU drew: the load runs on the GPU, from the mirror, instead of reading them back */
+            uint64_t key = t0 & 0xFFFFFFE003F00000ull, ktc = csm ? tc : 0;
+            uint32_t r;
+            push();
+            if (sLastGpuLoad.after == sClutHash && sLastGpuLoad.key == key && sLastGpuLoad.ktc == ktc && sLastGpuLoad.mirrorGen == sMirrorGen) {
+                return;
+            }
+            r = ++sClutSerial;
+            gl.BindFramebuffer(GL_FRAMEBUFFER, sClutFbo[r & 1]);
+            gl.Viewport(0, 0, 512, CLUT_ROWS);
+            gl.UseProgram(sProgClutLoad);
+            plain_state();
+            clut_uniforms(uClutLoad.row, uClutLoad.cpu, uClutLoad.unk);
+            gl.Uniform4uiv(uClutLoad.arg, 1, (const GLuint[]){cbp, cpsm, n | (uint32_t)((t0 >> 56) & 31) << 16 | csm << 31,
+                                                               (GLuint)(tc & 0x3FFFFF)});
+            rect_pass(uClutLoad.rect, uClutLoad.target, 0, (int)((r >> 1) % CLUT_ROWS), 512, (int)((r >> 1) % CLUT_ROWS) + 1, 512, CLUT_ROWS);
+            sClutGpu = r;
+            sClutUnkAny = 1;
+            for (w = 0; w < 16; w++) {
+                sClutUnk[w] |= halves[w];
+            }
+            sClutHash = 0x8000000000000000ull | r;
+            sGlStat.clutGpu++;
+            sLastGpuLoad.key = key;
+            sLastGpuLoad.ktc = ktc;
+            sLastGpuLoad.after = sClutHash;
+            sLastGpuLoad.mirrorGen = sMirrorGen;
+            return;
+        }
+        if (sClutUnkAny) { /* a load from the CPU copy: its halves are known again */
+            sClutUnkAny = 0;
+            for (w = 0; w < 16; w++) {
+                sClutUnk[w] &= ~halves[w];
+                sClutUnkAny |= sClutUnk[w] != 0;
+            }
+            Gs_ClutFill(sClut, t0, tc);
+            sClutHash = sClutUnkAny ? 0x8000000000000000ull | ++sClutSerial : clut_hash();
+            return;
+        }
+    }
     /* The game sends TEX0 with CLD 1 before every batch, alternating a few CLUTs: a load is a function of its fields,
        of GS memory and of the buffer before it (4-bit loads fill part of it), so the buffers it gave are kept. */
     {
@@ -1665,8 +2058,28 @@ int Gl_Init(void *(*getproc)(const char *name), char *why, int whylen) {
     sProgLoad = sProgResolve ? program(kRectVs, kLoadFs, kLib, why, whylen) : 0;
     sProgStage = sProgLoad ? program(kRectVs, kStageFs, NULL, why, whylen) : 0;
     sProgDisplay = sProgStage ? program(kRectVs, kDisplayFs, kLib, why, whylen) : 0;
-    if (sProgDisplay == 0) {
+    {
+        static char loadFs[sizeof kClutLib + sizeof kClutLoadFs], expandFs[sizeof kClutLib + sizeof kClutExpandFs];
+        snprintf(loadFs, sizeof loadFs, "%s%s", kClutLib, kClutLoadFs);
+        snprintf(expandFs, sizeof expandFs, "%s%s", kClutLib, kClutExpandFs);
+        sProgClutLoad = sProgDisplay ? program(kRectVs, loadFs, kLib, why, whylen) : 0;
+        sProgClutExpand = sProgClutLoad ? program(kRectVs, expandFs, kLib, why, whylen) : 0;
+    }
+    if (sProgClutExpand == 0) {
         return 0;
+    }
+    samplers(sProgClutLoad);
+    samplers(sProgClutExpand);
+    {
+        static const char *const names[6] = {"uRect", "uTarget", "uRow", "uCpu", "uUnk", NULL};
+        GLint *l = &uClutLoad.rect, *x = &uClutExpand.rect;
+        int k;
+        for (k = 0; k < 5; k++) {
+            l[k] = gl.GetUniformLocation(sProgClutLoad, names[k]);
+            x[k] = gl.GetUniformLocation(sProgClutExpand, names[k]);
+        }
+        uClutLoad.arg = gl.GetUniformLocation(sProgClutLoad, "uLd");
+        uClutExpand.arg = gl.GetUniformLocation(sProgClutExpand, "uEx");
     }
     samplers(sProgDraw);
     samplers(sProgResolve);
@@ -1733,12 +2146,26 @@ int Gl_Init(void *(*getproc)(const char *name), char *why, int whylen) {
     free(inv);
     gl.ActiveTexture(GL_TEXTURE0 + U_PAL);
     sPalTex = texture(GL_RGBA8UI, 256, PAL_ROWS, GL_RGBA_INTEGER, GL_UNSIGNED_BYTE, NULL);
+    sPalFbo = fbo_of(sPalTex, 0);
+    gl.ActiveTexture(GL_TEXTURE0 + U_CLUT);
+    for (k = 0; k < 2; k++) {
+        sClutTex[k] = texture(GL_R16UI, 512, CLUT_ROWS, GL_RED_INTEGER, GL_UNSIGNED_SHORT, NULL);
+        sClutFbo[k] = fbo_of(sClutTex[k], 0);
+    }
     gl.ActiveTexture(GL_TEXTURE0 + U_STAGE);
     sStageTex = texture(GL_RGBA8UI, 1024, 1024, GL_RGBA_INTEGER, GL_UNSIGNED_BYTE, NULL);
     gl.ActiveTexture(GL_TEXTURE0 + U_STATES);
+    {
+        GLint maxTexels = 0;
+        gl.GetIntegerv(GL_MAX_TEXTURE_BUFFER_SIZE, &maxTexels);
+        sStRing = ST_RING;
+        while (sStRing > MAX_STATES && (int64_t)sStRing * 3 > (int64_t)maxTexels) {
+            sStRing >>= 1;
+        }
+    }
     gl.GenBuffers(1, &sStateBuf);
     gl.BindBuffer(GL_TEXTURE_BUFFER, sStateBuf);
-    gl.BufferData(GL_TEXTURE_BUFFER, (GLsizeiptr)MAX_STATES * 48, NULL, GL_STREAM_DRAW);
+    gl.BufferData(GL_TEXTURE_BUFFER, (GLsizeiptr)sStRing * 48, NULL, GL_STREAM_DRAW);
     gl.GenTextures(1, &sStateTex);
     gl.BindTexture(GL_TEXTURE_BUFFER, sStateTex);
     gl.TexBuffer(GL_TEXTURE_BUFFER, GL_RGBA32UI, sStateBuf);
@@ -1754,7 +2181,7 @@ int Gl_Init(void *(*getproc)(const char *name), char *why, int whylen) {
     gl.BindVertexArray(sVao);
     gl.GenBuffers(1, &sVbo);
     gl.BindBuffer(GL_ARRAY_BUFFER, sVbo);
-    gl.BufferData(GL_ARRAY_BUFFER, (GLsizeiptr)MAX_VERTS * (GLsizeiptr)sizeof(GlVtx), NULL, GL_STREAM_DRAW);
+    gl.BufferData(GL_ARRAY_BUFFER, (GLsizeiptr)VB_RING * (GLsizeiptr)sizeof(GlVtx), NULL, GL_STREAM_DRAW);
     for (k = 0; k < 6; k++) {
         gl.EnableVertexAttribArray((GLuint)k);
     }
@@ -1781,11 +2208,152 @@ int Gl_Init(void *(*getproc)(const char *name), char *why, int whylen) {
 
 void Gl_Report(void) {
     if (sReady) {
-        printf("ttt: gl: %u draw calls in %u batches, %u targets made, %u loads, %u resolves, %u pushes, %u read back, %u pictures; "
+        printf("ttt: gl: %u draw calls in %u batches, %u targets made, %u loads, %u resolves, %u pushes, %u read back, %u CLUT passes, %u pictures; "
                "approximated: %u DATE, %u C=Ad, %u FBMSK bytes, %u COLCLAMP 0, %u PABE, %u depth over frame\n",
                sGlStat.draws, sGlStat.batches, sGlStat.rts, sGlStat.loads, sGlStat.resolves, sGlStat.pushes, sGlStat.readbacks,
-               sGlStat.shows, sGlStat.date, sGlStat.ad, sGlStat.fbmsk, sGlStat.colclamp, sGlStat.pabe, sGlStat.overlapZ);
+               sGlStat.clutGpu, sGlStat.shows, sGlStat.date, sGlStat.ad, sGlStat.fbmsk, sGlStat.colclamp, sGlStat.pabe, sGlStat.overlapZ);
         printf("ttt: gl: resolves by texture %u clut %u upload %u show %u target %u; read back by texture %u clut %u upload %u show %u target %u\n",
                sResBy[0], sResBy[1], sResBy[2], sResBy[3], sResBy[4], sRbBy[0], sRbBy[1], sRbBy[2], sRbBy[3], sRbBy[4]);
     }
+}
+
+/* ------------------------------------------------------------------------------------------------ self-test */
+
+/* TTT_SELFTEST=gl: the rules above on made-up primitives (no GL context): the alpha test's outcome over a primitive's
+   alpha range, the depth write a repeated pass may share, the texels a UV primitive reads, the CLUT halves of a load. */
+static int sGlFails;
+static void gl_expect(int ok, const char *what) {
+    if (!ok) {
+        printf("ttt: gl self-test FAILED: %s\n", what);
+        sGlFails++;
+    }
+}
+
+int Gl_SelfTest(void) {
+    static Cmd q, p;
+    Key kq, kp;
+    uint32_t lo = 0, hi = 0, a = 0, b = 0, set[16], ref[16], cpsm, csa, n, i;
+    static const uint32_t kCpsm[4] = {0, 1, 2, 10};
+    int k;
+
+    gl_expect(alpha_outcome(5, 0x80, 0x80, 0x80) == 1 && alpha_outcome(5, 0x80, 0, 0x7F) == -1 && alpha_outcome(5, 0x80, 0x40, 0x80) == 0,
+              "GEQUAL over a range");
+    gl_expect(alpha_outcome(2, 0x80, 0, 0x7F) == 1 && alpha_outcome(2, 0x80, 0x80, 0xFF) == -1 && alpha_outcome(6, 0x80, 0x80, 0x90) == 0,
+              "LESS / GREATER over a range");
+    gl_expect(alpha_outcome(4, 0x80, 0x80, 0x80) == 1 && alpha_outcome(4, 0x80, 0, 0x7F) == -1 && alpha_outcome(7, 0x80, 0x80, 0x80) == -1 &&
+              alpha_outcome(7, 0x80, 0x81, 0xFF) == 1 && alpha_outcome(0, 0, 0, 255) == -1 && alpha_outcome(1, 0, 0, 255) == 1,
+              "EQUAL / NOTEQUAL / NEVER / ALWAYS");
+
+    /* a 4-bit CLUT texture, DECAL, alpha from the texture: the CLUT row's alpha range */
+    q.type = CMD_TRIANGLE;
+    q.u.prim.d.tex = 1;
+    q.u.prim.d.tcc = 1;
+    q.u.prim.d.tfx = 1;
+    q.u.prim.d.tbits = 4;
+    for (k = 0; k < 3; k++) {
+        q.u.prim.v[k].rgba = 0x10808080u;
+    }
+    sPalA[1][0] = sPalA[1][1] = 0x80;
+    alpha_range(&q.u.prim.d, q.u.prim.v, CMD_TRIANGLE, 1, &lo, &hi);
+    gl_expect(lo == 0x80 && hi == 0x80, "DECAL: the CLUT row's alpha");
+    q.u.prim.d.tfx = 0; /* MODULATE: (texel * vertex) >> 7; Gouraud: one below the vertices */
+    for (k = 0; k < 3; k++) {
+        q.u.prim.v[k].rgba = 0x80808080u;
+    }
+    alpha_range(&q.u.prim.d, q.u.prim.v, CMD_TRIANGLE, 1, &lo, &hi);
+    gl_expect(lo == 0x80 && hi == 0x80, "MODULATE, flat");
+    q.u.prim.d.gouraud = 1;
+    alpha_range(&q.u.prim.d, q.u.prim.v, CMD_TRIANGLE, 1, &lo, &hi);
+    gl_expect(lo == 0x7F && hi == 0x80, "MODULATE, Gouraud");
+    q.u.prim.d.tbits = 32;
+    alpha_range(&q.u.prim.d, q.u.prim.v, CMD_TRIANGLE, 1, &lo, &hi);
+    gl_expect(lo == 0 && hi == 0xFF, "32-bit texture: any alpha");
+    q.u.prim.d.tcc = 0;
+    alpha_range(&q.u.prim.d, q.u.prim.v, CMD_TRIANGLE, 1, &lo, &hi);
+    gl_expect(lo == 0x7F && hi == 0x80, "TCC 0: the vertices' alpha");
+
+    /* FB_ONLY failing everywhere: one pass, colour only */
+    q.u.prim.d.gouraud = 0;
+    q.u.prim.d.atest = 1;
+    q.u.prim.d.afail = 1;
+    q.u.prim.d.fbits = 32;
+    q.u.prim.d.ztest = 1;
+    q.u.prim.d.ztst = 2;
+    q.u.prim.d.zwrite = 1;
+    q.u.prim.d.scx1 = 639;
+    q.u.prim.d.scy1 = 447;
+    key_of(&q.u.prim.d, 0, 1, 0, -1, &kq);
+    gl_expect(kq.cmask == 0xF && !kq.dwrite && kq.pass == 0, "FB_ONLY, every pixel fails");
+    key_of(&q.u.prim.d, 0, 1, 0, 0, &kq);
+    gl_expect(kq.pass == 2 && kq.fmask == 0xF && !kq.fdwrite, "FB_ONLY, it depends: two passes");
+
+    /* the depth write of a pass on the vertices of the last full depth writer */
+    for (k = 0; k < 3; k++) {
+        q.u.prim.v[k].x = 100 * 16 + k * 160;
+        q.u.prim.v[k].y = 50 * 16 + (k & 1) * 320;
+        q.u.prim.v[k].z = 0x1000u + (uint32_t)k;
+    }
+    p = q;
+    p.u.prim.d.zwrite = 0;
+    sLastZ.valid = 0;
+    key_of(&q.u.prim.d, 0, 1, 0, 1, &kq);
+    same_depth(&q, &kq);
+    key_of(&p.u.prim.d, 0, 1, 0, 1, &kp);
+    gl_expect(!kp.dwrite, "no depth write of its own");
+    same_depth(&p, &kp);
+    gl_expect(kp.dwrite && memcmp(&kp, &kq, sizeof kp) == 0, "the same vertices: shares the batch's depth write");
+    p.u.prim.d.scx1 = 700; /* a wider scissor: pixels Q did not write */
+    key_of(&p.u.prim.d, 0, 1, 0, 1, &kp);
+    same_depth(&p, &kp);
+    gl_expect(!kp.dwrite, "a wider scissor keeps its own");
+    p.u.prim.d.scx1 = 639;
+    p.u.prim.v[2].z++;
+    key_of(&p.u.prim.d, 0, 1, 0, 1, &kp);
+    same_depth(&p, &kp);
+    gl_expect(!kp.dwrite, "another depth keeps its own");
+    sLastZ.valid = 0;
+
+    /* the texels of one axis */
+    uv_span(1, 512, 0, 0, 0, 64 * 16, 1, 0, &a, &b);
+    gl_expect(a == 0 && b == 63, "nearest, the sprite's right edge left out");
+    uv_span(1, 512, 0, 0, 0, 64 * 16, 0, 0, &a, &b);
+    gl_expect(a == 0 && b == 64, "nearest, both edges");
+    uv_span(1, 512, 0, 0, 16, 64 * 16, 0, 1, &a, &b);
+    gl_expect(a == 0 && b == 64, "bilinear: half a texel down, one more up");
+    uv_span(1, 512, 0, 0, 0, 64 * 16, 0, 1, &a, &b);
+    gl_expect(a == 0 && b == 64, "bilinear under CLAMP: from 0");
+    uv_span(0, 512, 0, 0, 0, 64 * 16, 0, 1, &a, &b);
+    gl_expect(a == 0 && b == 511, "bilinear under REPEAT at 0: the whole texture");
+    uv_span(2, 512, 8, 40, 0, 64 * 16, 0, 0, &a, &b);
+    gl_expect(a == 8 && b == 40, "REGION_CLAMP: its range");
+
+    /* the CLUT halves: the same as one by one */
+    for (k = 0; k < 4; k++) {
+        cpsm = kCpsm[k];
+        for (n = 16; n <= 256; n += 240) {
+            for (csa = 0; csa < 32; csa++) {
+                memset(ref, 0, sizeof ref);
+                for (i = 0; i < n; i++) {
+                    uint32_t e = n == 256 ? i : csa * 16 + i;
+                    if (cpsm <= 1) {
+                        e &= 255;
+                        ref[e >> 5] |= 1u << (e & 31);
+                        ref[(e + 256) >> 5] |= 1u << (e & 31);
+                    } else {
+                        e &= 511;
+                        ref[e >> 5] |= 1u << (e & 31);
+                    }
+                }
+                clut_halves(cpsm, csa, n, set);
+                if (memcmp(set, ref, sizeof set) != 0) {
+                    gl_expect(0, "CLUT halves");
+                    csa = 32;
+                    k = 4;
+                    n = 512;
+                }
+            }
+        }
+    }
+    printf(sGlFails ? "ttt: gl self-test FAILED (%d)\n" : "ttt: gl self-test OK\n", sGlFails);
+    return sGlFails;
 }

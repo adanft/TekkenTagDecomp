@@ -86,6 +86,7 @@ void Port_Vu0CallMs(uint32_t addr) {
     static VuCore vu;
     static VuOp ops[0x200]; /* the predecoded program cache (vu_fast.c) */
     static int reported;
+    static uint32_t calls;
 
     if (vu.vf == NULL) {
         vu.vf = (uint32_t (*)[4])gPortVu0Vf;
@@ -101,7 +102,9 @@ void Port_Vu0CallMs(uint32_t addr) {
     if (Vu_Run(&vu, addr / 8) != 0 && reported++ < 2) {
         fprintf(stderr, "ttt: vu0: program 0x%03X did not end\n", addr);
     }
-    if (Vu_Unknown(&vu) != 0 && reported++ == 0) {
-        fprintf(stderr, "ttt: vu0: %u instructions not implemented (program 0x%03X)\n", Vu_Unknown(&vu), addr);
+    /* the unknown-instruction counters are summed now and then: the skinning programs run once per vertex */
+    if ((calls++ & 1023) == 0 && reported == 0 && Vu_Unknown(&vu) != 0) {
+        reported++;
+        fprintf(stderr, "ttt: vu0: %u instructions not implemented (seen after program 0x%03X)\n", Vu_Unknown(&vu), addr);
     }
 }

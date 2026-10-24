@@ -54,6 +54,10 @@ static uint64_t sTimerFrac[4]; /* bus cycles not yet counted by each timer */
 static uint64_t sTimerLast[4];
 static uint64_t sVBlanks;      /* VBLANK_STARTs so far */
 static uint32_t sFrameLimit;   /* TTT_FRAMES */
+/* TTT_TIME_FROM=<vblank> (measurements): the GS path is drained at that VBlank and the host time from there to the end of
+   the run (the GS path drained again) is reported. */
+static uint32_t sTimeFrom;
+static uint64_t sTimeT0;
 static int sInPoll, sInHandler;
 
 #define MAX_HANDLERS 8
@@ -76,6 +80,7 @@ int Port_Headless(void) {
     if (sHeadless < 0) {
         const char *h = getenv("TTT_HEADLESS"), *f = getenv("TTT_FRAMES");
         sFrameLimit = f != NULL ? (uint32_t)strtoul(f, NULL, 0) : 0;
+        sTimeFrom = getenv("TTT_TIME_FROM") != NULL ? (uint32_t)strtoul(getenv("TTT_TIME_FROM"), NULL, 0) : 0;
         sHeadless = h != NULL ? atoi(h) != 0 : sFrameLimit != 0;
         sHostStart = host_ns();
     }
@@ -421,6 +426,10 @@ static void vblank(void) {
     sVBlanks++;
     Port_PadVBlank((uint32_t)sVBlanks); /* the pads' state for this field: latched once, before the handler */
     Gs_VBlank((uint32_t)sVBlanks); /* the frame dump: the picture shown during the field that ends here */
+    if (sTimeFrom != 0 && sVBlanks == sTimeFrom) {
+        Gs_Finish();
+        sTimeT0 = host_ns();
+    }
     REG(0x12001000u) = (REG(0x12001000u) | 0x8u) ^ 0x2000u; /* CSR: VSINT, FIELD flips */
     sIntcPend |= 1u << 2;                                   /* INTC VBLANK_START */
     track_mode();
@@ -573,6 +582,10 @@ static void report_and_exit(void) {
     printf("ttt: state: seed 0x%x spin 0x%08x sbss-hash 0x%08x cycles %llu\n", (unsigned)sSeed,
            (unsigned)gRngSpin, h, (unsigned long long)sCycles);
     Gs_Report();
+    if (sTimeT0 != 0) {
+        uint64_t ms = (host_ns() - sTimeT0) / 1000000;
+        printf("ttt: time: vblanks %u-%u in %llu ms\n", (unsigned)sTimeFrom, (unsigned)sVBlanks, (unsigned long long)ms);
+    }
     Port_PadReport();
     Port_StubReport();
     peek_report();
@@ -807,7 +820,7 @@ void Port_GsSelfTest(void);    /* gs_core.c */
 void Port_FloatSelfTest(void); /* plat_floattest.c */
 int Port_Vu1SelfTest(void);    /* gs_vu1.c */
 
-/* TTT_SELFTEST=hw | rpc | float | gs | vu1 | ee: run after the memory map (plat_mem.c, constructor 101), print and exit. */
+/* TTT_SELFTEST=hw | rpc | float | gs | gl | vu1 | ee: run after the memory map (plat_mem.c, constructor 101), print and exit. */
 __attribute__((constructor(102))) static void Port_HwSelfTestEntry(void) {
     const char *t = getenv("TTT_SELFTEST");
     if (t != NULL && strcmp(t, "hw") == 0) {
@@ -826,6 +839,10 @@ __attribute__((constructor(102))) static void Port_HwSelfTestEntry(void) {
     if (t != NULL && strcmp(t, "ee") == 0) {
         int Port_EeSelfTest(void);
         exit(Port_EeSelfTest() != 0);
+    }
+    if (t != NULL && strcmp(t, "gl") == 0) {
+        int Gl_SelfTest(void); /* gs_gl.c */
+        exit(Gl_SelfTest() != 0);
     }
     if (t != NULL && strcmp(t, "vu1") == 0) {
         int fails;

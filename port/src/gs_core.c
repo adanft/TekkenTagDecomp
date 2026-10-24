@@ -1310,11 +1310,18 @@ static void gs_sync(void) {
     }
 }
 
+/* The room the front end waits for when the ring is full: with the GL back end a quarter of the ring, so that the
+   window thread wakes it once per quarter instead of every few commands (each wake a futex call on both sides). */
+static uint32_t sRoomWant = 1;
+
 static int has_room(void *a) {
     (void)a;
     sMinTail = min_tail();
-    return sHead - sMinTail < sRingN;
+    return sRingN - (sHead - sMinTail) >= sRoomWant;
 }
+
+/* Whether the front end, if it waits for room, has it with the back end at `tail`. */
+static int room_at(uint32_t tail) { return sRingN - (ld(&sHead) - tail) >= __atomic_load_n(&sRoomWant, __ATOMIC_RELAXED); }
 
 static uint32_t sGlShows; /* window pictures queued for the GL back end and not yet drawn */
 static uint32_t sGlCpuMs; /* the window thread's CPU time in ms as of its last commands (TTT_GS_STATS); 32 bits: 64-bit
@@ -1359,9 +1366,11 @@ int Gs_GlPump(int ms) {
         }
         Gl_Exec(c);
         next++;
-        __atomic_store_n(&sTail(0), next, __ATOMIC_RELEASE);
-        if ((next & 31) == 0) {
-            wake(&sIdle);
+        if ((next & 63) == 0) { /* the tail every 64 commands: its cache line is the front end's to read */
+            __atomic_store_n(&sTail(0), next, __ATOMIC_RELEASE);
+            if (room_at(next)) {
+                wake(&sIdle);
+            }
         }
         if (++n >= 4096) {
             break; /* back to the window's events now and then */
@@ -1370,7 +1379,10 @@ int Gs_GlPump(int ms) {
             head = ld(&sHead);
         }
     }
-    wake(&sIdle);
+    __atomic_store_n(&sTail(0), next, __ATOMIC_RELEASE);
+    if (next == ld(&sHead) || room_at(next)) {
+        wake(&sIdle);
+    }
     if (n > 0) {
         struct timespec ts;
         clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
@@ -1405,8 +1417,10 @@ static void submit(const Cmd *c) {
     }
     if (sHead - sMinTail >= sRingN && !has_room(NULL)) { /* full as far as last seen: look again, then wait */
         int64_t t0 = thread_ns();
+        __atomic_store_n(&sRoomWant, sGl ? sRingN / 4 : 1, __ATOMIC_RELAXED);
         wake(&sWake);
         wait_until(has_room, NULL, &sIdle);
+        __atomic_store_n(&sRoomWant, 1, __ATOMIC_RELAXED);
         sWaitNs += thread_ns() - t0;
     }
     sRing[sHead & (sRingN - 1)] = *c;
@@ -1416,8 +1430,8 @@ static void submit(const Cmd *c) {
     __atomic_store_n(&sHead, sHead + 1, __ATOMIC_RELEASE);
     /* sleeping workers are woken for a batch of commands; at once for one the others will wait for (a worker
        waiting at a barrier is woken by the workers' progress) */
-    if (c->serial || c->barrier || (sHead & 15) == 0) {
-        wake(&sWake);
+    if (sGl ? (sHead - ld(&sTail(0)) >= 2048 || c->type == CMD_SHOW) : (c->serial || c->barrier || (sHead & 15) == 0)) {
+        wake(&sWake); /* the GL back end: for a good part of the ring or a picture (it also looks every 4 ms) */
     }
 }
 
@@ -2485,6 +2499,11 @@ void Gs_VBlankRun(uint32_t vblank, const DispRegs *regs) {
     }
 }
 
+void Gs_Finish(void) {
+    Gs_AsyncDrain();
+    gs_sync();
+}
+
 void Gs_Report(void) {
     Gs_AsyncDrain();
     gs_sync();
@@ -2492,9 +2511,9 @@ void Gs_Report(void) {
         struct timespec ts;
         clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
         fprintf(stderr, "gs-stats: %d raster threads; %u commands, %u serial, %u after a barrier; main thread %ld.%03ld s CPU, %ld ms of it "
-                "waiting for the raster threads, %ld ms for the GS thread; GS thread %ld ms CPU; window thread %ld ms CPU\n", sThreads, sCmdCount[0],
+                "waiting for the raster threads, %ld ms for the GS thread; GS thread %ld ms CPU; GIF thread %ld ms CPU; window thread %ld ms CPU\n", sThreads, sCmdCount[0],
                 sCmdCount[1], sCmdCount[2], (long)ts.tv_sec, ts.tv_nsec / 1000000, (long)(sWaitNs / 1000000), (long)(Gs_AsyncWaitNs() / 1000000),
-                (long)Gs_AsyncCpuMs(), (long)Gs_GlCpuMs());
+                (long)Gs_AsyncCpuMs(0), (long)Gs_AsyncCpuMs(1), (long)Gs_GlCpuMs());
     }
     sStat.pixels = gs_pixels();
     printf("ttt: gs: %u GIF tags, %u register writes, %u primitives, %u pixels, %u image qwords, %u local copies, "

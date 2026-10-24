@@ -4,7 +4,7 @@ The PC port is built from the same C as the matching decompilation. Nothing of t
 takes the game's data from the split of **your own** `SLUS_200.01` (the one the matching build already uses) and
 writes everything under `build/port/`, which git ignores.
 
-## Status (T30 batch 3, 2026-10-23)
+## Status (T30 batch 4, 2026-10-24)
 
 - Every game C file the matching build links (59) compiles for 32-bit x86 Linux with the host gcc, with the
   NON_MATCHING drafts switched on: every game function comes from C, except the hand-written EE / VU0 routines
@@ -49,6 +49,13 @@ writes everything under `build/port/`, which git ignores.
   results ([Speed](#speed)). The scripted fight (`tests/test_port_input.py`, VBlanks 1101-1451) runs at about 40
   VBlanks/s with GL and 23 with the software rasteriser; its dumps differ from the software ones by 1-2 levels on
   average. 60 is not reached yet: the window thread's GL calls are the limit (Speed).
+- GL fights at 60 (T30 batch 4): the scripted fight runs at 62-70 VBlanks/s with GL (software rasteriser: 22-24),
+  with the same pictures as batch 3's GL back end (the dumps every 150 VBlanks are byte for byte the same). Fewer draw
+  calls (an alpha test known for every pixel of a primitive needs no second pass, a repeated pass shares the depth
+  write of the first), vertex and state buffers written unsynchronised instead of given new storage at every flush
+  (the driver's page faults were a third of the window thread), texture hazards from the texels a primitive reads,
+  CLUT loads from GPU-drawn pages done on the GPU (no read back), and VIF1 / VU1 and the GIF / GS front end on two
+  threads with fewer wake-ups between the threads ([Speed](#speed), [GL back end](#gl-back-end)).
 - libm (T30 batch 3, F03): `third_party/newlib_libm` gives the executable's asinf / atan2f bits (`TTT_SELFTEST=ee`:
   no difference left); the 2551-VBlank run keeps its frames and `sbss-hash 0xcf8bdf40` (those inputs never come up).
 - Placeholders still reached on that path (listed at the end of a `TTT_FRAMES` run): `scePadGetState` (no pad),
@@ -217,7 +224,7 @@ wait loops drive the hardware.
 | `plat_main.c` | `TTT_SELFTEST=pad`, opens the window (on the host stack), then runs the game's `main` on the EE stack |
 | `plat_window.c` | The SDL3 window: SDL loaded at run time, its own thread, the GL context ([Window](#window)), `TTT_SELFTEST=window` |
 | `gs_gl.c` | The GS's OpenGL 3.3 back end on the window thread ([GL back end](#gl-back-end)) |
-| `gs_async.c` | The GS thread: VIF1, VU1 and the GS front end beside the game ([Speed](#speed)) |
+| `gs_async.c` | The GS threads: VIF1 and VU1, then the GIF and the GS front end, beside the game ([Speed](#speed)) |
 | `gs_int.h` | The GS commands and helpers both back ends share |
 | `port_host.h` | Host library calls added since T30, declared `noplt` (gotcha 20) |
 | `softfloat_ps2.c` | The EE float model: `__addsf3`... for the FPU, `Port_Vu*` for the vector unit |
@@ -276,12 +283,14 @@ Switches:
 | `TTT_GS_TEXDUMP=<vblank>:<tex0 hex>:<x>:<y>:<w>:<h>` | With `TTT_DUMP`: writes that region of the texture TEX0 describes (through a CLUT loaded from it) as `tex_<vblank>.png`. |
 | `TTT_STUB_RETURN=<n>` | Generated stubs return n instead of stopping. |
 | `TTT_GS_THREADS=<n>` | Raster threads ([Speed](#speed)). Default: one per processor but one, at most 8; `0` draws on the game's thread. Same results either way. The GS traces force 0. |
-| `TTT_GS_STATS=1` | With raster threads: a `gs-stats:` line on stderr at the report (commands, serial ones, barriers, the game thread's CPU time and how much of it went waiting for the raster threads / the GS thread, the GS thread's and the GL window thread's CPU time). |
+| `TTT_GS_STATS=1` | With raster threads: a `gs-stats:` line on stderr at the report (commands, serial ones, barriers, the game thread's CPU time and how much of it went waiting for the raster threads / the GS thread, the GS thread's, the GIF thread's and the GL window thread's CPU time). |
+| `TTT_TIME_FROM=<vblank>` | Measurements: the GS path is drained at that VBlank and the report says `ttt: time: vblanks <from>-<end> in <n> ms` (drained again at the end). Nothing else changes. |
 | `TTT_WINDOW=0/1` | The window ([Window](#window)): default on in real time, off headless and for self-tests. `1` with `TTT_FRAMES` shows a headless run as it goes. |
 | `TTT_VSYNC=0` | The window presents without the renderer's vsync. |
 | `TTT_RENDERER=gl / sw` | In a window: the GS draws on the GPU (`gl`, default; falls back to `sw` when no OpenGL 3.3 core context can be made) or with the software rasteriser (`sw`). Headless runs and dumps without a window are always `sw`. |
 | `TTT_WINDOW_HIDDEN=1` | The window stays hidden (tests, measurements; with `SDL_VIDEO_DRIVER=offscreen` no display is needed). |
-| `TTT_GS_ASYNC=0 / 1` | The GS thread ([Speed](#speed)): default on with raster threads or GL, off for traces and self-tests. |
+| `TTT_GS_ASYNC=0 / 1 / 2` | The GS threads ([Speed](#speed)): 1 one GS thread, 2 two (VIF1 / VU1, then the GIF / GS front end). Default 2 with GL, 1 with raster threads, 0 for traces and self-tests. The same results in every mode (`tests/test_port_gl.py`). |
+| `TTT_SELFTEST=gl` | The GL back end's rules on made-up primitives, no GL context: the alpha test's outcome over a primitive's alpha range, the shared depth write, the texels a UV primitive reads, the CLUT halves of a load (`tests/test_port_gl.py`). |
 | `TTT_SELFTEST=window` | The keyboard's mapping and the quit keys on made-up SDL events (no SDL, no window). |
 | `TTT_SDL_LIB=<path>` | The SDL3 library to load (default `libSDL3.so.0`). |
 | `TTT_PADS=0/1/2` | Pads connected ([Input](#input)). Default: 2 in real time, 0 headless, 2 with `TTT_INPUT_PLAY`. |
@@ -424,10 +433,41 @@ throttles the whole slice when hot, so wall times move by 10-20% between runs; C
   the GL thread is the limit, mostly in the driver's draw calls (about 2700 batches and 5400 draw calls per VBlank,
   the two-pass alpha test of the fighters' and stage's FB_ONLY batches, which only hold primitives with one state
   record) and 32-bit glvnd's per-call TLS lookups. Times vary by 10-20% with the thermal governor.
-- **Left for 60 VBlanks/s:** fewer GL calls (a preparing thread that builds the batches, leaving the window thread only
-  the GL calls; or one pass with the depth test and blending in the shader through image load / store and fragment
-  shader interlock, where available, which removes the two-pass batches and the per-blend-mode splits); then the GS
-  thread (VU1 and the front end on two threads) and the game thread's VU0 skinning.
+- **GL fights at 60 VBlanks/s (T30 batch 4).** Measured with `TTT_TIME_FROM=1101` in the 1451-VBlank scripted fight
+  (the GS path drained at VBlank 1101 and at the end, so one run times the 350 fight VBlanks; the batch 3 numbers
+  subtracted two runs, which moves by 20% with the thermal governor). Per fight VBlank:
+
+  | | batch 3 | batch 4 |
+  |---|---|---|
+  | VBlanks/s, GL | 40 | 62-70 |
+  | VBlanks/s, software rasteriser | 23.5 | 22-24 |
+  | draw calls / batches | 5300 / 2700 | 2000 / 1650 |
+  | resolves / read backs (GPU -> CPU) | 47 / 1 | 16 / 0 |
+  | game thread CPU | 10 ms | 9 ms |
+  | GS thread CPU (VIF1, VU1, GIF, front end) | 15.7 ms | 12.2 (VIF1, VU1) + 4.3 (GIF, front end) |
+  | window thread CPU (GL) | 19.5 ms | 5.9 ms |
+
+  - The window thread lost a third of its time in the kernel: the vertex and state buffers got new storage
+    (`glBufferData` with no data) at every flush, about 50 per VBlank, and the driver faulted in fresh pages for each
+    (700 page faults per VBlank). They are rings now, written with `glMapBufferRange` unsynchronised after what the
+    GPU may still read, and given new storage only when they wrap (the state records' index is absolute in the ring).
+  - Draw calls: see [GL back end](#gl-back-end) (the alpha test's outcome per primitive, the shared depth write).
+  - Texture hazards: a UV primitive's texels are taken from its UV as the shader samples them (no margin for nearest
+    filtering, the sprite's right edge left out, CLAMP clamped): the HUD font in the frame buffer's top byte no longer
+    resolved the depth buffer at every glyph, nor a strip copy its destination; resolves fell from 47 to 16.
+  - The GS path on two threads (`TTT_GS_ASYNC=2`, the default with GL): VIF1 and the VU1 programs on one, the GIF
+    and the GS front end on the other, through a second 32 MB queue (XGKICK writes its packet straight into it). The
+    VU1 thread, about 12 ms per fight VBlank (VU1 itself 10), is now the limit. With the software rasteriser the
+    default stays one GS thread: its eight raster workers want the processors, and a third GS thread slowed it.
+  - Wake-ups: a thread waiting for room in a queue or the ring now waits for a quarter of it, and a sleeping reader
+    is woken for 256 KB of records (or a VBlank, or when its writer waits) instead of at every record: each wake-up
+    is a futex call for both, and the GS thread woke the GIF thread at every XGKICK. The GL thread publishes its place
+    in the ring every 64 commands (the cache line went back and forth at every command).
+  - VU0 (game thread): the skinning programs already run on the predecoded interpreter (`vu_fast.c`, since batch 2);
+    the not-implemented counters (256 words) were summed after each program, now every 1024 programs.
+- **Left:** the VU1 thread (the predecoded interpreter, 2 million VU1 instructions per fight VBlank) and the game
+  thread (VU0 skinning about two thirds) are now the limits, with the window thread about half busy; the preparing
+  thread for the GL batches was not needed for 60. Times vary by 10-20% with the thermal governor.
 
 ## Window
 
@@ -484,6 +524,23 @@ throttles the whole slice when hot, so wall times move by 10-20% between runs; C
 - **Display:** both read circuits merged as PMODE asks (the shader version of the dump's), into a picture of the
   display's size; `TTT_DUMP` with a GL window writes that picture (read back), so GL and software dumps compare
   directly.
+- **Batching (T30 batch 4).** An alpha test whose outcome is the same for every pixel of a primitive needs no test: the
+  alpha the shader tests is bounded per primitive (the vertices' alpha, one less with Gouraud shading for the GPU's
+  interpolation; a CLUT row's smallest and largest entry alpha, TEXA for 24 / 16 bits; TFX / TCC; bilinear stays
+  between its texels), so the primitive is drawn in one pass with the passing masks, or the failing ones (FB_ONLY:
+  colour only), and joins the batch of any state record. Most FB_ONLY surfaces of the fight are 4 / 8-bit CLUT textures
+  with alpha 0x80 against GEQUAL 0x80 (always pass) or below it (always fail). A primitive that should not write depth
+  may when its vertices (positions and Z, in order: the GPU makes the same fragments and depths) are those of the last
+  primitive that wrote depth wherever it passed its test, its scissor inside that one's and its test GEQUAL / GREATER:
+  the depth there is already its own, so the multi-pass surfaces keep one depth mask. Draw calls per fight VBlank fell
+  from 5300 to 2000; the pictures are the same.
+- **CLUT loads from GPU-drawn pages (T30 batch 4).** In the fight a CLUT load reads the frame buffer once per VBlank
+  (a 4-bit CLUT at block 0x20, inside the frame). Instead of reading those pages back (which made the window thread
+  wait for the GPU), the load runs on the GPU: the CLUT buffer is a row of a 512-wide R16UI texture, made from the
+  mirror for the halves the load writes and from the CPU copy or the previous row for the others; the CLUT rows the
+  draws use are expanded from it on the GPU when they read halves only the GPU has. The same load again on the buffer
+  it left and an unchanged mirror is skipped (the game sends TEX0 with CLD 1 before every batch). Read backs are left
+  for uploads into GPU-drawn pages (rare).
 - **Compared** (dumps every 150 VBlanks of the scripted fight, 1451 VBlanks): mean difference 0.02-1.8 levels per
   channel, under 0.05% of the pixels more than 24 levels off (edges, the title's lightning glow); the game's state is
   the same. Not modelled (counted in the `ttt: gl:` report line, all 0 on that path): DATE, C = Ad on a 32 / 16-bit
@@ -853,8 +910,8 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
 
 The fighters' heads and hair are clean since T29 batch 5 (gotcha 19). The draft divergence check covers the skeleton
 in one frame; hooks on the rest of the fight's path (the fighter draw from `func_00357640`, the stage, the effects,
-more frames, both fighters) are the systematic way on. 60 VBlanks/s in fights ([Speed](#speed): fewer GL calls,
-then the GS thread and VU0); T31's native replacements. libgraph
+more frames, both fighters) are the systematic way on. More speed in fights: the VU1 thread and the game thread's VU0
+skinning are the limits now ([Speed](#speed)); T31's native replacements. libgraph
 (`plat_lib.c`): the DBuff buffer pairing and SwapDBuff's ids differ from the library with the same GS result. The
 seven Tekken Bowl m2c drafts around VU0 code (`portsrc.REPLACED`, still placeholders: not reached by the attract
 demo); the libm PCSX2 run; the other game types after the character select (VS, team, survival: the same step

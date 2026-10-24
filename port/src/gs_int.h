@@ -94,7 +94,7 @@ void Gs_VBlankRun(uint32_t vblank, const DispRegs *regs);    /* gs_core.c: a VBl
 int Gs_AsyncRegWrite(uint64_t csrBits, uint64_t sigMask, uint64_t sigValue); /* SIGNAL / FINISH / LABEL kept (1) */
 void Gs_AsyncRegs(void);
 uint64_t Gs_AsyncWaitNs(void);
-uint32_t Gs_AsyncCpuMs(void); /* the GS thread's CPU time in ms (TTT_GS_STATS) */
+uint32_t Gs_AsyncCpuMs(int k); /* the GS (0) / GIF (1) thread's CPU time in ms (TTT_GS_STATS) */
 uint32_t Gs_GlCpuMs(void);    /* the window thread's, with the GL back end */
 int Gs_ThreadsWanted(void);
 
@@ -102,6 +102,7 @@ int Gs_ThreadsWanted(void);
 int Gl_Init(void *(*getproc)(const char *name), char *why, int whylen); /* on the thread with the GL context */
 void Gl_Exec(const Cmd *c);                                     /* one command, in order */
 void Gl_Report(void);
+int Gl_SelfTest(void);                                         /* TTT_SELFTEST=gl: fails */
 
 /* ---- plat_window.c, for gs_gl.c ---- */
 int Port_WindowGl(void);                                         /* the window draws with the GL back end */

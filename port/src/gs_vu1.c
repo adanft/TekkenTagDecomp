@@ -59,7 +59,8 @@ void Gs_Vu1Reset(void) {
 
 /* XGKICK: the GIF packet at quadword `qw` of VU1 memory, tag by tag up to the one with EOP. */
 static void kick(uint32_t qw) {
-    static uint8_t buf[0x4000];
+    static uint8_t local[0x4000];
+    uint8_t *q = Gs_AsyncGifReserve(0x400), *buf = q != NULL ? q : local; /* the GIF thread's queue, written in place */
     uint32_t a = qw & 0x3FF, len = 0;
 
     sKicks++;
@@ -84,7 +85,11 @@ static void kick(uint32_t qw) {
             break;
         }
     }
-    Gs_Gif(1, buf, len);
+    if (q != NULL) {
+        Gs_AsyncGifCommit(1, len);
+    } else {
+        Gs_Gif(1, buf, len);
+    }
 }
 
 /* TTT_VU_CHECK=1: each program also runs on the reference interpreter, from a copy of the unit (registers, data
