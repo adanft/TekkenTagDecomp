@@ -53,29 +53,61 @@ class FloatSelfTest(unittest.TestCase):
         self.assertIn("pcsx2 (verified): 1500 cases", r.stdout)
         self.assertIn("ttt: float: libvu0:", r.stdout)
 
-    def test_no_host_float_code(self):
-        """Every float operation goes through the EE model: the program's code has no x87 float instruction, and SSE
-        float instructions only in the functions of toolchain.SIMD_FILES (the predecoded VU interpreter, which runs
-        the model on the SSE unit in round-toward-zero / flush-to-zero mode, and its test against the integer
-        model)."""
-        allowed = set()
-        for name in toolchain.SIMD_FILES:
-            obj = toolchain.OBJ / f"pc_{Path(name).stem}.o"
-            self.assertTrue(obj.exists(), obj)
+    @staticmethod
+    def _functions(objs, kinds="tTW"):
+        """Names of the functions the objects define (local, global and weak: ImGui's inline functions)."""
+        out = set()
+        for obj in objs:
             syms = subprocess.run(["nm", "--defined-only", str(obj)], capture_output=True, text=True, check=True).stdout
-            allowed |= {l.split()[2] for l in syms.splitlines() if len(l.split()) == 3 and l.split()[1] in "tT"}
+            out |= {l.split()[2].split(".")[0] for l in syms.splitlines()  # f, or f.isra.0 / .part.0 / .cold
+                    if len(l.split()) == 3 and l.split()[1] in kinds}
+        return out
+
+    def test_no_host_float_code(self):
+        """Every float operation of the game and the port goes through the EE model: the program's code has no x87
+        float instruction and no SSE float instruction, with two exceptions. SSE in the functions of
+        toolchain.SIMD_FILES (the predecoded VU interpreter, which runs the model on the SSE unit in round-toward-zero /
+        flush-to-zero mode, and its test against the integer model). Host float, SSE and x87 (the 32-bit ABI returns
+        floats on the x87 stack), in the settings overlay and Dear ImGui (toolchain.host_float_objects()), which run on
+        the window thread only and whose results nothing of the simulation reads (docs/port/settings.md)."""
+        allowed = self._functions([toolchain.OBJ / f"pc_{Path(n).stem}.o" for n in toolchain.SIMD_FILES])
         self.assertIn("run_fast", allowed)
+        host = toolchain.host_float_objects()
+        for obj in host:
+            self.assertTrue(obj.exists(), obj)
+        overlay = self._functions(host)
+        self.assertIn("Overlay_Render", overlay)
+        self.assertIn("_ZN5ImGui8NewFrameEv", overlay)
+        port = self._functions([o for o in toolchain.OBJ.glob("pc_*.o") if o not in host], "tT")
+        self.assertEqual(sorted(overlay & port)[:10], [], "a port function shares a name with an overlay one")
         out = subprocess.run(["objdump", "-d", "--no-show-raw-insn", str(EXE)], capture_output=True, text=True,
                              check=True).stdout
-        bad, fn = [], None
+        bad, fn, seen = [], None, 0
         for line in out.splitlines():
             m = FUNC.match(line)
             if m:
                 fn = m.group(1).split(".")[0]  # run_fast, or run_fast.part.0 / .constprop.0 / .isra.0
                 continue
+            if fn in overlay:
+                seen += bool(X87.search(line) or SSE.search(line))
+                continue
             if X87.search(line) or (SSE.search(line) and fn not in allowed):
                 bad.append(f"{fn}: {line.strip()}")
         self.assertEqual(bad[:10], [])
+        self.assertGreater(seen, 0)  # the overlay is linked and does use host float
+
+    def test_overlay_links_no_host_maths_or_cxx_runtime(self):
+        """The overlay's objects call no C library maths (the program's sinf / sqrtf... are the PS2's, in software
+        float: a hard-float caller would read their results from the wrong register) and nothing of the C++ run time
+        (no libstdc++ is linked)."""
+        libm = re.compile(r"^(sin|cos|tan|asin|acos|atan|atan2|sqrt|pow|exp|exp2|log|log2|log10|fmod|floor|ceil|"
+                          r"round|trunc|fabs|ldexp|frexp|modf|atof|strtod|strtof)f?$")
+        cxx = re.compile(r"^(_Zn|_Zd|_ZSt|_ZNSt|__cxa_|__gxx_|_Unwind_)")
+        bad = []
+        for obj in toolchain.host_float_objects():
+            und = subprocess.run(["nm", "-u", str(obj)], capture_output=True, text=True, check=True).stdout.split()
+            bad += [f"{obj.name}: {n}" for n in und if n != "U" and (libm.match(n) or cxx.match(n))]
+        self.assertEqual(bad, [])
 
     def test_no_temporary_host_float(self):
         self.assertFalse((ROOT / "port/src/plat_float_tmp.c").exists())

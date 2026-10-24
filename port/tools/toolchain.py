@@ -51,6 +51,32 @@ NEWLIB_CFLAGS = ["-m32", "-std=gnu89", "-O2", "-g", "-fno-pic", "-fno-strict-ali
 # the port's flags (T33).
 MPEG2 = ROOT / "third_party/pl_mpeg2"
 
+# The settings overlay (T36, docs/port/settings.md): Dear ImGui (third_party/imgui, MIT, v1.92.9) and
+# port/src/overlay.cpp, C++ that runs on the window thread only and computes in host float (SSE, and x87 where the
+# 32-bit ABI returns a float); nothing of the simulation reads it. No C++ run time: no exceptions, no RTTI, no guarded
+# statics, so nothing of libstdc++ is linked. -fno-plt: the C library calls go through the GOT, so the program's PLT,
+# and the addresses of the game's functions after it, do not change (port_host.h). Maths through imconfig_ttt.h (the
+# host libm is not linked; the game's sinf / sqrtf are the PS2's, in software float). tests/test_port_float.py lets host
+# float instructions into the functions these objects define, and nowhere else.
+IMGUI = ROOT / "third_party/imgui"
+IMGUI_SOURCES = ("imgui.cpp", "imgui_draw.cpp", "imgui_tables.cpp", "imgui_widgets.cpp", "imgui_demo.cpp",
+                 "backends/imgui_impl_opengl3.cpp")
+OVERLAY_CXXFLAGS = ["-m32", "-std=c++17", "-O2", "-g", "-fno-pic", "-fno-plt", "-fno-exceptions", "-fno-rtti",
+                    "-fno-threadsafe-statics", "-fno-stack-protector", "-fno-strict-aliasing", "-msse2", "-mfpmath=sse",
+                    "-fno-math-errno", "-w", '-DIMGUI_USER_CONFIG="imconfig_ttt.h"', "-Iport/src", f"-I{IMGUI}"]
+# ImGui's libGL loader registers a handler with atexit (a new PLT entry through libc_nonshared); the port loads GL
+# through SDL instead, so after compiling, that call is sent to a no-op in overlay.cpp (objcopy arguments).
+IMGUI_OBJCOPY = {"backends/imgui_impl_opengl3.cpp": ["--redefine-sym=atexit=ttt_imgl3w_atexit"]}
+# Port C files whose new C library calls must not add PLT entries: all their external calls through the GOT.
+NOPLT_FILES = ("plat_settings.c",)
+
+
+def host_float_objects():
+    """The objects whose functions may hold host float instructions: the overlay and Dear ImGui."""
+    return [OBJ / f"pc_{p.stem}.o" for p in sorted((ROOT / "port/src").glob("*.cpp"))] + \
+           [OBJ / f"im_{pathlib.Path(n).stem}.o" for n in IMGUI_SOURCES]
+
+
 # Port files that are VU0 macro code on the PS2: their float operations are the vector unit's, not the FPU's
 # (port/src/softfloat_ps2.c). After compiling, their calls to the software-float helpers are renamed.
 VU_FILES = ("plat_vu0.c", "vu0_pc.c")

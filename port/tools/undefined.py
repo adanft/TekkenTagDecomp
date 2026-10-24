@@ -10,13 +10,14 @@ Usage: port/tools/undefined.py [-v]      (objects go to build/port/obj; -v lists
 import collections
 import concurrent.futures
 import os
+import pathlib
 import re
 import subprocess
 import sys
 
-from toolchain import (BUILD, HOT_CFLAGS, HOT_FILES, MPEG2, NEWLIB, NEWLIB_CFLAGS, OBJ, PORT_CFLAGS, ROOT, SIMD_CFLAGS,
-                       SIMD_FILES, VU_FILES, cc, game_cflags,
-                       vu_redefine_args)
+from toolchain import (BUILD, HOT_CFLAGS, HOT_FILES, IMGUI, IMGUI_OBJCOPY, IMGUI_SOURCES, MPEG2, NEWLIB,
+                       NEWLIB_CFLAGS, NOPLT_FILES, OBJ, OVERLAY_CXXFLAGS, PORT_CFLAGS, ROOT, SIMD_CFLAGS, SIMD_FILES,
+                       VU_FILES, cc, game_cflags, vu_redefine_args)
 import portsrc
 
 TEXT_START, TEXT_END = 0x340000, 0x415700  # .text of SLUS_200.01; .data and the rest follow
@@ -62,12 +63,21 @@ def classify(sym, addr):
 
 
 def compile_one(job):
-    compiler, src, obj, flags = job
+    compiler, src, obj, flags = job[:4]
+    redefine = job[4] if len(job) > 4 else []
     r = subprocess.run([compiler, "-c"] + flags + [str(src), "-o", str(obj)],
                        cwd=ROOT, capture_output=True, text=True)
     if r.returncode == 0 and src.parent == ROOT / "port/src" and src.name in VU_FILES:
-        r = subprocess.run(["objcopy"] + vu_redefine_args() + [str(obj)], cwd=ROOT, capture_output=True, text=True)
+        redefine = vu_redefine_args()
+    if r.returncode == 0 and redefine:
+        r = subprocess.run(["objcopy"] + redefine + [str(obj)], cwd=ROOT, capture_output=True, text=True)
     return src, obj, r.returncode, r.stderr
+
+
+def git_id():
+    """The source's commit (short), with -dirty for local changes; "unknown" outside git."""
+    r = subprocess.run(["git", "describe", "--always", "--dirty"], cwd=ROOT, capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else "unknown"
 
 
 def jobs():
@@ -80,7 +90,12 @@ def jobs():
         out.append((cc(), src, OBJ / f"{f.stem}.o", game_cflags() + [f"-I{ROOT / 'src'}"]))
     for f in sorted((ROOT / "port/src").glob("*.c")):
         out.append(("gcc", f, OBJ / f"pc_{f.stem}.o", PORT_CFLAGS + (HOT_CFLAGS if f.name in HOT_FILES else [])
-                    + (SIMD_CFLAGS if f.name in SIMD_FILES else [])))
+                    + (SIMD_CFLAGS if f.name in SIMD_FILES else []) + (["-fno-plt"] if f.name in NOPLT_FILES else [])))
+    for f in sorted((ROOT / "port/src").glob("*.cpp")):  # the settings overlay (T36), with the build's id for its About
+        out.append(("g++", f, OBJ / f"pc_{f.stem}.o", OVERLAY_CXXFLAGS + [f'-DTTT_GIT="{git_id()}"']))
+    for n in IMGUI_SOURCES:  # Dear ImGui
+        out.append(("g++", IMGUI / n, OBJ / f"im_{pathlib.Path(n).stem}.o", OVERLAY_CXXFLAGS,
+                    IMGUI_OBJCOPY.get(n, [])))
     for f in sorted(NEWLIB.glob("*.c")):  # the PS2's maths library, on the EE float model
         out.append(("gcc", f, OBJ / f"nl_{f.stem}.o", NEWLIB_CFLAGS))
     for f in sorted(MPEG2.glob("*.c")):  # the MPEG-2 video decoder of the movies (integer only), -O3 like the hot paths

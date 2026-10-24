@@ -100,6 +100,7 @@ int Gs_ThreadsWanted(void);
 
 /* ---- gs_gl.c ---- */
 int Gl_Init(void *(*getproc)(const char *name), char *why, int whylen); /* on the thread with the GL context */
+int Gl_Redisplay(void); /* the last window picture again, presented (window thread; 0: none yet) */
 void Gl_Exec(const Cmd *c);                                     /* one command, in order */
 void Gl_Report(void);
 int Gl_SelfTest(void);                                         /* TTT_SELFTEST=gl: fails */

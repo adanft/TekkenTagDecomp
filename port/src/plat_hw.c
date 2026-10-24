@@ -494,10 +494,29 @@ static void state_boundary(void) {
     }
 }
 
+/* The settings overlay's pause (T36, plat_window.c): in real time, at a poll outside the interrupt handlers, the game's
+   thread waits (off the EE stack) while the overlay is open with game.pause. The simulation does not advance; the
+   real-time clock's origin moves by the time waited, so the game goes on where it stopped (no VBlank is dropped or
+   added). Headless runs never pause. */
+int Port_WindowPaused(void);
+int Port_WindowClosed(void);
+static void pause_off(void *p) {
+    uint64_t t0 = host_ns();
+    (void)p;
+    while (Port_WindowPaused() && !Port_WindowClosed()) {
+        struct timespec ts = { 0, 5000000 };
+        nanosleep(&ts, NULL);
+    }
+    sHostStart += host_ns() - t0;
+}
+
 void Port_HwPoll(void) {
     uint64_t to;
     if (sInPoll) {
         return;
+    }
+    if (!sInHandler && !Port_Headless() && Port_WindowPaused()) {
+        Port_OffEe(pause_off, NULL);
     }
     sInPoll = 1;
     if (Port_Headless()) {

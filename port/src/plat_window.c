@@ -24,7 +24,14 @@
  * where SDL has EGL.
  *
  * Closing the window or Escape ends the program from the window thread (the GL / renderer objects are released there
- * first, then _exit): the game's thread may be anywhere, even waiting for the back end.
+ * first, then _exit): the game's thread may be anywhere, even waiting for the back end. Since T36 they first ask
+ * "Quit?" in the overlay (Escape again or Yes quits; TTT_NO_QUIT_CONFIRM=1: at once, as before).
+ *
+ * The settings overlay (T36, overlay.cpp, docs/port/settings.md): F1 opens it over the picture, drawn on this thread
+ * just before each present (GL: Port_WindowGlSwap; sw: the renderer loop). While it is open the pads see nothing
+ * pressed (a key pressed then never reaches them; releases do) and, with game.pause, the game's clock waits at its next
+ * poll (Port_WindowPaused, plat_hw.c): the simulation does not advance, and goes on from the same state. The live
+ * settings (vsync, window size, fullscreen, volume, the keyboard's bindings) are applied here (Port_WindowApply).
  */
 #include <stddef.h>
 #include <stdint.h>
@@ -35,6 +42,8 @@
 #include "port_host.h"
 #include "gs.h"
 #include "gs_int.h"
+#include "overlay.h"
+#include "plat_settings.h"
 
 int Port_Headless(void); /* plat_hw.c */
 
@@ -71,6 +80,9 @@ int Port_Headless(void); /* plat_hw.c */
 #define SDL_BUTTON_DOWN_OFFSET 21
 #define SDL_AXIS_VALUE_OFFSET 24
 #define SDLK_ESCAPE 0x1Bu
+#define SDL_KEY_REPEAT_OFFSET 37 /* SDL_KeyboardEvent.repeat */
+#define SDL_WINDOW_FULLSCREEN 0x1ull
+#define SDL_LOGICAL_PRESENTATION_DISABLED 0
 #define SDL_SCANCODE_ESCAPE 41u
 
 static struct {
@@ -112,6 +124,15 @@ static struct {
     _Bool (*PutAudioStreamData)(void *stream, const void *buf, int len);
     int (*GetAudioStreamQueued)(void *stream);
     void (*DestroyAudioStream)(void *stream);
+    /* the overlay and the live settings (optional) */
+    _Bool (*GetWindowSize)(void *window, int *w, int *h);
+    _Bool (*SetWindowSize)(void *window, int w, int h);
+    _Bool (*SetWindowFullscreen)(void *window, _Bool on);
+    _Bool (*RenderGeometryRaw)(void *renderer, void *texture, const float *xy, int xyStride, const void *color,
+                               int colorStride, const float *uv, int uvStride, int vertices, const void *indices,
+                               int nIndices, int indexSize);
+    _Bool (*SetRenderClipRect)(void *renderer, const void *rect);
+    _Bool (*SetTextureBlendMode)(void *texture, uint32_t mode);
 } sdl;
 
 static const struct {
@@ -146,6 +167,16 @@ static const struct {
 #undef F
 };
 static int sHaveAudioFuncs;
+static const struct {
+    const char *name;
+    size_t offset;
+} kSdlOverlayFuncs[] = {
+#define F(n) {"SDL_" #n, offsetof(__typeof__(sdl), n)}
+    F(GetWindowSize), F(SetWindowSize), F(SetWindowFullscreen), F(RenderGeometryRaw), F(SetRenderClipRect),
+    F(SetTextureBlendMode),
+#undef F
+};
+static int sHaveOverlayFuncs;
 
 /* The frame handed over: the newest picture, taken by the window thread. */
 static pthread_mutex_t sLock = PTHREAD_MUTEX_INITIALIZER;
@@ -178,22 +209,12 @@ static char sWhy[512];
 #define PB_DOWN 0x4000u
 #define PB_LEFT 0x8000u
 
-/* Keyboard (SDL scancodes, the key's place, whatever the layout): pad 1 on the letters, pad 2 on the arrows and the
-   keypad. Tekken's default: square left punch, triangle right punch, cross left kick, circle right kick. */
-static const struct {
-    uint16_t scancode;
-    uint8_t pad;
-    uint16_t bit;
-} kKeys[] = {
-    {26, 0, PB_UP}, {4, 0, PB_LEFT}, {22, 0, PB_DOWN}, {7, 0, PB_RIGHT},          /* W A S D */
-    {24, 0, PB_SQUARE}, {12, 0, PB_TRIANGLE}, {13, 0, PB_CROSS}, {14, 0, PB_CIRCLE}, /* U I J K */
-    {28, 0, PB_L1}, {18, 0, PB_R1}, {11, 0, PB_L2}, {15, 0, PB_R2},                /* Y O H L */
-    {40, 0, PB_START}, {42, 0, PB_SELECT},                                          /* Return, Backspace */
-    {82, 1, PB_UP}, {80, 1, PB_LEFT}, {81, 1, PB_DOWN}, {79, 1, PB_RIGHT},          /* arrows */
-    {92, 1, PB_SQUARE}, {93, 1, PB_TRIANGLE}, {89, 1, PB_CROSS}, {90, 1, PB_CIRCLE}, /* keypad 4 5 1 2 */
-    {95, 1, PB_L1}, {94, 1, PB_R1}, {96, 1, PB_L2}, {97, 1, PB_R2},                /* keypad 7 6 8 9 */
-    {88, 1, PB_START}, {87, 1, PB_SELECT},                                          /* keypad Enter, + */
-};
+/* Keyboard (SDL scancodes, the key's place, whatever the layout): [pad][SB_*] (plat_settings.h), from the settings
+   file over the defaults (pad 1 on the letters, pad 2 on the arrows and the keypad; Tekken's default: square left
+   punch, triangle right punch, cross left kick, circle right kick). Window thread only. */
+static uint16_t sBind[2][SB_COUNT];
+static const uint16_t kBindBits[SB_COUNT] = {PB_UP, PB_DOWN, PB_LEFT, PB_RIGHT, PB_SQUARE, PB_TRIANGLE, PB_CROSS,
+                                             PB_CIRCLE, PB_L1, PB_R1, PB_L2, PB_R2, PB_START, PB_SELECT};
 
 /* SDL gamepad buttons (SDL_GamepadButton: south, east, west, north, back, guide, start, sticks, shoulders, d-pad) */
 static const uint16_t kPadButtons[15] = {
@@ -207,6 +228,10 @@ static uint16_t sLatched[2]; /* buttons pressed since the last VBlank's look: a 
 static uint8_t sAnalog[2][4] = {{0x80, 0x80, 0x80, 0x80}, {0x80, 0x80, 0x80, 0x80}};
 static void *sGamepad[2];  /* the gamepad of each pad, the first two connected */
 static uint32_t sGamepadId[2];
+static char sGamepadName[2][128];
+static int sInputBlocked; /* the overlay is open: the pads see nothing pressed (under sPadLock) */
+static int sPaused;       /* the overlay is open and game.pause: the game's clock waits (atomic) */
+static int sVolume = 100; /* audio.volume, 0 when muted (window thread) */
 
 static void pad_set(uint16_t *b, uint16_t bit, int down) {
     *b = (uint16_t)(down ? *b | bit : *b & ~bit);
@@ -230,11 +255,11 @@ static void input_event(uint32_t type, const uint8_t *ev) {
     pthread_mutex_lock(&sPadLock);
     if (type == SDL_EVENT_KEY_DOWN || type == SDL_EVENT_KEY_UP) {
         memcpy(&sc, ev + SDL_SCANCODE_OFFSET, 4);
-        for (i = 0; i < (int)(sizeof kKeys / sizeof kKeys[0]); i++) {
-            if (kKeys[i].scancode == sc) {
-                pad_set(&sKeyButtons[kKeys[i].pad], kKeys[i].bit, ev[SDL_KEY_DOWN_OFFSET] != 0);
+        for (i = 0; i < 2 * SB_COUNT; i++) {
+            if (sBind[i / SB_COUNT][i % SB_COUNT] == sc) {
+                pad_set(&sKeyButtons[i / SB_COUNT], kBindBits[i % SB_COUNT], ev[SDL_KEY_DOWN_OFFSET] != 0);
                 if (ev[SDL_KEY_DOWN_OFFSET] != 0) {
-                    sLatched[kKeys[i].pad] |= kKeys[i].bit;
+                    sLatched[i / SB_COUNT] |= kBindBits[i % SB_COUNT];
                 }
             }
         }
@@ -246,12 +271,14 @@ static void input_event(uint32_t type, const uint8_t *ev) {
             if (i >= 0 && (sGamepad[i] = sdl.OpenGamepad(id)) != NULL) {
                 const char *name = sdl.GetGamepadName(sGamepad[i]);
                 sGamepadId[i] = id;
+                snprintf(sGamepadName[i], sizeof sGamepadName[i], "%s", name != NULL ? name : "gamepad");
                 printf("ttt: input: pad %d: %s\n", i + 1, name != NULL ? name : "gamepad");
                 fflush(stdout);
             }
         } else if (type == SDL_EVENT_GAMEPAD_REMOVED && i >= 0) {
             sdl.CloseGamepad(sGamepad[i]);
             sGamepad[i] = NULL;
+            sGamepadName[i][0] = 0;
             sPadButtons[i] = 0;
             memset(sAnalog[i], 0x80, 4);
         } else if (type == SDL_EVENT_GAMEPAD_AXIS_MOTION && i >= 0) {
@@ -276,14 +303,19 @@ static void input_event(uint32_t type, const uint8_t *ev) {
     pthread_mutex_unlock(&sPadLock);
 }
 
-/* The pads now (plat_pad.c, at a VBlank, on the game's thread): keyboard and gamepad buttons together. */
+/* The pads now (plat_pad.c, at a VBlank, on the game's thread): keyboard and gamepad buttons together; nothing
+   pressed while the overlay is open. */
 void Port_WindowPads(uint16_t buttons[2], uint8_t analog[2][4]) {
     int i;
     pthread_mutex_lock(&sPadLock);
     for (i = 0; i < 2; i++) {
-        buttons[i] = (uint16_t)(sKeyButtons[i] | sPadButtons[i] | sLatched[i]);
+        buttons[i] = sInputBlocked ? 0 : (uint16_t)(sKeyButtons[i] | sPadButtons[i] | sLatched[i]);
         sLatched[i] = 0;
-        memcpy(analog[i], sAnalog[i], 4);
+        if (sInputBlocked) {
+            memset(analog[i], 0x80, 4);
+        } else {
+            memcpy(analog[i], sAnalog[i], 4);
+        }
     }
     pthread_mutex_unlock(&sPadLock);
 }
@@ -324,6 +356,12 @@ static int sdl_load(void) {
         sHaveAudioFuncs &= f != NULL;
         memcpy((char *)&sdl + kSdlAudioFuncs[i].offset, &f, sizeof f);
     }
+    sHaveOverlayFuncs = 1;
+    for (i = 0; i < sizeof kSdlOverlayFuncs / sizeof kSdlOverlayFuncs[0]; i++) {
+        void *f = dlsym(h, kSdlOverlayFuncs[i].name);
+        sHaveOverlayFuncs &= f != NULL;
+        memcpy((char *)&sdl + kSdlOverlayFuncs[i].offset, &f, sizeof f);
+    }
     return 1;
 }
 
@@ -334,13 +372,14 @@ static void set_state(int s) {
     pthread_mutex_unlock(&sLock);
 }
 
-/* Whether an event ends the program: the window's close button, SDL's quit, Escape (by key or by its place). */
+/* Whether an event asks to end the program: the window's close button, SDL's quit, Escape (by key or by its place; not
+   its key repeat). */
 static int quit_event(uint32_t type, const uint8_t *ev) {
     uint32_t key, sc;
     memcpy(&key, ev + SDL_KEY_OFFSET, 4);
     memcpy(&sc, ev + SDL_SCANCODE_OFFSET, 4);
     return type == SDL_EVENT_QUIT || type == SDL_EVENT_WINDOW_CLOSE_REQUESTED ||
-           (type == SDL_EVENT_KEY_DOWN && (key == SDLK_ESCAPE || sc == SDL_SCANCODE_ESCAPE));
+           (type == SDL_EVENT_KEY_DOWN && ev[SDL_KEY_REPEAT_OFFSET] == 0 && (key == SDLK_ESCAPE || sc == SDL_SCANCODE_ESCAPE));
 }
 
 /* ---- sound (T32): the frames plat_snd.c mixes at each VBlank, from its ring into an SDL audio stream ---- */
@@ -379,6 +418,12 @@ static void audio_pump(void) {
         return;
     }
     while ((n = Port_SndRingRead(buf, 1024)) > 0) {
+        if (sVolume < 100) { /* the overlay's volume: what the window plays, not what the game mixes */
+            int i;
+            for (i = 0; i < n * 2; i++) {
+                buf[i] = (int16_t)(buf[i] * sVolume / 100);
+            }
+        }
         if (sdl.GetAudioStreamQueued(sAudio) < AUDIO_MAX_QUEUED) {
             sdl.PutAudioStreamData(sAudio, buf, n * 4);
         }
@@ -387,6 +432,7 @@ static void audio_pump(void) {
 
 /* The window's objects, released on the window thread (GL contexts and renderers belong to it). */
 static void release(void) {
+    Overlay_Shutdown();
     if (sAudio != NULL) {
         Port_SndRingEnable(0);
         sdl.DestroyAudioStream(sAudio);
@@ -408,22 +454,189 @@ static void release(void) {
     sdl.Quit();
 }
 
-/* The pending events: the pads' state, and the end of the program when the window is closed. */
+/* The end of the program, from this thread (the window closed and confirmed). */
+static void quit_now(void) {
+    __atomic_store_n(&sClosed, 1, __ATOMIC_RELEASE);
+    printf("ttt: window closed\n");
+    fflush(stdout);
+    release();
+    fflush(stdout);
+    _exit(0);
+}
+
+/* Asks before quitting unless TTT_NO_QUIT_CONFIRM=1 or the overlay is not there; the second ask quits. */
+static void quit_asked(void) {
+    static int noConfirm = -1;
+    if (noConfirm < 0) {
+        const char *e = getenv("TTT_NO_QUIT_CONFIRM");
+        noConfirm = e != NULL && atoi(e) != 0;
+    }
+    if (noConfirm || !Overlay_Ready() || Overlay_QuitAsked()) {
+        quit_now();
+    }
+    Overlay_AskQuit();
+}
+
+/* The pending events: the overlay's (F1, a key being bound, its mouse and keys while open), the end of the program,
+   the pads' state (presses do not reach the pads while the overlay is open; releases do). */
+static void handle_event(const uint8_t *ev) {
+    uint32_t type, sc;
+    memcpy(&type, ev, 4);
+    memcpy(&sc, ev + SDL_SCANCODE_OFFSET, 4);
+    if (Overlay_Event(type, ev)) {
+        return;
+    }
+    if (type == SDL_EVENT_KEY_DOWN && sc == SETTINGS_SC_OPEN) {
+        if (ev[SDL_KEY_REPEAT_OFFSET] == 0) {
+            Overlay_Toggle();
+        }
+        return;
+    }
+    if (quit_event(type, ev)) {
+        quit_asked();
+        return;
+    }
+    if (Overlay_Open() && (type == SDL_EVENT_KEY_DOWN || type == SDL_EVENT_GAMEPAD_BUTTON_DOWN)) {
+        return;
+    }
+    input_event(type, ev);
+}
+
 static void events(void) {
     uint8_t ev[128];
     while (sdl.PollEvent(ev)) {
-        uint32_t type;
-        memcpy(&type, ev, 4);
-        if (quit_event(type, ev)) {
-            __atomic_store_n(&sClosed, 1, __ATOMIC_RELEASE);
-            printf("ttt: window closed\n");
-            fflush(stdout);
-            release();
-            fflush(stdout);
-            _exit(0);
-        }
-        input_event(type, ev);
+        handle_event(ev);
     }
+    if (Overlay_WantsQuit()) {
+        quit_now();
+    }
+}
+
+/* TTT_OVERLAY_TEST=1 (tests, with TTT_FRAMES): made-up key events through the window's own handling, at the overlay's
+   frames (nothing reaches the desktop): F1 opens the settings, Return pressed while they are open does not reach the
+   pads, Escape asks "Quit?" instead of quitting. overlay.cpp's own steps visit every page and bind a key. */
+static int sTestFrame = -1, sTestF1, sTestBlocked, sTestAsked;
+static void test_key(int down, uint32_t sc, uint32_t key) {
+    uint8_t ev[128] = {0};
+    uint32_t type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+    memcpy(ev, &type, 4);
+    memcpy(ev + SDL_SCANCODE_OFFSET, &sc, 4);
+    memcpy(ev + SDL_KEY_OFFSET, &key, 4);
+    ev[SDL_KEY_DOWN_OFFSET] = (uint8_t)down;
+    handle_event(ev);
+}
+
+static void test_step(void) {
+    if (sTestFrame < 0) {
+        const char *e = getenv("TTT_OVERLAY_TEST");
+        if (e == NULL || *e == 0 || *e == '0') {
+            return;
+        }
+    }
+    switch (++sTestFrame) {
+    case 1:
+        test_key(1, SETTINGS_SC_OPEN, 0x4000003Au);
+        test_key(0, SETTINGS_SC_OPEN, 0x4000003Au);
+        sTestF1 = Overlay_Open() && __atomic_load_n(&sInputBlocked, __ATOMIC_RELAXED);
+        break;
+    case 20:
+        test_key(1, 24, 'u'); /* U: pad 1's square, not while the overlay is open */
+        pthread_mutex_lock(&sPadLock);
+        sTestBlocked = (sKeyButtons[0] & PB_SQUARE) == 0 && (sLatched[0] & PB_SQUARE) == 0;
+        pthread_mutex_unlock(&sPadLock);
+        test_key(0, 24, 'u');
+        break;
+    case 30:
+        test_key(1, SDL_SCANCODE_ESCAPE, SDLK_ESCAPE);
+        test_key(0, SDL_SCANCODE_ESCAPE, SDLK_ESCAPE);
+        sTestAsked = Overlay_QuitAsked() && !__atomic_load_n(&sClosed, __ATOMIC_RELAXED);
+        break;
+    default:
+        break;
+    }
+}
+
+static int64_t now_ns(void) {
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (int64_t)t.tv_sec * 1000000000 + t.tv_nsec;
+}
+
+/* ---- the live settings (window thread) ---- */
+static int sApplied[3] = {-1, -1, -1}; /* vsync, scale, fullscreen as last applied */
+
+void Port_WindowApply(void) {
+    int vsync = Settings_GetInt("video.vsync"), scale = Settings_GetInt("video.scale");
+    int fs = Settings_GetInt("video.fullscreen");
+    pthread_mutex_lock(&sPadLock);
+    sInputBlocked = Overlay_Open();
+    pthread_mutex_unlock(&sPadLock);
+    __atomic_store_n(&sPaused, Overlay_Open() && Settings_GetInt("game.pause") != 0, __ATOMIC_RELEASE);
+    sVolume = Settings_GetInt("audio.mute") ? 0 : Settings_GetInt("audio.volume");
+    if (sWindow == NULL) {
+        return;
+    }
+    if (vsync != sApplied[0]) {
+        if (sGlContext != NULL) {
+            sdl.GL_SetSwapInterval(vsync);
+        } else if (sRenderer != NULL) {
+            sdl.SetRenderVSync(sRenderer, vsync);
+        }
+    }
+    if (sHaveOverlayFuncs && fs != sApplied[2]) {
+        sdl.SetWindowFullscreen(sWindow, fs != 0);
+    }
+    if (sHaveOverlayFuncs && scale != sApplied[1] && sApplied[1] >= 0 && !fs) {
+        sdl.SetWindowSize(sWindow, 640 * scale, 448 * scale);
+    }
+    sApplied[0] = vsync;
+    sApplied[1] = scale;
+    sApplied[2] = fs;
+}
+
+void Port_WindowGetBindings(uint16_t b[2][14]) {
+    memcpy(b, sBind, sizeof sBind);
+}
+
+void Port_WindowSetBindings(const uint16_t b[2][14]) {
+    memcpy(sBind, b, sizeof sBind); /* window thread: input_event runs here too */
+}
+
+const char *Port_WindowGamepadName(int pad) {
+    return pad >= 0 && pad < 2 && sGamepad[pad] != NULL ? sGamepadName[pad] : NULL;
+}
+
+const char *Port_WindowRendererName(void) {
+    static char name[96];
+    if (sGlMode) {
+        return "OpenGL 3.3";
+    }
+    snprintf(name, sizeof name, "software (SDL renderer %s)", sRenderer != NULL ? sdl.GetRendererName(sRenderer) : "?");
+    return name;
+}
+
+/* The game's clock waits while this is 1 (plat_hw.c, at a poll in real time): the overlay is open with game.pause. */
+int Port_WindowPaused(void) {
+    return __atomic_load_n(&sPaused, __ATOMIC_ACQUIRE);
+}
+
+/* The overlay over the picture about to be presented (GL: the default framebuffer is bound). */
+static int64_t sLastPresent;
+static void overlay_draw(void) {
+    int ww = 0, wh = 0, pw = 0, ph = 0;
+    test_step();
+    if (!Overlay_Visible()) {
+        return;
+    }
+    Overlay_TestStep();
+    if (sHaveOverlayFuncs) {
+        sdl.GetWindowSize(sWindow, &ww, &wh);
+    }
+    if (!sdl.GetWindowSizeInPixels || !sdl.GetWindowSizeInPixels(sWindow, &pw, &ph)) {
+        pw = ww;
+        ph = wh;
+    }
+    Overlay_Render(ww, wh, pw, ph, now_ns());
 }
 
 /* The end of a TTT_FRAMES run with a window: the window thread releases the window, then says so (state 3). */
@@ -438,7 +651,7 @@ static int quit_requested(void) {
 
 /* An OpenGL 3.3 core window with the GS's GL back end (gs_gl.c) on this thread; 0 (and nothing left open) when any
    step fails. */
-static int gl_open(uint64_t flags, int vsync) {
+static int gl_open(uint64_t flags, int vsync, int scale) {
     char why[1024];
 
     if (!sHaveGlFuncs) {
@@ -450,7 +663,7 @@ static int gl_open(uint64_t flags, int vsync) {
     sdl.GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
     sdl.GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
     sdl.GL_SetAttribute(SDL_GL_DEPTH_SIZE, 0);
-    sWindow = sdl.CreateWindow("Tekken Tag Tournament", 1280, 896, flags | SDL_WINDOW_OPENGL);
+    sWindow = sdl.CreateWindow("Tekken Tag Tournament", 640 * scale, 448 * scale, flags | SDL_WINDOW_OPENGL);
     if (sWindow == NULL) {
         printf("ttt: window: no OpenGL window (%s): software renderer\n", sdl.GetError());
         return 0;
@@ -461,6 +674,9 @@ static int gl_open(uint64_t flags, int vsync) {
     } else {
         sdl.GL_SetSwapInterval(vsync);
         if (Gl_Init(sdl.GL_GetProcAddress, why, (int)sizeof why)) {
+            if (!sHaveOverlayFuncs || !Overlay_InitGl(sdl.GL_GetProcAddress)) {
+                printf("ttt: window: no settings overlay (F1)\n");
+            }
             return 1;
         }
         printf("ttt: window: OpenGL back end: %s: software renderer\n", why);
@@ -477,8 +693,8 @@ static void *window_main(void *arg) {
     void *tex = NULL;
     uint32_t tw = 0, th = 0, seen = 0;
     uint8_t *pic = NULL;
-    const char *vs = getenv("TTT_VSYNC"), *rs = getenv("TTT_RENDERER"), *hs = getenv("TTT_WINDOW_HIDDEN");
-    int v, vsync = !(vs != NULL && atoi(vs) == 0);
+    const char *rs = getenv("TTT_RENDERER"), *hs = getenv("TTT_WINDOW_HIDDEN");
+    int v, vsync = Settings_GetInt("video.vsync"), scale = Settings_GetInt("video.scale"); /* TTT_VSYNC / TTT_SCALE */
     int64_t lastEvents = 0;
     uint64_t flags = SDL_WINDOW_RESIZABLE | (hs != NULL && atoi(hs) != 0 ? SDL_WINDOW_HIDDEN : 0);
 
@@ -489,16 +705,19 @@ static void *window_main(void *arg) {
         return NULL;
     }
     v = sdl.GetVersion();
+    Settings_Bindings(sBind);
     audio_open();
     if (rs != NULL && strcmp(rs, "sw") != 0 && strcmp(rs, "gl") != 0) {
         printf("ttt: window: TTT_RENDERER=%s unknown (gl or sw): gl\n", rs);
     }
     if (rs == NULL || strcmp(rs, "sw") != 0) {
-        sGlMode = gl_open(flags, vsync);
+        sGlMode = gl_open(flags, vsync, scale);
     }
     if (sGlMode) {
         printf("ttt: window: SDL %d.%d.%d, OpenGL renderer (TTT_RENDERER=gl)\n", v / 1000000, v / 1000 % 1000, v % 1000);
         fflush(stdout);
+        sApplied[0] = vsync;
+        Port_WindowApply();
         set_state(2);
         for (;;) { /* the events every 4 ms or so: SDL's event pump is not free, the GS commands come first */
             struct timespec now;
@@ -514,9 +733,12 @@ static void *window_main(void *arg) {
                 audio_pump();
             }
             Gs_GlPump(4);
+            if (Overlay_Open() && now_ns() - sLastPresent > 16000000) { /* the game shows nothing new (paused) */
+                Gl_Redisplay();
+            }
         }
     }
-    sWindow = sdl.CreateWindow("Tekken Tag Tournament", 1280, 896, flags);
+    sWindow = sdl.CreateWindow("Tekken Tag Tournament", 640 * scale, 448 * scale, flags);
     sRenderer = sWindow != NULL ? sdl.CreateRenderer(sWindow, NULL) : NULL;
     if (sRenderer == NULL) {
         snprintf(sWhy, sizeof sWhy, "SDL window: %s", sdl.GetError());
@@ -527,9 +749,24 @@ static void *window_main(void *arg) {
     sdl.SetRenderVSync(sRenderer, vsync);
     printf("ttt: window: SDL %d.%d.%d, renderer %s (TTT_RENDERER=sw)\n", v / 1000000, v / 1000 % 1000, v % 1000, sdl.GetRendererName(sRenderer));
     fflush(stdout);
+    if (sHaveOverlayFuncs) {
+        OverlaySdlRenderer r;
+        r.renderer = sRenderer;
+        r.CreateTexture = sdl.CreateTexture;
+        r.UpdateTexture = sdl.UpdateTexture;
+        r.SetTextureBlendMode = sdl.SetTextureBlendMode;
+        r.DestroyTexture = sdl.DestroyTexture;
+        r.RenderGeometryRaw = sdl.RenderGeometryRaw;
+        r.SetRenderClipRect = sdl.SetRenderClipRect;
+        if (!Overlay_InitSw(&r)) {
+            printf("ttt: window: no settings overlay (F1)\n");
+        }
+    }
+    sApplied[0] = vsync;
+    Port_WindowApply();
     set_state(2);
     for (;;) {
-        uint32_t w = 0, h = 0;
+        uint32_t w = tw, h = th;
         int fresh = 0;
 
         events();
@@ -562,8 +799,8 @@ static void *window_main(void *arg) {
             }
         }
         pthread_mutex_unlock(&sLock);
-        if (!fresh) {
-            continue;
+        if (!fresh && !(tex != NULL && Overlay_Open() && now_ns() - sLastPresent > 16000000)) {
+            continue; /* nothing new; with the overlay open the last picture is drawn again (the game may be paused) */
         }
         if (tex == NULL || w != tw || h != th) {
             if (tex != NULL) {
@@ -578,10 +815,19 @@ static void *window_main(void *arg) {
             tw = w;
             th = h;
         }
-        sdl.UpdateTexture(tex, NULL, pic, (int)w * 3);
+        if (fresh) {
+            sdl.UpdateTexture(tex, NULL, pic, (int)w * 3);
+        }
         sdl.RenderClear(sRenderer);
         sdl.RenderTexture(sRenderer, tex, NULL, NULL);
+        if (Overlay_Visible()) { /* the overlay in window pixels, outside the picture's letterbox */
+            sdl.SetRenderLogicalPresentation(sRenderer, 0, 0, SDL_LOGICAL_PRESENTATION_DISABLED);
+            overlay_draw();
+            sdl.SetRenderLogicalPresentation(sRenderer, (int)tw, (int)th, SDL_LOGICAL_PRESENTATION_LETTERBOX);
+        }
         sdl.RenderPresent(sRenderer);
+        sLastPresent = now_ns();
+        Overlay_FrameShown(sLastPresent);
         __atomic_add_fetch(&sShown, 1, __ATOMIC_RELAXED);
     }
     return NULL;
@@ -657,6 +903,11 @@ void Port_WindowReport(void) {
     } else {
         printf("ttt: window: %u pictures handed over, %u shown\n", sSeq, __atomic_load_n(&sShown, __ATOMIC_RELAXED));
     }
+    Overlay_Report();
+    if (sTestFrame >= 0) {
+        printf("ttt: window: overlay test: F1 opens %d, presses blocked %d, Escape asks %d\n", sTestF1, sTestBlocked,
+               sTestAsked);
+    }
     fflush(stdout);
     __atomic_store_n(&sQuitReq, 1, __ATOMIC_RELEASE);
     pthread_mutex_lock(&sLock);
@@ -684,14 +935,17 @@ void Port_WindowGlSize(int *w, int *h) {
 }
 
 void Port_WindowGlSwap(void) {
+    overlay_draw();
     sdl.GL_SwapWindow(sWindow);
+    sLastPresent = now_ns();
+    Overlay_FrameShown(sLastPresent);
     __atomic_add_fetch(&sShown, 1, __ATOMIC_RELAXED);
 }
 
-/* TTT_SELFTEST=window: the keyboard's mapping and the window's quit keys, on made-up SDL events (no SDL, no window,
-   nothing sent to the desktop): a tap of Return between two VBlanks is pad 1's Start for one look, a held one until
-   released, keypad Enter is pad 2's Start, W A S D the d-pad, Escape (by key code or by place) and the close button end
-   the program, other keys do not. */
+/* TTT_SELFTEST=window: the keyboard's default mapping and the window's quit keys, on made-up SDL events (no SDL, no
+   window, nothing sent to the desktop): a tap of Return between two VBlanks is pad 1's Start for one look, a held one
+   until released, keypad Enter is pad 2's Start, W A S D the d-pad, Escape (by key code or by place, not its repeat) and
+   the close button ask to end the program, other keys do not. */
 void Port_WindowSelfTest(void) {
     const char *t = getenv("TTT_SELFTEST");
     uint16_t b[2];
@@ -718,6 +972,7 @@ void Port_WindowSelfTest(void) {
             fails++;                                                                                                   \
         }                                                                                                              \
     } while (0)
+    Settings_DefaultBindings(sBind);
     Port_WindowPads(b, a); /* clear */
     KEY(1, 40, 0x0D);
     KEY(0, 40, 0x0D);
@@ -761,6 +1016,9 @@ void Port_WindowSelfTest(void) {
         memcpy(ev + SDL_KEY_OFFSET, &ky, 4);
         EXPECT(quit_event(ty, ev), "the key at Escape's place ends the program");
         EXPECT(!quit_event(SDL_EVENT_KEY_UP, ev), "releasing Escape does nothing more");
+        ev[SDL_KEY_REPEAT_OFFSET] = 1;
+        EXPECT(!quit_event(ty, ev), "Escape's key repeat does not answer the quit question");
+        ev[SDL_KEY_REPEAT_OFFSET] = 0;
         sc = 40;
         ky = 0x0D;
         memcpy(ev + SDL_SCANCODE_OFFSET, &sc, 4);

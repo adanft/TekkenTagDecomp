@@ -196,6 +196,9 @@ static const char *dat_path(void) {
     return sDatPath;
 }
 
+/* The data file this run uses (the overlay's Game page, overlay.cpp); "" before the first look. */
+const char *Port_DataPath(void) { return sDatPath; }
+
 static void no_disc(void) {
     fflush(stdout);
     fprintf(stderr, "ttt: no disc: set TTT_DISC to a directory with the disc's files or to the game's .iso (or put iso/ "

@@ -88,6 +88,10 @@ disc** when it runs (`ttt.dat`, [data.md](data.md)). Everything is written under
   (gotchas 23, 24): the wind of `Skel_Update` changes the attract demo's hair from VBlank 1650 on, so the 2551-VBlank
   run ends with `sbss-hash 0xcf8bdf40` (the wind words `D_005F6E18` / `D_005F6E20` of both sides, and the two moved
   function pointers of gotcha 20; with those six words set back the memory hashes to the old `0x341e8d2f`).
+- Settings (T36, [settings.md](settings.md)): F1 opens a Dear ImGui overlay in the window (video, audio, key
+  rebinding, game, about), kept in `~/.config/ttt/settings.ini` (`TTT_CONFIG`; environment variables still win);
+  closing the window or Escape asks "Quit?" first. The overlay is the only host float code besides the VU
+  interpreter's SSE, on the window thread, and nothing of the simulation reads it.
 - Determinism (T27, [determinism.md](determinism.md)): the `ttt: state:` line's hash is now a 64-bit XXH3 of the
   whole gameplay state (EE RAM without the EE stack, scratchpad, hardware registers, VU0, the port's own state), with
   every host address in the game's memory counted as one constant, so that it does not move when the code changes
@@ -259,9 +263,11 @@ wait loops drive the hardware.
 | `vu_fasttest.c` | `TTT_SELFTEST=vu1`'s second part: random programs on both interpreters, the SSE arithmetic against the model |
 | `plat_pkt.c` | libpkt: VIF1 and GIF packet builders |
 | `plat_vu0.c` | libvu0 in C (column-major matrices; `func_0034A868` is `sceVu0Normalize`) |
-| `plat_main.c` | `TTT_SELFTEST=pad`, opens the window (on the host stack), then runs the game's `main` on the EE stack |
+| `plat_main.c` | Reads the settings file, `TTT_SELFTEST=settings` / `pad`, opens the window (on the host stack), then runs the game's `main` on the EE stack |
+| `plat_settings.c` | The settings file (`key = value`, unknown lines kept, atomic writes), the environment's precedence, key names, the keyboard's bindings ([settings.md](settings.md)) |
+| `overlay.cpp` / `overlay.h` / `imconfig_ttt.h` | The F1 overlay and the quit question: Dear ImGui (`third_party/imgui`) on the window thread, its SDL glue, its software-renderer path, its maths ([settings.md](settings.md)) |
 | `plat_state.c` | The state: the regions the modules register, the gameplay hash, save / load at the VBlank boundary (a stack switch), `Port_OffEe`, the synctest ([determinism.md](determinism.md)) |
-| `plat_window.c` | The SDL3 window: SDL loaded at run time, its own thread, the GL context ([Window](#window)), the audio stream, `TTT_SELFTEST=window` |
+| `plat_window.c` | The SDL3 window: SDL loaded at run time, its own thread, the GL context ([Window](#window)), the audio stream, F1 / the quit question / the live settings, `TTT_SELFTEST=window` |
 | `gs_gl.c` | The GS's OpenGL 3.3 back end on the window thread ([GL back end](#gl-back-end)) |
 | `gs_async.c` | The GS threads: VIF1 and VU1, then the GIF and the GS front end, beside the game ([Speed](#speed)) |
 | `gs_int.h` | The GS commands and helpers both back ends share |
@@ -341,11 +347,14 @@ Switches:
 | `TTT_TIME_FROM=<vblank>` | Measurements: the GS path is drained at that VBlank and the report says `ttt: time: vblanks <from>-<end> in <n> ms` (drained again at the end). Nothing else changes. |
 | `TTT_WINDOW=0/1` | The window ([Window](#window)): default on in real time, off headless and for self-tests. `1` with `TTT_FRAMES` shows a headless run as it goes. |
 | `TTT_VSYNC=0` | The window presents without the renderer's vsync. |
+| `TTT_CONFIG=<file>` | The settings file (default `$XDG_CONFIG_HOME/ttt/settings.ini` or `~/.config/ttt/settings.ini`). Its values are the defaults of the variables of [settings.md](settings.md) (`TTT_RENDERER`, `TTT_VSYNC`, `TTT_MOVIES`, `TTT_SCALE`, `TTT_VOLUME`...); a variable set in the environment wins. `TTT_SELFTEST=settings` checks the file's round trip. |
+| `TTT_NO_QUIT_CONFIRM=1` | Close / Escape quit at once instead of asking "Quit?". |
+| `TTT_OVERLAY_TEST=1` | Tests: the overlay driven from inside a window run ([settings.md](settings.md)). |
 | `TTT_RENDERER=gl / sw` | In a window: the GS draws on the GPU (`gl`, default; falls back to `sw` when no OpenGL 3.3 core context can be made) or with the software rasteriser (`sw`). Headless runs and dumps without a window are always `sw`. |
 | `TTT_WINDOW_HIDDEN=1` | The window stays hidden (tests, measurements; with `SDL_VIDEO_DRIVER=offscreen` no display is needed). |
 | `TTT_GS_ASYNC=0 / 1 / 2` | The GS threads ([Speed](#speed)): 1 one GS thread, 2 two (VIF1 / VU1, then the GIF / GS front end). Default 2 with GL, 1 with raster threads, 0 for traces and self-tests. The same results in every mode (`tests/test_port_gl.py`). |
 | `TTT_SELFTEST=gl` | The GL back end's rules on made-up primitives, no GL context: the alpha test's outcome over a primitive's alpha range, the shared depth write, the texels a UV primitive reads, the CLUT halves of a load (`tests/test_port_gl.py`). |
-| `TTT_SELFTEST=window` | The keyboard's mapping and the quit keys on made-up SDL events (no SDL, no window). |
+| `TTT_SELFTEST=window` | The keyboard's default mapping and the quit keys on made-up SDL events (no SDL, no window). |
 | `TTT_SDL_LIB=<path>` | The SDL3 library to load (default `libSDL3.so.0`). |
 | `TTT_PADS=0/1/2` | Pads connected ([Input](#input)). Default: 2 in real time, 0 headless, 2 with `TTT_INPUT_PLAY`. |
 | `TTT_INPUT_PLAY=<file>` | The pads' states come from that recording instead of the keyboard and gamepads. |
@@ -538,8 +547,8 @@ throttles the whole slice when hot, so wall times move by 10-20% between runs; C
   in `/etc/pacman.conf`); on Debian / Ubuntu `libsdl3-0:i386` where packaged. Only pointer and integer arguments
   cross into SDL (no `SDL_FRect`: the port has no host floating point).
 - **When.** Real-time runs (`build/port/ttt` without `TTT_FRAMES`) open it; `TTT_WINDOW=0` keeps them headless,
-  `TTT_WINDOW=1` opens it for a `TTT_FRAMES` run too. Closing it or Escape ends the program. The window thread
-  also reads the keyboard and the gamepads ([Input](#input)).
+  `TTT_WINDOW=1` opens it for a `TTT_FRAMES` run too. Closing it or Escape asks "Quit?" (T36), F1 opens the settings
+  overlay ([settings.md](settings.md)). The window thread also reads the keyboard and the gamepads ([Input](#input)).
 - **Threads.** SDL runs on a thread of its own, started before the game (`plat_main.c`, on the host stack): the game's
   thread runs on the PS2 stack in EE RAM, 200 KB that grow into the game's `.bss`. Each VBlank the raster workers
   draw the picture into one of three slots (in order with the drawing); the newest finished one is copied to the
@@ -553,8 +562,8 @@ throttles the whole slice when hot, so wall times move by 10-20% between runs; C
   the commands the GS thread queues and presents each VBlank's picture (letterboxed blit), skipping the presentation
   of a picture when a newer one is already queued. Events are read every 4 ms. When the context or the back end
   cannot be made the run says why and uses the software renderer.
-- **Closing (T30 batch 3).** Escape (by key code or by the key's place) and the close button end the program from the
-  window thread itself: it releases the GL context / renderer and the window, then `_exit(0)`, whatever the game's
+- **Closing (T30 batch 3; T36 asks first, `TTT_NO_QUIT_CONFIRM=1` does not).** Escape (by key code or by the key's
+  place) and the close button end the program from the window thread itself: it releases the GL context / renderer and the window, then `_exit(0)`, whatever the game's
   thread is doing (before, the game's thread exited at its next VBlank, which never came when it waited on the back
   end, and exit() raced the window thread's driver calls). A key pressed and released between two VBlanks still
   reaches the pads for one VBlank (Return tapped quickly was lost before). `TTT_SELFTEST=window` checks both on
@@ -636,7 +645,8 @@ keyboard and the gamepads on the window thread.
   `TTT_FRAMES=<n> TTT_SEED=1 TTT_INPUT_PLAY=run.txt`.
 
 Controls (the key's place, whatever the keyboard layout; Tekken's default: square left punch, triangle right
-punch, cross left kick, circle right kick):
+punch, cross left kick, circle right kick). The keyboard's keys are the defaults: F1's Controls page rebinds them and
+the settings file keeps them (`keys.p1.square = Space`, [settings.md](settings.md)):
 
 | PS2 button | Pad 1 keys | Pad 2 keys | SDL gamepad |
 |---|---|---|---|
@@ -649,7 +659,8 @@ punch, cross left kick, circle right kick):
 | L3 / R3 | | | stick buttons |
 
 The first two gamepads connected become pads 1 and 2 (`ttt: input: pad N: <name>`), together with the keyboard. Escape
-or closing the window ends the program. No rebinding yet (T36's settings).
+or closing the window asks "Quit?". While the F1 overlay is open the pads see nothing pressed. Gamepad buttons are not
+rebindable yet.
 
 From the main menu to the fight (T34 batch 2): Start at the main menu starts ARCADE; in the character select the
 d-pad moves the cursor, a punch / kick button picks the character (its costume), and a second pick takes the tag
@@ -1053,5 +1064,5 @@ skinning are the limits now ([Speed](#speed)); T31's native replacements. libgra
 seven Tekken Bowl m2c drafts around VU0 code (`portsrc.REPLACED`, still placeholders: not reached by the attract
 demo); the libm PCSX2 run; the other game types after the character select (VS, team, survival: the same step
 function, not checked frame by frame) and the leftover-register calls of gotcha 23 off the fight's path; the multitap,
-vibration and rebinding; the open movie items of [movies.md](movies.md) (the attract and ending movies through the
+vibration and gamepad rebinding; the open movie items of [movies.md](movies.md) (the attract and ending movies through the
 game's own paths, the driver's movie timing).

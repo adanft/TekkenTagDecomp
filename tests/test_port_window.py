@@ -46,11 +46,17 @@ class HostCalls(unittest.TestCase):
         plt = re.findall(r"<(\w+)@plt>:", out)
         self.assertTrue(plt)
         self.assertEqual([n for n in plt if n.startswith(("pthread_", "dl", "sysconf", "_exit", "__atomic"))], [])
+        # the settings file and the overlay (T36): their C library calls go through the GOT too (-fno-plt), and no C++
+        # run time is linked
+        overlay = {"qsort", "vsnprintf", "strncmp", "strchr", "strncpy", "memchr", "localtime_r", "time", "setenv",
+                   "unsetenv", "mkdir", "access", "strerror", "atexit", "__cxa_atexit"}
+        self.assertEqual(sorted(set(plt) & overlay), [])
+        self.assertEqual([n for n in plt if n.startswith(("_Z", "__cxa", "__gxx"))], [])
 
     def test_window_keys(self):
-        """The keyboard's mapping and the quit keys on made-up SDL events (TTT_SELFTEST=window): a Return tap between
-        two VBlanks is pad 1's Start once, keypad Enter pad 2's, Escape (by key code or by place) and the close button
-        end the program, Return does not."""
+        """The keyboard's default mapping and the quit keys on made-up SDL events (TTT_SELFTEST=window): a Return tap
+        between two VBlanks is pad 1's Start once, keypad Enter pad 2's, Escape (by key code or by place, not its key
+        repeat) and the close button ask to end the program, Return does not."""
         r = run_ttt(TTT_SELFTEST="window")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("ttt: window self-test OK", r.stdout)
@@ -111,6 +117,50 @@ class Window(unittest.TestCase):
                 self.assertEqual((w, h), (w2, h2))
                 mean = sum(abs(x - y) for x, y in zip(a, b)) / len(a)
                 self.assertLess(mean, 4.0, name)
+
+
+OVERLAY = re.compile(r"ttt: overlay: (\d+) frames drawn \((gl|sw)\), pages (\d)/5, key capture (\d) "
+                     r"\(pad 1 square: (\w+)\)")
+WINDOW_TEST = "ttt: window: overlay test: F1 opens 1, presses blocked 1, Escape asks 1"
+
+
+@unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
+@unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
+@unittest.skipUnless(any(p.exists() for p in SDL32), "no 32-bit SDL3 (Arch: lib32-sdl3)")
+class Overlay(unittest.TestCase):
+    """The settings overlay (T36) in a hidden window, driven from inside (TTT_OVERLAY_TEST=1: made-up key events through
+    the window's own handling, nothing sent to the desktop): F1 opens it, every page is drawn, a key pressed while it is
+    open does not reach the pads, a key is bound through the "press a key" path (and written to the settings file),
+    Escape asks "Quit?" instead of quitting; the game's state is the one of a run without a window."""
+
+    def check(self, renderer, driver, frames):
+        with tempfile.TemporaryDirectory(prefix="ttt-overlay-") as d:
+            cfg = Path(d) / "settings.ini"
+            r = run_ttt(TTT_FRAMES=frames, TTT_SEED="1", TTT_WINDOW="1", TTT_WINDOW_HIDDEN="1", TTT_RENDERER=renderer,
+                        TTT_AUDIO="0", SDL_VIDEO_DRIVER=driver, TTT_OVERLAY_TEST="1", TTT_CONFIG=str(cfg))
+            self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
+            if renderer == "gl" and "OpenGL renderer" not in r.stdout:
+                self.skipTest("no OpenGL 3.3 context here: " + r.stdout[-500:])
+            m = OVERLAY.search(r.stdout)
+            self.assertIsNotNone(m, r.stdout[-2000:] + r.stderr[-2000:])
+            self.assertEqual(m.group(2), renderer)
+            self.assertGreater(int(m.group(1)), 40)
+            self.assertEqual((m.group(3), m.group(4), m.group(5)), ("5", "1", "Space"))
+            self.assertIn(WINDOW_TEST, r.stdout)
+            self.assertNotIn("ImGui check failed", r.stderr)
+            self.assertIn("keys.p1.square = Space\n", cfg.read_text())
+            plain = run_ttt(TTT_FRAMES=frames, TTT_SEED="1")
+            self.assertIsNotNone(state(plain), plain.stdout[-2000:])
+            self.assertEqual(state(r), state(plain))
+
+    def test_overlay_gl(self):
+        """OpenGL (SDL's offscreen driver; skipped without an OpenGL 3.3 context). Headless, the GL back end shows its
+        first pictures after about 650 VBlanks."""
+        self.check("gl", "offscreen", "900")
+
+    def test_overlay_sw(self):
+        """The software renderer through SDL's renderer (dummy video driver)."""
+        self.check("sw", "dummy", "400")
 
 
 if __name__ == "__main__":

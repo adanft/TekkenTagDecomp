@@ -1921,6 +1921,47 @@ static void clut(const Cmd *c) {
 
 /* ------------------------------------------------------------------------------------------------ display */
 
+/* The display picture (sDispFbo, w x h) letterboxed into the window's back buffer, then presented (with the overlay,
+   plat_window.c). */
+static int sShownW, sShownH; /* the last picture shown in the window */
+static void window_blit(int w, int h) {
+    int ww = 0, wh = 0, dw, dh, x0, y0;
+    Port_WindowGlSize(&ww, &wh);
+    if (ww <= 0 || wh <= 0) {
+        return;
+    }
+    if ((int64_t)ww * h > (int64_t)wh * w) {
+        dh = wh;
+        dw = (int)((int64_t)wh * w / h);
+    } else {
+        dw = ww;
+        dh = (int)((int64_t)ww * h / w);
+    }
+    x0 = (ww - dw) / 2;
+    y0 = (wh - dh) / 2;
+    gl.BindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    gl.DrawBuffer(GL_BACK);
+    gl.Viewport(0, 0, ww, wh);
+    {
+        static const uint32_t zero[4] = {0, 0, 0, 0};
+        gl.ClearBufferfv(GL_COLOR, 0, zero);
+    }
+    gl.BindFramebuffer(GL_READ_FRAMEBUFFER, sDispFbo);
+    gl.ReadBuffer(GL_COLOR_ATTACHMENT0);
+    gl.BlitFramebuffer(0, 0, w, h, x0, y0 + dh, x0 + dw, y0, GL_COLOR_BUFFER_BIT, GL_LINEAR); /* line 0 at the top */
+    Port_WindowGlSwap();
+}
+
+/* The last picture again (window thread, between GS commands): the overlay is open while the game shows nothing new
+   (paused). 0 when there is no picture yet. */
+int Gl_Redisplay(void) {
+    if (sShownW <= 0 || sShownH <= 0) {
+        return 0;
+    }
+    window_blit(sShownW, sShownH);
+    return 1;
+}
+
 static void show(const Cmd *c) {
     const DispRegs *regs = &c->u.show.regs;
     uint64_t pmode = regs->pmode;
@@ -1968,33 +2009,12 @@ static void show(const Cmd *c) {
     rect_pass(uDisp.rect, uDisp.target, 0, 0, w, h, 1024, 1024);
     sGlStat.shows++;
     if (c->u.show.window) {
-        int ww = 0, wh = 0, dw, dh, x0, y0;
         if (gGsGlSkip) {
             return; /* a newer picture is queued */
         }
-        Port_WindowGlSize(&ww, &wh);
-        if (ww <= 0 || wh <= 0) {
-            return;
-        }
-        if ((int64_t)ww * h > (int64_t)wh * w) {
-            dh = wh;
-            dw = (int)((int64_t)wh * w / h);
-        } else {
-            dw = ww;
-            dh = (int)((int64_t)ww * h / w);
-        }
-        x0 = (ww - dw) / 2;
-        y0 = (wh - dh) / 2;
-        gl.BindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-        gl.DrawBuffer(GL_BACK);
-        gl.Viewport(0, 0, ww, wh);
-        {
-            static const uint32_t zero[4] = {0, 0, 0, 0};
-            gl.ClearBufferfv(GL_COLOR, 0, zero);
-        }
-        gl.BindFramebuffer(GL_READ_FRAMEBUFFER, sDispFbo);
-        gl.ReadBuffer(GL_COLOR_ATTACHMENT0);
-        gl.BlitFramebuffer(0, 0, w, h, x0, y0 + dh, x0 + dw, y0, GL_COLOR_BUFFER_BIT, GL_LINEAR); /* line 0 at the top */
+        sShownW = w;
+        sShownH = h;
+        window_blit(w, h);
         Port_WindowGlSwap();
     } else if (Gs_DumpDir() != NULL) {
         uint8_t *rgba = malloc((size_t)w * (size_t)h * 4), *rgb = malloc((size_t)w * (size_t)h * 3);

@@ -24,7 +24,8 @@ def disc():
 
 def run_ttt(timeout=120, **env):
     """Runs the program with only the given TTT_ variables. Without TTT_SAVES the memory card is an empty card in a
-    temporary directory (plat_mc.c), so no run reads or writes the repository's saves/. Without TTT_MOVIES the movies
+    temporary directory (plat_mc.c), so no run reads or writes the repository's saves/; without TTT_CONFIG the settings
+    file (plat_settings.c) is a fresh one there too, never the player's. Without TTT_MOVIES the movies
     are skipped (TTT_MOVIES=0), as before T33: the intro movie would fill the first 4000 VBlanks of every run
     (tests/test_port_movie.py plays them)."""
     e = {k: v for k, v in os.environ.items() if not k.startswith("TTT_")}
@@ -32,10 +33,9 @@ def run_ttt(timeout=120, **env):
         e["TTT_DISC"] = str(disc())
     e["TTT_MOVIES"] = "0"
     e.update(env)
-    if "TTT_SAVES" in e:
-        return subprocess.run([str(EXE)], env=e, capture_output=True, text=True, timeout=timeout)
     with tempfile.TemporaryDirectory(prefix="ttt-saves-") as saves:
-        e["TTT_SAVES"] = saves
+        e.setdefault("TTT_SAVES", saves)
+        e.setdefault("TTT_CONFIG", str(Path(saves) / "settings.ini"))  # never the player's own settings file
         return subprocess.run([str(EXE)], env=e, capture_output=True, text=True, timeout=timeout)
 
 

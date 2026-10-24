@@ -18,9 +18,14 @@ int __real_main(int argc, char **argv);
 int Port_WindowOpen(void); /* plat_window.c */
 void Port_PadSelfTest(void); /* plat_pad.c: TTT_SELFTEST=pad */
 void Port_WindowSelfTest(void); /* plat_window.c: TTT_SELFTEST=window */
+void Settings_Load(void); /* plat_settings.c: the settings file, before anything reads the variables it sets */
+void Settings_SelfTest(void); /* TTT_SELFTEST=settings */
 
 int __wrap_main(int argc, char **argv) {
-    /* the window first, on the host stack: SDL's start-up is neither for the EE stack nor for the game's clock */
+    /* the settings and the window first, on the host stack: SDL's start-up is neither for the EE stack nor for the
+       game's clock */
+    Settings_Load();
+    Settings_SelfTest();
     Port_PadSelfTest();
     Port_WindowSelfTest();
     Port_WindowOpen();
