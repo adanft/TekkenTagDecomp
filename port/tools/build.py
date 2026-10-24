@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Build the PC port from a clean tree: the game's data (gen_data.py), every object (undefined.py), the link with
-stubs (link.py). Needs the matching build's split (`.venv/bin/python configure.py`), which reads your own
-SLUS_200.01; everything is written under build/port/.
+"""Build the PC port from a clean tree: every object (undefined.py), the link with stubs (link.py). Needs neither the
+game's executable nor its split: the game's data is not linked in, the program reads it from your disc when it runs
+(port/tools/data_layout.txt, port/src/plat_data.c, docs/port/data.md). Everything is written under build/port/.
 
 Usage: python3 port/tools/build.py [-v]      -> build/port/ttt (32-bit x86 Linux)
        TTT_CC=clang python3 port/tools/build.py  (game code through clang -> build/port/ttt_clang)"""
@@ -18,9 +18,6 @@ def step(name, *args):
 
 
 def main():
-    ok = step("gen_data.py")
-    if not ok:
-        sys.exit("build: gen_data.py failed")
     compiled = step("undefined.py", *sys.argv[1:])  # failures are listed; link what compiled, to see what is left
     linked = step("link.py")
     if not (compiled and linked):

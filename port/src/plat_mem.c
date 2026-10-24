@@ -5,9 +5,10 @@
  * outside its program (0x100000-0x33F000) and makes uncached views of its own variables (`addr | 0x20000000`,
  * `| 0x30000000`). So the 32-bit build gives it the PS2's map (docs/port/README.md, "Memory map"):
  *
- *   0x00010000..0x02000000  EE RAM (32 MB), one shared memory object. The game's data and bss are linked at their
- *                           PS2 addresses inside it (port/tools/link.py, image.ld); the first 64 KB cannot be
- *                           mapped (vm.mmap_min_addr) and are reached only through the aliases.
+ *   0x00010000..0x02000000  EE RAM (32 MB), one shared memory object. The game's data is copied into it at its
+ *                           PS2 addresses from the user's disc (plat_data.c; the program carries none of it), its
+ *                           bss is the object's zeroes; the first 64 KB cannot be mapped (vm.mmap_min_addr) and are
+ *                           reached only through the aliases.
  *   0x20000000, 0x30000000  the uncached and uncached-accelerated views of EE RAM: the same memory object mapped
  *                           again, so a write through one view is seen through the others, as on the PS2.
  *   0x10000000 (64 KB)      EE hardware registers (timers, IPU, GIF, VIF, DMA, INTC, SIF);
@@ -35,10 +36,13 @@
 
 #define EE_FIRST 0x00010000u /* the lowest address Linux lets a program map (vm.mmap_min_addr) */
 
-/* Bounds of the game's data at its PS2 addresses (image.ld). */
+/* Bounds of the game's data at its PS2 addresses (image.ld: absolute symbols, nothing is linked there). */
 extern char __ttt_data_start[], __ttt_data_end[], __ttt_bss_start[], __ttt_bss_end[];
 
 static int sEeRam = -1;
+static int sDataLoaded;
+
+void Port_LoadGameData(void); /* plat_data.c */
 
 static void fail(const char *what, uint32_t addr) {
     fprintf(stderr, "ttt: cannot map %s at 0x%08X\n", what, addr);
@@ -63,8 +67,9 @@ static void map_ee(uint32_t addr, uint32_t off, uint32_t size, int replace, cons
     }
 }
 
-/* EE RAM must hold nothing but the game's data and bss (mapped by the program loader) before it is replaced:
-   anything else there (the host's code or heap) would be overwritten without a word. */
+/* EE RAM must hold nothing before it is mapped (the program has no segment there any more; a build that links
+   something at those addresses is allowed its own range): anything else there (the host's code or heap) would be
+   overwritten without a word. */
 static void check_ee_range(uint32_t lo, uint32_t hi) {
     FILE *fp = fopen("/proc/self/maps", "r");
     char line[512];
@@ -87,17 +92,9 @@ static void check_ee_range(uint32_t lo, uint32_t hi) {
 }
 
 static void ee_ram(void) {
-    /* from the start of the data's page: the loader puts the program's ELF headers in front of the data (in the
-       PS2's code range, which the native build does not use), and the C library may still read them */
-    uint32_t start = Port_Addr(__ttt_data_start) & ~0xFFFu, len = Port_Addr(__ttt_data_end) - start;
-
     sEeRam = memfd_create("ttt-ee-ram", MFD_CLOEXEC);
     if (sEeRam < 0 || ftruncate(sEeRam, PORT_EE_RAM_SIZE) != 0) {
         fail("EE RAM (no memory object)", 0);
-    }
-    /* the initialised data, as the loader put it, into the memory object; the bss is the object's zeroes */
-    if (pwrite(sEeRam, Port_Ptr(start), len, start) != (ssize_t)len) {
-        fail("the game's data", start);
     }
     check_ee_range(EE_FIRST, PORT_EE_RAM_SIZE);
     map_ee(EE_FIRST, EE_FIRST, PORT_EE_RAM_SIZE - EE_FIRST, 1, "EE RAM");
@@ -141,7 +138,7 @@ static void self_test(void) {
 
     expect(data >= EE_FIRST && data + dlen <= bss && bss + blen <= PORT_EE_RAM_SIZE,
            "the game's data and bss lie inside EE RAM, data first");
-    expect(dlen != 0 && !all_zero(Port_Ptr(data), dlen), "the game's data was copied into EE RAM");
+    expect(!sDataLoaded || (dlen != 0 && !all_zero(Port_Ptr(data), dlen)), "the game's data was copied into EE RAM");
     expect(memcmp(Port_Ptr(data), Port_Ptr(data | 0x20000000u), dlen) == 0, "the game's data through 0x20000000");
     expect(all_zero(Port_Ptr(bss | 0x30000000u), blen), "the bss is zero at start");
     *(volatile uint32_t *)Port_Ptr(bss) = 0xCAFEF00Du;
@@ -184,6 +181,8 @@ __attribute__((constructor(101))) static void Port_MapMemory(void) {
     const char *t = getenv("TTT_SELFTEST");
 
     ee_ram();
+    Port_LoadGameData(); /* the game's data from the user's disc into EE RAM (plat_data.c) */
+    sDataLoaded = !all_zero(Port_Ptr(Port_Addr(__ttt_data_start)), 4096);
     map_plain(0x10000000u, 0x10000, "the EE hardware registers");
     map_plain(0x11000000u, 0x10000, "the VU memory");
     map_plain(0x12000000u, 0x2000, "the GS privileged registers");

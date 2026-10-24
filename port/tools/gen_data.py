@@ -11,7 +11,11 @@ address (gen/image.txt lists them), so every game address is the same as on the 
 uncached aliases it makes of them and its fixed buffers all work unchanged (docs/port/README.md, "Memory map").
 Everything is writable (the game patches some of its read-only tables).
 
-Usage: port/tools/gen_data.py          (needs the matching build's split: .venv/bin/python configure.py)
+Since T25 the PC build links none of this: make_layout.py compares these objects with the executable and writes
+port/tools/data_layout.txt (addresses, sizes, names, hashes), and the program loads the bytes from the user's disc
+(port/src/plat_data.c, docs/port/data.md). This tool is a developer's step, run when the data split changes.
+
+Usage: port/tools/gen_data.py && port/tools/make_layout.py   (needs the matching build's split: configure.py)
 Output: build/port/gen/data/*.s, build/port/obj_data/*.o, build/port/gen/chunks.txt and image.txt: generated from
 the user's game, never committed."""
 import re

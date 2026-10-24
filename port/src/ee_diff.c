@@ -8,7 +8,8 @@
  * model (softfloat_ps2_inl.h: the same arithmetic as the port's C), and COP2 macro mode (libvu0 and the hand-written
  * VU0 routines) with the vector unit's arithmetic. Calls are interpreted too (the callee's original code), so the
  * check compares the whole call tree. Instructions, sections and data come from the executable (TTT_DIFF_ELF, default
- * build/SLUS_200.01 next to build/port/ttt, the matching build's output = your SLUS_200.01): .text, .rodata and .lit4 are read from its image
+ * build/SLUS_200.01 next to build/port/ttt, the matching build's output = your SLUS_200.01, else the disc's own
+ * SLUS_200.01): .text, .rodata and .lit4 are read from its image
  * (the port does not keep .lit4 at its address), everything else from the running program's memory (the port keeps
  * the game's data at its PS2 addresses). Anything outside that set (an unknown instruction, a call outside .text,
  * a syscall, the VU0 flags) stops the check with a report; the port continues as if the check had not run.
@@ -28,6 +29,7 @@
 #include "softfloat_ps2_inl.h"
 
 uint32_t Port_VBlankCount(void);
+long Port_DiscReadFile(const char *dirName, const char *name, void *dst, long max); /* plat_file.c */
 extern float gPortVu0Vf[32][4];
 
 #define RAM_LO 0x00010000u
@@ -81,19 +83,27 @@ static int load_elf(void) {
         }
     }
     f = fopen(path, "rb");
-    if (f == NULL) {
+    if (f == NULL && getenv("TTT_DIFF_ELF") == NULL) { /* no matching build here: the disc's own SLUS_200.01 */
+        d = malloc(8u << 20);
+        n = d != NULL ? Port_DiscReadFile(NULL, "SLUS_200.01", d, 8u << 20) : -1;
+        if (n <= 0) {
+            printf("ee-diff: cannot open %s nor the disc's SLUS_200.01 (TTT_DIFF_ELF)\n", path);
+            return -1;
+        }
+    } else if (f == NULL) {
         printf("ee-diff: cannot open %s (TTT_DIFF_ELF)\n", path);
         return -1;
-    }
-    fseek(f, 0, SEEK_END);
-    n = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    d = malloc((size_t)n);
-    if (d == NULL || fread(d, 1, (size_t)n, f) != (size_t)n) {
+    } else {
+        fseek(f, 0, SEEK_END);
+        n = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        d = malloc((size_t)n);
+        if (d == NULL || fread(d, 1, (size_t)n, f) != (size_t)n) {
+            fclose(f);
+            return -1;
+        }
         fclose(f);
-        return -1;
     }
-    fclose(f);
     phoff = rd32le(d + 28);
     shoff = rd32le(d + 32);
     phnum = rd16le(d + 44);
@@ -178,46 +188,25 @@ static void fail_addr(Ee *e, const char *what, uint32_t op, uint32_t a) {
     }
 }
 
-/* The .rodata objects the port keeps at their addresses (build/port/gen/image.txt, next to the program): the game
-   writes some of them (the move table D_00531EA0 gets its motion pointers at load time), so they are read from the
+/* The .rodata the port keeps at its addresses (the ranges plat_data.c loads from the disc, gPortDataRanges): the game
+   writes some of it (the move table D_00531EA0 gets its motion pointers at load time), so it is read from the
    running memory. The rest of .rodata (the jump tables, which the port's C does not keep) comes from the executable. */
+extern const uint32_t gPortDataRanges[][2], gPortDataRangeN;
 static Range sLive[4096];
 static uint32_t sLiveN;
 
-/* (strtoul, fgets, strcspn: host calls already in the program's PLT, see port_host.h; no sscanf / realloc) */
 static void load_image_list(void) {
-    static char buf[1100];
-    ssize_t k = readlink("/proc/self/exe", buf, 1000);
-    char line[256], *slash, *p, *end;
-    FILE *f;
-
-    buf[k > 0 ? k : 0] = 0;
-    slash = strrchr(buf, '/');
-    if (slash == NULL) {
-        return;
-    }
-    strcpy(slash + 1, "gen/image.txt");
-    f = fopen(buf, "r");
-    if (f == NULL) {
-        printf("ee-diff: cannot open %s: .rodata read from the executable only\n", buf);
-        return;
-    }
-    while (fgets(line, sizeof line, f) != NULL && sLiveN < sizeof sLive / sizeof sLive[0]) {
-        uint32_t lo, size;
-        p = line + strcspn(line, " "); /* "<name> 0x<addr> 0x<size> <kind>" */
-        if (*p == 0 || strstr(line, " progbits") == NULL) {
-            continue;
+    uint32_t r;
+    for (r = 0; r < gPortDataRangeN && sLiveN < sizeof sLive / sizeof sLive[0]; r++) {
+        uint32_t lo = gPortDataRanges[r][0], hi = lo + gPortDataRanges[r][1];
+        lo = lo > sRo[1].lo ? lo : sRo[1].lo;
+        hi = hi < sRo[1].hi ? hi : sRo[1].hi;
+        if (lo < hi) {
+            sLive[sLiveN].lo = lo;
+            sLive[sLiveN].hi = hi;
+            sLiveN++;
         }
-        lo = (uint32_t)strtoul(p, &end, 16);
-        size = (uint32_t)strtoul(end, NULL, 16);
-        if (lo < sRo[1].lo || lo >= sRo[1].hi) {
-            continue;
-        }
-        sLive[sLiveN].lo = lo;
-        sLive[sLiveN].hi = lo + size;
-        sLiveN++;
     }
-    fclose(f);
 }
 
 /* 1 when a is read from the executable's image: .text, .lit4 and the .rodata the port does not keep. */

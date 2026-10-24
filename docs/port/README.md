@@ -1,8 +1,8 @@
 # PC port: build pipeline and notes
 
-The PC port is built from the same C as the matching decompilation. Nothing of the game is committed: the build
-takes the game's data from the split of **your own** `SLUS_200.01` (the one the matching build already uses) and
-writes everything under `build/port/`, which git ignores.
+The PC port is built from the same C as the matching decompilation. Nothing of the game is committed or linked in:
+the build needs neither your `SLUS_200.01` nor its split, and the program takes the game's data from **your own
+disc** when it runs (`ttt.dat`, [data.md](data.md)). Everything is written under `build/port/`, which git ignores.
 
 ## Status (T27, 2026-10-24)
 
@@ -107,20 +107,23 @@ writes everything under `build/port/`, which git ignores.
 ## Build
 
 ```sh
-.venv/bin/python configure.py && ninja        # the matching build: splits your SLUS_200.01 into asm/
-python3 port/tools/build.py                   # -> build/port/ttt
+python3 port/tools/build.py                   # -> build/port/ttt (no game file needed)
 build/port/ttt                                # real time, in a window (needs the 32-bit SDL3, see Window)
 TTT_FRAMES=600 build/port/ttt                 # headless, 600 VBlanks, then a report
 ```
 
-`build.py` runs the three steps below in order and fails if any of them fails. Each can also be run on its own
-from the repository root. Heavy runs go through `scripts/cool.sh`.
+`build.py` runs the two steps below in order and fails if any of them fails. Each can also be run on its own
+from the repository root. Heavy runs go through `scripts/cool.sh`. The first run of the program checks your disc
+and writes `build/port/ttt.dat` (about a second, [data.md](data.md)).
 
 | Step | Tool | Writes |
 |---|---|---|
-| 1 | `port/tools/gen_data.py` | `build/port/gen/data/*.s` (host assembly of the game's data), `build/port/obj_data/*.o`, `build/port/gen/chunks.txt`, `build/port/gen/image.txt` |
-| 2 | `port/tools/undefined.py [-v]` | `build/port/gen/src/*.c` (sources with the drafts on), `build/port/obj/*.o`, `build/port/undefined.txt` (what a link still needs, by kind), `build/port/objects.txt` |
-| 3 | `port/tools/link.py` | `build/port/gen/image.ld`, `build/port/gen/symbols.ld`, `build/port/gen/stubs.c`, `build/port/stubs.txt`, `build/port/ttt` and its map |
+| 1 | `port/tools/undefined.py [-v]` | `build/port/gen/src/*.c` (sources with the drafts on), `build/port/obj/*.o`, `build/port/undefined.txt` (what a link still needs, by kind), `build/port/objects.txt` |
+| 2 | `port/tools/link.py` | `build/port/gen/image.ld`, `build/port/gen/symbols.ld`, `build/port/gen/data_table.c` (from `port/tools/data_layout.txt`), `build/port/gen/stubs.c`, `build/port/stubs.txt`, `build/port/ttt` and its map |
+
+Developer only, when the decompilation's data split changes (needs the split of your `SLUS_200.01`):
+`.venv/bin/python configure.py && python3 port/tools/gen_data.py && python3 port/tools/make_layout.py` rewrites
+`port/tools/data_layout.txt` ([data.md](data.md)).
 
 Shared modules: `toolchain.py` (paths, compiler flags, `TTT_CC`), `portsrc.py` (the list of game sources from
 `config/SLUS_200.01.yaml` and the switch that turns drafts on). Their pure helpers are tested by
@@ -150,6 +153,9 @@ Shared modules: `toolchain.py` (paths, compiler flags, `TTT_CC`), `portsrc.py` (
 
 ### Game data
 
+Since T25 the program carries none of the game's data: [data.md](data.md) (inventory, the data file, the disc
+checks). The layout it loads by is made by the developer tools below.
+
 - `gen_data.py` converts, for the host assembler, the data the matching build links from the split:
   every `asm/data/*.{data,rodata,lit4,sdata,sbss,bss}.s`, every table a C file takes with `INCLUDE_RODATA`, and
   the data blocks splat moved into the files of functions that are still drafts (strings and constants the draft
@@ -157,16 +163,19 @@ Shared modules: `toolchain.py` (paths, compiler flags, `TTT_CC`), `portsrc.py` (
   inside library assembly becomes 0. Jump tables are left out: the C makes its own. Each file goes into a writable
   section of its own, `.ttt.<file>` (the game patches some read-only tables), aligned only as far as its PS2 address
   is, and `image.txt` lists each section with its PS2 address, size and kind.
-- `link.py` turns `image.txt` into `image.ld`, a linker script (`INSERT AFTER .bss`) that puts every one of those
-  sections at its PS2 address: the initialised ones in the output section `.ttt_data` (0x00415700 on), `.sbss` and
-  `.bss` in `.ttt_bss` (0x005F6B00 to 0x01FCDEF0). Overlapping files are refused. The game's code stays native
+- `make_layout.py` compares each assembled file with the executable at its PS2 address and writes
+  `port/tools/data_layout.txt`: the initialised ranges (0x00415700-0x005F6AE4), the zeroed span (0x005F6B00 to
+  0x01FCDEF0), the words the host linker fills in with a name that is not a data address, the words that are 0
+  here, and the payload's size and SHA-1. No data byte.
+- `link.py` turns the layout into `image.ld` (absolute `__ttt_data_*` / `__ttt_bss_*`: nothing is linked at the
+  PS2 addresses) and `data_table.c` (`gPortDataRanges`, `gPortDataFix`, the hashes). The game's code stays native
   wherever the host linker puts it (0x08049000 on).
-- Each split chunk gets a label `__chunk_<file>`; `chunks.txt` records its PS2 address and its size.
 - `link.py` asks the linker what nobody defines, then places what it can by PS2 address in
-  `build/port/gen/symbols.ld`: a name inside a split chunk becomes that chunk's label plus the offset (labels splat
-  did not make, such as `D_00437A50` inside `.data`), and a name outside the program image (hardware registers like
-  `D_11000010`, the end of `.bss` `D_1FCDEF0`, constants splat took for addresses such as `D_100000`) becomes the
-  absolute address. Everything left becomes a stub.
+  `build/port/gen/symbols.ld`: a name inside the layout's ranges becomes its PS2 address (labels splat did not
+  make, such as `D_00437A50` inside `.data`, and every data label the C uses), and so does a name outside the
+  program image (hardware registers like `D_11000010`, the end of `.bss` `D_1FCDEF0`, constants splat took for
+  addresses such as `D_100000`). Everything left becomes a stub. A word of the layout whose name lands at its own
+  PS2 address keeps the disc's value; the others (273: functions, and names the port defines) are rewritten.
 
 ### Stubs
 
@@ -195,7 +204,7 @@ set up by a constructor in `port/src/plat_mem.c` before anything of the game run
 
 | PS2 address | Size | Here |
 |---|---|---|
-| `0x00010000`-`0x02000000` | 32 MB less 64 KB | EE RAM: one shared memory object (`memfd`) mapped over the range the loader filled with `.ttt_data` / `.ttt_bss`, after copying the data into it. Holds the game's data and bss at their addresses, the fixed buffers below the program, and the PS2 stack area above the bss. |
+| `0x00010000`-`0x02000000` | 32 MB less 64 KB | EE RAM: one shared memory object (`memfd`); the game's initialised data is copied into it from the disc (`plat_data.c`), its bss is the object's zeroes. Holds the game's data and bss at their addresses, the fixed buffers below the program, and the PS2 stack area above the bss. |
 | `0x20000000`, `0x30000000` | 32 MB each | the uncached and uncached-accelerated views: the same memory object mapped again, so a write through any view is seen through the others. |
 | `0x10000000` | 64 KB | EE hardware registers (timers, IPU, GIF, VIF, DMA, INTC, SIF): plain memory. |
 | `0x11000000` | 64 KB | VU0 / VU1 micro and data memory: plain memory. |
@@ -232,6 +241,7 @@ wait loops drive the hardware.
 |---|---|
 | `plat_hw.c` | Bus-cycle clock, timers 0-3, VBlank (59.94 Hz, GS CSR FIELD / VSINT), INTC / DMAC handlers (`AddIntcHandler`, `AddDmacHandler`, `EnableIntc`...), DMA channels, MFIFO, `TTT_FRAMES` report, `TTT_SELFTEST=hw` |
 | `plat_sys.c` | Kernel (cache, threads, semaphores), SIF (IOP reboot, module loads, commands, `sceSifBindRpc` / `sceSifCallRpc` and the table of IOP servers), CD init, `TTT_SELFTEST=rpc` |
+| `plat_data.c` | The game's initialised data from the disc into EE RAM at start, through the data file `ttt.dat`; the disc's SHA-1 checks and the refusal of a modified disc ([data.md](data.md)) |
 | `plat_file.c` | The disc (`TTT_DISC`: a directory with `TEKKEN.BIN` or the `.iso`; without it the program stops at the first read, exit code 2) and `sceSdRemote`: RSPU2DRV's file reads (0x204E / 0x2045), status (0x2030), the sound commands passed to `plat_snd.c`, the movie stream's arguments (0x2058) |
 | `spu2.c` | The SPU2 model: 2 MB sound RAM, 2 x 24 voices, PS-ADPCM, pitch, ADSR, the 48 kHz mix, `TTT_SELFTEST=spu` ([sound.md](sound.md)) |
 | `plat_snd.c` | libspu2's commands of RSPU2DRV on the model, the per-VBlank mix, `TTT_WAV`, the ring to the window's audio ([sound.md](sound.md)) |
@@ -304,7 +314,9 @@ Switches:
 
 | Variable | Effect |
 |---|---|
-| `TTT_DISC=<dir or .iso>` | The disc: a directory with `TEKKEN.BIN` (as `scripts/setup_disc.py` copies it to `iso/`) or the ISO 9660 image. Default: `iso/` of the repository (`build/port/ttt` -> `../../iso`), else `iso/` beside the program, else `iso/` in the working directory. Read only. Without a disc the program stops at its first read with `ttt: no disc` on stderr and exit code 2. |
+| `TTT_DISC=<dir or .iso>` | The disc: a directory with `TEKKEN.BIN` (as `scripts/setup_disc.py` copies it to `iso/`) or the ISO 9660 image. Default: `iso/` of the repository (`build/port/ttt` -> `../../iso`), else `iso/` beside the program, else `iso/` in the working directory. Read only. Without a disc (and without a data file) the program stops with `ttt: no disc` on stderr and exit code 2. |
+| `TTT_DATA=<file>` | The data file holding the game's initialised data taken from the disc ([data.md](data.md)). Default: `ttt.dat` beside the program. Made on the first run. |
+| `TTT_ALLOW_MODIFIED=1` | Run a disc whose files differ from the USA release (otherwise refused with exit code 4); the run is marked `[modified game data]`. |
 | `TTT_FRAMES=<n>` | Stop after n VBlanks with a report: VBlanks and frames, `modes:` (mode@VBlank of each change), last mode and sub-state, `state:` (seed, `gRngSpin`, the gameplay hash of [determinism.md](determinism.md), cycles), placeholders hit. Exit code 0. Implies headless. |
 | `TTT_HASH_EVERY=<n>` / `TTT_SAVESTATE=<vblank>:<file>` / `TTT_LOADSTATE=<file>` / `TTT_SYNCTEST=<n>` | The gameplay hash every n VBlanks, a save, a load, the synctest ([determinism.md](determinism.md)). `TTT_SELFTEST=state` checks the hash's rule and an in-process save / load. |
 | `TTT_HEADLESS=0/1` | Force the real-time or the headless clock. |
@@ -741,8 +753,8 @@ port replacement. `port/src/ee_diff.c` compares such C with the original directl
   `sq`, the MMI instructions met so far (`pextlw`, `pextuw`, `pcpyld`, `pcpyud`, `por`, `pand`, `mult1`...), the FPU on
   the EE float model (`softfloat_ps2_inl.h`, the arithmetic the port's C gets), COP2 macro mode (libvu0, the
   hand-written VU0 routines) on the vector unit's arithmetic. Calls are interpreted too: the whole call tree is the
-  original's. Instructions and `.text` / `.rodata` / `.lit4` come from `build/SLUS_200.01` (the port keeps no `.lit4`
-  at its address), the data from the running program (the game's data sits at its PS2 addresses). Anything else (an
+  original's. Instructions and `.text` / `.rodata` / `.lit4` come from `build/SLUS_200.01`, else the disc's
+  `SLUS_200.01` (`TTT_DIFF_ELF`), the data from the running program (the game's data sits at its PS2 addresses). Anything else (an
   unknown instruction, a jump outside `.text`, a syscall, the VU0 flag registers) stops the check with a report. No
   host float.
 - **The hook.** `PORT_DIFF(addr, fn, sig, args...)` (`port_compat.h`, under `#ifdef PORT` in the game sources) calls fn
@@ -849,7 +861,7 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
    with different types (`gallery_jpeg.c`). Fixed inside the drafts (dead code for the matching build).
 4. **Data without labels.** C (mostly drafts) names data in the middle of a split chunk, or in a function's own
    split file; the matching build either never links that C (drafts) or resolves them through splat's
-   `undefined_syms_auto.txt`. Here they are placed by address (`symbols.ld`) or taken from the function's file (`gen_data.py`).
+   `undefined_syms_auto.txt`. Here they are placed by address (`symbols.ld`): since T25 every data name is.
 5. **Calls relying on leftover registers.** `demo.c` calls `func_0034A180` with three arguments; the routine reads
    a fourth (`$a2`, the blend partner b of d = a * k + b * (1 - k)). The asm shows its value: the callers in
    `func_003DD918` / `func_003DE0D8` load `$a2` with the destination (or, in two cases, the previous frame's matrix

@@ -20,6 +20,7 @@ def _load(name):
 portsrc = _load("portsrc")
 gen_data = _load("gen_data")
 link = _load("link")
+make_layout = _load("make_layout")
 undefined = _load("undefined")
 
 DRAFTS = """\
@@ -216,13 +217,13 @@ class StubTest(unittest.TestCase):
         self.assertIn('int memcpy(void) { static int n; return missing("memcpy", &n); }', src)
         self.assertIn('getenv("TTT_STUB_RETURN")', src)
 
-    def test_names_inside_a_data_chunk_or_outside_the_image(self):
-        chunks = [("__chunk_D6700", 0x415700, 0x100), ("__chunk_bss", 0x5F7180, 0x200)]
+    def test_names_inside_the_data_or_outside_the_image(self):
+        spans = [(0x415700, 0x100), (0x5F7180, 0x200)]
         addr = {"gThing": 0x415710}
         script, rest = link.resolve(["gThing", "D_005F7200", "D_11000010", "D_100000", "D_00420000", "memcpy"],
-                                    addr, chunks)
-        self.assertEqual(script, ["D_005F7200 = __chunk_bss + 0x80;", "D_100000 = 0x100000;",
-                                  "D_11000010 = 0x11000010;", "gThing = __chunk_D6700 + 0x10;"])
+                                    addr, spans)
+        self.assertEqual(script, ["D_005F7200 = 0x5F7200;", "D_100000 = 0x100000;",
+                                  "D_11000010 = 0x11000010;", "gThing = 0x415710;"])
         self.assertEqual(rest, ["D_00420000", "memcpy"])
 
     def test_chunk_label_in_convert(self):
@@ -259,33 +260,98 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class ImageScriptTest(unittest.TestCase):
-    """The linker script that puts every data file at its PS2 address (one section each, see gen_data.convert)."""
-    ENTRIES = [("bss", 0x5F7180, 0x200, True), ("D6700_data", 0x415700, 0x100, False),
-               ("x_rodata", 0x415804, 4, False), ("sbss", 0x5F6B00, 0x680, True)]
+LAYOUT = """\
+# comment
+elf SLUS_200.01 2873728 c7ad9a022bdc836827a0cc093f91b4281836f2bb
+payload 108 0123456789abcdef0123456789abcdef01234567
+range 00415700 100
+range 00415804 8
+bss 005F6B00 880
+nobits 005F6B00 680
+nobits 005F7180 200
+word 00415710 func_00350000 0
+word 00415714 gThing -4
+zero 00415718
+label gOther 00415800
+"""
 
-    def test_data_and_bss_at_their_addresses(self):
-        s = link.image_script(self.ENTRIES)
-        self.assertIn(".ttt_data 0x00415700 :", s)
-        self.assertIn(".ttt_bss 0x005F6B00 (NOLOAD) :", s)
-        self.assertLess(s.index("*(.ttt.D6700_data)"), s.index(". = 0x104;"))
-        self.assertLess(s.index(". = 0x104;"), s.index("*(.ttt.x_rodata)"))
-        self.assertIn(". = 0x680;\n    *(.ttt.bss)", s)
-        self.assertIn("INSERT AFTER .bss;", s)
 
-    def test_bounds_named(self):
-        s = link.image_script(self.ENTRIES)
-        for name in ("__ttt_data_start", "__ttt_data_end", "__ttt_bss_start", "__ttt_bss_end"):
-            self.assertIn(name + " = ", s)
+class LayoutTest(unittest.TestCase):
+    """port/tools/data_layout.txt (make_layout.py): read by link.py for the image bounds, the names and the table
+    plat_data.c loads the game's data from the disc with."""
+
+    def layout(self, text=LAYOUT):
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
+            f.write(text)
+        try:
+            return link.read_layout(Path(f.name))
+        finally:
+            Path(f.name).unlink()
+
+    def test_read(self):
+        lay = self.layout()
+        self.assertEqual(lay["ranges"], [(0x415700, 0x100), (0x415804, 8)])
+        self.assertEqual(lay["bss"], (0x5F6B00, 0x880))
+        self.assertEqual(lay["nobits"], [(0x5F6B00, 0x680), (0x5F7180, 0x200)])
+        self.assertEqual(lay["words"], [(0x415710, "func_00350000", 0), (0x415714, "gThing", -4)])
+        self.assertEqual(lay["zeros"], [0x415718])
+        self.assertEqual(lay["labels"], {"gOther": 0x415800})
+        self.assertEqual(lay["payload"], (0x108, "0123456789abcdef0123456789abcdef01234567"))
+
+    def test_unknown_line_refused(self):
+        with self.assertRaises(ValueError):
+            self.layout(LAYOUT + "data 00415700 de ad\n")
+
+    def test_image_bounds_are_absolute_symbols(self):
+        s = link.image_script(self.layout())
+        self.assertIn("__ttt_data_start = 0x00415700;", s)
+        self.assertIn("__ttt_data_end = 0x0041580C;", s)
+        self.assertIn("__ttt_bss_start = 0x005F6B00;", s)
+        self.assertIn("__ttt_bss_end = 0x005F7380;", s)
+        self.assertNotIn("SECTIONS", s)  # nothing is linked at the PS2 addresses
 
     def test_overlap_refused(self):
+        lay = self.layout()
+        lay["ranges"] = [(0x415700, 0x10), (0x415708, 4)]
         with self.assertRaises(ValueError):
-            link.image_script([("a", 0x415700, 0x10, False), ("b", 0x415708, 4, False)])
+            link.image_script(lay)
 
     def test_data_after_bss_refused(self):
+        lay = self.layout()
+        lay["ranges"].append((0x5F6B10, 4))
         with self.assertRaises(ValueError):
-            link.image_script([("a", 0x415700, 0x10, True), ("b", 0x415800, 4, False)])
+            link.image_script(lay)
 
+    def test_data_table(self):
+        c = link.data_table(self.layout())
+        self.assertIn("extern char func_00350000[];", c)
+        self.assertIn("{0x00415700u, 0x100u},", c)
+        self.assertIn("{0x00415710u, (uint32_t)(uintptr_t)func_00350000 + (0)},", c)
+        self.assertIn("{0x00415714u, (uint32_t)(uintptr_t)gThing + (-4)},", c)
+        self.assertIn("{0x00415718u, 0},", c)
+        self.assertIn("const uint32_t gPortDataFixN = 3;", c)
+        self.assertIn("const uint32_t gPortDataSize = 0x108u;", c)
+        self.assertIn("gPortDataSha1[20] = {0x01, 0x23,", c)
+        self.assertIn("gPortElfSha1[20] = {0xc7, 0xad,", c)
+
+    def test_data_table_keeps_only_host_names(self):
+        c = link.data_table(self.layout(), keep={"func_00350000"})
+        self.assertNotIn("gThing", c)
+        self.assertIn("const uint32_t gPortDataFixN = 2;", c)  # the zero word stays
+
+
+class MakeLayoutTest(unittest.TestCase):
+    def test_merge_adjacent(self):
+        self.assertEqual(make_layout.merge([(0x20, 4), (0x10, 0x10), (0x30, 4)]), [(0x10, 0x14), (0x30, 4)])
+
+    def test_committed_layout_has_no_data_lines(self):
+        """The committed layout holds addresses, sizes, names and hashes only."""
+        kinds = {l.split()[0] for l in make_layout.LAYOUT.read_text().splitlines() if l and not l.startswith("#")}
+        self.assertLessEqual(kinds, {"elf", "payload", "range", "bss", "nobits", "word", "zero", "label"})
+
+
+class GenDataTest(unittest.TestCase):
     def test_section_name_of_a_file(self):
         self.assertEqual(gen_data.section_name("1BBF70.data.s"), "1BBF70_data")
         self.assertEqual(gen_data.section_name("fn_func_003608E0_0.rodata.s"), "fn_func_003608E0_0_rodata")

@@ -164,8 +164,9 @@ int Port_DiscRead(uint32_t sector, uint32_t offset, void *dst, uint32_t bytes) {
     return fread(dst, 1, bytes, sDisc) == bytes;
 }
 
-/* A file of the disc outside TEKKEN.BIN (`dir`/`name`, e.g. IRX/RSPU2DRV.IRX) into `dst`: its size, or -1. The
-   disc directory, or the ISO image's root directory and one subdirectory. */
+/* A file of the disc outside TEKKEN.BIN (`dir`/`name`, e.g. IRX/RSPU2DRV.IRX, or `name` in the root directory when
+   dir is NULL, e.g. SLUS_200.01) into `dst`: its size, or -1. The disc directory, or the ISO image's root directory
+   and one subdirectory. */
 static long find_iso_entry(uint32_t lba, uint32_t size, const char *name, uint32_t *outLba) {
     uint8_t dir[SECTOR];
     size_t nl = strlen(name);
@@ -195,7 +196,11 @@ long Port_DiscReadFile(const char *dirName, const char *name, void *dst, long ma
         return -1;
     }
     if (sArchive == 0) { /* a directory */
-        snprintf(path, sizeof path, "%s/%s/%s", sDiscName, dirName, name);
+        if (dirName != NULL) {
+            snprintf(path, sizeof path, "%s/%s/%s", sDiscName, dirName, name);
+        } else {
+            snprintf(path, sizeof path, "%s/%s", sDiscName, name);
+        }
         f = fopen(path, "rb");
         if (f == NULL) {
             return -1;
@@ -205,13 +210,17 @@ long Port_DiscReadFile(const char *dirName, const char *name, void *dst, long ma
         return n;
     } else { /* an ISO image */
         uint8_t pvd[SECTOR];
-        uint32_t lba;
+        uint32_t lba = 0;
         long size;
         if (fseeko(sDisc, 16LL * SECTOR, SEEK_SET) != 0 || fread(pvd, 1, SECTOR, sDisc) != SECTOR) {
             return -1;
         }
-        size = find_iso_entry(le32(pvd + 156 + 2), le32(pvd + 156 + 10), dirName, &lba);
-        if (size < 0 || (size = find_iso_entry(lba, (uint32_t)size, name, &lba)) < 0) {
+        lba = le32(pvd + 156 + 2);
+        size = (long)le32(pvd + 156 + 10);
+        if (dirName != NULL && (size = find_iso_entry(lba, (uint32_t)size, dirName, &lba)) < 0) {
+            return -1;
+        }
+        if ((size = find_iso_entry(lba, (uint32_t)size, name, &lba)) < 0) {
             return -1;
         }
         n = size < max ? size : max;
@@ -221,6 +230,10 @@ long Port_DiscReadFile(const char *dirName, const char *name, void *dst, long ma
         return n;
     }
 }
+
+/* TEKKEN.BIN's size in bytes (0: no disc), and the name the disc was found under (plat_data.c's messages). */
+long long Port_DiscArchiveSize(void) { return Port_DiscOpen() ? sArchiveSize : 0; }
+const char *Port_DiscName(void) { return sDiscName; }
 
 /* ---- RSPU2DRV ---- */
 static uint32_t sMovieStream[5]; /* 0x2058's arguments (sector, movie, audio sectors, video sectors), active */

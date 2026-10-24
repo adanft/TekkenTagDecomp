@@ -1,0 +1,808 @@
+# The game's data layout for the PC build (port/tools/make_layout.py; docs/port/data.md). No byte of the game's
+# data is in this file: addresses, sizes, names and hashes only. The port reads the bytes from the user's disc.
+elf SLUS_200.01 2873728 c7ad9a022bdc836827a0cc093f91b4281836f2bb
+payload 1DE26C 37051598b8f225c925b75bce63168c9b1c4a41c5
+range 00415700 E6228
+range 004FB9B4 7C
+range 004FBB28 598
+range 004FC108 78
+range 004FC220 30
+range 004FC280 20
+range 004FC350 2C0
+range 004FC650 3260
+range 004FF8D0 10
+range 004FFD38 6C8
+range 00500458 118
+range 00500678 138
+range 005007D8 128
+range 00500CB0 10
+range 00500CE8 54F8
+range 00506248 18
+range 005062A0 A0
+range 00506400 E0
+range 00506528 6C8
+range 00506C10 D0
+range 00506DD8 18
+range 00506E08 468
+range 005072B0 F0
+range 005073C0 4B0
+range 005078E0 30
+range 00507990 20
+range 00507A00 4C0
+range 00507FE0 100
+range 00508120 7B0
+range 00508908 12B8
+range 00509C10 20
+range 00509D00 30
+range 00509DF8 3028
+range 0050CE58 C018
+range 00518EA8 4A8
+range 005193B8 378
+range 005197C0 120
+range 00519918 28
+range 00519990 170
+range 00519B90 1C20
+range 0051B880 2400
+range 0051DC98 18
+range 0051DCE0 A0
+range 0051DE50 20
+range 0051DE98 278
+range 0051E198 168
+range 0051E318 248
+range 0051E5C8 268
+range 0051E850 120
+range 0051E9F8 48
+range 0051EAF0 320
+range 0051EE68 128
+range 0051EFE0 F0
+range 0051F150 160
+range 0051F2D0 E0
+range 0051F3C8 288
+range 0051F678 C8
+range 0051F760 1E0
+range 0051F990 320
+range 0051FCD0 340
+range 00520140 120
+range 005202E8 D8
+range 00520448 58
+range 005204B8 18
+range 00520508 11D8
+range 00521700 4D0
+range 00521BF0 40
+range 00521CE0 330
+range 00522048 178
+range 005221E0 930
+range 00522B90 D0
+range 00522D00 20
+range 00522DE0 10
+range 00522F80 530
+range 005234F0 340
+range 00523858 D8
+range 00523950 20
+range 00523990 C0
+range 00523A80 E0
+range 00523B78 278
+range 00523E08 D12F8
+range 005F5700 10
+range 005F5BCC F18
+bss 005F6B00 19D73F0
+nobits 005F6B00 19D73F0
+word 00433B64 gPracRecorder 3266
+word 00433FCC gPracCmdLists 34042
+word 004392D0 gPracRecorder 3255
+word 00444520 func_003D21F8 0
+word 00444B10 func_003D2280 0
+word 00444B50 func_003D2280 0
+word 0044B520 func_003D4F58 0
+word 0044B5A0 func_003D4ED8 0
+word 0044B5E0 func_003D4F18 0
+word 0044B620 func_003D5190 0
+word 0044B660 func_003D4ED8 0
+word 0044B6A0 func_003D4F18 0
+word 0044B6E0 func_003D5190 0
+word 0044B720 func_003D4ED8 0
+word 0044B760 func_003D4F18 0
+word 0044B830 func_003D54F8 0
+word 0044B870 func_003D5538 0
+word 0044B874 func_003D5620 0
+word 0044B8B0 func_003D5538 0
+word 0044B8B4 func_003D5620 0
+word 0044B8F0 func_003D5538 0
+word 0044B8F4 func_003D5620 0
+word 0044B930 func_003D5538 0
+word 0044B934 func_003D5620 0
+word 0044B970 func_003D5538 0
+word 0044B974 func_003D5630 0
+word 0044B9B0 func_003D5538 0
+word 0044B9B4 func_003D5630 0
+word 0044B9F0 func_003D5538 0
+word 0044B9F4 func_003D5630 0
+word 0044BA30 func_003D5538 0
+word 0044BA34 func_003D5630 0
+word 0044BA70 func_003D5640 0
+word 0044BAB0 func_003D5640 0
+word 0044BAF0 func_003D5640 0
+word 0044BB30 func_003D5640 0
+word 0044BDD0 func_003D5998 0
+word 0044BF10 func_003D62A0 0
+word 0044BF14 func_003D6208 0
+word 0044BF50 func_003D6B50 0
+word 0044BF90 func_003D6B88 0
+word 0044C1D0 func_003D7378 0
+word 0044C1D4 func_003D7368 0
+word 0044C210 func_003D7378 0
+word 0044C214 func_003D7368 0
+word 0044C250 func_003D7378 0
+word 0044C254 func_003D7368 0
+word 0044C290 func_003D7378 0
+word 0044C294 func_003D7368 0
+word 0044C2D0 func_003D7AB0 0
+word 0044C310 func_003D7AB0 0
+word 0044C350 func_003D7AB0 0
+word 0044C390 func_003D7AB0 0
+word 0044C3D0 func_003D7AB0 0
+word 0044C410 func_003D7AB0 0
+word 0044C450 func_003D7AB0 0
+word 0044C490 func_003D7AB0 0
+word 0044C4D0 func_003D7AB0 0
+word 0044C510 func_003D7AB0 0
+word 0044C550 func_003D7C38 0
+word 0044C590 func_003D7C38 0
+word 0044C5D0 func_003D7C38 0
+word 0044C610 func_003D7C38 0
+word 0044C650 func_003D7C38 0
+word 004532EC StartThread 0
+word 0045D0BC WaitSema 0
+word 0045D114 ExitThread 0
+word 0045D1BC iTerminateThread 0
+word 0045D23C iTerminateThread 0
+word 0045D26C DisableDispatchThread 0
+word 0045D328 SignalSema 0
+word 0045D33C iTerminateThread 0
+word 0045D3A8 SignalSema 0
+word 0045D3BC iTerminateThread 0
+word 0045D460 GsPutIMR 0
+word 0045D480 _iWakeupThread 0
+word 0045D4BC StartThread 0
+word 0045D53C StartThread 0
+word 0045D594 func_00403240 0
+word 004805E0 gPracRecorder 3711
+word 00480A24 gPracRecorder 5759
+word 00480F64 gPracRecorder 3461
+word 00481370 gPracRecorder 3711
+word 004822A0 gPracRecorder 3200
+word 004824EC gPracRecorder 3200
+word 00482770 gPracRecorder 3200
+word 00482A9C gPracRecorder 3200
+word 00482C08 gPracRecorder 3200
+word 00483068 gPracRecorder 3200
+word 00483324 gPracRecorder 3200
+word 00483490 gPracRecorder 3200
+word 004835E0 gPracRecorder 3200
+word 00483E68 gPracRecorder 3200
+word 00483F64 gPracRecorder 3200
+word 004841B0 gPracRecorder 3200
+word 004844A4 gPracRecorder 3200
+word 00484974 gPracRecorder 3200
+word 00484D10 gPracRecorder 3200
+word 00485758 StartThread 0
+word 00485800 StartThread 0
+word 004858C4 StartThread 0
+word 00485ABC StartThread 0
+word 00485B80 StartThread 0
+word 00485C28 StartThread 0
+word 00485D94 StartThread 0
+word 0048606C StartThread 0
+word 004861D8 StartThread 0
+word 004863D0 StartThread 0
+word 0048661C StartThread 0
+word 00486788 StartThread 0
+word 0048699C StartThread 0
+word 00486A44 StartThread 0
+word 00486AEC StartThread 0
+word 00486CC8 StartThread 0
+word 00486E50 StartThread 0
+word 00486F14 StartThread 0
+word 00487048 StartThread 0
+word 004870F0 StartThread 0
+word 00487320 StartThread 0
+word 00487668 StartThread 0
+word 004877B8 StartThread 0
+word 00487CA4 gPracRecorder 3200
+word 00487CF4 gPracRecorder 4233
+word 00488104 gPracRecorder 3200
+word 00489038 gPracRecorder 3200
+word 004893D4 gPracRecorder 3200
+word 00489578 gPracRecorder 3200
+word 00489CE8 gPracRecorder 3200
+word 0048A404 gPracRecorder 3200
+word 0048A5C4 gPracRecorder 3200
+word 0048A7A0 gPracRecorder 3200
+word 00490900 gPracRecorder 3711
+word 00495600 gPracRecorder 3711
+word 00498DE4 gPracRecorder 8320
+word 00498EBC gPracRecorder 3200
+word 004998CC gPracCmdLists 33904
+word 0049A624 gPracRecorder 3200
+word 0049A904 gPracRecorder 8320
+word 0049B2B8 gPracRecorder 3200
+word 0049C208 gPracRecorder 3200
+word 0049C630 gPracRecorder 3200
+word 0049CB00 gPracRecorder 3200
+word 0049CEF0 gPracRecorder 3200
+word 0049D8E4 gPracRecorder 3200
+word 0049DB30 gPracRecorder 3200
+word 0049F148 gPracRecorder 3200
+word 0049F298 gPracRecorder 3200
+word 0049F51C gPracRecorder 3200
+word 0049F650 gPracRecorder 3200
+word 0049FA40 gPracRecorder 3200
+word 0049FC38 gPracRecorder 3200
+word 004A1140 gPracRecorder 3458
+word 004A115C gPracRecorder 3458
+word 004A13FC gPracRecorder 3458
+word 004A1418 gPracRecorder 3458
+word 004A55E8 gPracRecorder 3200
+word 004A9948 gPracRecorder 3200
+word 004A9AB4 gPracRecorder 3200
+word 004A9C04 gPracRecorder 3200
+word 004A9CE4 gPracRecorder 3200
+word 004AC55C gPracRecorder 3200
+word 004AC620 gPracRecorder 3200
+word 004AFD40 gPracCmdLists 33904
+word 004B2104 gPracRecorder 3200
+word 004B8BCC gPracRecorder 3711
+word 004B902C gPracRecorder 3711
+word 004B9454 gPracRecorder 3711
+word 004B987C gPracRecorder 3711
+word 004B9CA4 gPracRecorder 3711
+word 004BA094 gPracRecorder 3711
+word 004BA484 gPracRecorder 3711
+word 004BA8AC gPracRecorder 3711
+word 004BAC9C gPracRecorder 3711
+word 004BB08C gPracRecorder 3711
+word 004BB4B4 gPracRecorder 3711
+word 004BB8A4 gPracRecorder 3711
+word 004BBC94 gPracRecorder 3711
+word 004BC0BC gPracRecorder 3711
+word 004BC4AC gPracRecorder 3711
+word 004C39C8 gPracRecorder 3200
+word 004C9308 StartThread 0
+word 004CB0EC gPracRecorder 4741
+word 004CCB24 gPracRecorder 3200
+word 004CCC74 gPracRecorder 3200
+word 004CD080 gPracRecorder 3200
+word 004CD3AC gPracRecorder 3200
+word 004D2448 gPracRecorder 3200
+word 004D4588 gPracRecorder 3200
+word 004D46A0 gPracRecorder 3200
+word 004D4B38 gPracRecorder 3200
+word 004D4C50 gPracRecorder 3200
+word 004DC668 gPracRecorder 6527
+word 004DC924 gPracRecorder 6527
+word 004DC9B0 gPracRecorder 6527
+word 004DDB14 gPracRecorder 6527
+word 004E0760 gPracRecorder 6527
+word 004E07EC gPracRecorder 6527
+word 004E1934 gPracRecorder 6527
+word 004EDB88 gPracRecorder 3200
+word 004F1430 func_00340000 0
+word 004F1468 func_00340000 0
+word 004F1564 func_00340000 0
+word 004F1580 func_00340000 0
+word 004F54C8 func_003FB530 0
+word 004F54CC func_003FB640 0
+word 004F54D0 func_003FB7C8 0
+word 004F54D4 func_003FB930 0
+word 004F54D8 func_003FBB28 0
+word 004F54DC func_003FBC80 0
+word 004F54E0 func_003FBE50 0
+word 004F54E4 func_003FC000 0
+word 004F54E8 func_003FB5A8 0
+word 004F54EC func_003FB6F8 0
+word 004F54F0 func_003FB878 0
+word 004F54F4 func_003FBA28 0
+word 004F54F8 func_003FBBD0 0
+word 004F54FC func_003FBD68 0
+word 004F5500 func_003FBF30 0
+word 004F5504 func_003FC128 0
+word 004F5540 func_003FA510 0
+word 004F5544 func_003FA2F8 0
+word 004F5548 func_003FA460 0
+word 004F554C func_003FE398 0
+word 004F5550 func_003FE520 0
+word 004F5554 _sequenceScalableExtension 0
+word 004F5558 func_003FA510 0
+word 004F555C func_003FE448 0
+word 004F5560 func_003FDF78 0
+word 004F5564 _pictureSpatialScalableExtension 0
+word 004F5568 _pictureTemporalScalableExtension 0
+word 004F566C func_00401300 0
+word 004F8344 gPracRecorder 4419
+word 004F87E4 gPracRecorder 4291
+word 0050083C gPracCmdLists 34042
+word 00507A84 func_0038B698 0
+word 00507A90 func_0038B800 0
+word 00507A9C func_0038B808 0
+word 00507AA8 func_0038B690 0
+word 00507AAC func_0038BC00 0
+word 00507AB4 func_0038B368 0
+word 00507AB8 func_0038BE70 0
+word 00507AC0 func_0038BBE8 0
+word 00507ACC func_0038B810 0
+word 00507AD0 func_0038BE78 0
+word 00507AD8 func_0038B7F8 0
+word 00507AE4 func_0038BBB0 0
+word 00507AF0 func_0038BBA8 0
+word 00507AFC func_0038B6E8 0
+word 00507B08 func_0038BBD8 0
+word 00507B14 func_0038BBC8 0
+word 00507B20 func_0038B700 0
+word 00507B2C func_0038B820 0
+word 00507B38 func_0038B818 0
+word 00507B44 func_0038B7D8 0
+word 00507B50 func_0038BBE0 0
+word 00507B5C func_0038BBB8 0
+word 00507B68 func_0038B708 0
+word 00507B74 func_0038B7E0 0
+word 00507B80 func_0038B7E8 0
+word 00507B8C func_0038BBF0 0
+word 00507B98 func_0038B6F0 0
+word 00507BA4 func_0038B7F0 0
+word 00507BB0 func_0038B710 0
+word 00507BBC func_0038B718 0
+word 00507BC8 func_0038B6F8 0
+word 00507BD4 func_0038AFC0 0
+word 00507BE0 func_0038BBE0 0
+word 00507BEC func_0038BBC0 0
+word 00507BF8 func_0038BBD0 0
+word 00507C04 func_0038BBF8 0
+word 005091C4 func_003A0020 0
+word 005193B8 func_00346FA0 0
+word 005193C0 func_00346BB8 0
+word 005193C8 func_00346BB8 0
+word 005193D0 func_00346BB8 0
+word 005193D8 func_00346BB8 0
+word 005193E0 func_00346DA8 0
+word 005193E8 func_00346BB8 0
+word 005193F0 func_00347178 0
+word 005193F8 func_003472B8 0
+word 00519400 func_00346BB8 0
+word 00519408 func_00346BB8 0
+word 00519410 func_00346BB8 0
+word 00519418 func_00346BB8 0
+word 00519420 func_00346BB8 0
+word 00519428 func_00346BB8 0
+word 00519430 func_00346BB8 0
+word 00519438 func_00346DA8 0
+word 00519440 func_00346BB8 0
+word 00519448 func_00346BB8 0
+word 00519450 func_00346BB8 0
+word 00519458 func_00346DA8 0
+word 00519460 func_00346BB8 0
+word 00519468 func_00346BB8 0
+word 00519470 func_00346BB8 0
+word 00519478 func_00346BB8 0
+word 00519480 func_00346BB8 0
+word 00519488 func_003473F0 0
+word 00519490 func_00346BB8 0
+word 00519498 func_00347568 0
+word 005194A0 func_00346BB8 0
+word 005194A8 func_00346BB8 0
+word 005194B0 func_00346BB8 0
+word 005194B8 func_00346BB8 0
+word 005194C0 func_00346BB8 0
+word 005194C8 func_00346BB8 0
+word 005194D0 func_00346BB8 0
+word 00520FC8 func_003D5798 0
+word 00520FCC func_003D56F0 0
+word 00520FD8 func_003D6FD8 0
+word 00520FDC func_003D6BC0 0
+word 00520FF8 func_003D52B0 0
+word 00520FFC func_003D5238 0
+word 00521018 func_003D2160 0
+word 00521038 func_003D2160 0
+word 00521048 func_003D2160 0
+word 00521058 func_003D5E80 0
+word 0052105C func_003D5B58 0
+word 00521078 func_003D4B18 0
+word 0052107C func_003D4830 0
+word 005210A8 func_003D2168 0
+word 005210E8 func_003D5E80 0
+word 005210EC func_003D5B58 0
+word 00521108 func_003D21B8 0
+word 0052110C func_003D22C0 0
+word 005371A4 StartThread 0
+word 00537240 StartThread 0
+word 005372DC StartThread 0
+word 00537344 StartThread 0
+word 00537494 StartThread 0
+word 005374B0 StartThread 0
+word 00537518 StartThread 0
+word 005375B4 StartThread 0
+word 0053761C StartThread 0
+word 005376B8 StartThread 0
+word 005376EC StartThread 0
+word 00537754 StartThread 0
+word 005377F0 StartThread 0
+word 0053788C StartThread 0
+word 005379C4 StartThread 0
+word 00537A2C StartThread 0
+word 00537AC8 StartThread 0
+word 00537CB4 StartThread 0
+word 00537CE8 StartThread 0
+word 00537D1C StartThread 0
+word 00537D84 StartThread 0
+word 00537EBC StartThread 0
+word 00537EF0 StartThread 0
+word 00537F24 StartThread 0
+word 00538010 StartThread 0
+word 005380AC StartThread 0
+word 00538148 StartThread 0
+word 005381B0 StartThread 0
+word 0053824C StartThread 0
+word 005382E8 StartThread 0
+word 00538350 StartThread 0
+word 005383EC StartThread 0
+word 0053D804 StartThread 0
+word 0053D838 StartThread 0
+word 0053EE28 StartThread 0
+word 0053EE5C StartThread 0
+word 00547508 StartThread 0
+word 0054753C StartThread 0
+word 00547570 StartThread 0
+word 005475A4 StartThread 0
+word 005475D8 StartThread 0
+word 0054760C StartThread 0
+word 00557838 StartThread 0
+word 005579CC SleepThread 0
+word 0055DB8C StartThread 0
+word 0055DBC0 StartThread 0
+word 00569EA4 StartThread 0
+word 00569ED8 StartThread 0
+word 00569F74 StartThread 0
+word 00569FA8 StartThread 0
+word 0059A138 gPracCmdLists 41254
+word 005F61F0 gSndQueue 0
+zero 00521E40
+zero 00521E44
+zero 00521E48
+zero 00521E4C
+zero 00521E50
+zero 00521E54
+zero 00521E58
+zero 00521E5C
+zero 00521E60
+zero 00521E64
+zero 00521E68
+zero 00521E6C
+zero 00521E70
+zero 00521E74
+zero 00521E78
+zero 00521E7C
+zero 00521E80
+zero 00521E84
+zero 00521E88
+zero 00521E8C
+zero 00521E90
+zero 00521E94
+zero 00521E98
+zero 00521E9C
+zero 00521EA0
+zero 00521EA4
+zero 00521EA8
+zero 00521EAC
+zero 00521EB0
+zero 00521EB4
+zero 00521EB8
+zero 00521EBC
+zero 00521EC0
+zero 00521EC4
+zero 00521EC8
+zero 00521ECC
+zero 00521ED0
+zero 00521ED4
+zero 00521ED8
+zero 00521EDC
+zero 00521EE0
+zero 00521EE4
+zero 00521EE8
+zero 00521EEC
+zero 00521EF0
+zero 00521EF4
+zero 00521EF8
+zero 00521EFC
+zero 00521F00
+zero 00521F04
+zero 00521F08
+zero 00521F0C
+zero 00521F10
+zero 00521F14
+zero 00521F18
+zero 00521F1C
+zero 00521F20
+zero 00521F24
+zero 00521F28
+zero 00521F2C
+zero 00521F30
+zero 00521F34
+zero 00521F38
+zero 00521F3C
+zero 00521F40
+zero 00521F44
+zero 00521F48
+zero 00521F4C
+zero 00521F50
+zero 00521F54
+zero 00521F58
+zero 00521F5C
+zero 00521F60
+zero 00521F64
+zero 00521F68
+zero 00521F6C
+zero 00521F70
+zero 00521F74
+zero 00521F78
+zero 00521F7C
+zero 00521F80
+zero 00521F84
+zero 00521F88
+zero 00521F8C
+zero 00521F90
+zero 00521F94
+zero 00521F98
+zero 00521F9C
+zero 00521FA0
+zero 00521FA4
+zero 00521FA8
+zero 00521FAC
+zero 00521FB0
+zero 00521FB4
+zero 00521FB8
+zero 00521FBC
+zero 00521FC0
+zero 00521FC4
+zero 00521FC8
+zero 00521FCC
+zero 00521FD0
+zero 00521FD4
+zero 00521FD8
+zero 00521FDC
+zero 005F37B0
+zero 005F37B4
+zero 005F37B8
+zero 005F37BC
+zero 005F37C0
+zero 005F37C4
+zero 005F37C8
+zero 005F37CC
+zero 005F37D0
+zero 005F37D4
+zero 005F37D8
+zero 005F37DC
+zero 005F37E0
+zero 005F37E4
+zero 005F37E8
+zero 005F37EC
+zero 005F37F0
+zero 005F37F4
+zero 005F37F8
+zero 005F37FC
+zero 005F3800
+zero 005F3804
+zero 005F3808
+zero 005F380C
+zero 005F3810
+zero 005F3814
+zero 005F3818
+zero 005F381C
+zero 005F3820
+zero 005F3824
+zero 005F3828
+zero 005F382C
+zero 005F3830
+zero 005F3834
+zero 005F3838
+zero 005F383C
+zero 005F3840
+zero 005F3844
+zero 005F3848
+zero 005F384C
+zero 005F3850
+zero 005F3854
+zero 005F3858
+zero 005F385C
+zero 005F3860
+zero 005F3864
+zero 005F3868
+zero 005F386C
+zero 005F3870
+zero 005F3874
+zero 005F3878
+zero 005F387C
+zero 005F3880
+zero 005F3884
+zero 005F3888
+zero 005F388C
+zero 005F3890
+zero 005F3894
+zero 005F3898
+zero 005F3990
+zero 005F3994
+zero 005F3998
+zero 005F399C
+zero 005F39A0
+zero 005F3E50
+zero 005F3E54
+zero 005F3E58
+zero 005F3E5C
+zero 005F3E60
+zero 005F3E64
+zero 005F3E68
+zero 005F3E6C
+zero 005F3E70
+zero 005F3E74
+zero 005F3E78
+zero 005F3E7C
+zero 005F3E80
+zero 005F3E84
+zero 005F3E88
+zero 005F3E8C
+zero 005F3E90
+zero 005F3E94
+zero 005F3E98
+zero 005F3E9C
+zero 005F3EA0
+zero 005F3EA4
+zero 005F3EA8
+zero 005F3EAC
+zero 005F3EB0
+zero 005F3EB4
+zero 005F3EB8
+zero 005F3EBC
+zero 005F3EC0
+zero 005F3EC4
+zero 005F3EC8
+zero 005F3ECC
+zero 005F3ED0
+zero 005F3ED4
+zero 005F3ED8
+zero 005F3EDC
+zero 005F3EE0
+zero 005F3EE4
+zero 005F3EE8
+zero 005F3EEC
+zero 005F3EF0
+zero 005F3EF4
+zero 005F3EF8
+zero 005F3EFC
+zero 005F3F00
+zero 005F3F04
+zero 005F3F08
+zero 005F3F0C
+zero 005F3F10
+zero 005F3F14
+zero 005F3F18
+zero 005F3F1C
+zero 005F3F20
+zero 005F3F24
+zero 005F3F28
+zero 005F3F2C
+zero 005F3F30
+zero 005F3F34
+zero 005F3F38
+zero 005F3F3C
+zero 005F3F40
+zero 005F3F44
+zero 005F3F48
+zero 005F3F4C
+zero 005F3F50
+zero 005F3F54
+zero 005F3F58
+zero 005F3F5C
+zero 005F3F60
+zero 005F3F64
+zero 005F3F68
+zero 005F3F6C
+zero 005F3F70
+zero 005F3FD0
+zero 005F3FD4
+zero 005F3FD8
+zero 005F3FDC
+zero 005F3FE0
+zero 005F3FE4
+zero 005F4D70
+zero 005F4D74
+zero 005F4D78
+zero 005F4D7C
+zero 005F4D80
+zero 005F4D84
+zero 005F4D88
+zero 005F4D8C
+zero 005F4D90
+zero 005F4D94
+zero 005F4D98
+zero 005F4D9C
+zero 005F4DA0
+zero 005F4DA4
+zero 005F4DA8
+zero 005F4DAC
+zero 005F4DB0
+zero 005F4DB4
+zero 005F4DB8
+zero 005F4DBC
+zero 005F4DC0
+zero 005F4DC4
+zero 005F4DC8
+zero 005F4DCC
+zero 005F4DD0
+zero 005F4DD4
+zero 005F4DD8
+zero 005F4DDC
+zero 005F4DE0
+zero 005F4DE4
+zero 005F4DE8
+zero 005F4DEC
+zero 005F4DF0
+zero 005F4DF4
+zero 005F4DF8
+zero 005F4DFC
+zero 005F4E00
+zero 005F4E04
+zero 005F4E08
+zero 005F4E0C
+zero 005F4E10
+zero 005F4E14
+zero 005F4E18
+zero 005F4E1C
+zero 005F4E20
+zero 005F4E24
+zero 005F4E28
+zero 005F4E2C
+zero 005F4E30
+zero 005F4E34
+zero 005F4E38
+zero 005F4E3C
+zero 005F4E40
+zero 005F4E44
+zero 005F4E48
+zero 005F4E4C
+zero 005F4E50
+zero 005F4E54
+zero 005F4E58
+zero 005F4E5C
+zero 005F4E60
+zero 005F4E64
+zero 005F4E68
+zero 005F4E6C
+zero 005F4E70
+zero 005F4E74
+zero 005F4E78
+zero 005F4E7C
+zero 005F4E80
+zero 005F4E84
+zero 005F4E88
+zero 005F4E8C
+zero 005F4E90
+zero 005F4E94
+zero 005F4E98
+zero 005F4E9C
+zero 005F4EA0
+zero 005F4EA4
+zero 005F4EA8
+zero 005F4EAC
+zero 005F4EB0
+zero 005F4EB4
+zero 005F4EB8
+zero 005F4EBC
+zero 005F4EC0
+zero 005F4EC4
+zero 005F4EC8
+zero 005F4ECC
+zero 005F4ED0
+zero 005F4F20
+zero 005F4F24
+zero 005F4F28
+zero 005F4F2C
+zero 005F4F30
+zero 005F4F34

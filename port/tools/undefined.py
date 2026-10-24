@@ -4,7 +4,7 @@
 Every game C file the matching build links is compiled with the drafts switched on (portsrc.py), so every game
 function comes from C. The symbols that no object defines are listed by kind in build/port/undefined.txt: game
 functions (none should be left), library functions (Sony SDK, libc, libgcc: the platform layer replaces them),
-data (gen_data.py provides the split data) and names with no PS2 address (host library, compiler helpers).
+data (placed at its PS2 address by link.py; plat_data.c loads it from the user's disc) and names with no PS2 address (host library, compiler helpers).
 
 Usage: port/tools/undefined.py [-v]      (objects go to build/port/obj; -v lists every name)"""
 import collections
@@ -14,7 +14,7 @@ import re
 import subprocess
 import sys
 
-from toolchain import (BUILD, DATA_OBJ, HOT_CFLAGS, HOT_FILES, MPEG2, NEWLIB, NEWLIB_CFLAGS, OBJ, PORT_CFLAGS, ROOT, SIMD_CFLAGS,
+from toolchain import (BUILD, HOT_CFLAGS, HOT_FILES, MPEG2, NEWLIB, NEWLIB_CFLAGS, OBJ, PORT_CFLAGS, ROOT, SIMD_CFLAGS,
                        SIMD_FILES, VU_FILES, cc, game_cflags,
                        vu_redefine_args)
 import portsrc
@@ -104,9 +104,8 @@ def main():
         print(f"no C for: {name}: {' '.join(miss)}")
     objs = [str(o) for _, o, rc, _ in res if rc == 0]
     print(f"undefined: {len(objs)} of {len(res)} objects compiled ({len(bad)} failed)")
-    data = sorted(str(o) for o in DATA_OBJ.glob("*.o"))
     defined, undef = set(), collections.Counter()
-    out = subprocess.run(["nm", "-A"] + objs + data, capture_output=True, text=True, check=True).stdout
+    out = subprocess.run(["nm", "-A"] + objs, capture_output=True, text=True, check=True).stdout
     for l in out.splitlines():
         m = re.match(r"\S+:\s*[0-9a-f]*\s+(\w)\s+(\S+)$", l)
         if not m:
@@ -126,7 +125,7 @@ def main():
         if "-v" in sys.argv:
             print("        " + " ".join(sorted(v)))
     (BUILD / "undefined.txt").write_text("".join(f"{k}\t{s}\n" for k, v in sorted(kinds.items()) for s in sorted(v)))
-    (BUILD / "objects.txt").write_text("\n".join(objs + data) + "\n")
+    (BUILD / "objects.txt").write_text("\n".join(objs) + "\n")
     if bad or missing:
         sys.exit(1)
 
