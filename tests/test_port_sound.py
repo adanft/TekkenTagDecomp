@@ -62,7 +62,8 @@ class WavDump(unittest.TestCase):
 
     def test_title_and_menu_sound(self):
         """Not silent, the same bytes on two runs (the mix follows the VBlanks, not the host clock), and the sound
-        starts with the title (the first effect at VBlank 169)."""
+        starts with the title (the first effect at VBlank 175: the boot's check of the empty memory card, GetInfo then
+        GetDir, takes 6 VBlanks more than the 'no card' answer before T35, which had it at 169)."""
         with tempfile.TemporaryDirectory() as d:
             a, ra = self.dump(d, "a.wav")
             b, rb = self.dump(d, "b.wav")
@@ -72,8 +73,8 @@ class WavDump(unittest.TestCase):
         self.assertEqual(len(frames), frames_for(self.FRAMES))
         loud = [i for i, (l, r) in enumerate(frames) if abs(l) > 1000 or abs(r) > 1000]
         self.assertGreater(len(loud), RATE)  # more than a second of clearly audible sound
-        self.assertEqual([f for f in frames[: frames_for(160)] if f != (0, 0)], [])  # boot: silence
-        self.assertTrue(any(f != (0, 0) for f in frames[frames_for(168): frames_for(175)]))  # the title's effect
+        self.assertEqual([f for f in frames[: frames_for(166)] if f != (0, 0)], [])  # boot: silence
+        self.assertTrue(any(f != (0, 0) for f in frames[frames_for(174): frames_for(181)]))  # the title's effect
         # the select screen's BGM (track 0, from VBlank 225): both channels sound, unlike the mono effects
         select = frames[frames_for(250): frames_for(320)]
         self.assertTrue(any(l != r for l, r in select))

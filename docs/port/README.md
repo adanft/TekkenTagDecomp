@@ -14,7 +14,7 @@ writes everything under `build/port/`, which git ignores.
   VBlank. Pointed at your disc (`TTT_DISC`, default `iso/`), it boots through `Sys_Init`, enters the main loop
   with one update per VBlank and runs the boot mode, the title and the main menu:
   `TTT_FRAMES=600` reports `modes: 0@1 2@168 1@172 3@177` (mode@VBlank: boot, title, transition, main menu) and
-  590 frames. Left alone, the menu returns to the title after about 480 frames and enters the attract cycle's
+  590 frames (6 VBlanks later since T35 with an empty memory card: `2@174 1@178 3@183`, see below). Left alone, the menu returns to the title after about 480 frames and enters the attract cycle's
   loading mode (11) at VBlank 699 and runs the attract demo (mode 11, sub-state 2) through the VU0 blend
   (`func_0034A180`) and the VU0 skinning programs: `TTT_FRAMES=3000 TTT_SEED=1` ends at VBlank 3000 (2606 frames)
   with no stop, and two runs with the same seed end in the same state (`sbss-hash 0x82bb5654` in T29 batch 2, where the fighter packets are sent with their real size; the joint
@@ -59,7 +59,15 @@ writes everything under `build/port/`, which git ignores.
 - libm (T30 batch 3, F03): `third_party/newlib_libm` gives the executable's asinf / atan2f bits (`TTT_SELFTEST=ee`:
   no difference left); the 2551-VBlank run keeps its frames and `sbss-hash 0xcf8bdf40` (those inputs never come up).
 - Placeholders still reached on that path (listed at the end of a `TTT_FRAMES` run): `scePadGetState` (no pad),
-  libmc (no card), the boot movie (skipped).
+  the boot movie (skipped). libmc is real since T35 ([Memory cards](#memory-cards)).
+- Memory cards (T35): libmc over host files, the first slot (port 0) an empty formatted 8 MB card by default; the game's own menus
+  save (OPTIONS > MEMORY CARD (PS2)) and the next boot loads the save. The boot's card check now sees an empty card
+  instead of no card: one more request (GetDir) and the fixed busy polls make the boot 6 VBlanks longer, and every
+  frame of a 1300-VBlank run is the old run's frame 6 VBlanks later (checked with `TTT_DUMP_EVERY=2`). So the
+  2551-VBlank run (with an empty `TTT_SAVES`) ends with `sbss-hash 0xad2d0dea` and other frames at the dump points
+  (modes `0@1 2@174 1@178 3@183 1@666 2@704 11@705`); with `TTT_MC0=none TTT_MC_POLLS=0` (no card, no busy poll)
+  it has the old 17 frames and modes, and the hash differs from `0x4a16b393` only in the two moved function
+  pointers of gotcha 20 (`0x5F6FD0` / `0x5F6FD4`: the new `plat_mc.o` moves the game code), checked word by word.
 - Input (T34 batch 1): two DualShock 2 pads from the keyboard and SDL gamepads, latched once per VBlank, with
   recording and replay of the pad states ([Input](#input)). Real-time runs have the pads; headless runs have none
   unless asked, so the runs above keep their reports and hashes. With input the character select is reached
@@ -213,7 +221,8 @@ wait loops drive the hardware.
 | `spu2.c` | The SPU2 model: 2 MB sound RAM, 2 x 24 voices, PS-ADPCM, pitch, ADSR, the 48 kHz mix, `TTT_SELFTEST=spu` ([sound.md](sound.md)) |
 | `plat_snd.c` | libspu2's commands of RSPU2DRV on the model, the per-VBlank mix, `TTT_WAV`, the ring to the window's audio ([sound.md](sound.md)) |
 | `plat_bgm.c` | RSPU2DRV's BGM stream engine: the 28 tracks, the sound queue (0x7F0F), status bits 4 / 6, the double buffers ([sound.md](sound.md)) |
-| `plat_lib.c` | libgraph (`sceGsSyncV` waits for the next VBlank; `sceGsResetGraph`, `sceGsSetDefDBuff`, `sceGsSetDefDispEnv`, `sceGsPutDispEnv`, `sceGsSwapDBuff` build the environments and write the GS), libmc (no card), movie skip, a cache call |
+| `plat_lib.c` | libgraph (`sceGsSyncV` waits for the next VBlank; `sceGsResetGraph`, `sceGsSetDefDBuff`, `sceGsSetDefDispEnv`, `sceGsPutDispEnv`, `sceGsSwapDBuff` build the environments and write the GS), movie skip, a cache call |
+| `plat_mc.c` | libmc: memory cards as directories under `TTT_SAVES`, asynchronous requests finished by `sceMcSync` after a fixed number of polls, atomic writes, `TTT_SELFTEST=mc` ([Memory cards](#memory-cards)) |
 | `plat_pad.c` | libpad / libmtap: two DualShock 2 pads on ports 0 and 1, no multitap, the per-VBlank latch, `TTT_INPUT_PLAY` / `TTT_INPUT_RECORD`, `TTT_SELFTEST=pad` ([Input](#input)) |
 | `gs_core.c` | GS: GIF paths (PACKED / REGLIST / IMAGE), registers, 4 MB GS memory with its layout, CLUT buffer, the software reference rasteriser, the frame dump, `TTT_SELFTEST=gs` |
 | `gs_vif1.c` | VIF1: UNPACK into VU1 memory, MPG, DIRECT / DIRECTHL to the GIF, MSCAL / MSCALF / MSCNT run the VU1 program |
@@ -621,6 +630,58 @@ keys reach pad 1 in a real-time run: D / S / U moved the cursor right and down a
 prints EE RAM words at the end of a `TTT_FRAMES` run (`ttt: peek ...`), which the tests read (`gMode` / `gSubMode` at
 0x5F5C20, the select state at 0x440D08, the fighters' positions at 0x879644 / 0x884EE4).
 
+## Memory cards
+
+`port/src/plat_mc.c` answers libmc as `src/memcard.c` uses it (T35). The game's card service `Mc_Update` runs one step
+a frame: a request (check 3, save 0x12, load 0x1A, screenshots 0x1D / 0x20 / 0x23, delete 0x25, unformat 0x10) becomes
+a sequence of libmc calls, each started and then polled with `sceMcSync(1, ...)` until it reports the end.
+
+- **Where.** Card port 0 is the directory `<saves>/mc0/`: the card path `/BASLUS-20001TekkenTT/icon.sys` is the file
+  `<saves>/mc0/BASLUS-20001TekkenTT/icon.sys`. `<saves>` is `TTT_SAVES`, else the repository's `saves/` when the
+  program is `build/port/ttt` of a checkout, else `saves/` beside the program. Nothing is created until the game
+  writes. The files hold data from your disc (the icons) and your records: keep them out of git (`saves/` must be in
+  `.gitignore`). Tests and idle runs use a temporary `TTT_SAVES` (`tests/test_port_platform.py`'s `run_ttt`).
+- **Cards.** `TTT_MC0` / `TTT_MC1` = `formatted` (port 0's default: an empty formatted card while the directory does
+  not exist) | `unformatted` (until the game formats it; formatting creates the directory) | `none` (port 1's
+  default). Formatting erases nothing on the host; unformatting lasts for the session only. Free space: 8000 one-KB
+  clusters on an empty card [I: the order of an 8 MB card after its file system, not measured], less ceil(size / 1024)
+  per file and ceil((entries + 2) / 2) per directory.
+- **Timing.** A call only registers its request; `sceMcSync(1, ...)` answers 0 (busy) twice, then carries the request
+  out on the host files, stores the command number and result and answers 1 (`TTT_MC_POLLS=<n>` changes the two).
+  Results and output arguments (GetInfo's type / free / format, GetDir's table, a read's data) arrive at that last
+  poll, as mcserv's reply does. The game polls once a frame, so a request takes the same frames in every run.
+- **Result codes.** 0; GetInfo -1 new formatted card (first call), -2 unformatted, -10 no card (type 0); -3 card full
+  (a write past the free space), -4 no such file or directory (also mkdir of an existing name), -5 not permitted
+  (wrong open mode, a directory, an open file deleted), -6 directory not empty, -7 more than 4 open files. Paths are
+  absolute or relative to the port's `sceMcChdir` directory; `..` stops at the card's root.
+- **Atomic writes.** A file opened for writing (the game uses mode 0x203, read-write and create, no truncation) is
+  kept in memory; `sceMcClose` writes `.ttt-tmp-<name>` beside it, flushes it (fsync), renames it over the file and
+  flushes the directory. A crash leaves the old save or the new one; `.ttt-tmp-` names are never listed.
+- **Listings.** GetDir (`/BASLUS-20001TekkenTT/*`, up to 24 entries) lists `.` and `..` first in a subdirectory, then
+  the files sorted by name, as 64-byte `sceMcTblGetDir` entries (dates in JST from the host's modification time,
+  size, attributes 0x8497 / 0x8427, name at 0x20). The check compares the save's two dates with the ones it saw last
+  (`gMc.unkD4` / `unkE4`) to clear the 'card changed' bit 2.
+- **The game's flow.** Boot (`Mode_Boot` sub-state 1, `func_00361710`): no card or no save data goes on silently;
+  a save is loaded (request 0x1A: chdir, open, read 0x480 bytes, close, unscramble and checksum `func_0035EC98`).
+  OPTIONS > MEMORY CARD (PS2): LOAD DATA, SAVE DATA, AUTO SAVE (turning it on saves at once), EXIT. A save writes
+  `icon.sys`, `xiao2n.ico`, `xiao2c.ico`, `xiao2d.ico` (files 0x89-0x8C of the disc) and `BASLUS-20001TekkenTT`
+  (0x480 bytes: a checksum byte and four scrambled blocks, `func_0035EBA0`: system data `D_00439C60`, options
+  `D_00440D58`, `D_00415D60`, records `D_0046BC70`). The screenshot files of the gallery are `D_00416010`'s names.
+- **Mc_Update's draft** (m2c) had never run past 'no card'. T35 checked it case by case against the asm and fixed
+  it: GetDir got a null table instead of `D_005F7300`; the open / read / write / close sequences got size 0 and next
+  operation 0 instead of 0x480 / the icon's size (`func_0035CED8`) / the screenshot's size and their follow-up
+  operations 0x17 / 0x19 / 0x1C / 0x1F / 0x22; a close that succeeded ended the request (op 2) instead of going on to
+  the next operation; the format / unformat results were never read; ops 3 and 31 set `unkD0` (the original goes to
+  op 4 without it).
+- **Tests.** `TTT_SELFTEST=mc` (the layer on a temporary directory) and `tests/test_port_mc.py`: the boot check
+  (empty card: flags 0x202, nothing created; no card), LOAD DATA on an empty card (error state 6, message 0xB, 'no
+  save data'), and the save through the menus by `TTT_INPUT_PLAY` (AUTO SAVE on, YES): the five files appear, 0x480
+  bytes of save data, no temporary file; a second run loads the save at boot (the AUTO SAVE byte `D_00439C92` is 1,
+  0 after an empty card's boot).
+- **Open.** The message windows of the card menu open at the right size but their text (`Text_DrawId`) does not show
+  in the frames; the help line at the bottom of the option menus is empty too. The YES / NO line (`Text_Printf`)
+  shows. Not a card problem; not looked into yet.
+
 ## VU1
 
 `port/src/gs_vu1.c` on the micro-mode interpreter (shared with VU0, `vu0_micro.c`): `port/src/vu_fast.c`, predecoded,
@@ -934,4 +995,5 @@ skinning are the limits now ([Speed](#speed)); T31's native replacements. libgra
 seven Tekken Bowl m2c drafts around VU0 code (`portsrc.REPLACED`, still placeholders: not reached by the attract
 demo); the libm PCSX2 run; the other game types after the character select (VS, team, survival: the same step
 function, not checked frame by frame) and the leftover-register calls of gotcha 23 off the fight's path; the multitap,
-vibration and rebinding; memory cards and movies (with their audio, [sound.md](sound.md)).
+vibration and rebinding; movies (with their audio, [sound.md](sound.md)); the memory card messages' text
+([Memory cards](#memory-cards)).

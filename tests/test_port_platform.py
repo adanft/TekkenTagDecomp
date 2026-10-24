@@ -23,11 +23,17 @@ def disc():
 
 
 def run_ttt(timeout=120, **env):
+    """Runs the program with only the given TTT_ variables. Without TTT_SAVES the memory card is an empty card in a
+    temporary directory (plat_mc.c), so no run reads or writes the repository's saves/."""
     e = {k: v for k, v in os.environ.items() if not k.startswith("TTT_")}
     if disc() is not None:
         e["TTT_DISC"] = str(disc())
     e.update(env)
-    return subprocess.run([str(EXE)], env=e, capture_output=True, text=True, timeout=timeout)
+    if "TTT_SAVES" in e:
+        return subprocess.run([str(EXE)], env=e, capture_output=True, text=True, timeout=timeout)
+    with tempfile.TemporaryDirectory(prefix="ttt-saves-") as saves:
+        e["TTT_SAVES"] = saves
+        return subprocess.run([str(EXE)], env=e, capture_output=True, text=True, timeout=timeout)
 
 
 @unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
@@ -103,6 +109,7 @@ class ProgramElsewhere(unittest.TestCase):
         e = {k: v for k, v in os.environ.items() if not k.startswith("TTT_")}
         if disc_dir is not None:
             e["TTT_DISC"] = str(disc_dir)
+        e["TTT_SAVES"] = str(Path(self.tmp.name) / "saves")  # an empty card, whatever the repository's saves/ holds
         e.update(env)
         return subprocess.run([str(exe)], env=e, cwd=self.dir, capture_output=True, text=True, timeout=120)
 

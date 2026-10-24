@@ -1,8 +1,8 @@
 /*
  * Sony SDK libraries of the game on PC: the GS set-up (libgraph), DMA / VU resets (libdma, libvu0), and those that
- * only need an answer for now: memory cards (libmc), which report "nothing connected" (pads: plat_pad.c).
+ * only need an answer for now (pads: plat_pad.c; memory cards: plat_mc.c).
  * A function that is only a placeholder records itself (Port_Hit, plat_stub.c), so a headless run lists what still
- * waits for its real implementation: memory cards, movies.
+ * waits for its real implementation: movies.
  */
 #include <stdint.h>
 #include <string.h>
@@ -136,50 +136,7 @@ int sceGsSwapDBuff(void *p, int id) {
 
 /* libmtap / libpad: plat_pad.c. */
 
-/* ---- libmc: no memory card in either slot. Each call is accepted and finishes at the next sceMcSync with a
-   "no card" result. ---- */
-#define MC_NO_CARD (-10)
-static int sMcCmd = -1, sMcBusy;
-static int mc_start(int cmd) {
-    sMcCmd = cmd;
-    sMcBusy = 1;
-    return 0;
-}
-int sceMcInit(void) { return 0; }
-int sceMcSync(int mode, int *cmd, int *result) {
-    (void)mode;
-    if (!sMcBusy) {
-        return -1; /* nothing in progress */
-    }
-    sMcBusy = 0;
-    if (cmd != NULL) {
-        *cmd = sMcCmd;
-    }
-    if (result != NULL) {
-        *result = MC_NO_CARD;
-    }
-    Port_Hit("libmc (no card)");
-    return 1;
-}
-/* libmc's numbers of the calls: getinfo 1, open 2, close 3, seek 4, read 5, write 6, mkdir 0xB, chdir 0xC,
-   getdir 0xD, format 0x10, delete 0xF, setfileinfo 0xE, unformat 0x11 (the cmd sceMcSync hands back). */
-int func_00406D08(int port, int slot, int *type, int *free, int *format) { /* sceMcGetInfo */
-    (void)port; (void)slot;
-    if (type != NULL) { *type = 0; }
-    if (free != NULL) { *free = 0; }
-    if (format != NULL) { *format = 0; }
-    return mc_start(1);
-}
-int sceMcOpen(int port, int slot, int name, int mode) { (void)port; (void)slot; (void)name; (void)mode; return mc_start(2); }
-int sceMcClose(int fd) { (void)fd; return mc_start(3); }
-int func_004069B0(int fd, int buf, int size) { (void)fd; (void)buf; (void)size; return mc_start(5); } /* read */
-int func_00406A88(int fd, int buf, int size) { (void)fd; (void)buf; (void)size; return mc_start(6); } /* write */
-int sceMcMkdir(int port, int slot, int name) { (void)port; (void)slot; (void)name; return mc_start(0xB); }
-int func_00407138(int port, int slot, int name) { (void)port; (void)slot; (void)name; return mc_start(0xF); } /* delete */
-int func_00406E50(int port, int slot, int a, int b, int c, int d) { (void)port; (void)slot; (void)a; (void)b; (void)c; (void)d; return mc_start(0xD); } /* getdir */
-int func_00406FC0(int port, int slot, int name, int x) { (void)port; (void)slot; (void)name; (void)x; return mc_start(0xE); } /* setfileinfo */
-int func_004070A8(int port, int slot) { (void)port; (void)slot; return mc_start(0x10); } /* format */
-int func_004074F8(int port, int slot) { (void)port; (void)slot; return mc_start(0x11); } /* unformat */
+/* libmc: plat_mc.c (memory cards over host files). */
 
 /* ---- movies: not played yet (libmpeg, the IPU, the decoder threads come with the movie task). The game's
    movie function (movie.c func_0039C878) asks first and skips the movie as when the stream does not go idle. */
