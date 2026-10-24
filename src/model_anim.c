@@ -1251,6 +1251,13 @@ void func_003D2818(Fighter *a, Fighter *b) {
     s32 s;
     s32 key[12];
 
+#ifdef PORT
+    /* func_0035B690 fills words 0-2 and 5-7 only; func_0035B858 copies all 9 into D_00415808: the stale stack words
+       of the original would be host-dependent here (docs/port/determinism.md). */
+    for (s = 0; s < 12; s++) {
+        key[s] = 0;
+    }
+#endif
     s = gSinTable[(((D_005F6F18 - D_005F64DC) << 10) / D_005F6F18) & 0xFFF];
     c->unk18 = 0;
     c->unk1C = 0;

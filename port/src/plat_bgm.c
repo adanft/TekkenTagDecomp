@@ -29,6 +29,7 @@
 #include <string.h>
 #include "port_addr.h"
 #include "spu2.h"
+#include "plat_state.h"
 
 int Port_DiscRead(uint32_t sector, uint32_t offset, void *dst, uint32_t bytes); /* plat_file.c */
 int Port_MovieAudio(int movie, uint32_t *sector, uint32_t *audio, uint32_t *video, uint32_t *bytes,
@@ -349,4 +350,8 @@ void Port_BgmService(void) {
         }
         sB.half = h;
     }
+}
+
+__attribute__((constructor(101))) static void bgm_state(void) {
+    Port_StateAdd("bgm", &sB, sizeof sB, PS_HASH);
 }

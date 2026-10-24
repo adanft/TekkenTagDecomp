@@ -6,11 +6,13 @@
  * VU0 memory is the EE's view of it (plat_mem.c): micro memory at 0x11000000 (4 KB), data memory at 0x11004000
  * (4 KB). The registers are shared with macro mode: gPortVu0Vf (plat_ee.c), gPortVu0Vi, gPortVu0Acc, gPortVu0Q.
  */
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #define memcpy __builtin_memcpy /* -fno-builtin: inline the small copies of the hot paths */
 #include "vu_micro.h"
+#include "plat_state.h"
 
 extern float gPortVu0Vf[32][4]; /* plat_ee.c */
 uint16_t gPortVu0Vi[16];         /* vi0..vi15 (ctc2 / cfc2 in macro mode) */
@@ -82,13 +84,14 @@ void Port_Vif0Feed(const uint32_t *w, uint32_t n) {
 
 /* Runs the program at micro-memory byte address `addr` until its end (E bit and the instruction after it). Results
    still in flight at the end stay in flight into the next call (the EE starts the next vertex at once). */
+static VuCore vu;
+static VuOp ops[0x200]; /* the predecoded program cache (vu_fast.c) */
+
 void Port_Vu0CallMs(uint32_t addr) {
-    static VuCore vu;
-    static VuOp ops[0x200]; /* the predecoded program cache (vu_fast.c) */
     static int reported;
     static uint32_t calls;
 
-    if (vu.vf == NULL) {
+    if (vu.ops == NULL || vu.vf == NULL) { /* (ops is not part of a state: a loaded state may have either unset) */
         vu.vf = (uint32_t (*)[4])gPortVu0Vf;
         vu.vi = gPortVu0Vi;
         vu.acc = gPortVu0Acc;
@@ -107,4 +110,16 @@ void Port_Vu0CallMs(uint32_t addr) {
         reported++;
         fprintf(stderr, "ttt: vu0: %u instructions not implemented (seen after program 0x%03X)\n", Vu_Unknown(&vu), addr);
     }
+}
+
+/* VU0's micro-mode side: its registers (shared with macro mode), VIF0, the unit's pipeline (not the predecoded program:
+   each slot is checked against micro memory when it runs). */
+__attribute__((constructor(101))) static void vu0_state(void) {
+    Port_StateAdd("vu0.vi", gPortVu0Vi, sizeof gPortVu0Vi, PS_HASH);
+    Port_StateAdd("vu0.acc", gPortVu0Acc, sizeof gPortVu0Acc, PS_HASH);
+    Port_StateAdd("vu0.q", &gPortVu0Q, sizeof gPortVu0Q, PS_HASH);
+    Port_StateAdd("vif0", &vif, sizeof vif, PS_HASH);
+    Port_StateAdd("vu0.core", &vu, (uint32_t)offsetof(VuCore, ops), 0); /* (its pointers name this file's variables) */
+    Port_StateAdd("vu0.pipe", &vu.cycle, (uint32_t)((uint8_t *)&vu.instr - (uint8_t *)&vu.cycle), PS_HASH | PS_HASHONLY);
+    Port_StateAdd("vu0.ip", &vu.i, 2 * sizeof vu.i, PS_HASH | PS_HASHONLY);
 }

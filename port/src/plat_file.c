@@ -25,6 +25,7 @@
 #include "port_addr.h"
 #include "port_host.h"
 #include "spu2.h"
+#include "plat_state.h"
 
 int Port_SndCommand(int cmd, const uint32_t *a); /* plat_snd.c */
 void Port_SndGet(int cmd, uint8_t *out);
@@ -314,13 +315,10 @@ static int rspu2(int cmd, const uint32_t *a) {
     }
 }
 
-/* sceSdRemote(mode, command, six argument words): the game's only door to the IOP (librspu2). */
-int sceSdRemote(int mode, int cmd, int a0, int a1, int a2, int a3, int a4, int a5) {
-    uint32_t a[6] = { (uint32_t)a0, (uint32_t)a1, (uint32_t)a2, (uint32_t)a3, (uint32_t)a4, (uint32_t)a5 };
-    (void)mode;
+static int sd_remote(int cmd, const uint32_t *a) {
     if ((cmd & 0xF000) == 0x6000) { /* get: 0x40 bytes into the buffer a0 points to (plat_snd.c) */
-        if (a0 != 0) {
-            Port_SndGet(cmd, Port_Ptr(a0));
+        if (a[0] != 0) {
+            Port_SndGet(cmd, Port_Ptr(a[0]));
         }
         return 0;
     }
@@ -328,6 +326,21 @@ int sceSdRemote(int mode, int cmd, int a0, int a1, int a2, int a3, int a4, int a
         return 0;
     }
     return rspu2(cmd, a);
+}
+
+typedef struct { int cmd, r; uint32_t a[6]; } SdCall;
+static void sd_remote_off(void *p) {
+    SdCall *c = p;
+    c->r = sd_remote(c->cmd, c->a);
+}
+
+/* sceSdRemote(mode, command, six argument words): the game's only door to the IOP (librspu2). Off the EE stack
+   (Port_OffEe): the disc reads go through the C library, whose frames hold addresses of this process. */
+int sceSdRemote(int mode, int cmd, int a0, int a1, int a2, int a3, int a4, int a5) {
+    SdCall c = { cmd, 0, { (uint32_t)a0, (uint32_t)a1, (uint32_t)a2, (uint32_t)a3, (uint32_t)a4, (uint32_t)a5 } };
+    (void)mode;
+    Port_OffEe(sd_remote_off, &c);
+    return c.r;
 }
 
 int sceSdRemoteInit(void) { return 0; }
@@ -371,4 +384,12 @@ int Port_FileSelfTest(void) {
         return 0;
     }
     return memcmp(dst, want, sizeof want) == 0;
+}
+
+__attribute__((constructor(101))) static void file_state(void) {
+    Port_StateAdd("file.status", &sStatus, sizeof sStatus, PS_HASH);
+    Port_StateAdd("file.statusPolls", &sStatusPolls, sizeof sStatusPolls, PS_HASH);
+    Port_StateAdd("file.movieStream", sMovieStream, sizeof sMovieStream, PS_HASH);
+    Port_StateAdd("file.reads", &gPortFileReads, sizeof gPortFileReads, 0);
+    Port_StateAdd("file.bytes", &gPortFileBytes, sizeof gPortFileBytes, 0);
 }

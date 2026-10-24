@@ -21,8 +21,14 @@
 #include "port_addr.h"
 #include "port_host.h"
 #include "spu2.h"
+#include "plat_state.h"
 
 static int sCore; /* SpuSetCore */
+static uint32_t sHalfLines; /* the BGM timer's phase in the field (half H-lines) */
+__attribute__((constructor(101))) static void snd_state(void) {
+    Port_StateAdd("snd.core", &sCore, sizeof sCore, PS_HASH);
+    Port_StateAdd("snd.halfLines", &sHalfLines, sizeof sHalfLines, PS_HASH);
+}
 
 void Port_BgmInit(void); /* plat_bgm.c */
 void Port_BgmTrack(const uint32_t *a);
@@ -289,10 +295,9 @@ void Port_SndRingEnable(int on) {
    frames the engine refills its buffers. */
 void Port_SndVBlank(uint32_t n) {
     static int16_t pcm[2 * 801];
-    static uint32_t halfLines;
     int frames = (int)((uint64_t)n * 4004u / 5u - (uint64_t)(n - 1) * 4004u / 5u);
     int ticks = 0, t, done = 0;
-    for (halfLines += 525; halfLines >= 132; halfLines -= 132) {
+    for (sHalfLines += 525; sHalfLines >= 132; sHalfLines -= 132) {
         ticks++;
     }
     for (t = 0; t < ticks; t++) {
@@ -305,6 +310,8 @@ void Port_SndVBlank(uint32_t n) {
             Port_BgmService();
         }
     }
-    wav_write(pcm, frames);
-    ring_write(pcm, frames);
+    if (!gPortResim) { /* frames run again (TTT_SYNCTEST) were heard already */
+        wav_write(pcm, frames);
+        ring_write(pcm, frames);
+    }
 }

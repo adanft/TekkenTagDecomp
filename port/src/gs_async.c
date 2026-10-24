@@ -34,6 +34,7 @@
 #include "port_addr.h"
 #include "gs.h"
 #include "gs_int.h"
+#include "plat_state.h"
 
 #define QSIZE (32u << 20) /* bytes per queue; a power of two */
 enum { REC_PAD, REC_VIF1, REC_GIF3, REC_VBLANK, REC_GIF };
@@ -384,3 +385,10 @@ int Gs_AsyncVBlank(uint32_t vblank, const DispRegs *regs) {
 /* TTT_GS_STATS: the game's thread's CPU time spent waiting for room in the queue. */
 uint64_t Gs_AsyncWaitNs(void) { return sWaitNs; }
 uint32_t Gs_AsyncCpuMs(int k) { return __atomic_load_n(&sCpuMs[k & 1], __ATOMIC_RELAXED); }
+
+/* The GS's CSR / SIGLBLID effects not yet written back (none after the drain a save starts with). */
+__attribute__((constructor(101))) static void async_state(void) {
+    Port_StateAdd("gs.csrBits", &sCsrBits, sizeof sCsrBits, 0);
+    Port_StateAdd("gs.sigLblId", &sSigLblId, sizeof sSigLblId, 0);
+    Port_StateAdd("gs.sigLblIdSet", &sSigLblIdSet, sizeof sSigLblIdSet, 0);
+}

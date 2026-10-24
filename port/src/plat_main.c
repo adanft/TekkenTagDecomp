@@ -24,10 +24,16 @@ int __wrap_main(int argc, char **argv) {
     Port_PadSelfTest();
     Port_WindowSelfTest();
     Port_WindowOpen();
+    /* The callee-saved registers are cleared first: they hold the C library's values here (__libc_start_main's), and
+       the game's functions push them on the EE stack, which a state holds (plat_state.c). This never returns. */
     __asm__ volatile("movl %0, %%esp\n\t"
                      "subl $8, %%esp\n\t" /* 16-byte aligned at the call */
                      "pushl %2\n\t"
                      "pushl %1\n\t"
+                     "xorl %%ebx, %%ebx\n\t"
+                     "xorl %%esi, %%esi\n\t"
+                     "xorl %%edi, %%edi\n\t"
+                     "xorl %%ebp, %%ebp\n\t"
                      "call __real_main\n\t"
                      "subl $12, %%esp\n\t"
                      "pushl %%eax\n\t"

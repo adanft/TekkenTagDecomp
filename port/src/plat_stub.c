@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "plat_state.h"
 
 void Port_HwSummary(void); /* plat_hw.c */
 
@@ -42,4 +43,10 @@ void Port_StubReport(void) {
         printf(" %s", sHits[i]);
     }
     printf("\n");
+}
+
+/* The report's list (string literals of this program): the same report after a load. */
+__attribute__((constructor(101))) static void stub_state(void) {
+    Port_StateAdd("stub.hits", sHits, sizeof sHits, 0);
+    Port_StateAdd("stub.hitCount", &sHitCount, sizeof sHitCount, 0);
 }

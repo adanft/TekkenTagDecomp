@@ -21,6 +21,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "port_addr.h"
+#include "plat_state.h"
 #include "../../third_party/pl_mpeg2/m2v.h"
 
 int Port_DiscRead(uint32_t sector, uint32_t offset, void *dst, uint32_t bytes); /* plat_file.c */
@@ -247,3 +248,7 @@ int Port_MovieAudio(int movie, uint32_t *sector, uint32_t *audio, uint32_t *vide
     }
     return 1;
 }
+
+/* A playing movie's decoder is host memory: no state is taken while one plays (none during a fight). */
+static const char *movie_busy(void) { return sM.dec != NULL ? "a movie is playing" : NULL; }
+__attribute__((constructor(101))) static void movie_state(void) { Port_StateHooks(movie_busy, NULL, NULL); }

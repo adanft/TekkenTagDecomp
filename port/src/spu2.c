@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "spu2.h"
+#include "plat_state.h"
 
 Spu2Core gSpu2[2];
 static uint8_t sRam[SPU2_RAM_SIZE];
@@ -375,4 +376,9 @@ int Spu2_SelfTest(void) {
     Spu2_Reset();
     printf(sFails ? "ttt: spu self-test FAILED (%d)\n" : "ttt: spu self-test OK\n", sFails);
     return sFails;
+}
+
+__attribute__((constructor(101))) static void spu2_state(void) {
+    Port_StateAdd("spu2.cores", gSpu2, sizeof gSpu2, PS_HASH);
+    Port_StateAdd("spu2.ram", sRam, sizeof sRam, PS_HASH);
 }

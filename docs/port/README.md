@@ -4,7 +4,7 @@ The PC port is built from the same C as the matching decompilation. Nothing of t
 takes the game's data from the split of **your own** `SLUS_200.01` (the one the matching build already uses) and
 writes everything under `build/port/`, which git ignores.
 
-## Status (T30 batch 4, 2026-10-24)
+## Status (T27, 2026-10-24)
 
 - Every game C file the matching build links (59) compiles for 32-bit x86 Linux with the host gcc, with the
   NON_MATCHING drafts switched on: every game function comes from C, except the hand-written EE / VU0 routines
@@ -88,6 +88,14 @@ writes everything under `build/port/`, which git ignores.
   (gotchas 23, 24): the wind of `Skel_Update` changes the attract demo's hair from VBlank 1650 on, so the 2551-VBlank
   run ends with `sbss-hash 0xcf8bdf40` (the wind words `D_005F6E18` / `D_005F6E20` of both sides, and the two moved
   function pointers of gotcha 20; with those six words set back the memory hashes to the old `0x341e8d2f`).
+- Determinism (T27, [determinism.md](determinism.md)): the `ttt: state:` line's hash is now a 64-bit XXH3 of the
+  whole gameplay state (EE RAM without the EE stack, scratchpad, hardware registers, VU0, the port's own state), with
+  every host address in the game's memory counted as one constant, so that it does not move when the code changes
+  size (F04). The 2551-VBlank run keeps its 17 frames and ends with `hash 0xd36c82e9a145875a`. The whole state
+  (40 MB) can be saved at a VBlank boundary and loaded in the same or a fresh process (`TTT_SAVESTATE`,
+  `TTT_LOADSTATE`, `Port_StateSave` / `Port_StateLoad`), and `TTT_SYNCTEST` runs every few VBlanks twice from a
+  loaded state and compares. It found the fight's state depending on the GS threads' timing (stale stack words the
+  game reads, left by the port's waits) and the C library's addresses on the EE stack; both fixed.
 - Floats are the EE's: every float operation of the game and of `port/src` goes through the EE float model
   (`port/src/softfloat_ps2.c`), the maths library is the PS2's newlib (`third_party/newlib_libm`), `rand` / `srand`
   are newlib's on the game's own state word. No host float code is linked ([EE float model](#ee-float-model)).
@@ -242,6 +250,7 @@ wait loops drive the hardware.
 | `plat_pkt.c` | libpkt: VIF1 and GIF packet builders |
 | `plat_vu0.c` | libvu0 in C (column-major matrices; `func_0034A868` is `sceVu0Normalize`) |
 | `plat_main.c` | `TTT_SELFTEST=pad`, opens the window (on the host stack), then runs the game's `main` on the EE stack |
+| `plat_state.c` | The state: the regions the modules register, the gameplay hash, save / load at the VBlank boundary (a stack switch), `Port_OffEe`, the synctest ([determinism.md](determinism.md)) |
 | `plat_window.c` | The SDL3 window: SDL loaded at run time, its own thread, the GL context ([Window](#window)), the audio stream, `TTT_SELFTEST=window` |
 | `gs_gl.c` | The GS's OpenGL 3.3 back end on the window thread ([GL back end](#gl-back-end)) |
 | `gs_async.c` | The GS threads: VIF1 and VU1, then the GIF and the GS front end, beside the game ([Speed](#speed)) |
@@ -296,7 +305,8 @@ Switches:
 | Variable | Effect |
 |---|---|
 | `TTT_DISC=<dir or .iso>` | The disc: a directory with `TEKKEN.BIN` (as `scripts/setup_disc.py` copies it to `iso/`) or the ISO 9660 image. Default: `iso/` of the repository (`build/port/ttt` -> `../../iso`), else `iso/` beside the program, else `iso/` in the working directory. Read only. Without a disc the program stops at its first read with `ttt: no disc` on stderr and exit code 2. |
-| `TTT_FRAMES=<n>` | Stop after n VBlanks with a report: VBlanks and frames, `modes:` (mode@VBlank of each change), last mode and sub-state, `state:` (seed, `gRngSpin`, a hash of the first 4 KB of `.sbss`, cycles), placeholders hit. Exit code 0. Implies headless. |
+| `TTT_FRAMES=<n>` | Stop after n VBlanks with a report: VBlanks and frames, `modes:` (mode@VBlank of each change), last mode and sub-state, `state:` (seed, `gRngSpin`, the gameplay hash of [determinism.md](determinism.md), cycles), placeholders hit. Exit code 0. Implies headless. |
+| `TTT_HASH_EVERY=<n>` / `TTT_SAVESTATE=<vblank>:<file>` / `TTT_LOADSTATE=<file>` / `TTT_SYNCTEST=<n>` | The gameplay hash every n VBlanks, a save, a load, the synctest ([determinism.md](determinism.md)). `TTT_SELFTEST=state` checks the hash's rule and an in-process save / load. |
 | `TTT_HEADLESS=0/1` | Force the real-time or the headless clock. |
 | `TTT_SEED=<n>` | Pin the boot seed `Rng_Init` takes from Timer 0 (`src/rng_misc.c`, `docs/known_bugs.md` section 8). With the headless clock the seed is already repeatable; this sets its value, and makes real-time runs start alike. |
 | `TTT_MOVIES=0` | Skip the movies (the intro at boot, the attract and ending movies) as before T33: the player sees the stream never go idle. Default: they play ([movies.md](movies.md)). |
@@ -923,7 +933,8 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
     joints 11-14 seen in T29 batch 3), and bone 10 reads its translation at record + 0x0C, not 0x12. Rewritten after the
     asm (typed, `#if 0`); `TTT_DIFF` showed 75 differing words in that call before, none after.
 
-20. **The state hash covers host code addresses.** The game keeps function pointers in `.sbss` (callbacks), and the
+20. **The state hash covers host code addresses** (until T27: the hash now counts every host address as one
+    constant, [determinism.md](determinism.md)). The game keeps function pointers in `.sbss` (callbacks), and the
     `TTT_FRAMES` state hash covers that memory. A port change that adds a host library function to the PLT (T30: the
     first `pthread_create`) moves every game function by 16 bytes per entry and changes the hash of an unchanged run.
     Host functions new since T30 are declared `noplt` in `port/src/port_host.h` (called through the GOT); the PLT
@@ -983,6 +994,12 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
     `Port_GifSync` (`plat_hw.c`) carries a started GIF transfer out at once, without moving the clock; the movie
     code calls it after each kick. With `TTT_MOVIES=0` the set-up packet is now sent too: the dumps and the state do
     not change.
+28. **Stale stack words carry the host into the game's state.** The game reads uninitialised locals (the camera key of
+    `func_003D2818`, `Light_StartFlash`'s colour): on the PS2 the stale words are the same every run; here they were
+    whatever the port's code had left on the EE stack, the GS threads' waiting times and the C library's addresses
+    among them, so the fight's state differed from run to run with raster threads. The port's work that can wait or
+    calls into the C library now runs off the EE stack (`Port_OffEe`, `plat_state.c`), and both reads start from 0
+    under `PORT` ([determinism.md](determinism.md)). `TTT_SYNCTEST` (whole states, stack included) finds such cases.
 
 ## EE float model
 

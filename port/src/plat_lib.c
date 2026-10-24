@@ -8,6 +8,7 @@
 #include <string.h>
 #include "port_addr.h"
 #include "gs.h"
+#include "plat_state.h"
 
 void Port_Hit(const char *name);
 int Port_WaitVBlank(void); /* plat_hw.c */
@@ -29,17 +30,32 @@ void sceVpu0Reset(void) {}
    SMODE2, DISPFB2, DISPLAY2, BGCOLOR); the drawing environment and its clear go to the GS as a GIF packet. The
    game writes DISPFB1 / DISPLAY1 itself (Gfx_ShowBuffer). */
 static int sInter, sOmode, sFfmode;
+__attribute__((constructor(101))) static void lib_state(void) {
+    Port_StateAdd("lib.inter", &sInter, sizeof sInter, PS_HASH);
+    Port_StateAdd("lib.omode", &sOmode, sizeof sOmode, PS_HASH);
+    Port_StateAdd("lib.ffmode", &sFfmode, sizeof sFfmode, PS_HASH);
+}
 void sceGsSetDefDispEnv(void *p, int16_t psm, int16_t w, int16_t h, int16_t dx, int16_t dy);
 
 #define PRIV(off) (*(volatile uint64_t *)Port_Ptr(0x12000000u + (off)))
+
+/* The GS calls off the EE stack (Port_OffEe): they wait for the GS threads. */
+static void gs_reset_off(void *p) {
+    (void)p;
+    Gs_Reset();
+    Gs_Vif1Reset();
+}
+static void gs_drawenv_off(void *p) {
+    const uint64_t *giftag = p;
+    Gs_Gif(3, (const uint8_t *)giftag, 1 + (uint32_t)(giftag[0] & 0x7FFF));
+}
 
 int sceGsResetGraph(int mode, int inter, int omode, int ffmode) {
     (void)mode;
     sInter = inter & 1;
     sOmode = omode;
     sFfmode = ffmode & 1;
-    Gs_Reset();
-    Gs_Vif1Reset();
+    Port_OffEe(gs_reset_off, NULL);
     PRIV(GS_PMODE) = 0;
     PRIV(GS_SMODE2) = (uint64_t)sInter | (uint64_t)sFfmode << 1;
     PRIV(GS_CSR) &= 0x2000u; /* (FIELD stays: the VBlank keeps it) */
@@ -123,7 +139,7 @@ void sceGsPutDispEnv(void *p) {
 }
 
 int sceGsPutDrawEnv(uint64_t *giftag) {
-    Gs_Gif(3, (const uint8_t *)giftag, 1 + (uint32_t)(giftag[0] & 0x7FFF));
+    Port_OffEe(gs_drawenv_off, giftag);
     return 0;
 }
 

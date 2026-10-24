@@ -1293,6 +1293,14 @@ static void ee_call(Ee *e, uint32_t addr, const char *sig, const uint32_t *args)
 /* The hook (PORT_DIFF in port_compat.h): calls fn(args) as the port would, and when TTT_DIFF asks for it compares the
    result with the original code at addr. sig: one letter per argument, 'i' integer / pointer register, 'f' float
    register (the bits, passed as the soft-float word). */
+/* The switches read once at start-up (constructor), not at each call: the calls run on the EE stack, where the C
+   library's frames would leave addresses of this process (a state holds that stack, docs/port/determinism.md). */
+static int sDiffTrace;
+__attribute__((constructor)) static void diff_switches(void) {
+    sDiffTrace = getenv("TTT_DIFF_TRACE") != NULL;
+    wanted("");
+}
+
 uint32_t Port_DiffCall(const char *name, uint32_t addr, void *fn, const char *sig, ...) {
     uint32_t args[8] = {0}, n = (uint32_t)strcspn(sig, ":"), k, rc;
     char ret = sig[n] == ':' ? sig[n + 1] : 0;
@@ -1309,7 +1317,7 @@ uint32_t Port_DiffCall(const char *name, uint32_t addr, void *fn, const char *si
         args[k] = va_arg(ap, uint32_t);
     }
     va_end(ap);
-    if (getenv("TTT_DIFF_TRACE") != NULL && Port_VBlankCount() >= sFromVb && sEnabled > 0) {
+    if (sDiffTrace && Port_VBlankCount() >= sFromVb && sEnabled > 0) {
         printf("c-call %s", name);
         for (k = 0; k < n && k < 8; k++) {
             printf(" %08X", args[k]);

@@ -23,6 +23,7 @@
 #define memcpy __builtin_memcpy /* -fno-builtin: inline the small copies of the hot paths */
 #include "port_addr.h"
 #include "gs.h"
+#include "plat_state.h"
 
 #define VU1_DATA ((uint8_t *)Port_Ptr(0x1100C000u))
 #define VU1_MICRO ((uint8_t *)Port_Ptr(0x11008000u))
@@ -354,3 +355,5 @@ int Port_GsVifSelfTest(void) {
     memset(VU1_MICRO, 0, 0x4000);
     return sFails;
 }
+
+__attribute__((constructor(101))) static void vif1_state(void) { Port_StateAdd("vif1", &vif, sizeof vif, 0); }

@@ -34,6 +34,7 @@
 #include "port_addr.h"
 #include "gs.h"
 #include "gs_int.h"
+#include "plat_state.h"
 
 #define PRIV(off) (*(volatile uint64_t *)Port_Ptr(0x12000000u + (off)))
 
@@ -2954,4 +2955,35 @@ void Port_GsSelfTest(void) {
         printf("ttt: gs self-test OK\n");
     }
     exit(sFails != 0);
+}
+
+/* ------------------------------------------------------------------------------------------------ the state */
+
+/* The GS's part of the state (plat_state.c): the front end's registers and GIF paths, GS memory, the CLUT buffer (the
+   same in every raster worker once they are idle). With the GL back end GS memory is partly on the GPU only: no state
+   is taken then (docs/port/determinism.md). */
+static uint16_t sStateClut[512];
+static const char *gs_state_busy(void) { return sGl ? "the GL back end keeps GS memory on the GPU" : NULL; }
+static void gs_state_before(void) {
+    Gs_Finish();
+    memcpy(sStateClut, (sThreads > 0 ? &sWorker[0] : &sSync)->clut, sizeof sStateClut);
+}
+static void gs_state_after_load(void) {
+    int k;
+    memcpy(sSync.clut, sStateClut, sizeof sStateClut);
+    sSync.palKey.valid = 0;
+    for (k = 0; k < 16; k++) {
+        memcpy(sWorker[k].clut, sStateClut, sizeof sStateClut);
+        sWorker[k].palKey.valid = 0;
+    }
+    sEpoch.open = 0;
+}
+__attribute__((constructor(101))) static void gs_state(void) {
+    Port_StateAdd("gs.regs", &gs, sizeof gs, 0);
+    Port_StateAdd("gs.path", sPath, sizeof sPath, 0);
+    Port_StateAdd("gs.uploadGen", &sUploadGen, sizeof sUploadGen, 0);
+    Port_StateAdd("gs.clutVer", &sClutVer, sizeof sClutVer, 0);
+    Port_StateAdd("gs.clut", sStateClut, sizeof sStateClut, 0);
+    Port_StateAdd("gs.vram", sVram, sizeof sVram, 0);
+    Port_StateHooks(gs_state_busy, gs_state_before, gs_state_after_load);
 }

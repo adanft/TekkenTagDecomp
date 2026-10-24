@@ -37,6 +37,8 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <stddef.h>
+#include "plat_state.h"
 
 /* new host calls go through the GOT (port_host.h explains why the PLT must not grow) */
 #define PORT_NOPLT(f) __typeof__(f) f __attribute__((noplt))
@@ -732,11 +734,12 @@ static int do_getdir(int port, const char *name, int mode, int maxent, unsigned 
         if ((r = resolve(c, name, comp, &depth)) != MCR_OK) {
             return r;
         }
+        memset(&sList, 0, sizeof sList); /* (no stale bytes after the strings: the list is part of a state) */
         if (depth == 0) {
             snprintf(sList.pat, sizeof sList.pat, "*");
             host_path(c, comp, 0, sList.dir, sizeof sList.dir);
         } else {
-            memcpy(sList.pat, comp[depth - 1], MC_NAME);
+            snprintf(sList.pat, sizeof sList.pat, "%s", comp[depth - 1]);
             host_path(c, comp, depth - 1, sList.dir, sizeof sList.dir);
         }
         sList.next = 0;
@@ -849,8 +852,15 @@ static int run_request(void) {
     return MCR_DENIED;
 }
 
-static int start(int cmd, int a0, int a1, int a2, int a3, int a4, int a5) {
+/* The host side off the EE stack (Port_OffEe): the C library's frames hold addresses of this process. */
+static void mc_setup_off(void *p) {
+    (void)p;
     mc_setup();
+}
+static void run_request_off(void *p) { *(int *)p = run_request(); }
+
+static int start(int cmd, int a0, int a1, int a2, int a3, int a4, int a5) {
+    Port_OffEe(mc_setup_off, NULL);
     if (sReq.busy) {
         return -1;
     }
@@ -869,7 +879,7 @@ static int start(int cmd, int a0, int a1, int a2, int a3, int a4, int a5) {
 /* ---- libmc ---- */
 
 int sceMcInit(void) {
-    mc_setup();
+    Port_OffEe(mc_setup_off, NULL);
     return 0;
 }
 
@@ -882,7 +892,7 @@ int sceMcSync(int mode, int *cmd, int *result) {
         sReq.polls++;
         return 0;
     }
-    sReq.result = run_request();
+    Port_OffEe(run_request_off, &sReq.result);
     sReq.busy = 0;
     if (cmd != NULL) {
         *cmd = sReq.cmd;
@@ -1176,4 +1186,25 @@ __attribute__((constructor(103))) static void Port_McSelfTestEntry(void) {
     if (t != NULL && strcmp(t, "mc") == 0) {
         exit(mc_selftest() != 0);
     }
+}
+
+/* The state: the request in flight and what the game changed of each card (not the host paths, which come from
+   TTT_SAVES). An open file's data is host memory: no state is taken while the game has one open. The set-up comes
+   first, so that a later one does not undo a load. */
+static const char *mc_busy(void) {
+    int i;
+    for (i = 0; i < MC_FILES; i++) {
+        if (sFile[i].used) {
+            return "a memory card file is open";
+        }
+    }
+    return NULL;
+}
+static void mc_before(void) { mc_setup(); }
+__attribute__((constructor(101))) static void mc_state(void) {
+    Port_StateAdd("mc.req", &sReq, sizeof sReq, PS_HASH);
+    Port_StateAdd("mc.card0", &sCard[0].unformat, offsetof(Card, root) - offsetof(Card, unformat), PS_HASH);
+    Port_StateAdd("mc.card1", &sCard[1].unformat, offsetof(Card, root) - offsetof(Card, unformat), PS_HASH);
+    Port_StateAdd("mc.list", &sList, sizeof sList, 0);
+    Port_StateHooks(mc_busy, mc_before, NULL);
 }

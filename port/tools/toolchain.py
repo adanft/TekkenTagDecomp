@@ -24,9 +24,10 @@ GAME_CFLAGS = ["-m32", "-std=gnu89", "-O2", "-g", "-fno-strict-aliasing", "-ffp-
                "-fno-pic", "-fno-stack-protector", "-fno-builtin", "-msoft-float", "-mno-sse", "-mno-mmx",
                "-malign-double", "-fpermissive", "-Iinclude", "-Iport/include", "-include", "port_compat.h"]
 # The port's own C (port/src) that the game calls: 32-bit, and software float like the game code, or float arguments
-# and results would travel in other registers (x87 st0 against eax) between the two.
+# and results would travel in other registers (x87 st0 against eax) between the two. No stack protector: a state
+# (plat_state.c) keeps the port's frames on the EE stack, and a fresh process has another canary.
 PORT_CFLAGS = ["-m32", "-std=gnu99", "-O2", "-g", "-fno-pic", "-fno-strict-aliasing", "-ffp-contract=off", "-w",
-               "-fno-builtin", "-msoft-float", "-mno-sse", "-mno-mmx", "-malign-double", "-Iinclude", "-Iport/include",
+               "-fno-stack-protector", "-fno-builtin", "-msoft-float", "-mno-sse", "-mno-mmx", "-malign-double", "-Iinclude", "-Iport/include",
                "-Iport/src"]
 
 # The port's hot paths (the VU interpreter, the GS rasteriser) at -O3: integer code, the same results (T30).

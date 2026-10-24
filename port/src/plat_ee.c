@@ -4,6 +4,7 @@
  */
 #include <stdint.h>
 #include <string.h>
+#include "plat_state.h"
 
 /* COP0 Status bit 16 (EIE): interrupts enabled. di / ei only change it; the game spins until a read shows it clear. */
 static uint32_t sStatus = 0x10000;
@@ -29,4 +30,9 @@ void Port_Vu0LoadVf(int first, const void *src, int n) {
     if (first > 0 && first + n <= 32) {
         memcpy(gPortVu0Vf[first], src, (size_t)n * 16);
     }
+}
+
+__attribute__((constructor(101))) static void ee_state(void) {
+    Port_StateAdd("ee.status", &sStatus, sizeof sStatus, PS_HASH);
+    Port_StateAdd("vu0.vf", gPortVu0Vf, sizeof gPortVu0Vf, PS_HASH);
 }

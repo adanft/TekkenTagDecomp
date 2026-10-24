@@ -26,9 +26,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "plat_state.h"
 
 void Port_Hit(const char *name);                            /* plat_stub.c */
 int Port_Headless(void);                                    /* plat_hw.c */
+uint32_t Port_VBlankCount(void);                            /* plat_hw.c */
 int Port_WindowOpen(void);                                  /* plat_window.c */
 void Port_WindowPads(uint16_t buttons[2], uint8_t analog[2][4]); /* plat_window.c */
 
@@ -195,7 +197,7 @@ void Port_PadVBlank(uint32_t n) {
     if ((sNow.buttons[0] | sNow.buttons[1]) != 0) {
         sPressedVBlanks++;
     }
-    if (sRecord != NULL) {
+    if (sRecord != NULL && !gPortResim) {
         record();
     }
 }
@@ -341,4 +343,20 @@ void Port_PadSelfTest(void) {
     expect(scePadGetState(1, 0) == 0 && scePadRead(1, 0, r) == 0, "TTT_PADS=1: port 1 empty");
     printf(sFails ? "ttt: pad self-test FAILED (%d)\n" : "ttt: pad self-test OK\n", sFails);
     exit(sFails != 0);
+}
+
+/* The state: the pads as latched at the last VBlank (the replay's position follows the VBlank count). The set-up comes
+   first, so that a later one does not undo a load. */
+static void pad_before(void) { pads(); }
+static void pad_after_load(void) {
+    uint32_t n = Port_VBlankCount();
+    sPlayNext = 0;
+    while (sPlayNext < sPlayCount && sPlay[sPlayNext].vblank <= n) {
+        sPlayNext++;
+    }
+}
+__attribute__((constructor(101))) static void pad_state(void) {
+    Port_StateAdd("pad.now", &sNow, sizeof sNow, PS_HASH);
+    Port_StateAdd("pad.pressedVBlanks", &sPressedVBlanks, sizeof sPressedVBlanks, 0);
+    Port_StateHooks(NULL, pad_before, pad_after_load);
 }

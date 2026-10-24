@@ -699,6 +699,9 @@ void Light_StartFlash(f32 *pos, u8 *rgb) {
     c[0] = rgb[0];
     c[1] = rgb[1];
     c[2] = rgb[2];
+#ifdef PORT
+    c[3] = 0; /* (the original copies a stale stack word: host-dependent here, docs/port/determinism.md) */
+#endif
     for (i = 0; i < 2; i++) {
         CopyV4((f32 *)&D_01FC4210.slot[i].flash, c);
     }

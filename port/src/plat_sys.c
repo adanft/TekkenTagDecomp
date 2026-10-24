@@ -18,6 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "port_addr.h"
+#include "plat_state.h"
 
 /* ---- kernel: cache, threads, semaphores ---- */
 int FlushCache(int mode) { (void)mode; return 0; }
@@ -204,10 +205,17 @@ int Port_SifCall(uint32_t id, int fn, void *send, int ssize, void *recv, int rsi
 }
 
 int sceSifBindRpc(void *client, uint32_t id, int mode) { (void)mode; return Port_SifBind(client, id); }
+typedef struct { uint32_t id; int fn; void *send; int ssize; void *recv; int rsize; } RpcCall;
+static void rpc_off(void *p) {
+    RpcCall *c = p;
+    Port_SifCall(c->id, c->fn, c->send, c->ssize, c->recv, c->rsize);
+}
+/* (off the EE stack, as sceSdRemote: the servers read the disc through the C library) */
 int sceSifCallRpc(void *client, int fn, int mode, void *send, int ssize, void *recv, int rsize, void *end,
                   void *endArg) {
+    RpcCall c = { *(uint32_t *)((uint8_t *)client + 0x08), fn, send, ssize, recv, rsize };
     (void)mode; (void)end; (void)endArg;
-    Port_SifCall(*(uint32_t *)((uint8_t *)client + 0x08), fn, send, ssize, recv, rsize);
+    Port_OffEe(rpc_off, &c);
     return 0;
 }
 int sceSifCheckStatRpc(void *client) { (void)client; return 0; } /* never busy */
@@ -257,4 +265,13 @@ void Port_RpcSelfTest(void) {
         printf("ttt: rpc self-test OK\n");
     }
     exit(sFails != 0);
+}
+
+/* The kernel's tables (the thread parameters and SIF handler data are game addresses, the handlers game functions). */
+__attribute__((constructor(101))) static void sys_state(void) {
+    Port_StateAdd("sys.threads", sThreads, sizeof sThreads, PS_HASH);
+    Port_StateAdd("sys.semas", sSemas, sizeof sSemas, PS_HASH);
+    Port_StateAdd("sys.modules", &sModules, sizeof sModules, PS_HASH);
+    Port_StateAdd("sys.sifCmd", sSifCmd, sizeof sSifCmd, PS_HASH);
+    Port_StateAdd("sys.sifCmdId", &sSifCmdId, sizeof sSifCmdId, PS_HASH);
 }

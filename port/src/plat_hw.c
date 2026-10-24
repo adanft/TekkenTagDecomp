@@ -35,6 +35,7 @@
 #include <time.h>
 #include "port_addr.h"
 #include "gs.h"
+#include "plat_state.h"
 
 #define REG(a) (*(volatile uint32_t *)Port_Ptr(a))
 
@@ -380,12 +381,24 @@ static int dma_run(int ch) {
     return 1;
 }
 
+/* dma_run off the EE stack (Port_OffEe): the GS path it feeds may wait for the GS threads, as long as they take. */
+typedef struct { int ch, r; } DmaRun;
+static void dma_run_off(void *p) {
+    DmaRun *d = p;
+    d->r = dma_run(d->ch);
+}
+static int dma_run_ee(int ch) {
+    DmaRun d = { ch, 0 };
+    Port_OffEe(dma_run_off, &d);
+    return d.r;
+}
+
 static void dma_poll(void) {
     int ch, again = 1, rounds = 0;
     while (again && rounds++ < 64) { /* a handler may start the next transfer, a fill may unblock a drain */
         again = 0;
         for (ch = 0; ch < 10; ch++) {
-            if ((REG(kDmaBase[ch] + CHCR) & 0x100u) && dma_run(ch)) {
+            if ((REG(kDmaBase[ch] + CHCR) & 0x100u) && dma_run_ee(ch)) {
                 again = 1;
             }
         }
@@ -399,7 +412,7 @@ static void dma_poll(void) {
 void Port_GifSync(void) {
     if (!sInPoll && (REG(kDmaBase[2] + CHCR) & 0x100u)) {
         sInPoll = 1;
-        dma_run(2);
+        dma_run_ee(2);
         sInPoll = 0;
     }
 }
@@ -452,18 +465,33 @@ static void vblank(void) {
     }
 }
 
-/* Advances the clock to `to` (bus cycles), raising every VBlank on the way. */
+static void vblank_off(void *p) {
+    (void)p;
+    vblank();
+}
+
+/* Advances the clock to `to` (bus cycles), raising every VBlank on the way (the VBlank's port work off the EE stack:
+   the GS picture may wait for the GS threads). */
 static void advance(uint64_t to) {
     while (vblank_cycle(sVBlanks + 1) <= to) {
         sCycles = vblank_cycle(sVBlanks + 1);
         timers();
-        vblank();
+        Port_OffEe(vblank_off, NULL);
         Port_HwDeliver();
     }
     if (to > sCycles) {
         sCycles = to;
     }
     timers();
+}
+
+/* The state's VBlank boundary (plat_state.c): the first top-level poll after a VBlank, outside interrupt handlers. */
+static uint32_t sStateVb;
+static void state_boundary(void) {
+    if (!sInHandler && ((uint32_t)sVBlanks != sStateVb || gPortStateWant)) {
+        sStateVb = (uint32_t)sVBlanks;
+        Port_StateBoundary();
+    }
 }
 
 void Port_HwPoll(void) {
@@ -498,6 +526,7 @@ void Port_HwPoll(void) {
     dma_poll();
     Port_HwDeliver();
     sInPoll = 0;
+    state_boundary();
 }
 
 /* Waits for the next VBLANK_START (sceGsSyncV); returns the field now shown (0 even, 1 odd). */
@@ -515,6 +544,7 @@ int Port_WaitVBlank(void) {
             dma_poll();
             Port_HwDeliver();
             sInPoll = 0;
+            state_boundary();
         } else {
             Port_HwPoll();
         }
@@ -550,12 +580,6 @@ static void track_mode(void) {
 }
 
 extern int32_t gRngSpin; /* src/rng_misc.c */
-static uint32_t fnv(const uint8_t *p, uint32_t n, uint32_t h) {
-    while (n--) {
-        h = (h ^ *p++) * 16777619u;
-    }
-    return h;
-}
 
 void Port_StubReport(void); /* plat_stub.c: library functions still answered by placeholders */
 
@@ -588,13 +612,16 @@ static void peek_report(void) {
     }
 }
 
+void Port_StateReport(void); /* plat_state.c */
+
 static void report_and_exit(void) {
-    uint32_t h = fnv((const uint8_t *)Port_Ptr(0x005F6B00u), 0x1000, 2166136261u);
     printf("ttt: %s: %u vblanks, %u frames\n", sHeadless ? "headless" : "real time", (unsigned)sVBlanks, (unsigned)gFrameCount);
     printf("ttt: modes: %s\n", sModes);
     printf("ttt: last mode %d sub %d\n", gMode, gSubMode);
-    printf("ttt: state: seed 0x%x spin 0x%08x sbss-hash 0x%08x cycles %llu\n", (unsigned)sSeed,
-           (unsigned)gRngSpin, h, (unsigned long long)sCycles);
+    Gs_Finish();
+    printf("ttt: state: seed 0x%x spin 0x%08x hash 0x%016llx cycles %llu\n", (unsigned)sSeed, (unsigned)gRngSpin,
+           (unsigned long long)Port_StateHash(), (unsigned long long)sCycles);
+    Port_StateReport();
     Gs_Report();
     if (sTimeT0 != 0) {
         uint64_t ms = (host_ns() - sTimeT0) / 1000000;
@@ -606,6 +633,34 @@ static void report_and_exit(void) {
     peek_report();
     fflush(stdout);
     exit(0);
+}
+
+/* ---- the state (plat_state.c) ---- */
+static void hw_after_load(void) {
+    if (!Port_Headless()) { /* the real-time clock goes on from the loaded cycle count */
+        sHostStart = host_ns() - sCycles * 1000ull / (BUSCLK / 1000000ull);
+    }
+}
+
+__attribute__((constructor(101))) static void hw_state(void) {
+    Port_StateAdd("hw.cycles", &sCycles, sizeof sCycles, PS_HASH);
+    Port_StateAdd("hw.vblanks", &sVBlanks, sizeof sVBlanks, PS_HASH);
+    Port_StateAdd("hw.timerFrac", sTimerFrac, sizeof sTimerFrac, PS_HASH);
+    Port_StateAdd("hw.timerLast", sTimerLast, sizeof sTimerLast, PS_HASH);
+    Port_StateAdd("hw.intc", sIntc, sizeof sIntc, PS_HASH);
+    Port_StateAdd("hw.dmac", sDmac, sizeof sDmac, PS_HASH);
+    Port_StateAdd("hw.intcMask", &sIntcMask, sizeof sIntcMask, PS_HASH);
+    Port_StateAdd("hw.dmacMask", &sDmacMask, sizeof sDmacMask, PS_HASH);
+    Port_StateAdd("hw.intcPend", &sIntcPend, sizeof sIntcPend, PS_HASH);
+    Port_StateAdd("hw.dmacPend", &sDmacPend, sizeof sDmacPend, PS_HASH);
+    /* the report's (the same report after a load as without one) and the boundary's own VBlank */
+    Port_StateAdd("hw.stateVb", &sStateVb, sizeof sStateVb, 0);
+    Port_StateAdd("hw.seed", &sSeed, sizeof sSeed, 0);
+    Port_StateAdd("hw.dmaKicks", gPortDmaKicks, sizeof gPortDmaKicks, 0);
+    Port_StateAdd("hw.dmaQwords", gPortDmaQwords, sizeof gPortDmaQwords, 0);
+    Port_StateAdd("hw.lastMode", &sLastMode, sizeof sLastMode, 0);
+    Port_StateAdd("hw.modes", sModes, sizeof sModes, 0);
+    Port_StateHooks(NULL, NULL, hw_after_load);
 }
 
 /* ---- self-test (TTT_SELFTEST=hw) ---- */
@@ -858,6 +913,11 @@ __attribute__((constructor(102))) static void Port_HwSelfTestEntry(void) {
     if (t != NULL && strcmp(t, "gl") == 0) {
         int Gl_SelfTest(void); /* gs_gl.c */
         exit(Gl_SelfTest() != 0);
+    }
+    if (t != NULL && strcmp(t, "state") == 0) {
+        void Port_StateSelfTest(void); /* plat_state.c */
+        sHeadless = 1;
+        Port_StateSelfTest();
     }
     if (t != NULL && strcmp(t, "spu") == 0) {
         int Spu2_SelfTest(void); /* spu2.c */

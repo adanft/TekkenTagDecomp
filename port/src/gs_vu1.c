@@ -14,6 +14,7 @@
  * against the VU's rules: pairing, branches and their delay slots, the E bit, Q / P latency, the MAC and clipping
  * flags' delay, integer and EFU instructions, XTOP / XITOP with the double buffer, XGKICK.
  */
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,6 +23,7 @@
 #include "port_addr.h"
 #include "gs.h"
 #include "vu_micro.h"
+#include "plat_state.h"
 
 #define VU1_DATA ((uint8_t *)Port_Ptr(0x1100C000u))
 #define VU1_MICRO ((uint8_t *)Port_Ptr(0x11008000u))
@@ -29,8 +31,8 @@
 static uint32_t sVf[32][4] __attribute__((aligned(16)));
 static uint16_t sVi[16];
 static uint32_t sAcc[4], sQ;
-static VuCore sVu;
 static VuOp sOps[0x800]; /* the predecoded program cache (vu_fast.c) */
+static VuCore sVu = { .ops = sOps }; /* (ops is not part of a state: set here for a process that starts from one) */
 static uint32_t sRuns, sKicks, sEndless;
 static uint32_t sEntry[0x800], sLastEntry; /* runs per entry address (MSCNT counts for the program it continues) */
 
@@ -464,4 +466,14 @@ int Port_Vu1SelfTest(void) {
     memset(VU1_MICRO, 0, 0x4000);
     sFails += Vu_FastSelfTest();
     return sFails;
+}
+
+/* VU1's registers and pipeline (the unit's pointers name this file's variables and VU memory: the same in every process
+   of the build). Not the predecoded program (ops, opsInit): each slot is checked against micro memory when it runs. */
+__attribute__((constructor(101))) static void vu1_state(void) {
+    Port_StateAdd("vu1.vf", sVf, sizeof sVf, 0);
+    Port_StateAdd("vu1.vi", sVi, sizeof sVi, 0);
+    Port_StateAdd("vu1.acc", sAcc, sizeof sAcc, 0);
+    Port_StateAdd("vu1.q", &sQ, sizeof sQ, 0);
+    Port_StateAdd("vu1.core", &sVu, (uint32_t)offsetof(VuCore, ops), 0);
 }

@@ -117,7 +117,10 @@ def stub_source(names):
 
 def link(objs, extra):
     # --wrap=main: plat_main.c runs the game's main on a stack in EE RAM, as on the PS2.
-    cmd = (["gcc", "-m32", "-no-pie", "-w", "-Wl,--wrap=main", "-o", str(EXE)] + extra + objs + LIBS +
+    # -z now and --wrap=printf / sprintf / memcpy / memset: nothing of the C library (lazy binding, its internal calls)
+    # runs on the EE stack, whose stale words a state holds and the game reads in places (port/src/plat_libc.c, T27).
+    cmd = (["gcc", "-m32", "-no-pie", "-w", "-Wl,--wrap=main", "-Wl,-z,now"] +
+           [f"-Wl,--wrap={f}" for f in ("printf", "sprintf", "memcpy", "memset")] + ["-o", str(EXE)] + extra + objs + LIBS +
            [f"-Wl,-Map={EXE}.map"])
     return subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
 
