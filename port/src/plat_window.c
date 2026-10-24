@@ -563,11 +563,19 @@ static int64_t now_ns(void) {
 }
 
 /* ---- the live settings (window thread) ---- */
-static int sApplied[3] = {-1, -1, -1}; /* vsync, scale, fullscreen as last applied */
+static int sApplied[4] = {-1, -1, -1, -1}; /* vsync, scale, fullscreen, widescreen margin as last applied */
+
+/* The window's width for a scale: 640 x 448 pictures, widened by the GL back end's widescreen margins (T37,
+   video.aspect; the software renderer shows 4:3 only). */
+static int win_margin(int gl) {
+    char a[16];
+    Settings_GetStr("video.aspect", a, sizeof a);
+    return gl ? Gl_AspectMargin(a) : 0;
+}
 
 void Port_WindowApply(void) {
     int vsync = Settings_GetInt("video.vsync"), scale = Settings_GetInt("video.scale");
-    int fs = Settings_GetInt("video.fullscreen");
+    int fs = Settings_GetInt("video.fullscreen"), marg = win_margin(sGlMode);
     pthread_mutex_lock(&sPadLock);
     sInputBlocked = Overlay_Open();
     pthread_mutex_unlock(&sPadLock);
@@ -586,12 +594,13 @@ void Port_WindowApply(void) {
     if (sHaveOverlayFuncs && fs != sApplied[2]) {
         sdl.SetWindowFullscreen(sWindow, fs != 0);
     }
-    if (sHaveOverlayFuncs && scale != sApplied[1] && sApplied[1] >= 0 && !fs) {
-        sdl.SetWindowSize(sWindow, 640 * scale, 448 * scale);
+    if (sHaveOverlayFuncs && (scale != sApplied[1] || marg != sApplied[3]) && sApplied[1] >= 0 && !fs) {
+        sdl.SetWindowSize(sWindow, (640 + 2 * marg) * scale, 448 * scale);
     }
     sApplied[0] = vsync;
     sApplied[1] = scale;
     sApplied[2] = fs;
+    sApplied[3] = marg;
 }
 
 void Port_WindowGetBindings(uint16_t b[2][14]) {
@@ -663,7 +672,7 @@ static int gl_open(uint64_t flags, int vsync, int scale) {
     sdl.GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
     sdl.GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
     sdl.GL_SetAttribute(SDL_GL_DEPTH_SIZE, 0);
-    sWindow = sdl.CreateWindow("Tekken Tag Tournament", 640 * scale, 448 * scale, flags | SDL_WINDOW_OPENGL);
+    sWindow = sdl.CreateWindow("Tekken Tag Tournament", (640 + 2 * win_margin(1)) * scale, 448 * scale, flags | SDL_WINDOW_OPENGL);
     if (sWindow == NULL) {
         printf("ttt: window: no OpenGL window (%s): software renderer\n", sdl.GetError());
         return 0;

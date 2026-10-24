@@ -58,7 +58,7 @@ typedef struct Cmd {
         struct { uint64_t bitbltbuf; uint32_t tx, ty, tw, th, tpos, bytes; uint8_t *data; } upload;
         struct { uint64_t bitbltbuf, trxpos; uint32_t tx, ty, tw, th; } copy;
         struct { uint64_t t0, texclut; } clut;
-        struct { DispRegs regs; uint32_t vblank; uint8_t *rgb; uint8_t window; } show; /* window: the GL back end's window picture */ /* rgb: the window's picture, else the dump */
+        struct { DispRegs regs; uint32_t vblank; uint8_t *rgb; uint8_t window; uint64_t ns; } show; /* window: the GL back end's window picture */ /* rgb: the window's picture, else the dump */ /* ns: when the GL window picture was queued (host, monotonic) */
     } u;
 } Cmd;
 
@@ -101,6 +101,7 @@ int Gs_ThreadsWanted(void);
 /* ---- gs_gl.c ---- */
 int Gl_Init(void *(*getproc)(const char *name), char *why, int whylen); /* on the thread with the GL context */
 int Gl_Redisplay(void); /* the last window picture again, presented (window thread; 0: none yet) */
+int Gl_AspectMargin(const char *aspect); /* video.aspect ("4:3", "16:9", "21:9"): GS pixels added each side of 640 x 448 */
 void Gl_Exec(const Cmd *c);                                     /* one command, in order */
 void Gl_Report(void);
 int Gl_SelfTest(void);                                         /* TTT_SELFTEST=gl: fails */

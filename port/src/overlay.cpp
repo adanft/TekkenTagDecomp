@@ -453,6 +453,30 @@ static void page_video(void) {
     slider("Window scale", "video.scale", 1, 6, "%dx (640x448 each)");
     check("Fullscreen", "video.fullscreen");
     check("Frame-time meter", "video.fps_meter");
+    /* T37: the GL back end's options (gs_gl.c reads them at each picture; docs/port/video.md) */
+    ImGui::SeparatorText("OpenGL");
+    ImGui::BeginDisabled(!gl);
+    slider("Internal resolution", "video.resolution", 1, 8, "%dx");
+    {
+        static const char *const kAspect[3] = {"4:3", "16:9", "21:9"};
+        char a[16];
+        Settings_GetStr("video.aspect", a, sizeof a);
+        ImGui::BeginDisabled(Settings_FromEnv("video.aspect") != 0);
+        ImGui::TextUnformatted("Aspect");
+        for (int i = 0; i < 3; i++) {
+            ImGui::SameLine();
+            if (ImGui::RadioButton(kAspect[i], strcmp(a, kAspect[i]) == 0 || (i == 0 && strcmp(a, "16:9") != 0 && strcmp(a, "21:9") != 0))) {
+                Settings_SetStr("video.aspect", kAspect[i]);
+                Port_WindowApply();
+            }
+        }
+        ImGui::EndDisabled();
+        setting_note("video.aspect");
+    }
+    check("Game's flicker filter (half height, blurred)", "video.deflicker");
+    check("Smooth scaling to the window", "video.smooth");
+    check("Low input lag", "video.low_latency");
+    ImGui::EndDisabled();
 }
 
 static void page_audio(void) {

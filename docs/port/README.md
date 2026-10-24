@@ -350,6 +350,7 @@ Switches:
 | `TTT_CONFIG=<file>` | The settings file (default `$XDG_CONFIG_HOME/ttt/settings.ini` or `~/.config/ttt/settings.ini`). Its values are the defaults of the variables of [settings.md](settings.md) (`TTT_RENDERER`, `TTT_VSYNC`, `TTT_MOVIES`, `TTT_SCALE`, `TTT_VOLUME`...); a variable set in the environment wins. `TTT_SELFTEST=settings` checks the file's round trip. |
 | `TTT_NO_QUIT_CONFIRM=1` | Close / Escape quit at once instead of asking "Quit?". |
 | `TTT_OVERLAY_TEST=1` | Tests: the overlay driven from inside a window run ([settings.md](settings.md)). |
+| `TTT_RESOLUTION=1..8`, `TTT_ASPECT=4:3 / 16:9 / 21:9`, `TTT_DEFLICKER=0`, `TTT_SMOOTH=0`, `TTT_LOW_LATENCY=1` | The GL back end's video options (T37, [video.md](video.md)): internal resolution, widescreen, the game's flicker filter off, nearest scaling into the window, low input lag. Presentation only (the state is the same). |
 | `TTT_RENDERER=gl / sw` | In a window: the GS draws on the GPU (`gl`, default; falls back to `sw` when no OpenGL 3.3 core context can be made) or with the software rasteriser (`sw`). Headless runs and dumps without a window are always `sw`. |
 | `TTT_WINDOW_HIDDEN=1` | The window stays hidden (tests, measurements; with `SDL_VIDEO_DRIVER=offscreen` no display is needed). |
 | `TTT_GS_ASYNC=0 / 1 / 2` | The GS threads ([Speed](#speed)): 1 one GS thread, 2 two (VIF1 / VU1, then the GIF / GS front end). Default 2 with GL, 1 with raster threads, 0 for traces and self-tests. The same results in every mode (`tests/test_port_gl.py`). |
@@ -612,6 +613,12 @@ throttles the whole slice when hot, so wall times move by 10-20% between runs; C
   channel, under 0.05% of the pixels more than 24 levels off (edges, the title's lightning glow); the game's state is
   the same. Not modelled (counted in the `ttt: gl:` report line, all 0 on that path): DATE, C = Ad on a 32 / 16-bit
   frame, partial FBMSK bytes, COLCLAMP 0, PABE with a subtracting equation.
+- **Video options (T37, [video.md](video.md)).** Internal resolution 1x-8x (GS memory stays 1x: resolves read each
+  pixel's first sample; textures that are colour targets in the same format sample a full-resolution snapshot),
+  widescreen 16:9 / 21:9 (margins on 640-wide targets: the 3D scene the VU1 programs already clip at the guard band,
+  the HUD in the 4:3 middle), the game's flicker filter off (its 448-line frame shown instead of the 224-line copy),
+  smooth / nearest scaling, low input lag (present at the game's copy, `glFinish`); one present per picture (T36
+  presented twice).
 - **No host float:** the file is integer only (as the rest of `port/src`); floats exist only in the shaders on the
   GPU, and nothing the game reads comes from it (`test_no_host_float_code` needs no exception for it).
 

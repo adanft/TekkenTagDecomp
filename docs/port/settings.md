@@ -14,6 +14,7 @@ configuration). Tests: `tests/test_port_settings.py`, `tests/test_port_window.py
 |---|---|---|
 | Video | Renderer (OpenGL / software) | next start |
 | | V-sync, window scale (1x-6x of 640x448), fullscreen, frame-time meter (FPS, mean and worst frame time of the window) | at once |
+| | OpenGL only (T37, [video.md](video.md)): internal resolution 1x-8x, aspect 4:3 / 16:9 / 21:9, the game's flicker filter, smooth scaling, low input lag | at once |
 | Audio | Volume 0-100, mute (what the window plays; the game's own mix is unchanged) | at once |
 | Controls | The keyboard's keys for pads 1 and 2: click a key, press the new one (Escape cancels; F1 and Escape cannot be bound; a key presses one button only, so the button that had it gets the old key). "Default keys". The gamepads on pads 1 and 2 (read only) | at once |
 | Game | Movies on / off | next start |
@@ -71,6 +72,11 @@ know are kept as they are, in place; a changed key's line is replaced, a new key
 | `video.scale` | 1-6 (window 640x448 times it) | 2 | `TTT_SCALE` |
 | `video.fullscreen` | 0 / 1 | 0 | `TTT_FULLSCREEN` |
 | `video.fps_meter` | 0 / 1 | 0 | `TTT_FPS_METER` |
+| `video.resolution` | 1-8 (OpenGL: GS pixels drawn N x N) | 1 | `TTT_RESOLUTION` |
+| `video.aspect` | `4:3` / `16:9` / `21:9` (OpenGL; other text: 4:3) | `4:3` | `TTT_ASPECT` |
+| `video.deflicker` | 0 / 1 (the game's flicker filter) | 1 | `TTT_DEFLICKER` |
+| `video.smooth` | 0 / 1 (bilinear scaling into the window) | 1 | `TTT_SMOOTH` |
+| `video.low_latency` | 0 / 1 | 0 | `TTT_LOW_LATENCY` |
 | `audio.volume` | 0-100 | 100 | `TTT_VOLUME` |
 | `audio.mute` | 0 / 1 | 0 | `TTT_MUTE` |
 | `game.movies` | 0 / 1 | 1 | `TTT_MOVIES` |
@@ -105,7 +111,7 @@ GL context / renderer and the window, then `_exit(0)`). `TTT_NO_QUIT_CONFIRM=1` 
 |---|---|
 | `TTT_CONFIG=<file>` | The settings file. |
 | `TTT_NO_QUIT_CONFIRM=1` | Close / Escape quit without asking. |
-| `TTT_SCALE`, `TTT_FULLSCREEN`, `TTT_FPS_METER`, `TTT_VOLUME`, `TTT_MUTE`, `TTT_PAUSE_IN_MENU` | The settings above, over the file. |
+| `TTT_SCALE`, `TTT_FULLSCREEN`, `TTT_FPS_METER`, `TTT_VOLUME`, `TTT_MUTE`, `TTT_PAUSE_IN_MENU`, `TTT_RESOLUTION`, `TTT_ASPECT`, `TTT_DEFLICKER`, `TTT_SMOOTH`, `TTT_LOW_LATENCY` | The settings above, over the file. |
 | `TTT_OVERLAY_TEST=1` | Tests: with a window, the overlay is driven from inside (made-up key events through the window's own handling at fixed frames: F1, a key pressed while open, Escape; every page drawn; a key bound through the capture path) and the report adds `ttt: overlay: ...` and `ttt: window: overlay test: ...`. Nothing is sent to the desktop. |
 | `TTT_SELFTEST=settings` | The file's round trip (comments, sections and unknown keys kept, no temporary file left), the environment's precedence, clamping, key names both ways, rebinding (swaps, F1 / Escape refused). Needs `TTT_CONFIG` (it writes that file). |
 
@@ -132,4 +138,4 @@ through the GOT: the program's PLT, and so every game function's address, is unc
   table); no text input (nothing needs it yet).
 - The software renderer's overlay switches SDL's logical presentation off while it draws; checked with SDL's dummy
   driver only (no picture comparison).
-- T37 adds the video options (internal resolution, widescreen, effects), T40 game speed and the cheats page.
+- T37's video options are in [video.md](video.md); T40 adds game speed and the cheats page.

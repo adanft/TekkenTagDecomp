@@ -2341,6 +2341,11 @@ static void window_frames(const DispRegs *regs) {
         c.u.show.vblank = 0;
         c.u.show.rgb = NULL;
         c.u.show.window = 1;
+        {
+            struct timespec t;
+            clock_gettime(CLOCK_MONOTONIC, &t);
+            c.u.show.ns = (uint64_t)t.tv_sec * 1000000000ull + (uint64_t)t.tv_nsec;
+        }
         submit(&c);
         return;
     }

@@ -37,6 +37,12 @@
  *   - The display: both read circuits merged as PMODE asks (gs_core.c's display_into, as a shader reading the
  *     mirror), into a picture of the display's size; the window shows it letterboxed, TTT_DUMP writes it as PNG.
  *
+ *   - Video options (T37, docs/port/video.md): targets at N x N GL pixels per GS pixel (GS memory stays 1x: a resolve
+ *     reads each pixel's first sample; a texture that is a colour target in the same format samples the target's
+ *     snapshot at full resolution), widescreen margins on 640-wide targets (the full-width draws go on into them, the
+ *     HUD's sprites stay 4:3), the game's flicker filter replaced by the frame it copies, low latency (a frame
+ *     presented when the game has copied it).
+ *
  * Not modelled here (counted, `ttt: gl:` line of the TTT_FRAMES report): the destination alpha test (DATE), C = Ad on
  * a 32 / 16-bit frame (taken as 0x80), partial FBMSK bytes, COLCLAMP 0 (wrap), PABE with a subtracting equation; 16-bit
  * frames keep more than 5 bits per channel and a blend result above 255 is only clamped when written back (the next
@@ -52,9 +58,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include "port_host.h"
 #include "gs.h"
 #include "gs_int.h"
+#include "plat_settings.h"
 
 /* ------------------------------------------------------------------------------------------------ GL */
 
@@ -215,7 +223,7 @@ static const struct {
 /* ------------------------------------------------------------------------------------------------ shaders */
 
 /* Texture units */
-enum { U_VRAM, U_TAB, U_INV, U_PAL, U_STATES, U_SRC, U_STAGE, U_CLUT };
+enum { U_VRAM, U_TAB, U_INV, U_PAL, U_STATES, U_SRC, U_STAGE, U_CLUT, U_SNAP, U_DSP0, U_DSP1 };
 
 /* GS memory in the shader: the mirror and the page tables (gs_core.c's sIn32 / sIn16 / sIn16S / sIn8 / sIn4 at rows
    0 / 32 / 96 / 160 / 224 of a 128-wide R16UI texture), gs_read() = gs_core.c's vram_loc + vloc_read. */
@@ -285,7 +293,9 @@ static const char kDrawVs[] =
     "layout(location = 4) in uint aFog;\n"
     "layout(location = 5) in uint aState;\n"
     "uniform usamplerBuffer uStates;\n"
-    "uniform ivec2 uSize;\n"
+    "uniform ivec2 uSize;\n"  /* the target in GS pixels, margins included */
+    "uniform int uScale;\n"   /* GL pixels per GS pixel (T37) */
+    "uniform int uMarg;\n"    /* the target's left margin in GS pixels (widescreen, T37) */
     "uniform int uZBits;\n"
     "uniform uint uZMax;\n"
     "noperspective out vec4 vCol;\n"
@@ -301,12 +311,14 @@ static const char kDrawVs[] =
     "}\n"
     "void main() {\n"
     "    uint fl = texelFetch(uStates, int(aState) * 3).x;\n"
-    "    vec2 p = (vec2(aXY) + 8.0) * 0.0625;\n" /* the GS's pixel (x, y) at the centre of GL's pixel (x, y) */
+    /* the GS's pixel (x, y) at the centre of GL's pixel (x, y); scaled, at the centre of the first of its S x S pixels,
+       so that the others sample inside it (a UV sprite never reaches the texel before its first: no seams) */
+    "    vec2 p = vec2(aXY) * 0.0625 + vec2(float(uMarg), 0.0) + 0.5 / float(uScale);\n"
     "    float z = uZBits > 0 ? float(min(aZ, uZMax)) * exp2(float(1 - uZBits)) - 1.0 : 0.0;\n"
     "    gl_Position = vec4(p * 2.0 / vec2(uSize) - 1.0, z, 1.0);\n"
     "    vCol = vec4(float(aCol & 255u), float((aCol >> 8) & 255u), float((aCol >> 16) & 255u), float(aCol >> 24));\n"
     "    vColF = aCol;\n"
-    "    vTex = (fl & 2u) != 0u ? vec3(float(aSTQ.x), float(aSTQ.y), 1.0) : vec3(ee_float(aSTQ.x), ee_float(aSTQ.y), ee_float(aSTQ.z));\n"
+    "    vTex = (fl & 2u) != 0u ? vec3(float(int(aSTQ.x)), float(int(aSTQ.y)), 1.0) : vec3(ee_float(aSTQ.x), ee_float(aSTQ.y), ee_float(aSTQ.z));\n"
     "    vFog = float(aFog);\n"
     "    vFogF = aFog;\n"
     "    vState = aState;\n"
@@ -315,6 +327,8 @@ static const char kDrawVs[] =
 static const char kDrawFs[] =
     "uniform usamplerBuffer uStates;\n"
     "uniform usampler2D uPal;\n"
+    "uniform sampler2D uSnap;\n" /* the snapshot of the target the texture is (scaled / widescreen, T37) */
+    "uniform int uScale;\n"
     "uniform int uPass;\n"
     "noperspective in vec4 vCol;\n"
     "flat in uint vColF;\n"
@@ -340,21 +354,40 @@ static const char kDrawFs[] =
     "    if (bits <= 8u) return texelFetch(uPal, ivec2(int(c), int((s0.z >> 8) & 0xFFFFu)), 0);\n"
     "    return expandc(c, bits, s1.y & 255u, (s1.y >> 8) & 255u, (s0.x & (1u << 19)) != 0u);\n"
     "}\n"
+    /* a texel of a target's snapshot at full resolution: (hu, hv) in its GL pixels, its margin in s2.y; the wrap mode
+       on the GS texel, the left margin unwrapped; stored as the GS would (16 bits: 5 per channel), then TEXA */
+    "int fdiv(int a, int b) { return a >= 0 ? a / b : -((b - 1 - a) / b); }\n"
+    "uvec4 snap_texel(int hu, int hv) {\n"
+    "    int S = uScale, m = int(s2.y), u = fdiv(hu, S), v = fdiv(hv, S), su = hu - u * S, sv = hv - v * S;\n"
+    "    uint tpsm = (s0.y >> 20) & 63u, bits = psm_bits(tpsm), lw = (s0.y >> 26) & 15u, lh = s0.z & 15u;\n"
+    "    int tw = 1 << min(lw, 10u), th = 1 << min(lh, 10u);\n"
+    "    if (u >= 0 || u < -m) u = wrapc(u, (s0.z >> 4) & 3u, tw, int(s0.w & 1023u), int((s0.w >> 10) & 1023u));\n"
+    "    v = wrapc(v, (s0.z >> 6) & 3u, th, int(s1.x & 1023u), int((s1.x >> 10) & 1023u));\n"
+    "    ivec2 ts = textureSize(uSnap, 0);\n"
+    "    vec4 f = texelFetch(uSnap, clamp(ivec2((u + m) * S + su, v * S + sv), ivec2(0), ts - 1), 0);\n"
+    "    uvec4 b = uvec4(clamp(f, 0.0, 1.0) * 255.0 + 0.5);\n"
+    "    uint ta0 = s1.y & 255u, ta1 = (s1.y >> 8) & 255u;\n"
+    "    bool aem = (s0.x & (1u << 19)) != 0u;\n"
+    "    if (bits == 16u) return expandc((b.r >> 3) | ((b.g >> 3) << 5) | ((b.b >> 3) << 10) | (b.a >= 128u ? 0x8000u : 0u), 16u, ta0, ta1, aem);\n"
+    "    return expandc(b.r | (b.g << 8) | (b.b << 16) | (b.a << 24), bits, ta0, ta1, aem);\n"
+    "}\n"
+    "uvec4 tap(bool snap, int u, int v) { return snap ? snap_texel(u, v) : texel(u, v); }\n"
     "uvec4 sample_tex(int u16, int v16, float q) {\n"
     "    uint fl = s0.x, filter = (fl >> 7) & 3u;\n"
-    "    bool linear = filter == 1u;\n"
+    "    bool linear = filter == 1u, snap = (fl & 0x80000000u) != 0u;\n"
     "    if (filter == 2u) {\n"
     "        int lodk = int(s0.w >> 20); if (lodk >= 2048) lodk -= 4096;\n"
     "        int lod = (fl & (1u << 14)) != 0u ? lodk : (int(floor(-log2(max(abs(q), 1e-30)) * 16.0)) << ((fl >> 15) & 3u)) + lodk;\n"
     "        linear = lod <= 0 ? (fl & (1u << 17)) != 0u : (fl & (1u << 18)) != 0u;\n"
     "    }\n"
-    "    if (!linear) return texel(u16 >> 4, v16 >> 4);\n"
+    "    if (snap) { u16 = clamp(u16, -(1 << 24), 1 << 24) * uScale; v16 = clamp(v16, -(1 << 24), 1 << 24) * uScale; }\n" /* 1/16 of its GL pixels */
+    "    if (!linear) return tap(snap, u16 >> 4, v16 >> 4);\n"
     "    u16 -= 8; v16 -= 8;\n"
     "    int u0 = u16 >> 4, v0 = v16 >> 4;\n"
     "    uint fu = uint(u16 & 15), fv = uint(v16 & 15);\n"
-    "    uvec4 c00 = texel(u0, v0);\n"
+    "    uvec4 c00 = tap(snap, u0, v0);\n"
     "    if (fu == 0u && fv == 0u) return c00;\n"
-    "    uvec4 c10 = texel(u0 + 1, v0), c01 = texel(u0, v0 + 1), c11 = texel(u0 + 1, v0 + 1);\n"
+    "    uvec4 c10 = tap(snap, u0 + 1, v0), c01 = tap(snap, u0, v0 + 1), c11 = tap(snap, u0 + 1, v0 + 1);\n"
     "    return (c00 * ((16u - fu) * (16u - fv)) + c10 * (fu * (16u - fv)) + c01 * ((16u - fu) * fv) + c11 * (fu * fv)) >> 8;\n"
     "}\n"
     "int stq(float s, float q, uint lsize) {\n"
@@ -365,7 +398,7 @@ static const char kDrawFs[] =
     "    int st = int(vState) * 3;\n"
     "    s0 = texelFetch(uStates, st); s1 = texelFetch(uStates, st + 1); s2 = texelFetch(uStates, st + 2);\n"
     "    uint fl = s0.x;\n"
-    "    ivec2 pix = ivec2(gl_FragCoord.xy);\n"
+    "    ivec2 pix = ivec2(gl_FragCoord.xy) / uScale;\n" /* the GS pixel, margin included (so is the scissor) */
     "    if (pix.x < int(s1.z & 0xFFFFu) || pix.x > int(s1.z >> 16) || pix.y < int(s1.w & 0xFFFFu) || pix.y > int(s1.w >> 16)) discard;\n"
     "    bool gouraud = (fl & 32u) != 0u;\n"
     "    uvec4 c = gouraud ? uvec4(clamp(vCol, 0.0, 255.0)) : unpack32(vColF);\n"
@@ -422,9 +455,11 @@ static const char kResolveFs[] =
     "uniform sampler2D uSrc;\n"
     "uniform usampler2D uInv;\n"
     "uniform uvec4 uBuf;\n" /* bp (blocks, page aligned), bw, psm, 1 = depth */
+    "uniform ivec2 uSM;\n"  /* the target's scale and margin: a GS pixel is its first GL pixel (as the GS samples it) */
     "out uvec4 oWord;\n"
     "uint inv(uint row, uint e) { return texelFetch(uInv, ivec2(int(e & 63u), int(row + (e >> 6))), 0).r; }\n"
     "uint px32(ivec2 p, uint psm) {\n"
+    "    p = (p + ivec2(uSM.y, 0)) * uSM.x;\n"
     "    if (uBuf.w != 0u) {\n"
     "        float d = texelFetch(uSrc, p, 0).r;\n"
     "        if (psm == 0x00u) return uint(min(d * 4294967296.0, 4294967295.0));\n"
@@ -454,9 +489,12 @@ static const char kResolveFs[] =
 /* Load: a target's pixels from GS memory (the mirror). */
 static const char kLoadFs[] =
     "uniform uvec4 uBuf;\n" /* bp, bw, psm, depth bits (0: colour) */
+    "uniform ivec2 uSM;\n"  /* scale, margin: the margins load black (depth 0) */
     "out vec4 oCol;\n"
     "void main() {\n"
-    "    uvec2 p = uvec2(gl_FragCoord.xy);\n"
+    "    ivec2 q = ivec2(gl_FragCoord.xy) / uSM.x - ivec2(uSM.y, 0);\n"
+    "    if (q.x < 0 || q.x >= int(max(uBuf.y, 1u)) * 64) { oCol = vec4(0.0); gl_FragDepth = 0.0; return; }\n"
+    "    uvec2 p = uvec2(q);\n"
     "    uint v = gs_read(uBuf.x, uBuf.y, uBuf.z, p.x, p.y), bits = psm_bits(uBuf.z);\n"
     "    if (uBuf.w != 0u) { gl_FragDepth = float(v) * exp2(-float(uBuf.w)); oCol = vec4(0.0); return; }\n"
     "    uvec4 c = bits == 16u ? uvec4((v & 31u) << 3, ((v >> 5) & 31u) << 3, ((v >> 10) & 31u) << 3, (v & 0x8000u) != 0u ? 128u : 0u)\n"
@@ -515,31 +553,47 @@ static const char kClutExpandFs[] =
     "    oCol = expandc(half_(e & 511u), 16u, uEx.w & 255u, (uEx.w >> 8) & 255u, ((uEx.w >> 16) & 1u) != 0u);\n"
     "}\n";
 
-/* The display: gs_core.c's display_into() on the mirror. */
+/* The display: gs_core.c's display_into() on the mirror, or (T37) on a target or a target's snapshot at full resolution.
+   The picture is (width + 2 margins) x lines GS pixels, uOut.x GL pixels each; the margins are black unless a circuit
+   reads a target whose margins were drawn (widescreen). */
 static const char kDisplayFs[] =
     "uniform uvec4 uCa[2];\n" /* per circuit: fbp, fbw, psm, dbx | dby << 16 */
     "uniform ivec4 uCb[2];\n" /* per circuit: x0, y0, width, lines */
     "uniform uvec4 uMode;\n"  /* PMODE, BGCOLOR, lines per buffer line, 0 */
-    "uniform ivec4 uMain;\n"  /* the main circuit's x0, y0 */
+    "uniform ivec4 uMain;\n"  /* the main circuit's x0, y0, width */
+    "uniform ivec4 uTex[2];\n" /* per circuit: 1 = from uDsp0 / uDsp1 (a target), its margin, margins drawn, lines per buffer line */
+    "uniform ivec2 uOut;\n"   /* scale, the picture's margin */
+    "uniform sampler2D uDsp0;\n"
+    "uniform sampler2D uDsp1;\n"
     "out vec4 oCol;\n"
-    "uvec4 cpix(int k, int x, int r, out bool inn) {\n"
-    "    inn = !(x < 0 || r < 0 || x >= uCb[k].z || r >= uCb[k].w);\n"
-    "    if (!inn) return uvec4(0u);\n"
-    "    uint v = gs_read(uCa[k].x, uCa[k].y, uCa[k].z, (uCa[k].w & 0xFFFFu) + uint(x), (uCa[k].w >> 16) + uint(r) / uMode.z);\n"
+    "uvec4 cpix(int k, int x, int r, ivec2 f, out bool inn) {\n"
+    "    int m = uTex[k].x != 0 && uTex[k].z != 0 ? uTex[k].y : 0;\n"
     "    uint bits = psm_bits(uCa[k].z);\n"
+    "    inn = !(x < -m || r < 0 || x >= uCb[k].z + m || r >= uCb[k].w);\n"
+    "    if (!inn) return uvec4(0u);\n"
+    "    if (uTex[k].x != 0) {\n"
+    "        ivec2 p = ivec2((int(uCa[k].w & 0xFFFFu) + x + uTex[k].y) * uOut.x + f.x,\n"
+    "                        int(uCa[k].w >> 16) * uOut.x + (r * uOut.x + f.y) / uTex[k].w);\n"
+    "        uvec4 b = uvec4(clamp(k == 0 ? texelFetch(uDsp0, p, 0) : texelFetch(uDsp1, p, 0), 0.0, 1.0) * 255.0 + 0.5);\n"
+    "        if (bits == 16u) return uvec4(b.rgb & 0xF8u, b.a >= 128u ? 128u : 0u);\n"
+    "        return bits == 24u ? uvec4(b.rgb, 128u) : b;\n"
+    "    }\n"
+    "    uint v = gs_read(uCa[k].x, uCa[k].y, uCa[k].z, (uCa[k].w & 0xFFFFu) + uint(x), (uCa[k].w >> 16) + uint(r) / uMode.z);\n"
     "    if (bits == 16u) return uvec4((v & 31u) << 3, ((v >> 5) & 31u) << 3, ((v >> 10) & 31u) << 3, (v & 0x8000u) != 0u ? 128u : 0u);\n"
     "    if (bits == 24u) return uvec4(unpack32(v).rgb, 128u);\n"
     "    return unpack32(v);\n"
     "}\n"
     "void main() {\n"
-    "    int x = int(gl_FragCoord.x), r = int(gl_FragCoord.y), ax = x + uMain.x, ar = r + uMain.y;\n"
+    "    int S = uOut.x, X = int(gl_FragCoord.x), Y = int(gl_FragCoord.y), r = Y / S, x = X / S - uOut.y;\n"
+    "    ivec2 f = ivec2(X - (X / S) * S, Y - r * S);\n"
+    "    int ax = x + uMain.x, ar = r + uMain.y;\n"
     "    uint pm = uMode.x;\n"
     "    bool en1 = (pm & 1u) != 0u, en2 = (pm & 2u) != 0u, mmod = (pm & 32u) != 0u, slbg = (pm & 128u) != 0u, inn;\n"
-    "    uvec3 base = unpack32(uMode.y).rgb, o;\n"
-    "    if (en2 && !slbg) { uvec4 p = cpix(1, ax - uCb[1].x, ar - uCb[1].y, inn); if (inn) base = p.rgb; }\n"
+    "    uvec3 base = x < 0 || x >= uMain.z ? uvec3(0u) : unpack32(uMode.y).rgb, o;\n"
+    "    if (en2 && !slbg) { uvec4 p = cpix(1, ax - uCb[1].x, ar - uCb[1].y, f, inn); if (inn) base = p.rgb; }\n"
     "    o = base;\n"
     "    if (en1) {\n"
-    "        uvec4 p = cpix(0, ax - uCb[0].x, ar - uCb[0].y, inn);\n"
+    "        uvec4 p = cpix(0, ax - uCb[0].x, ar - uCb[0].y, f, inn);\n"
     "        if (inn) { uint a = mmod ? (pm >> 8) & 255u : min(p.a * 2u, 255u); o = (p.rgb * a + base * (255u - a) + 127u) / 255u; }\n"
     "    }\n"
     "    oCol = vec4(vec3(o) / 255.0, 1.0);\n"
@@ -548,7 +602,7 @@ static const char kDisplayFs[] =
 /* ------------------------------------------------------------------------------------------------ state */
 
 #define MAX_RT 16
-#define RT_ROWS 1024 /* rows allocated per target (the GS addresses 2048; the game draws within 1024) */
+#define RT_ROWS 1024 /* rows of a target at most (the GS addresses 2048; the game draws within 1024) */
 #define PAL_ROWS 2048
 #define MAX_VERTS (1 << 18)   /* per draw-call flush */
 #define MAX_STATES 32768
@@ -567,6 +621,15 @@ typedef struct Rt {
     uint32_t bytes;         /* the bytes of a word it owns: 0x7 for 24 bits */
     GLuint tex;
     int w;
+    /* T37 */
+    int m;                  /* widescreen margin left and right (GS pixels; a 640-wide target only) */
+    int tw, th;             /* the texture's size: (w + 2 m) x rows GS pixels, sScale GL pixels each */
+    GLuint snap, snapFbo;   /* a copy for texture reads of it at full resolution (snap_update) */
+    int snapDirty, sy0, sy1; /* rows drawn since that copy */
+    uint32_t snapGen;       /* the copy's serial number */
+    uint32_t mgen, snapMgen; /* the window picture its margins were last drawn in (and as of the copy) */
+    int copyOf;             /* 1 + the target whose snapshot copyGen it holds, halved vertically (the game's flicker filter) */
+    uint32_t copyGen;
 } Rt;
 
 typedef struct GlVtx {
@@ -577,6 +640,7 @@ typedef struct GlVtx {
 /* What a draw call shares (a change ends the batch). */
 typedef struct Key {
     int rt, zrt;            /* target, depth target (-1: none) */
+    int src;                /* the target whose snapshot the texture is (-1: GS memory) */
     int kind;               /* 0 triangles, 1 lines, 2 points */
     int blend;              /* 0 off, 1 add, 2 subtract, 3 reverse subtract, 4 zero */
     int dfunc, dwrite;      /* depth (dfunc 0: no depth test) */
@@ -586,6 +650,22 @@ typedef struct Key {
 } Key;
 
 static int sReady;
+/* The video options (T37, docs/port/video.md), applied at the window's pictures. */
+static int sScale = 1;     /* internal resolution: a GS pixel of a target is sScale x sScale GL pixels */
+static int sMarg;          /* widescreen: GS pixels added left and right of 640-wide targets and of the picture */
+static int sDeflicker = 1; /* 0: the frame the game blurs into its half-height display buffer is shown instead */
+static int sSmooth = 1;    /* the picture scaled into the window bilinear (1) or nearest (0) */
+static int sLowLat;        /* low input lag: present a frame when the game copies it, glFinish after the swap */
+static uint32_t sFrame = 2; /* window pictures (margins drawn in this one or the last are shown) */
+static uint32_t sSnapGen;
+static int sCopyPend = -1; /* the game is copying its frame into this target (its display buffer) */
+static int sCopyHits;      /* copy primitives that covered the display buffer's last pixel (the copy's last cell) */
+static int sEarlyShown;    /* low latency: the picture of the next VBlank is on the screen already */
+static DispRegs sLastRegs;
+static int sLastRegsValid;
+static uint64_t sShowNs[2]; /* when the last two window pictures' VBlanks were queued (host ns) */
+static struct { uint32_t presents, early, skipped, n[2]; uint64_t latSum[2], latMax[2]; } sPres; /* [1]: early presents */
+static int sDispW, sDispH; /* the display texture's size */
 static int sCause; /* what asks for a resolve / read back (TTT_FRAMES report): 0 texture, 1 CLUT, 2 upload, 3 display, 4 target */
 static uint32_t sResBy[5], sRbBy[5];
 static GLuint sVramTex, sVramFbo, sTabTex, sInvTex, sPalTex, sStateBuf, sStateTex, sStageTex, sDispTex, sDispFbo;
@@ -602,9 +682,9 @@ static uint32_t sMirrorGen; /* bumped whenever the mirror changes (resolves, pus
 /* The last load run on the GPU: the same one again, on the buffer it left and the same mirror, changes nothing (the game
    sends TEX0 with CLD 1 before every batch) */
 static struct { uint64_t key, ktc, after; uint32_t mirrorGen; } sLastGpuLoad;
-static struct { GLint size, zbits, zmax, pass; } uDraw;
-static struct { GLint rect, target, buf; } uResolve, uLoad, uStage;
-static struct { GLint rect, target, ca, cb, mode, main; } uDisp;
+static struct { GLint size, zbits, zmax, pass, scale, marg; } uDraw;
+static struct { GLint rect, target, buf, sm; } uResolve, uLoad, uStage;
+static struct { GLint rect, target, ca, cb, mode, main, tex, out; } uDisp;
 static Rt sRt[MAX_RT];
 static struct { int c, z; GLuint fbo; } sFbo[48];
 static uint8_t sCpuDirty[512]; /* bytes of the page the CPU wrote that the mirror lacks */
@@ -693,7 +773,7 @@ static GLuint program(const char *vs, const char *fs, const char *fsLib, char *w
 static void samplers(GLuint p) {
     static const struct { const char *name; int unit; } k[] = {
         {"uVram", U_VRAM}, {"uTab", U_TAB}, {"uInv", U_INV}, {"uPal", U_PAL}, {"uStates", U_STATES}, {"uSrc", U_SRC}, {"uStage", U_STAGE},
-        {"uClut", U_CLUT},
+        {"uClut", U_CLUT}, {"uSnap", U_SNAP}, {"uDsp0", U_DSP0}, {"uDsp1", U_DSP1},
     };
     size_t i;
     gl.UseProgram(p);
@@ -902,6 +982,7 @@ static void resolve(int i) {
     gl.ActiveTexture(GL_TEXTURE0 + U_SRC);
     gl.BindTexture(GL_TEXTURE_2D, r->tex);
     gl.Uniform4uiv(uResolve.buf, 1, (const GLuint[]){r->bp, r->bw, r->psm, (GLuint)r->depth});
+    gl.Uniform2i(uResolve.sm, sScale, r->m);
     rect_pass(uResolve.rect, uResolve.target, 0, (int)p0 * 2, 1024, (int)(p0 + pages) * 2, 1024, 1024);
     gl.ColorMask(1, 1, 1, 1);
     gl.ActiveTexture(GL_TEXTURE0 + U_VRAM);
@@ -944,9 +1025,10 @@ static void rt_load(int i, uint32_t y0, uint32_t y1) {
     flush();
     push();
     gl.BindFramebuffer(GL_FRAMEBUFFER, fbo(r->depth ? -1 : i, r->depth ? i : -1));
-    gl.Viewport(0, 0, r->w, RT_ROWS);
+    gl.Viewport(0, 0, r->tw, r->th);
     gl.UseProgram(sProgLoad);
     plain_state();
+    gl.Uniform2i(uLoad.sm, sScale, r->m);
     if (r->depth) {
         uint32_t bits = (uint32_t)Gs_PsmBits(r->psm);
         gl.Enable(GL_DEPTH_TEST);
@@ -956,7 +1038,7 @@ static void rt_load(int i, uint32_t y0, uint32_t y1) {
     } else {
         gl.Uniform4uiv(uLoad.buf, 1, (const GLuint[]){r->bp, r->bw, r->psm, 0});
     }
-    rect_pass(uLoad.rect, uLoad.target, 0, (int)y0, r->w, (int)y1, r->w, RT_ROWS);
+    rect_pass(uLoad.rect, uLoad.target, 0, (int)y0 * sScale, r->tw, (int)y1 * sScale, r->tw, r->th);
     plain_state();
     sGlStat.loads++;
     sLastZ.valid = 0;
@@ -977,6 +1059,13 @@ static void rt_drop(int i) {
         }
     }
     gl.DeleteTextures(1, &sRt[i].tex);
+    if (sRt[i].snap != 0) {
+        gl.DeleteFramebuffers(1, &sRt[i].snapFbo);
+        gl.DeleteTextures(1, &sRt[i].snap);
+    }
+    if (sCopyPend == i) {
+        sCopyPend = -1;
+    }
     memset(&sRt[i], 0, sizeof sRt[i]);
     sTexPages.valid = 0;
 }
@@ -1006,17 +1095,13 @@ static int rt_get(int depth, uint32_t bp, uint32_t bw, uint32_t psm, uint32_t ro
     for (i = 0; i < MAX_RT; i++) {
         Rt *r = &sRt[i];
         if (r->used && r->depth == depth && r->bp == bp && r->bw == bw && r->psm == psm) {
-            if (rows > r->rows) { /* grow: the new rows come from GS memory */
-                memset(set, 0, sizeof set);
-                Gs_PagesOf(set, bp, bw, psm, 0, bw * 64 - 1, r->rows, rows - 1);
-                drop_over(set, 0xF, i);
-                rt_load(i, r->rows, rows);
-                sDirtyEpoch++;
-                memset(r->pages, 0, sizeof r->pages);
-                Gs_PagesOf(r->pages, bp, bw, psm, 0, bw * 64 - 1, 0, rows - 1);
-                r->rows = rows;
+            if (rows <= r->rows) {
+                return i;
             }
-            return i;
+            /* grow: the texture is as high as the rows (T37: scaled targets), so the target is written back and
+               made again, loaded from GS memory */
+            rt_drop(i);
+            break;
         }
     }
     memset(set, 0, sizeof set);
@@ -1043,10 +1128,13 @@ static int rt_get(int depth, uint32_t bp, uint32_t bw, uint32_t psm, uint32_t ro
         r->rows = rows;
         r->bytes = psm_bytes(psm);
         r->w = (int)bw * 64;
+        r->m = r->w == 640 ? sMarg : 0;
+        r->tw = (r->w + 2 * r->m) * sScale;
+        r->th = (int)rows * sScale;
         memcpy(r->pages, set, sizeof set);
         gl.ActiveTexture(GL_TEXTURE0 + U_SRC); /* the unit the passes rebind: the others keep their textures */
-        r->tex = depth ? texture(GL_DEPTH_COMPONENT32F, r->w, RT_ROWS, GL_DEPTH_COMPONENT, GL_FLOAT, NULL)
-                       : texture(GL_RGBA16F, r->w, RT_ROWS, GL_RGBA, GL_FLOAT, NULL);
+        r->tex = depth ? texture(GL_DEPTH_COMPONENT32F, r->tw, r->th, GL_DEPTH_COMPONENT, GL_FLOAT, NULL)
+                       : texture(GL_RGBA16F, r->tw, r->th, GL_RGBA, GL_FLOAT, NULL);
         gl.ActiveTexture(GL_TEXTURE0 + U_VRAM);
         rt_load(slot, 0, rows);
     }
@@ -1140,7 +1228,7 @@ static void ring_write(GLenum target, int fresh, GLintptr at, GLsizeiptr bytes, 
    per batch (two with an alpha test that writes on failure), setting only the GL state that changes between them. */
 static void flush(void) {
     uint32_t i;
-    int curFbo = -1, curW = -1, curZ = -1, curDf = -1, curBlend = -1, curPass = -1, curCmask = -1, curDmask = -1;
+    int curFbo = -1, curRt = -1, curZ = -1, curDf = -1, curBlend = -1, curPass = -1, curCmask = -1, curDmask = -1, curSrc = -1;
 
     if (sNv == 0) {
         return;
@@ -1162,6 +1250,7 @@ static void flush(void) {
     }
     ring_write(GL_ARRAY_BUFFER, sVbBase == 0, (GLintptr)sVbBase * (GLintptr)sizeof(GlVtx), (GLsizeiptr)sNv * (GLsizeiptr)sizeof(GlVtx), sV);
     gl.UseProgram(sProgDraw);
+    gl.Uniform1i(uDraw.scale, sScale);
     gl.BindVertexArray(sVao);
     for (i = 0; i < sNb; i++) {
         const Key *k = &sB[i].k;
@@ -1171,10 +1260,18 @@ static void flush(void) {
             gl.BindFramebuffer(GL_FRAMEBUFFER, (GLuint)fb);
             curFbo = fb;
         }
-        if (sRt[k->rt].w != curW) {
-            curW = sRt[k->rt].w;
-            gl.Viewport(0, 0, curW, RT_ROWS);
-            gl.Uniform2i(uDraw.size, curW, RT_ROWS);
+        if (k->rt != curRt) {
+            const Rt *r = &sRt[k->rt];
+            curRt = k->rt;
+            gl.Viewport(0, 0, r->tw, r->th);
+            gl.Uniform2i(uDraw.size, r->w + 2 * r->m, (GLint)r->rows);
+            gl.Uniform1i(uDraw.marg, r->m);
+        }
+        if (k->src != curSrc && k->src >= 0) {
+            gl.ActiveTexture(GL_TEXTURE0 + U_SNAP);
+            gl.BindTexture(GL_TEXTURE_2D, sRt[k->src].snap);
+            gl.ActiveTexture(GL_TEXTURE0 + U_VRAM);
+            curSrc = k->src;
         }
         if (k->zrt >= 0) {
             uint32_t bits = (uint32_t)Gs_PsmBits(sRt[k->zrt].psm);
@@ -1628,6 +1725,14 @@ static void texture_hazard(const Draw *d, const Cmd *c) {
 /* Target i is drawn in rows y0..y1. */
 static void mark(int i, int y0, int y1) {
     Rt *r = &sRt[i];
+    if (!r->snapDirty) {
+        r->snapDirty = 1;
+        r->sy0 = y0;
+        r->sy1 = y1;
+    } else {
+        r->sy0 = y0 < r->sy0 ? y0 : r->sy0;
+        r->sy1 = y1 > r->sy1 ? y1 : r->sy1;
+    }
     if (!r->dirty) {
         r->dirty = 1;
         r->dy0 = y0;
@@ -1641,6 +1746,127 @@ static void mark(int i, int y0, int y1) {
         r->dy1 = y1 > r->dy1 ? y1 : r->dy1;
         r->dpValid = 0;
     }
+}
+
+/* ---- T37: scaled and widescreen targets ---- */
+
+/* Whether texture reads of targets go to their snapshots (full resolution, margins) instead of GS memory: at 1x 4:3
+   with the game's flicker filter both are the same, and GS memory stays the path (the pictures of T30). Low latency
+   needs them to see the game's copy of its frame. */
+static int snapping(void) { return sScale > 1 || sMarg > 0 || !sDeflicker || sLowLat; }
+
+/* Margins drawn in the window picture `gen` are shown up to the next one: later the target's margins are stale (a menu
+   drawn over a fight's frame) and show black. */
+static int fresh(uint32_t gen) { return gen != 0 && gen + 2 > sFrame; }
+
+/* Target i's snapshot made current: the rows drawn since the last one copied (all of them the first time). */
+static void snap_update(int i) {
+    Rt *r = &sRt[i];
+    int y0 = 0, y1 = r->th;
+    if (r->snap != 0 && !r->snapDirty) {
+        return;
+    }
+    flush();
+    if (r->snap == 0) {
+        gl.ActiveTexture(GL_TEXTURE0 + U_SRC);
+        r->snap = texture(GL_RGBA16F, r->tw, r->th, GL_RGBA, GL_FLOAT, NULL);
+        gl.ActiveTexture(GL_TEXTURE0 + U_VRAM);
+        r->snapFbo = fbo_of(r->snap, 0);
+    } else {
+        y0 = r->sy0 * sScale;
+        y1 = (r->sy1 + 1) * sScale < r->th ? (r->sy1 + 1) * sScale : r->th;
+    }
+    {
+        GLuint src = fbo(i, -1);
+        gl.BindFramebuffer(GL_READ_FRAMEBUFFER, src);
+        gl.ReadBuffer(GL_COLOR_ATTACHMENT0);
+        gl.BindFramebuffer(GL_DRAW_FRAMEBUFFER, r->snapFbo);
+        gl.BlitFramebuffer(0, y0, r->tw, y1, 0, y0, r->tw, y1, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    }
+    r->snapDirty = 0;
+    r->snapGen = ++sSnapGen;
+    r->snapMgen = r->mgen;
+}
+
+/* The colour target a texture is, in a format that reads the same values (32 / 24 bits over 32, 16 over 16): its
+   snapshot is then sampled instead of GS memory. -1: none (other formats, CLUT textures, reinterpretations read GS
+   memory as the GS would, at 1x). */
+static int snap_source(const Draw *d) {
+    int i;
+    if (!snapping() || d->tbits < 16) {
+        return -1;
+    }
+    for (i = 0; i < MAX_RT; i++) {
+        const Rt *r = &sRt[i];
+        if (r->used && !r->depth && r->bp == d->tbp && r->bw == (d->tbw != 0 ? d->tbw : 1) &&
+            (r->psm == d->tpsm || (r->psm == 0x00 && d->tpsm == 0x01))) {
+            snap_update(i);
+            return i;
+        }
+    }
+    return -1;
+}
+
+/* A sprite that covers the first or the last pixel of a widescreen target's row (w wide, margins m) goes on to the
+   margin's edge; with UV (a copy of a widescreen target) U goes on at the same rate (negative U: the snapshot's left
+   margin). 1 when it changed (o: the two vertices). */
+static int extend_sprite(const Vtx *v, Vtx *o, int w, int m, int uv) {
+    int a = v[0].x <= v[1].x ? 0 : 1, b = 1 - a, ch = 0;
+    int64_t dx = (int64_t)v[b].x - v[a].x, du = (int64_t)v[b].u - v[a].u;
+    o[0] = v[0];
+    o[1] = v[1];
+    if (dx <= 0) {
+        return 0;
+    }
+    if (v[a].x <= 0) {
+        int32_t nx = -m * 16;
+        if (uv) {
+            o[a].u = v[a].u - (int32_t)(du * (v[a].x - nx) / dx);
+        }
+        o[a].x = nx;
+        ch = 1;
+    }
+    if (v[b].x > (w - 1) * 16) { /* it covers the last pixel (the game's copies end at w - 0.5) */
+        int32_t nx = (w + m) * 16;
+        if (uv) {
+            o[b].u = v[b].u + (int32_t)(du * (nx - v[b].x) / dx);
+        }
+        o[b].x = nx;
+        ch = 1;
+    }
+    return ch;
+}
+
+/* A sprite's edges on whole pixels, UV moved with them (scaled targets): it covers the GS pixels it covers at 1x and
+   no part of a pixel more or less, so that sprites side by side (the game's copies in 64-pixel strips from x.0 to
+   x+63.5) leave no gap between them at a finer scale. One axis: positions p (12.4), texels t (10.4). */
+static void align_axis(int32_t *p0, int32_t *p1, int32_t *t0, int32_t *t1, int uv) {
+    int32_t *a = *p0 <= *p1 ? p0 : p1, *b = a == p0 ? p1 : p0, *ta = a == p0 ? t0 : t1, *tb = a == p0 ? t1 : t0;
+    int64_t d = (int64_t)*b - *a, dt = (int64_t)*tb - *ta;
+    int32_t na = (*a + 15) & ~15, nb = (*b + 15) & ~15;
+    if (d <= 0) {
+        return;
+    }
+    if (uv) {
+        *ta += (int32_t)(dt * (na - *a) / d);
+        *tb += (int32_t)(dt * (nb - *b) / d);
+    }
+    *a = na;
+    *b = nb;
+}
+
+/* The margin each side of a 640 x 448 picture for a display aspect ratio, in GS pixels as the window shows them
+   (square): "16:9" 78, "21:9" 203, else 0 (4:3: the game's picture as before T37). */
+int Gl_AspectMargin(const char *aspect) {
+    int num = 0, den = 1;
+    if (strcmp(aspect, "16:9") == 0) {
+        num = 16;
+        den = 9;
+    } else if (strcmp(aspect, "21:9") == 0) {
+        num = 21;
+        den = 9;
+    }
+    return num == 0 ? 0 : (448 * num / den - 640 + 1) / 2;
 }
 
 static void put(const Vtx *v, uint32_t z, uint32_t rgba, uint32_t s, uint32_t t, uint32_t q, uint32_t fog, int32_t x, int32_t y, int fst) {
@@ -1663,13 +1889,17 @@ static void put(const Vtx *v, uint32_t z, uint32_t rgba, uint32_t s, uint32_t t,
     (void)v;
 }
 
+static void early_present(int t);
+
 static void prim(const Cmd *c) {
     const Draw *d = &c->u.prim.d;
     const Vtx *v = c->u.prim.v;
     uint32_t rows = (uint32_t)d->scy1 + 1, st[12];
     int kind = c->type == CMD_LINE ? 1 : c->type == CMD_POINT ? 2 : 0;
     int outcome = 0, newState, zneed = (d->ztest && d->ztst != 1) || d->zwrite, rt, zrt = -1, palRow = 0, need = c->type == CMD_SPRITE ? 6 : 3;
+    int src = -1, wide = 0, present = 0;
     Key k;
+    Vtx ext[2];
     uint32_t fpsm = d->fpsm;
 
     if (fpsm != 0x00 && fpsm != 0x01 && fpsm != 0x02 && fpsm != 0x0A) {
@@ -1686,10 +1916,77 @@ static void prim(const Cmd *c) {
             rt = rt_get(0, d->fbp, d->fbw, fpsm, rows);
         }
     }
+    if (sCopyPend >= 0 && rt != sCopyPend) { /* the game copied its frame into the display buffer: the next frame begins */
+        int t = sCopyPend;
+        sCopyPend = -1;
+        if (sLowLat && !sEarlyShown) {
+            early_present(t);
+        }
+    }
     if (d->tex) {
         texture_hazard(d, c);
         if (d->tbits <= 8) {
             palRow = pal_row(d);
+        }
+        src = snap_source(d);
+    }
+    /* The game's flicker filter: its frame (448 lines) copied into the display buffer (224) by UV sprites, two lines
+       into one. The display buffer remembers whose snapshot it holds (video.deflicker 0 shows that one instead). */
+    if (src >= 0 && src != rt && c->type == CMD_SPRITE && d->fst) {
+        int dy = v[1].y - v[0].y, dv = v[1].v - v[0].v;
+        dy = dy < 0 ? -dy : dy;
+        dv = dv < 0 ? -dv : dv;
+        if (dy > 0 && dv - 2 * dy <= 16 && 2 * dy - dv <= 16) {
+            sRt[rt].copyOf = src + 1;
+            sRt[rt].copyGen = sRt[src].snapGen;
+            if (sCopyPend != rt) { /* a copy begins: the frame is finished */
+                sCopyPend = rt;
+                sCopyHits = 0;
+                sEarlyShown = 0;
+                if (sLowLat && !sDeflicker) {
+                    early_present(rt); /* the frame itself is shown: present it now */
+                }
+            }
+            /* with the filter, the copy's last cell (two passes over the last pixel) finishes the picture */
+            if ((v[0].x > (sRt[rt].w - 1) * 16 || v[1].x > (sRt[rt].w - 1) * 16) &&
+                (v[0].y > ((int)sRt[rt].rows - 1) * 16 || v[1].y > ((int)sRt[rt].rows - 1) * 16) && ++sCopyHits == 2) {
+                present = sLowLat && !sEarlyShown;
+            }
+        } else {
+            sRt[rt].copyOf = 0;
+        }
+    } else {
+        sRt[rt].copyOf = 0;
+    }
+    /* Widescreen: what the game draws over the whole width also goes into the margins. Triangles, lines and points
+       already lie there (the VU1 programs clip at the GS's coordinate range, not the screen): the scissor opens. A
+       sprite at an edge goes on (untextured: clears, fades; a copy of a widescreen frame: its margins), other sprites
+       (the HUD, menus' pictures) stay in the 4:3 middle. */
+    if (sRt[rt].m > 0 && d->scx0 == 0 && d->scx1 >= sRt[rt].w - 1) {
+        if (c->type != CMD_SPRITE) {
+            wide = 1;
+        } else if (!d->tex || (src >= 0 && d->fst && fresh(sRt[src].snapMgen))) {
+            wide = extend_sprite(v, ext, sRt[rt].w, sRt[rt].m, d->tex);
+        }
+    }
+    if (c->type == CMD_SPRITE && (wide || sScale > 1)) {
+        if (!wide) {
+            ext[0] = v[0];
+            ext[1] = v[1];
+        }
+        if (sScale > 1) {
+            align_axis(&ext[0].x, &ext[1].x, &ext[0].u, &ext[1].u, d->tex && d->fst);
+            align_axis(&ext[0].y, &ext[1].y, &ext[0].v, &ext[1].v, d->tex && d->fst);
+        }
+        v = ext;
+    }
+    if (wide) { /* drawn into the margins: they are shown with this picture */
+        int n = c->type == CMD_TRIANGLE ? 3 : c->type == CMD_POINT ? 1 : 2, i;
+        for (i = 0; i < n; i++) {
+            if (v[i].x < 0 || v[i].x > sRt[rt].w * 16) {
+                sRt[rt].mgen = sFrame;
+                break;
+            }
         }
     }
     if (d->atest) {
@@ -1698,6 +1995,7 @@ static void prim(const Cmd *c) {
         outcome = alpha_outcome(d->atst, d->aref, lo, hi);
     }
     key_of(d, rt, zrt, kind, outcome, &k);
+    k.src = src;
     if (k.cmask == 0 && !k.dwrite) {
         return; /* writes nothing (every pixel fails, KEEP) */
     }
@@ -1708,6 +2006,14 @@ static void prim(const Cmd *c) {
     state_of(d, palRow, st);
     if (outcome != 0) {
         st[0] &= ~(1u << 10); /* no test in the shader */
+    }
+    { /* the scissor in the target's pixels, margin included */
+        int m = sRt[rt].m, x0 = wide ? -m : d->scx0, x1 = wide ? sRt[rt].w - 1 + m : d->scx1;
+        st[6] = (uint32_t)(x0 + m) | (uint32_t)(x1 + m) << 16;
+    }
+    if (src >= 0) {
+        st[0] |= 1u << 31; /* from the snapshot of target src */
+        st[9] = (uint32_t)sRt[src].m;
     }
     newState = sNs == 0 || memcmp(st, sS[sNs - 1], sizeof st) != 0;
     if (sNb == 0 || memcmp(&k, &sB[sNb - 1].k, sizeof k) != 0 || (k.pass == 2 && newState)) {
@@ -1763,6 +2069,9 @@ static void prim(const Cmd *c) {
     default:
         put(&v[0], v[0].z, v[0].rgba, v[0].s, v[0].t, v[0].q, v[0].f, v[0].x, v[0].y, d->fst);
         break;
+    }
+    if (present) {
+        early_present(rt);
     }
 }
 
@@ -1921,10 +2230,17 @@ static void clut(const Cmd *c) {
 
 /* ------------------------------------------------------------------------------------------------ display */
 
+static uint64_t now_ns(void) {
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (uint64_t)t.tv_sec * 1000000000ull + (uint64_t)t.tv_nsec;
+}
+
 /* The display picture (sDispFbo, w x h) letterboxed into the window's back buffer, then presented (with the overlay,
-   plat_window.c). */
+   plat_window.c); low latency waits until the GPU is done (the driver queues no frame). `since`: the queue time of the
+   VBlank after which the shown frame was complete (0: unknown), for the report's latency. */
 static int sShownW, sShownH; /* the last picture shown in the window */
-static void window_blit(int w, int h) {
+static void window_blit(int w, int h, uint64_t since) {
     int ww = 0, wh = 0, dw, dh, x0, y0;
     Port_WindowGlSize(&ww, &wh);
     if (ww <= 0 || wh <= 0) {
@@ -1948,8 +2264,19 @@ static void window_blit(int w, int h) {
     }
     gl.BindFramebuffer(GL_READ_FRAMEBUFFER, sDispFbo);
     gl.ReadBuffer(GL_COLOR_ATTACHMENT0);
-    gl.BlitFramebuffer(0, 0, w, h, x0, y0 + dh, x0 + dw, y0, GL_COLOR_BUFFER_BIT, GL_LINEAR); /* line 0 at the top */
+    gl.BlitFramebuffer(0, 0, w, h, x0, y0 + dh, x0 + dw, y0, GL_COLOR_BUFFER_BIT, sSmooth ? GL_LINEAR : GL_NEAREST); /* line 0 at the top */
     Port_WindowGlSwap();
+    if (sLowLat) {
+        gl.Finish();
+    }
+    sPres.presents += since != 0;
+    if (since != 0 && sFrame > 600) { /* from the first fight's VBlanks on (not the boot's loading) */
+        uint64_t t = now_ns(), lat = t > since ? t - since : 0;
+        int e = sEarlyShown == 2;
+        sPres.n[e]++;
+        sPres.latSum[e] += lat;
+        sPres.latMax[e] = lat > sPres.latMax[e] ? lat : sPres.latMax[e];
+    }
 }
 
 /* The last picture again (window thread, between GS commands): the overlay is open while the game shows nothing new
@@ -1958,19 +2285,32 @@ int Gl_Redisplay(void) {
     if (sShownW <= 0 || sShownH <= 0) {
         return 0;
     }
-    window_blit(sShownW, sShownH);
+    window_blit(sShownW, sShownH, 0);
     return 1;
 }
 
-static void show(const Cmd *c) {
-    const DispRegs *regs = &c->u.show.regs;
+/* The colour target a read circuit shows (its buffer's address, width and format), or -1. */
+static int disp_rt(const Circuit *c) {
+    int i;
+    for (i = 0; i < MAX_RT; i++) {
+        if (sRt[i].used && !sRt[i].depth && sRt[i].bp == c->fbp && sRt[i].bw == (c->fbw != 0 ? c->fbw : 1) && sRt[i].psm == c->psm) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+/* Draws the picture of these display registers into sDispFbo: (width + 2 margins) x lines GS pixels, sScale GL pixels
+   each (*pw x *ph). Scaled or widescreen, a circuit that shows a target reads the target (or, without the flicker
+   filter, the snapshot of the frame the display buffer is a copy of); otherwise GS memory as the GS would. */
+static void display(const DispRegs *regs, int *pw, int *ph) {
     uint64_t pmode = regs->pmode;
     int en1 = (int)(pmode & 1), en2 = (int)(pmode >> 1) & 1, k;
     Circuit ci[2];
     const Circuit *main;
     GLuint ca[8];
-    GLint cb[8];
-    int w, h;
+    GLint cb[8], ut[8] = {0, 0, 0, 1, 0, 0, 0, 1};
+    int w, h, W, H, z = (regs->smode2 & 3) == 3 ? 2 : 1;
 
     flush();
     Gs_Circuit(regs, 0, &ci[0]);
@@ -1979,16 +2319,17 @@ static void show(const Cmd *c) {
     w = (int)main->width;
     h = (int)main->lines;
     for (k = 0; k < 2; k++) {
-        uint32_t set[16] = {0}, dbl = (regs->smode2 & 3) == 3 ? 2 : 1;
+        uint32_t set[16] = {0};
         if (k == 0 ? !en1 : !en2) {
             continue;
         }
-        Gs_PagesOf(set, ci[k].fbp, ci[k].fbw, ci[k].psm, ci[k].dbx, ci[k].dbx + ci[k].width - 1, ci[k].dby, ci[k].dby + ci[k].lines / dbl);
+        Gs_PagesOf(set, ci[k].fbp, ci[k].fbw, ci[k].psm, ci[k].dbx, ci[k].dbx + ci[k].width - 1, ci[k].dby, ci[k].dby + ci[k].lines / (uint32_t)z);
         sCause = 3;
         resolve_over(set, 0xF);
     }
     push();
     for (k = 0; k < 2; k++) {
+        int t = snapping() ? disp_rt(&ci[k]) : -1;
         ca[k * 4 + 0] = ci[k].fbp;
         ca[k * 4 + 1] = ci[k].fbw;
         ca[k * 4 + 2] = ci[k].psm;
@@ -1997,26 +2338,126 @@ static void show(const Cmd *c) {
         cb[k * 4 + 1] = (GLint)ci[k].y0;
         cb[k * 4 + 2] = (GLint)ci[k].width;
         cb[k * 4 + 3] = (GLint)ci[k].lines;
+        ut[k * 4 + 3] = z;
+        if (t >= 0) {
+            const Rt *r = &sRt[t], *f = r->copyOf > 0 ? &sRt[r->copyOf - 1] : NULL;
+            GLuint tex = r->tex;
+            int whole = ci[k].dbx == 0 && (int)ci[k].width == r->w;
+            ut[k * 4 + 0] = 1;
+            ut[k * 4 + 1] = r->m;
+            ut[k * 4 + 2] = whole && fresh(r->mgen);
+            if (!sDeflicker && f != NULL && f->snap != 0 && f->snapGen == r->copyGen && z == 2 && ci[k].dby == 0) {
+                tex = f->snap; /* the frame before the game's filter: its lines one to one */
+                ca[k * 4 + 2] = f->psm;
+                ut[k * 4 + 1] = f->m;
+                ut[k * 4 + 2] = whole && fresh(f->snapMgen);
+                ut[k * 4 + 3] = 1;
+            }
+            gl.ActiveTexture(GL_TEXTURE0 + U_DSP0 + (GLenum)k);
+            gl.BindTexture(GL_TEXTURE_2D, tex);
+        }
+    }
+    gl.ActiveTexture(GL_TEXTURE0 + U_VRAM);
+    W = (w + 2 * sMarg) * sScale;
+    H = h * sScale;
+    if (W > sDispW || H > sDispH) { /* the picture grew (scale, aspect): a texture for it */
+        gl.DeleteFramebuffers(1, &sDispFbo);
+        gl.DeleteTextures(1, &sDispTex);
+        sDispW = W > sDispW ? W : sDispW;
+        sDispH = H > sDispH ? H : sDispH;
+        gl.ActiveTexture(GL_TEXTURE0 + U_SRC);
+        sDispTex = texture(GL_RGBA8, sDispW, sDispH, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        gl.ActiveTexture(GL_TEXTURE0 + U_VRAM);
+        sDispFbo = fbo_of(sDispTex, 0);
     }
     gl.BindFramebuffer(GL_FRAMEBUFFER, sDispFbo);
-    gl.Viewport(0, 0, 1024, 1024);
+    gl.Viewport(0, 0, sDispW, sDispH);
     gl.UseProgram(sProgDisplay);
     plain_state();
     gl.Uniform4uiv(uDisp.ca, 2, ca);
     gl.Uniform4iv(uDisp.cb, 2, cb);
-    gl.Uniform4uiv(uDisp.mode, 1, (const GLuint[]){(GLuint)pmode, (GLuint)regs->bgcolor & 0xFFFFFF, (regs->smode2 & 3) == 3 ? 2u : 1u, 0});
-    gl.Uniform4iv(uDisp.main, 1, (const GLint[]){(GLint)main->x0, (GLint)main->y0, 0, 0});
-    rect_pass(uDisp.rect, uDisp.target, 0, 0, w, h, 1024, 1024);
+    gl.Uniform4iv(uDisp.tex, 2, ut);
+    gl.Uniform2i(uDisp.out, sScale, sMarg);
+    gl.Uniform4uiv(uDisp.mode, 1, (const GLuint[]){(GLuint)pmode, (GLuint)regs->bgcolor & 0xFFFFFF, (GLuint)z, 0});
+    gl.Uniform4iv(uDisp.main, 1, (const GLint[]){(GLint)main->x0, (GLint)main->y0, w, 0});
+    rect_pass(uDisp.rect, uDisp.target, 0, 0, W, H, sDispW, sDispH);
     sGlStat.shows++;
+    *pw = W;
+    *ph = H;
+}
+
+/* The video settings (plat_settings.c, the overlay's Video page), read at each window picture. A new scale or aspect
+   writes every target back into GS memory and drops it: the next draws make them again at the new size. */
+static void apply_settings(void) {
+    char a[16];
+    int scale = Settings_GetInt("video.resolution"), marg, i;
+    Settings_GetStr("video.aspect", a, sizeof a);
+    marg = Gl_AspectMargin(a);
+    sDeflicker = Settings_GetInt("video.deflicker");
+    sSmooth = Settings_GetInt("video.smooth");
+    sLowLat = Settings_GetInt("video.low_latency");
+    if (scale != sScale || marg != sMarg) {
+        for (i = 0; i < MAX_RT; i++) {
+            rt_drop(i);
+        }
+        sScale = scale;
+        sMarg = marg;
+    }
+}
+
+/* Low latency: the game copied its finished frame into the display buffer (target t) and goes on with the next one:
+   present it now instead of at the next VBlank (the display registers of the last one). */
+static void early_present(int t) {
+    Circuit c0;
+    int w, h;
+    if (!sLastRegsValid || gGsGlSkip) {
+        return;
+    }
+    Gs_Circuit(&sLastRegs, 0, &c0);
+    if (disp_rt(&c0) != t) {
+        return;
+    }
+    display(&sLastRegs, &w, &h);
+    sShownW = w;
+    sShownH = h;
+    sEarlyShown = 2;
+    window_blit(w, h, sShowNs[0]);
+    sEarlyShown = 1;
+    sPres.early++;
+}
+
+static void show(const Cmd *c) {
+    const DispRegs *regs = &c->u.show.regs;
+    int w, h;
+
     if (c->u.show.window) {
+        apply_settings();
+        if (sEarlyShown && sLastRegsValid && memcmp(regs, &sLastRegs, sizeof *regs) == 0) {
+            /* low latency: this picture went out when the game copied it */
+            sEarlyShown = 0;
+            sPres.skipped++;
+            sShowNs[1] = sShowNs[0];
+            sShowNs[0] = c->u.show.ns;
+            sFrame++;
+            return;
+        }
+        sEarlyShown = 0;
+        display(regs, &w, &h);
+        sLastRegs = *regs;
+        sLastRegsValid = 1;
+        sShowNs[1] = sShowNs[0];
+        sShowNs[0] = c->u.show.ns;
+        sFrame++;
         if (gGsGlSkip) {
             return; /* a newer picture is queued */
         }
         sShownW = w;
         sShownH = h;
-        window_blit(w, h);
-        Port_WindowGlSwap();
-    } else if (Gs_DumpDir() != NULL) {
+        window_blit(w, h, sShowNs[1]);
+        return;
+    }
+    display(regs, &w, &h);
+    if (Gs_DumpDir() != NULL) {
         uint8_t *rgba = malloc((size_t)w * (size_t)h * 4), *rgb = malloc((size_t)w * (size_t)h * 3);
         char name[4096];
         size_t i;
@@ -2110,6 +2551,12 @@ int Gl_Init(void *(*getproc)(const char *name), char *why, int whylen) {
     uDraw.zbits = gl.GetUniformLocation(sProgDraw, "uZBits");
     uDraw.zmax = gl.GetUniformLocation(sProgDraw, "uZMax");
     uDraw.pass = gl.GetUniformLocation(sProgDraw, "uPass");
+    uDraw.scale = gl.GetUniformLocation(sProgDraw, "uScale");
+    uDraw.marg = gl.GetUniformLocation(sProgDraw, "uMarg");
+    uResolve.sm = gl.GetUniformLocation(sProgResolve, "uSM");
+    uLoad.sm = gl.GetUniformLocation(sProgLoad, "uSM");
+    uDisp.tex = gl.GetUniformLocation(sProgDisplay, "uTex");
+    uDisp.out = gl.GetUniformLocation(sProgDisplay, "uOut");
     uResolve.rect = gl.GetUniformLocation(sProgResolve, "uRect");
     uResolve.target = gl.GetUniformLocation(sProgResolve, "uTarget");
     uResolve.buf = gl.GetUniformLocation(sProgResolve, "uBuf");
@@ -2192,6 +2639,7 @@ int Gl_Init(void *(*getproc)(const char *name), char *why, int whylen) {
     gl.ActiveTexture(GL_TEXTURE0 + U_SRC);
     sDispTex = texture(GL_RGBA8, 1024, 1024, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     sDispFbo = fbo_of(sDispTex, 0);
+    sDispW = sDispH = 1024;
     gl.ActiveTexture(GL_TEXTURE0 + U_VRAM);
     sVramTex = texture(GL_RGBA8UI, 1024, 1024, GL_RGBA_INTEGER, GL_UNSIGNED_BYTE, Gs_Vram());
     sVramFbo = fbo_of(sVramTex, 0);
@@ -2226,6 +2674,8 @@ int Gl_Init(void *(*getproc)(const char *name), char *why, int whylen) {
     return 1;
 }
 
+static unsigned tenths(uint64_t ns) { return (unsigned)(ns / 100000); } /* in tenths of a millisecond */
+
 void Gl_Report(void) {
     if (sReady) {
         printf("ttt: gl: %u draw calls in %u batches, %u targets made, %u loads, %u resolves, %u pushes, %u read back, %u CLUT passes, %u pictures; "
@@ -2234,6 +2684,16 @@ void Gl_Report(void) {
                sGlStat.clutGpu, sGlStat.shows, sGlStat.date, sGlStat.ad, sGlStat.fbmsk, sGlStat.colclamp, sGlStat.pabe, sGlStat.overlapZ);
         printf("ttt: gl: resolves by texture %u clut %u upload %u show %u target %u; read back by texture %u clut %u upload %u show %u target %u\n",
                sResBy[0], sResBy[1], sResBy[2], sResBy[3], sResBy[4], sRbBy[0], sRbBy[1], sRbBy[2], sRbBy[3], sRbBy[4]);
+        /* T37: the presents, and the time from the VBlank after which each shown frame was complete (the one at which
+           the game copies it into its display buffer) to its present (swap returned; with low latency glFinish too),
+           at VBlank pictures and early ones (low latency), from window picture 600 on */
+        printf("ttt: gl: video %dx, margin %d, flicker filter %s, low latency %s; %u presents (%u early, %u VBlanks shown already); "
+               "frame to present: at VBlanks %u, mean %u.%u ms, max %u.%u ms; early %u, mean %u.%u ms, max %u.%u ms\n",
+               sScale, sMarg, sDeflicker ? "on" : "off", sLowLat ? "on" : "off", sPres.presents, sPres.early, sPres.skipped,
+               sPres.n[0], tenths(sPres.n[0] ? sPres.latSum[0] / sPres.n[0] : 0) / 10, tenths(sPres.n[0] ? sPres.latSum[0] / sPres.n[0] : 0) % 10,
+               tenths(sPres.latMax[0]) / 10, tenths(sPres.latMax[0]) % 10,
+               sPres.n[1], tenths(sPres.n[1] ? sPres.latSum[1] / sPres.n[1] : 0) / 10, tenths(sPres.n[1] ? sPres.latSum[1] / sPres.n[1] : 0) % 10,
+               tenths(sPres.latMax[1]) / 10, tenths(sPres.latMax[1]) % 10);
     }
 }
 
@@ -2373,6 +2833,35 @@ int Gl_SelfTest(void) {
                 }
             }
         }
+    }
+    /* T37: the widescreen margins, a sprite going on into them, sprite edges on whole pixels at a finer scale */
+    gl_expect(Gl_AspectMargin("4:3") == 0 && Gl_AspectMargin("16:9") == 78 && Gl_AspectMargin("21:9") == 203 && Gl_AspectMargin("x") == 0,
+              "aspect margins (796 and 1046 x 448)");
+    {
+        Vtx sv[2], o[2];
+        int32_t x0 = 0, x1 = 1016, u0 = 8, u1 = 1024;
+        memset(sv, 0, sizeof sv);
+        sv[0].x = 0; /* the game's copy strips: x 0 .. 63.5, U 0.5 .. 64 (one to one) */
+        sv[1].x = 1016;
+        sv[0].u = 8;
+        sv[1].u = 1024;
+        gl_expect(extend_sprite(sv, o, 640, 78, 1) && o[0].x == -78 * 16 && o[0].u == 8 - 78 * 16 && o[1].x == 1016 && o[1].u == 1024,
+                  "the left strip goes on into the margin, U with it");
+        sv[0].x = 576 * 16;
+        sv[1].x = 640 * 16 - 8;
+        gl_expect(extend_sprite(sv, o, 640, 78, 0) && o[1].x == 718 * 16 && o[1].u == 1024 && o[0].x == 576 * 16,
+                  "the right strip (to 639.5) goes on; untextured: U unchanged");
+        sv[0].x = 100 * 16;
+        sv[1].x = 200 * 16;
+        gl_expect(!extend_sprite(sv, o, 640, 78, 1), "a sprite inside the picture stays");
+        align_axis(&x0, &x1, &u0, &u1, 1);
+        gl_expect(x0 == 0 && x1 == 1024 && u0 == 8 && u1 == 1032, "x 0 .. 63.5 covers pixels 0 .. 63: edge at 64, U at the same rate");
+        x0 = 1024 - 8;
+        x1 = 2048 - 8;
+        u0 = 0;
+        u1 = 1024;
+        align_axis(&x1, &x0, &u1, &u0, 1);
+        gl_expect(x0 == 1024 && x1 == 2048 && u0 == 8 && u1 == 1032, "both edges up to whole pixels, vertices in either order");
     }
     printf(sGlFails ? "ttt: gl self-test FAILED (%d)\n" : "ttt: gl self-test OK\n", sGlFails);
     return sGlFails;

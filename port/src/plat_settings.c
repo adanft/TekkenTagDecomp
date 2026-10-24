@@ -49,6 +49,11 @@ static const Def kDefs[] = {
     {"video.scale", "TTT_SCALE", 1, 6, 2, NULL, 0},
     {"video.fullscreen", "TTT_FULLSCREEN", 0, 1, 0, NULL, 0},
     {"video.fps_meter", "TTT_FPS_METER", 0, 1, 0, NULL, 0},
+    {"video.resolution", "TTT_RESOLUTION", 1, 8, 1, NULL, 0},
+    {"video.aspect", "TTT_ASPECT", 0, 0, 0, "4:3", 0},
+    {"video.deflicker", "TTT_DEFLICKER", 0, 1, 1, NULL, 0},
+    {"video.smooth", "TTT_SMOOTH", 0, 1, 1, NULL, 0},
+    {"video.low_latency", "TTT_LOW_LATENCY", 0, 1, 0, NULL, 0},
     {"audio.volume", "TTT_VOLUME", 0, 100, 100, NULL, 0},
     {"audio.mute", "TTT_MUTE", 0, 1, 0, NULL, 0},
     {"game.movies", "TTT_MOVIES", 0, 1, 1, NULL, 1},
@@ -537,6 +542,23 @@ void Settings_SelfTest(void) {
     expect(strcmp(s, "sw") == 0 && strcmp(getenv("TTT_RENDERER"), "sw") == 0, "a text value read back");
     file_text(cfg, text, sizeof text);
     expect(strstr(text, "future.option = keep me\n") != NULL && strstr(text, "; end\n") != NULL, "kept after a reload");
+
+    /* the video options (T37) */
+    expect(Settings_GetInt("video.resolution") == 1 && Settings_GetInt("video.deflicker") == 1 && Settings_GetInt("video.smooth") == 1 &&
+               Settings_GetInt("video.low_latency") == 0,
+           "video defaults");
+    Settings_GetStr("video.aspect", s, sizeof s);
+    expect(strcmp(s, "4:3") == 0, "aspect default 4:3");
+    expect(Settings_SetInt("video.resolution", 12) && Settings_SetStr("video.aspect", "21:9") && Settings_SetInt("video.deflicker", 0) &&
+               Settings_SetInt("video.low_latency", 1),
+           "video options written");
+    Settings_Load();
+    Settings_GetStr("video.aspect", s, sizeof s);
+    expect(Settings_GetInt("video.resolution") == 8 && strcmp(s, "21:9") == 0 && Settings_GetInt("video.deflicker") == 0 &&
+               Settings_GetInt("video.low_latency") == 1,
+           "video options read back (resolution clamped to 8)");
+    file_text(cfg, text, sizeof text);
+    expect(strstr(text, "video.resolution = 8\n") != NULL && strstr(text, "video.aspect = 21:9\n") != NULL, "video lines in the file");
 
     /* rebinding: one button per key (the two swap), F1 / Escape refused */
     Settings_DefaultBindings(d);
