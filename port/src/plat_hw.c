@@ -421,11 +421,14 @@ static void report_and_exit(void);
 static void track_mode(void);
 void Port_PadVBlank(uint32_t n); /* plat_pad.c */
 void Port_PadReport(void);
+void Port_SndVBlank(uint32_t n); /* plat_snd.c */
+void Port_SndEnd(void);
 
 static void vblank(void) {
     sVBlanks++;
     Port_PadVBlank((uint32_t)sVBlanks); /* the pads' state for this field: latched once, before the handler */
     Gs_VBlank((uint32_t)sVBlanks); /* the frame dump: the picture shown during the field that ends here */
+    Port_SndVBlank((uint32_t)sVBlanks); /* the sound of that field */
     if (sTimeFrom != 0 && sVBlanks == sTimeFrom) {
         Gs_Finish();
         sTimeT0 = host_ns();
@@ -587,6 +590,7 @@ static void report_and_exit(void) {
         printf("ttt: time: vblanks %u-%u in %llu ms\n", (unsigned)sTimeFrom, (unsigned)sVBlanks, (unsigned long long)ms);
     }
     Port_PadReport();
+    Port_SndEnd();
     Port_StubReport();
     peek_report();
     fflush(stdout);
@@ -820,7 +824,7 @@ void Port_GsSelfTest(void);    /* gs_core.c */
 void Port_FloatSelfTest(void); /* plat_floattest.c */
 int Port_Vu1SelfTest(void);    /* gs_vu1.c */
 
-/* TTT_SELFTEST=hw | rpc | float | gs | gl | vu1 | ee: run after the memory map (plat_mem.c, constructor 101), print and exit. */
+/* TTT_SELFTEST=hw | rpc | float | gs | gl | vu1 | ee | spu: run after the memory map (plat_mem.c, constructor 101), print and exit. */
 __attribute__((constructor(102))) static void Port_HwSelfTestEntry(void) {
     const char *t = getenv("TTT_SELFTEST");
     if (t != NULL && strcmp(t, "hw") == 0) {
@@ -843,6 +847,10 @@ __attribute__((constructor(102))) static void Port_HwSelfTestEntry(void) {
     if (t != NULL && strcmp(t, "gl") == 0) {
         int Gl_SelfTest(void); /* gs_gl.c */
         exit(Gl_SelfTest() != 0);
+    }
+    if (t != NULL && strcmp(t, "spu") == 0) {
+        int Spu2_SelfTest(void); /* spu2.c */
+        exit(Spu2_SelfTest() != 0);
     }
     if (t != NULL && strcmp(t, "vu1") == 0) {
         int fails;

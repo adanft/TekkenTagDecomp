@@ -209,7 +209,10 @@ wait loops drive the hardware.
 |---|---|
 | `plat_hw.c` | Bus-cycle clock, timers 0-3, VBlank (59.94 Hz, GS CSR FIELD / VSINT), INTC / DMAC handlers (`AddIntcHandler`, `AddDmacHandler`, `EnableIntc`...), DMA channels, MFIFO, `TTT_FRAMES` report, `TTT_SELFTEST=hw` |
 | `plat_sys.c` | Kernel (cache, threads, semaphores), SIF (IOP reboot, module loads, commands, `sceSifBindRpc` / `sceSifCallRpc` and the table of IOP servers), CD init, `TTT_SELFTEST=rpc` |
-| `plat_file.c` | The disc (`TTT_DISC`: a directory with `TEKKEN.BIN` or the `.iso`) and `sceSdRemote`: RSPU2DRV's file reads (0x204E / 0x2045), status (0x2030), harmless replies to the sound and movie commands |
+| `plat_file.c` | The disc (`TTT_DISC`: a directory with `TEKKEN.BIN` or the `.iso`; without it the program stops at the first read, exit code 2) and `sceSdRemote`: RSPU2DRV's file reads (0x204E / 0x2045), status (0x2030), the sound commands passed to `plat_snd.c`, the movie stream refused |
+| `spu2.c` | The SPU2 model: 2 MB sound RAM, 2 x 24 voices, PS-ADPCM, pitch, ADSR, the 48 kHz mix, `TTT_SELFTEST=spu` ([sound.md](sound.md)) |
+| `plat_snd.c` | libspu2's commands of RSPU2DRV on the model, the per-VBlank mix, `TTT_WAV`, the ring to the window's audio ([sound.md](sound.md)) |
+| `plat_bgm.c` | RSPU2DRV's BGM stream engine: the 28 tracks, the sound queue (0x7F0F), status bits 4 / 6, the double buffers ([sound.md](sound.md)) |
 | `plat_lib.c` | libgraph (`sceGsSyncV` waits for the next VBlank; `sceGsResetGraph`, `sceGsSetDefDBuff`, `sceGsSetDefDispEnv`, `sceGsPutDispEnv`, `sceGsSwapDBuff` build the environments and write the GS), libmc (no card), movie skip, a cache call |
 | `plat_pad.c` | libpad / libmtap: two DualShock 2 pads on ports 0 and 1, no multitap, the per-VBlank latch, `TTT_INPUT_PLAY` / `TTT_INPUT_RECORD`, `TTT_SELFTEST=pad` ([Input](#input)) |
 | `gs_core.c` | GS: GIF paths (PACKED / REGLIST / IMAGE), registers, 4 MB GS memory with its layout, CLUT buffer, the software reference rasteriser, the frame dump, `TTT_SELFTEST=gs` |
@@ -222,7 +225,7 @@ wait loops drive the hardware.
 | `plat_pkt.c` | libpkt: VIF1 and GIF packet builders |
 | `plat_vu0.c` | libvu0 in C (column-major matrices; `func_0034A868` is `sceVu0Normalize`) |
 | `plat_main.c` | `TTT_SELFTEST=pad`, opens the window (on the host stack), then runs the game's `main` on the EE stack |
-| `plat_window.c` | The SDL3 window: SDL loaded at run time, its own thread, the GL context ([Window](#window)), `TTT_SELFTEST=window` |
+| `plat_window.c` | The SDL3 window: SDL loaded at run time, its own thread, the GL context ([Window](#window)), the audio stream, `TTT_SELFTEST=window` |
 | `gs_gl.c` | The GS's OpenGL 3.3 back end on the window thread ([GL back end](#gl-back-end)) |
 | `gs_async.c` | The GS threads: VIF1 and VU1, then the GIF and the GS front end, beside the game ([Speed](#speed)) |
 | `gs_int.h` | The GS commands and helpers both back ends share |
@@ -257,6 +260,17 @@ wait loops drive the hardware.
   server table of `plat_sys.c` also answers padman, mcserv and mtapman with zeros. A 0x204E read copies the
   archive's sectors (size rounded up to 16 bytes [I]) into EE memory at once and shows status bit 0 for one poll;
   0x2045 reads go into a 2 MB SPU2 RAM image. 0x2058 (movie start) is refused, 0x205A(1) reports file mode.
+- **Sound (T32 batch 1).** RSPU2DRV's commands run on a software SPU2 ([sound.md](sound.md)): the sound effects
+  and voices from the banks in SPU2 RAM, and the BGM stream engine (disc, SPU-resident and EE-memory tracks, the
+  sound queue's play / hold / stop / fades / volume / stereo). Mixed at each VBlank (800.8 frames at 48 kHz) on the
+  game's thread, so what the game reads back is the same on every run; heard through SDL3 in the window, dumped with
+  `TTT_WAV`. The engine now reports a held track ready (status bit 4), which the attract cycle's loading mode waits
+  for: the music starts at VBlank 786 instead of after the stub's 300-frame timeout, the attract cycle runs about
+  300 VBlanks earlier from the frame at 750 on, and the 2551-VBlank run ends with `sbss-hash 0x4a16b393` (with bit 4
+  masked: the old 17 frames, and only `gIopStatus` and the two moved function pointers of gotcha 20 differ).
+  Boot fix: a copy of the program away from the repository found no disc and segfaulted in `func_00345410` (the
+  reads failed silently and the boot ran over unfilled memory); now it looks for `iso/` beside the program too and
+  stops at the first read when there is no disc (`tests/test_port_platform.py`, `ProgramElsewhere`).
 - **Movies.** `func_0039C878` asks `Port_MoviePlayable()` (0 for now) and skips the movie as when the stream engine
   never goes idle.
 
@@ -264,7 +278,7 @@ Switches:
 
 | Variable | Effect |
 |---|---|
-| `TTT_DISC=<dir or .iso>` | The disc: a directory with `TEKKEN.BIN` (as `scripts/setup_disc.py` copies it to `iso/`) or the ISO 9660 image. Default: `iso/` of the repository (next to `build/port/ttt`). Read only. |
+| `TTT_DISC=<dir or .iso>` | The disc: a directory with `TEKKEN.BIN` (as `scripts/setup_disc.py` copies it to `iso/`) or the ISO 9660 image. Default: `iso/` of the repository (`build/port/ttt` -> `../../iso`), else `iso/` beside the program, else `iso/` in the working directory. Read only. Without a disc the program stops at its first read with `ttt: no disc` on stderr and exit code 2. |
 | `TTT_FRAMES=<n>` | Stop after n VBlanks with a report: VBlanks and frames, `modes:` (mode@VBlank of each change), last mode and sub-state, `state:` (seed, `gRngSpin`, a hash of the first 4 KB of `.sbss`, cycles), placeholders hit. Exit code 0. Implies headless. |
 | `TTT_HEADLESS=0/1` | Force the real-time or the headless clock. |
 | `TTT_SEED=<n>` | Pin the boot seed `Rng_Init` takes from Timer 0 (`src/rng_misc.c`, `docs/known_bugs.md` section 8). With the headless clock the seed is already repeatable; this sets its value, and makes real-time runs start alike. |
@@ -297,6 +311,10 @@ Switches:
 | `TTT_INPUT_PLAY=<file>` | The pads' states come from that recording instead of the keyboard and gamepads. |
 | `TTT_INPUT_RECORD=<file>` | Write the pads' states latched at each VBlank to that file (a line per change). |
 | `TTT_SELFTEST=pad` | The recording's line format, libpad's read data and the answers of the game's pad set-up sequence (`tests/test_port_input.py`). |
+| `TTT_WAV=<file>` | Write the run's sound as a 48 kHz 16-bit stereo WAV (headless runs too; the header is finished at the `TTT_FRAMES` report). Put it outside the repository: the sound is the game's ([sound.md](sound.md)). |
+| `TTT_AUDIO=0` | The window opens no audio device (default: SDL's default playback device; `SDL_AUDIO_DRIVER=dummy` / `disk` for tests). |
+| `TTT_SND_TRACE=1` | Print every sound command with its VBlank (and the struct of the 0x7xxx sets). |
+| `TTT_SELFTEST=spu` | The SPU2 model on synthetic ADPCM blocks: decoder, loop flags, key status, pitch, ADSR, a deterministic mix (`tests/test_port_sound.py`). |
 
 ## GS path
 
@@ -916,4 +934,4 @@ skinning are the limits now ([Speed](#speed)); T31's native replacements. libgra
 seven Tekken Bowl m2c drafts around VU0 code (`portsrc.REPLACED`, still placeholders: not reached by the attract
 demo); the libm PCSX2 run; the other game types after the character select (VS, team, survival: the same step
 function, not checked frame by frame) and the leftover-register calls of gotcha 23 off the fight's path; the multitap,
-vibration and rebinding; memory cards, sound (RSPU2DRV) and movies.
+vibration and rebinding; memory cards and movies (with their audio, [sound.md](sound.md)).

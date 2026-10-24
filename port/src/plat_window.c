@@ -105,6 +105,13 @@ static struct {
     _Bool (*GL_SwapWindow)(void *window);
     _Bool (*GL_DestroyContext)(void *context);
     _Bool (*GetWindowSizeInPixels)(void *window, int *w, int *h);
+    /* audio (optional: without them the window is silent) */
+    _Bool (*InitSubSystem)(uint32_t flags);
+    void *(*OpenAudioDeviceStream)(uint32_t device, const void *spec, void *callback, void *userdata);
+    _Bool (*ResumeAudioStreamDevice)(void *stream);
+    _Bool (*PutAudioStreamData)(void *stream, const void *buf, int len);
+    int (*GetAudioStreamQueued)(void *stream);
+    void (*DestroyAudioStream)(void *stream);
 } sdl;
 
 static const struct {
@@ -129,6 +136,16 @@ static const struct {
 #undef F
 };
 static int sHaveGlFuncs;
+static const struct {
+    const char *name;
+    size_t offset;
+} kSdlAudioFuncs[] = {
+#define F(n) {"SDL_" #n, offsetof(__typeof__(sdl), n)}
+    F(InitSubSystem), F(OpenAudioDeviceStream), F(ResumeAudioStreamDevice), F(PutAudioStreamData),
+    F(GetAudioStreamQueued), F(DestroyAudioStream),
+#undef F
+};
+static int sHaveAudioFuncs;
 
 /* The frame handed over: the newest picture, taken by the window thread. */
 static pthread_mutex_t sLock = PTHREAD_MUTEX_INITIALIZER;
@@ -301,6 +318,12 @@ static int sdl_load(void) {
         sHaveGlFuncs &= f != NULL;
         memcpy((char *)&sdl + kSdlGlFuncs[i].offset, &f, sizeof f);
     }
+    sHaveAudioFuncs = 1;
+    for (i = 0; i < sizeof kSdlAudioFuncs / sizeof kSdlAudioFuncs[0]; i++) {
+        void *f = dlsym(h, kSdlAudioFuncs[i].name);
+        sHaveAudioFuncs &= f != NULL;
+        memcpy((char *)&sdl + kSdlAudioFuncs[i].offset, &f, sizeof f);
+    }
     return 1;
 }
 
@@ -320,8 +343,55 @@ static int quit_event(uint32_t type, const uint8_t *ev) {
            (type == SDL_EVENT_KEY_DOWN && (key == SDLK_ESCAPE || sc == SDL_SCANCODE_ESCAPE));
 }
 
+/* ---- sound (T32): the frames plat_snd.c mixes at each VBlank, from its ring into an SDL audio stream ---- */
+#define SDL_INIT_AUDIO 0x10u
+#define SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK 0xFFFFFFFFu
+#define SDL_AUDIO_S16LE 0x8010
+#define AUDIO_MAX_QUEUED (48000 / 10 * 4) /* bytes queued in SDL: 0.1 s; more and the ring's backlog is dropped */
+int Port_SndRingRead(int16_t *out, int max); /* plat_snd.c */
+void Port_SndRingEnable(int on);
+static void *sAudio;
+
+/* Opens the default playback device (48 kHz, 16-bit stereo) unless TTT_AUDIO=0; without it the window is silent. */
+static void audio_open(void) {
+    const char *e = getenv("TTT_AUDIO");
+    struct {
+        int format, channels, freq;
+    } spec = { SDL_AUDIO_S16LE, 2, 48000 };
+    if ((e != NULL && atoi(e) == 0) || !sHaveAudioFuncs) {
+        return;
+    }
+    if (!sdl.InitSubSystem(SDL_INIT_AUDIO) ||
+        (sAudio = sdl.OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL)) == NULL) {
+        printf("ttt: window: no sound (%s)\n", sdl.GetError());
+        return;
+    }
+    sdl.ResumeAudioStreamDevice(sAudio);
+    Port_SndRingEnable(1);
+}
+
+/* Moves the mixed frames to the device; keeps at most AUDIO_MAX_QUEUED bytes waiting there (the game's pace is the
+   platform clock's, the device's a little different: the excess is dropped rather than heard later and later). */
+static void audio_pump(void) {
+    static int16_t buf[2 * 1024];
+    int n;
+    if (sAudio == NULL) {
+        return;
+    }
+    while ((n = Port_SndRingRead(buf, 1024)) > 0) {
+        if (sdl.GetAudioStreamQueued(sAudio) < AUDIO_MAX_QUEUED) {
+            sdl.PutAudioStreamData(sAudio, buf, n * 4);
+        }
+    }
+}
+
 /* The window's objects, released on the window thread (GL contexts and renderers belong to it). */
 static void release(void) {
+    if (sAudio != NULL) {
+        Port_SndRingEnable(0);
+        sdl.DestroyAudioStream(sAudio);
+        sAudio = NULL;
+    }
     if (sGlContext != NULL) {
         sdl.GL_MakeCurrent(sWindow, NULL);
         sdl.GL_DestroyContext(sGlContext);
@@ -419,6 +489,7 @@ static void *window_main(void *arg) {
         return NULL;
     }
     v = sdl.GetVersion();
+    audio_open();
     if (rs != NULL && strcmp(rs, "sw") != 0 && strcmp(rs, "gl") != 0) {
         printf("ttt: window: TTT_RENDERER=%s unknown (gl or sw): gl\n", rs);
     }
@@ -440,6 +511,7 @@ static void *window_main(void *arg) {
                 if (quit_requested()) {
                     return NULL;
                 }
+                audio_pump();
             }
             Gs_GlPump(4);
         }
@@ -464,6 +536,7 @@ static void *window_main(void *arg) {
         if (quit_requested()) {
             return NULL;
         }
+        audio_pump();
         pthread_mutex_lock(&sLock);
         if (sSeq == seen) { /* nothing new: wait for a frame, at most 10 ms (the events) */
             struct timespec ts;
