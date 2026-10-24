@@ -169,6 +169,19 @@ class Fight(unittest.TestCase):
         self.assertNotEqual(peek(a, FIGHTER0), peek(idle, FIGHTER0))
         self.assertNotEqual(state(a), state(idle))
 
+    def test_stages_of_other_seeds(self):
+        """The boot seed picks the stage: seed 3 the lanes stage (func_003D5B58 hung in its placement loop, then
+        func_003D5E80 crashed in Model_QueueDraw), 9 the stage whose func_003D43A8 got its pointer as a float, 32 a
+        stage with func_003E6DA0's particles (func_003E6B10 wrote at EE address 0). Each reaches round 1."""
+        for seed in ("3", "9", "32"):
+            with self.subTest(seed=seed), tempfile.TemporaryDirectory() as d:
+                p = Path(d) / "in.txt"
+                p.write_text(stream(*TO_THE_FIGHT, *IN_THE_FIGHT))
+                r = run_ttt(timeout=900, TTT_FRAMES=self.FRAMES, TTT_SEED=seed, TTT_INPUT_PLAY=str(p),
+                            TTT_PEEK=MODE)
+                self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
+                self.assertEqual(peek(r, MODE), [0x00080004])
+
 
 if __name__ == "__main__":
     unittest.main()

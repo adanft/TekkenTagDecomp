@@ -456,7 +456,7 @@ f32 func_00366EC8(void);
 void Mtx_Unit(Vu0Matrix m); /* unit matrix */
 void func_003D1B48(StgObj *o, f32 *pos);
 void func_003D10D0(s32 i, Vu0Matrix m, f32 s);
-void Model_QueueDraw(Unk5F6780Ent *e, s32 a, s32 n, s32 b, f32 s, f32 d);
+void Model_QueueDraw(Unk5F6780Ent *e, s32 res, s32 kind, f32 scale, s32 list, f32 depth);
 void Model_GetMatrix(Vu0Matrix m); /* copies the model's root matrix (D_01FAD6D0) */
 void func_0034A868(f32 *v0, f32 *v1); /* normalises a vector [I] */
 s32 func_00375930(u16 left, u16 right);
@@ -1563,7 +1563,7 @@ void func_003D52B0(StgObj *o) {
                 } else {
                     f *= 0.5f;
                 }
-                Model_QueueDraw(&e, list[n]->unk38, 4, list[n]->unk10, f, D_005F6780->ref[i].dist);
+                Model_QueueDraw(&e, list[n]->unk38, 4, f, list[n]->unk10, D_005F6780->ref[i].dist);
             }
         }
     }
@@ -1744,7 +1744,8 @@ INCLUDE_RODATA("asm/nonmatchings/model_anim_b", jtbl_00521BD0);
 #if 0
 /* NON_MATCHING: 69 loop 3 addresses: compiler hoists &row[0].item (wk + 12) as an invariant, original recomputes row + 12 */
 /* Sets up the lanes stage: 40 parts copied from templates 0, 8 and 9, ten lanes with a position and a random speed
- * (either way), and each part put at a random free place of a random lane (4000 apart) [I]. */
+ * (either way), and each part put at a random free place of a random lane (z in (-20000, 20000], 4000 apart; at
+ * most one of a lane near z = 20000) [I]. */
 void func_003D5B58(StgObj *o) {
     V4q v = D_00521BC0;
     struct Unk444CD0Rw *wk = &D_00444CD0.rw;
@@ -1794,7 +1795,7 @@ void func_003D5B58(StgObj *o) {
         if (wk->row[k].count >= 20) {
             i--;
         } else {
-            list[i]->pos[2] = 20000.0f - func_003D8128() * 5000.0f;
+            list[i]->pos[2] = 20000.0f - func_003D8128() * 40000.0f;
             for (j = 0; j < wk->row[k].count; j++) {
                 z = list[i]->pos[2];
                 if (fabsf(wk->row[k].item[j]->pos[2] - z) < 4000.0f) {
@@ -1893,7 +1894,7 @@ void func_003D5E80(StgObj *o) {
             } else if (f < 0.0f) {
                 f = 0.0f;
             }
-            Model_QueueDraw(&e, list[n]->unk38, 4, list[n]->unk10, f, D_005F6780->ref[i].dist);
+            Model_QueueDraw(&e, list[n]->unk38, 4, f, list[n]->unk10, D_005F6780->ref[i].dist);
         }
     }
 }

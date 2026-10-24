@@ -639,7 +639,7 @@ void func_00340B30(f32 *dir, f32 *p, f32 *out);
 s32 func_003408B0(f32 (*m)[4], f32 (*out)[4]);
 s32 func_00340408(f32 (*v)[4], f32 *out);
 s32 func_00340AF0(f32 x0, f32 y0, f32 radius, f32 x1, f32 y1);
-void func_003D43A8(f32 a, f32 b, f32 *v);
+void func_003D43A8(f32 *pos, f32 scale, f32 off);
 void func_003E13C8(f32 x);
 void func_00340DF8(void);
 extern f32 D_00433400[4][4];
@@ -781,7 +781,7 @@ void func_00341218(void) {
     }
     if (D_005F6780->unk2 == 1) {
         alpha = 3.3333333f;
-        func_003D43A8(120.0f, 200.0f, cam);
+        func_003D43A8(cam, 120.0f, 200.0f);
         func_003E13C8(D_005F6780->unk24);
         sceVu0CopyMatrix(base[0], D_0046AF50[0]);
         sceVu0CopyMatrix(base[1], D_0046AF50[1]);

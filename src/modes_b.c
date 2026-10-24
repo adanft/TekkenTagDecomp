@@ -70,7 +70,7 @@ s32 func_003BB4D8(void);
 void func_003BB4E8(MbQuad *q, u16 *alpha, s32 unused);
 void func_003BB680(MbQuad *q, s32 z, s32 unused);
 void func_003BB7F0(s32 kind, s32 x, s32 y, s32 id);
-void func_003BB890(s32 which);
+void func_003BB890(s32 which, s32 x, s32 y, s32 c);
 void func_003BB8B0(s32 v);
 s32 func_003BB8B8(s32 d, s32 lim);
 void func_003BB8E8(s32 i);
@@ -442,11 +442,12 @@ void func_003BB7F0(s32 kind, s32 x, s32 y, s32 id) {
     Sprite_Draw(1, kind != 0 ? 0x82 : 0x81, tex, x, y);
     D_005F6730 = save;
 }
-void func_003BB890(s32 which) {
+/* A selection arrow ("%H%V%c}" or "%H%V%c{") at x, y in colour c; every caller passes all four. */
+void func_003BB890(s32 which, s32 x, s32 y, s32 c) {
     if (which != 0) {
-        Text_Printf(D_005F6518);
+        Text_Printf(D_005F6518, x, y, c);
     } else {
-        Text_Printf(D_005F6520);
+        Text_Printf(D_005F6520, x, y, c);
     }
 }
 void func_003BB8B0(s32 v) {

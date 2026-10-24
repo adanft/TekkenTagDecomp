@@ -578,14 +578,34 @@ throttles the whole slice when hot, so wall times move by 10-20% between runs; C
     likely an exit handler of a library `SDL_Quit` was unloading). The report now waits up to 30 s, and a run with a
     window ends with `_exit` after flushing (`Port_WindowExit`; the port registers no exit handlers): 16 of 16 8x
     fight runs exit cleanly (4 of 8 crashed before).
-  - Open, real time only (the spin generator, and so the stage and its effects, vary from run to run there):
-    - Once in 12 runs of the `RealTime` test the program crashed during the stage load in `func_003E6B10`
-      (src/gallery_jpeg.c, a `#if 1` m2c draft marked "not tuned", reached through `func_003E7210` from
-      `func_00367938`): it calls `func_003E6AA8(0)` where the original (asm line `jal func_003E6AA8` with `$a0`
-      unchanged) passes its packet pointer, so `func_003E6AB0` writes through a null pointer; it also declares
-      `f32 rand()`. Using the original (`#if 0`) or fixing both would remove it; src/ was outside this batch.
-    - Once, a pre-fix real-time run (its replay out of step, so another stage) hung in the lanes stage set-up
-      `func_003D5B58` (the original code: a random placement loop with no polls inside it); not reproduced since.
+  - Stage drafts (T38 batch 1). The stage depends on the boot seed (the spin generator in real time, so it varies
+    from run to run there; `TTT_SEED` pins it headless). Running the scripted fight headless with `TTT_SEED=1..32`
+    found every failure the real-time runs had shown, now repeatable:
+    - Lanes stage (seeds 3, 5 and 19 with these fixes): the draft of `func_003D5B58` (src/model_anim_b.c) placed the 40 parts at
+      `z = 20000 - r * 5000` where the original scales by 40000 (`D_005F5474`). Parts of a lane must be 4000 apart
+      and only one may lie within 4000 of z = 20000, so a 5000-wide band holds two parts per lane: 20 places for 40
+      parts, and the placement loop (no polls inside) never ends. The draft of `func_003D5E80` then passed
+      `Model_QueueDraw` its list number where the scale goes (prototype `(.., s32, f32, ..)` written in EE register
+      order, int and float arguments interleaved differently): a SIGSEGV in `Model_QueueDraw`.
+    - Seeds 9, 13, 23, 25: `func_00341218` (src/render_fighter_a.c) declared `func_003D43A8(f32, f32, f32 *)`
+      and called it with the pointer last; the definition takes `(f32 *pos, f32 scale, f32 off)`. On the EE both
+      put the pointer in `$a0` and the floats in `$f12` / `$f13`, so the matching build is the same; on the PC the
+      pointer arrived as 120.0f. Fixed in the prototype and the call (SHA-1 kept). Seed 32 reaches the next item.
+    - `func_003E6B10` (src/gallery_jpeg.c, reached through `func_003E7210` from `func_00367938` when
+      `D_005F5CB6` is 2, 19 or 22) called `func_003E6AA8(0)` where the original passes its packet pointer, so `func_003E6AB0` wrote its
+      UNPACK code at EE address 0; it also missed its second float argument (`$f13`, the particles' height) and
+      declared `f32 rand()`. Its caller `func_003E6DA0` (byte offsets applied to `s32 *`, float constants converted
+      to integers) and the per-frame `func_003E7270` (wrong emitter constants, a null DMA source) were rough m2c
+      drafts too; the three are now written from the asm. `TTT_DIFF` with temporary hooks (seed 32, VBlanks 617 and
+      620) finds `func_003E7210` (so `func_003E6DA0` and `func_003E6B10`, rand calls included) equal to the
+      original; `func_003E7270` differs only in the fromSPR ring buffer, where the check's second transfer
+      (`func_00343178` runs on both sides) puts the same packet 0x160 bytes further on. `Mode_Gallery`'s calls were checked against the asm
+      (depth 0xFFFF and the fade alphas of `func_003DBCF0`, the YES / NO colours, a 32-bit overflow in the
+      BITBLTBUF word, `func_00399820` takes two arguments), and `func_003BB890` (src/modes_b.c) now passes the x,
+      y and colour every caller gives it to its `Text_Printf` (SHA-1 kept).
+    - Prototypes of one function that differ between files are the common cause: the EE ABI hides a different
+      order of int and float arguments, and a missing argument only reads a leftover register there.
+    - The `RealTime` test passes 12 of 12 runs with these fixes (1 of 12 failed before, in `func_003E6B10`).
 
 ## Window
 

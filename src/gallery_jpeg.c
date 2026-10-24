@@ -75,7 +75,7 @@ u32 func_0035EA90(void);
 s32 func_0035EA08(s32 slot);
 s32 Jpeg_DecodeBegin(u8 *a, s32 b, s32 c);
 s32 Jpeg_DecodeStrip(void);
-void func_00399820(u64 *p, s32 qwc, u64 a, s32 b);
+void func_00399820(const void *addr, s32 n);
 u64 *func_00399520(void);
 void func_00399650(u64 *p);
 void func_003BB890(s32 a, s32 x, s32 y, s32 b);
@@ -83,7 +83,7 @@ s32 func_003E5980(s32 x, s32 y, s32 a);
 s32 Text_DrawId(s32, s32, s32, s32);
 s32 func_003E6DA0(s32, s32);
 s32 func_003E7210(s32);
-u32 *func_003E6B10(f32, u32 *);
+u32 *func_003E6B10(u32 *p, f32 spread, f32 y);
 void func_003E7270(void *m);
 void Jpeg_DecodeMcu(void);
 void Jpeg_YccToRgb(s32, s32);
@@ -243,7 +243,7 @@ INCLUDE_RODATA("asm/nonmatchings/gallery_jpeg", D_00523488);
 INCLUDE_RODATA("asm/nonmatchings/gallery_jpeg", D_00523498);
 INCLUDE_RODATA("asm/nonmatchings/gallery_jpeg", jtbl_005234B0);
 #if 0
-/* NON_MATCHING: 829 lines: readable draft of the 16 states (cases 8/9 and 12/13 merged, some Text_Printf / func_003DBCF0 arguments guessed); the C emits its own jump table, so jtbl_005234B0 must go when it is enabled */
+/* NON_MATCHING: 829 lines: readable draft of the 16 states (cases 8/9 and 12/13 merged; call arguments checked against the asm); the C emits its own jump table, so jtbl_005234B0 must go when it is enabled */
 void Mode_Gallery(void) {
     char buf[64];
     s32 base;
@@ -293,7 +293,7 @@ void Mode_Gallery(void) {
         } else {
             D_01FC4A90.unk4--;
             Gallery_DrawList(0);
-            func_003DBCF0(0, 0, 640, 448, 0xFFFE, D_01FC4A90.unk4 * 16);
+            func_003DBCF0(0, 0, 640, 448, 0xFFFF, D_01FC4A90.unk4 * 16);
         }
         trg = D_005F5CE0;
         if (trg == 0x8000) {
@@ -365,7 +365,7 @@ void Mode_Gallery(void) {
     case 3:
         if (++D_01FC4A90.unk4 < 7) {
             Gallery_DrawList(0);
-            func_003DBCF0(0, 0, 640, 448, 0xFFFE, D_01FC4A90.unk4 * 16);
+            func_003DBCF0(0, 0, 640, 448, 0xFFFF, D_01FC4A90.unk4 * 21 + 2);
             func_003DEB80(0);
             Text_DrawId(320 - Text_Width(0x52) / 2, 180, 0x52, 0x40404080);
             Text_DrawId(320 - Text_Width(0x53) / 2, 208, 0x53, 0x40404080);
@@ -403,7 +403,7 @@ void Mode_Gallery(void) {
         p = (u64 *)base;
         p[0] = 0x1000000000008004;
         p[1] = 0xE;
-        p[2] = (u64)((0x010A2300 << 16) | 0x10A) << 16;
+        p[2] = (((u64)0x010A2300 << 16) | 0x10A) << 16;
         p[3] = 0x50;
         p[4] = (u64)(D_01FC4A90.unk4 * 224) << 48;
         p[5] = 0x51;
@@ -413,7 +413,7 @@ void Mode_Gallery(void) {
         p[9] = 0x53;
         p[10] = 0x080000000000E900;
         p[11] = 0;
-        func_00399820(p, 0x6906, 0xE000000280, 0x53);
+        func_00399820(p, 0x6906);
         p = func_00399520();
         *p++ = 0x1000000000008001;
         *p++ = 0xE;
@@ -452,20 +452,36 @@ void Mode_Gallery(void) {
         break;
     case 8:
     case 9:
+        /* State 8 fades the box in (alpha taken before the step) and draws the texts before YES / NO; state 9
+         * draws YES / NO and the arrow first. */
         if (D_01FC4A90.unk0 == 8) {
             Gallery_DrawList(0);
+            a = D_01FC4A90.unk4 * 21 + 2;
+            if (a > 0x80) {
+                a = 0x80;
+            }
             if (D_01FC4A90.unk4 < 1000) {
                 D_01FC4A90.unk4++;
             }
+        } else {
+            a = 0x80;
         }
-        func_003DBCF0(0, 0, 640, 448, 0xFFFE, 0x60);
+        func_003DBCF0(0, 0, 640, 448, 0xFFFF, a);
+        if (D_01FC4A90.unk0 == 9) {
+            Text_Printf(D_00523498, 204, 246, 10, 8, D_01FC4A90.unkA == 1 ? 0xB : 0x16,
+                        D_01FC4A90.unkA == 0 ? 0xB : 0x16);
+            func_003BB890(D_01FC4A90.unkA != 1, 317, 256, 5);
+        }
         func_003DEB80(0);
         Text_DrawId(320 - Text_Width(0xC2) / 2, 170, 0xC2, 0x40404080);
         Text_DrawId(320 - Text_Width(0xC3) / 2, 190, 0xC3, 0x40404080);
         sprintf(buf, D_00523408, D_01FC4A90.unk2 + 1);
         Text_Printf(D_00523488, 210, 164, 10, 4, 5, buf);
-        Text_Printf(D_00523498, 204, 246, 10, 4, 5, 0x3F);
-        func_003BB890(D_01FC4A90.unkA != 1, 317, 256, 5);
+        if (D_01FC4A90.unk0 == 8) {
+            Text_Printf(D_00523498, 204, 246, 10, 8, D_01FC4A90.unkA == 1 ? 0xB : 0x16,
+                        D_01FC4A90.unkA == 0 ? 0xB : 0x16);
+            func_003BB890(D_01FC4A90.unkA != 1, 317, 256, 5);
+        }
         if (D_01FC4A90.unk0 == 8) {
             if (D_005F5CDC & 0xA000) {
                 Snd_PlaySe(3, 0);
@@ -528,12 +544,12 @@ void Mode_Gallery(void) {
     case 12:
     case 13:
         func_003992C8(0);
-        func_003DBCF0(0, 0, 640, 448, 0xFFFE, 0x60);
+        func_003DBCF0(0, 0, 640, 448, 0xFFFF, 0x80);
         func_003DEB80(0);
         if (D_01FC4A90.unk0 == 12) {
             Text_DrawId(320 - Text_Width(0xBF) / 2, 180, 0xBF, 0x40404080);
             sprintf(buf, D_00523408, D_01FC4A90.unk2 + 1);
-            Text_Printf(D_00523488, 206, 172, 10, 4, 5, buf);
+            Text_Printf(D_00523488, 206, 172, 10, 4, 0x13, buf);
             Text_DrawId(320 - Text_Width(0xC0) / 2, 180, 0xC0, 0x40404080);
             Text_DrawId(320 - Text_Width(0xC1) / 2, 208, 0xC1, 0x40404080);
         } else {
@@ -549,10 +565,14 @@ void Mode_Gallery(void) {
         func_003992C8(0);
         func_003C4868();
         func_003DEB80(0);
+        a = D_01FC4A90.unk4 * 16;
+        if (a > 0x80) {
+            a = 0x80;
+        }
         if (D_01FC4A90.unk4 < 1000) {
             D_01FC4A90.unk4++;
         }
-        func_003DBCF0(0, 0, 640, 448, 0xFFFE, 0x60);
+        func_003DBCF0(0, 0, 640, 448, 0xFFFF, a);
         if (D_01FC4A90.unk4 >= 9) {
             func_003E5980(50, 80, 0x58585880);
         }
@@ -596,73 +616,60 @@ void func_003E6AB0(u32 *end, s32 eop, s32 qwc) {
 LIT4_WORD(D_005F58DC, 0x40490FDB);
 LIT4_WORD(D_005F58E0, 0x461C4000);
 #if 0
-/* NON_MATCHING: rough m2c-based draft (8 random particles per packet with rand / cosf), not tuned */
-#define M32(p, o) (*(s32 *)((u8 *)(p) + (o)))
+/* NON_MATCHING: written from the asm, not tuned. Eight random particles (0x20 bytes of halfwords each) after the
+ * VIF code word at p, closed by an UNPACK code: x / z spread over +/-spread / 2, height y, a direction and a speed
+ * of up to 12 (x16) in the x-y plane, then a random phase below 0x100 (0x200 when spread > 10000). */
 f32 cosf(f32);
-f32 rand();
-u32 *func_003E6B10(f32 arg1, u32 *arg0_) {
-    u8 spbuf[0x400];
-    s32 arg0 = (s32)arg0_;
-    f32 temp_f0;
-    f32 temp_f1;
-    f32 temp_f20;
-    f32 temp_f21;
-    f32 temp_f25;
-    f32 var_v0;
-    s16 var_v0_2;
-    s16 var_v1;
-    s32 var_s3;
-    u8 *var_s0;
-    u8 *var_s2;
+f32 sqrtf(f32);
+int rand(void);
+u32 *func_003E6B10(u32 *p, f32 spread, f32 y) {
+    s16 *q;
+    u32 *end;
+    f32 a, r, c, s;
+    s32 i;
 
-    var_s2 = arg0 + 4;
-    var_s3 = 0;
-    var_s0 = var_s2;
-    func_003E6AA8((u32 *)(0));
-    temp_f25 = 3.14159274f;
+    q = (s16 *)(p + 1);
+    end = p + 1;
+    func_003E6AA8(p);
+    i = 0;
     do {
-        M32(var_s0, 0x2) = (s16) rand();
-        M32(var_s0, 0x0) = (s16) 0;
-        temp_f0 = (f32) ((s32) rand() & 0xFFFFFF);
-        M32(var_s0, 0x6) = 1;
-        M32(var_s0, 0x4) = (s16) 0;
-        temp_f21 = (2.0f * ((f32) ((s32) rand() & 0xFFFFFF) * 5.9604645e-8f) * temp_f25) - temp_f25;
-        temp_f20 = (f32) ((s32) rand() & 0xFFFFFF) * 5.9604645e-8f * 12.0f;
-        temp_f1 = cosf(temp_f21);
-        M32(var_s0, 0x8) = (s16) 0;
-        M32(var_s0, 0xA) = -0x181;
-        if (temp_f21 > 0.0f) {
-            0;
-            var_v0 = temp_f1;
+        q[0] = (s32)(spread * ((f32)(rand() & 0xFFFFFF) * 5.9604645e-8f - 0.5f));
+        q[1] = (s32)y;
+        q[2] = (s32)(spread * ((f32)(rand() & 0xFFFFFF) * 5.9604645e-8f - 0.5f));
+        q[3] = 1;
+        a = (f32)(rand() & 0xFFFFFF) * 5.9604645e-8f;
+        a = (a + a) * 3.14159274f - 3.14159274f;
+        r = (f32)(rand() & 0xFFFFFF) * 5.9604645e-8f * 12.0f;
+        c = cosf(a);
+        q[4] = (s32)(r * c * 16.0f);
+        q[5] = -0x181;
+        s = sqrtf(1.0f - c * c);
+        if (a > 0.0f) {
+            q[6] = (s32)(r * s * 16.0f);
         } else {
-            0;
-            var_v0 = 1.0f - (temp_f1 * temp_f1);
+            q[6] = (s32)(-r * s * 16.0f);
         }
-        M32(var_s0, 0xC) = (s16) var_v0;
-        M32(var_s0, 0xE) = 0;
-        M32(var_s0, 0x10) = 0x5DC0;
-        M32(var_s0, 0x12) = 0x5DC0;
-        if (10000.0f < arg0) {
-            var_v0_2 = (s32) rand() & 0x1FF;
-            var_v1 = 0x200;
+        q[7] = 0;
+        q[8] = 0x5DC0;
+        q[9] = 0x5DC0;
+        if (spread > 10000.0f) {
+            q[10] = rand() & 0x1FF;
+            q[11] = 0x200;
         } else {
-            var_v0_2 = (s32) rand() & 0xFF;
-            var_v1 = 0x100;
+            q[10] = rand() & 0xFF;
+            q[11] = 0x100;
         }
-        M32(var_s0, 0x14) = var_v0_2;
-        M32(var_s0, 0x16) = var_v1;
-        M32(var_s0, 0x18) = 0;
-        var_s3 += 1;
-        M32(var_s0, 0x1A) = 0;
-        var_s2 += 0x20;
-        M32(var_s0, 0x1C) = 0;
-        M32(var_s0, 0x1E) = 0;
-        var_s0 += 0x20;
-    } while (var_s3 < 8);
-    func_003E6AB0((u32 *)(var_s2), 1, 0);
-    return var_s2;
+        q[12] = 0;
+        q[13] = 0;
+        q[14] = 0;
+        q[15] = 0;
+        i++;
+        end += 8;
+        q += 16;
+    } while (i < 8);
+    func_003E6AB0(end, 1, 0);
+    return end;
 }
-#undef M32
 #else
 INCLUDE_ASM("asm/nonmatchings/gallery_jpeg", func_003E6B10);
 #endif
@@ -682,217 +689,167 @@ LIT4_WORD(D_005F5910, 0x453B8000);
 LIT4_WORD(D_005F5914, 0x45BB8000);
 LIT4_WORD(D_005F5918, 0x45BB8000);
 #if 0
-/* NON_MATCHING: rough m2c-based draft (VU1 particle packet set-up), not tuned */
-#define M32(p, o) (*(s32 *)((u8 *)(p) + (o)))
-u8 *func_00343F08();
-u32 *func_003E6B10(f32, u32 *);
+/* NON_MATCHING: written from the asm, not tuned. Builds the VIF1 packet of the VU1 particle program
+ * (src/vu1/sprites.vsm) at p: a GIF tag and register list, the program's constants, five unit matrices, then
+ * `big ? 130 : 5` batches of 8 far particles (MSCAL 0x708, then MSCNT) and `big ? 70 : 2` batches of near ones,
+ * padded with zero words. Records the blocks func_003E7270 updates every frame and returns the size in
+ * quadwords. */
+u8 *func_00343F08(s32 i);
 extern s32 D_005F706C;
 extern s32 D_005F7070;
-extern u8 *D_005F7074;
-extern u8 *D_005F7078;
-extern s32 *D_005F707C;
-extern u8 *D_005F7080;
-extern s32 *D_005F7084;
-extern u8 *D_005F7088;
-s32 func_003E6DA0(s32 arg0_, s32 arg1) {
-    u8 *arg0 = (u8 *)arg0_;
-    u8 spbuf[0x400];
-    f32 temp_f3;
-    f32 temp_f3_2;
-    s32 *temp_s0_10;
-    s32 *temp_s0_11;
-    s32 *temp_s0_4;
-    s32 *temp_s0_5;
-    s32 *temp_s0_6;
-    s32 *temp_s0_7;
-    s32 *temp_s0_8;
-    s32 *temp_s0_9;
-    s32 *temp_t2;
-    s32 *temp_v0;
-    s32 *temp_v0_2;
-    s32 *temp_v0_3;
-    s32 *temp_v0_4;
-    s32 *temp_v0_5;
-    s32 *temp_v0_6;
-    s32 *temp_v1_2;
-    s32 *var_s0;
-    s32 *var_s0_2;
-    s32 temp_v1;
-    s32 var_s2_6;
-    s32 var_v1;
-    u32 var_s2;
-    u32 var_s2_2;
-    u32 var_s2_3;
-    u32 var_s2_4;
-    u32 var_s2_5;
-    u32 var_s4;
-    u32 var_s5;
-    u8 *temp_s0;
-    u8 *temp_s0_2;
-    u8 *temp_s0_3;
-    u8 *var_a0;
+extern u32 *D_005F7074;
+extern f32 *D_005F7078;
+extern f32 *D_005F707C;
+extern u32 *D_005F7080;
+extern u32 *D_005F7084;
+extern f32 *D_005F7088;
+s32 func_003E6DA0(s32 arg0, s32 big) {
+    u32 *base = (u32 *)arg0;
+    u32 *p;
+    f32 *m;
+    u32 far, near;
+    u32 i;
+    s32 size;
 
-    if (arg1 != 0) {
-        var_s4 = 0x82;
-        var_s5 = 0x46;
+    if (big != 0) {
+        far = 0x82;
+        near = 0x46;
     } else {
-        var_s4 = 5;
-        var_s5 = 2;
+        far = 5;
+        near = 2;
     }
-    M32(arg0, 0x8) = 0;
-    M32(arg0, 0x0) = 0x11000000;
-    M32(arg0, 0x4) = 0x01000404;
-    func_003E6AA8((u32 *)(arg0 + 0xC));
-    var_s2 = 0;
-    D_005F7074 = arg0 + 0x10;
-    temp_s0 = arg0 + 0x60;
-    M32(arg0, 0x10) = (s64) M32(func_00343F08(6), 0x10);
-    M32(arg0, 0x18) = 6;
-    M32(arg0, 0x20) = 5;
-    M32(arg0, 0x28) = 8;
-    M32(arg0, 0x30) = 0x53005;
-    M32(arg0, 0x38) = 0x47;
-    M32(arg0, 0x40) = 0x44;
-    M32(arg0, 0x48) = 0x42;
-    M32(arg0, 0x58) = 0x80;
-    M32(arg0, 0x5C) = 0x60;
-    M32(arg0, 0x50) = 0x80;
-    M32(arg0, 0x54) = 0x80;
-    D_005F7078 = temp_s0;
-    M32(temp_s0, 0xC) = (f32) 8.37186817e-05f;
-    M32(temp_s0, 0x4) = (f32) 0;
-    M32(arg0, 0x74) = 0x10000000;
-    M32(arg0, 0x78) = 0xE;
-    M32(arg0, 0x80) = 0x8020;
-    M32(arg0, 0x84) = 0x902A4000;
-    M32(arg0, 0x88) = 0x24242421;
-    M32(arg0, 0x8C) = 4;
-    M32(arg0, 0x70) = 4;
-    M32(arg0, 0x7C) = 0;
-    D_005F7080 = arg0 + 0x90;
-    M32(arg0, 0x98) = (f32) 35000.0f;
-    M32(arg0, 0x9C) = (f32) 0;
-    M32(arg0, 0x94) = 0x1FF;
-    D_005F7088 = arg0 + 0xA0;
-    temp_s0_2 = arg0 + 0xE0;
-    M32(temp_s0_2, 0x3C) = 0.0f;
-    M32(temp_s0_2, 0x2C) = 0.0f;
-    temp_f3 = -7000.0f;
-    M32(temp_s0_2, 0x20) = 0.0f;
-    M32(temp_s0_2, 0x1C) = 0.0f;
-    M32(temp_s0_2, 0x14) = 0.0f;
-    M32(temp_s0_2, 0xC) = 0.0f;
-    M32(temp_s0_2, 0x4) = 0.0f;
-    M32(arg0, 0xE0) = 0.0f;
-    M32(temp_s0_2, 0x8) = 1.0f;
-    M32(temp_s0_2, 0x38) = 1.0f;
-    M32(temp_s0_2, 0x34) = 1.0f;
-    M32(temp_s0_2, 0x30) = 1.0f;
-    M32(temp_s0_2, 0x28) = 1.0f;
-    M32(temp_s0_2, 0x24) = 1.0f;
-    M32(temp_s0_2, 0x18) = 1.0f;
-    M32(temp_s0_2, 0x10) = 1.0f;
-    temp_s0_3 = arg0 + 0x120;
-    do {
-        temp_v0 = (var_s2 * 4) + temp_s0_3;
-        var_s2 += 1;
-        *temp_v0 = 0;
-    } while (var_s2 < 0x10U);
-    M32(temp_s0_3, 0x20) = temp_f3;
-    var_s2_2 = 0;
-    M32(arg0, 0x120) = (f32) 7000.0f;
-    M32(temp_s0_3, 0x18) = (f32) 7000.0f;
-    M32(temp_s0_3, 0x38) = temp_f3;
-    var_a0 = arg0 + 0x160;
-    temp_v1_2 = var_a0 + 0xA0;
-    do {
-        M32(var_a0, 0x8) = 1.0f;
-        var_s2_2 += 1;
-        M32(var_a0, 0x0) = 1.0f;
-        M32(var_a0, 0x18) = 0.0f;
-        M32(var_a0, 0xC) = 0.0078125;
-        M32(var_a0, 0x4) = 1.0f;
-        M32(var_a0, 0x1C) = 0.0f;
-        M32(var_a0, 0x14) = 0.0f;
-        var_a0 += 0x20;
-    } while (var_s2_2 < 5U);
-    func_003E6AB0((u32 *)(temp_v1_2), 0, 0);
-    var_s2_3 = 1;
-    M32(temp_v1_2, 0x0) = 0x03000020;
-    M32(temp_v1_2, 0x4) = 0x02000210;
-    temp_v0_2 = func_003E6B10(35000.0f, temp_v1_2 + 4 + 4);
-    *temp_v0_2 = 0x14000708;
-    var_s0 = temp_v0_2 + 4;
-    if (var_s4 > 1U) {
+    base[2] = 0;
+    base[0] = 0x11000000;
+    base[1] = 0x01000404;
+    func_003E6AA8(base + 3);
+    D_005F7074 = base + 4;
+    *(u64 *)(base + 4) = *(u64 *)((u8 *)func_00343F08(6) + 0x10);
+    *(u64 *)(base + 6) = 6;
+    *(u64 *)(base + 8) = 5;
+    *(u64 *)(base + 10) = 8;
+    *(u64 *)(base + 12) = 0x53005;
+    *(u64 *)(base + 14) = 0x47;
+    *(u64 *)(base + 16) = 0x44;
+    *(u64 *)(base + 18) = 0x42;
+    base[22] = 0x80;
+    base[23] = 0x60;
+    base[20] = 0x80;
+    base[21] = 0x80;
+    D_005F7078 = (f32 *)(base + 24);
+    base[27] = 0x38C9539C; /* (f32 words) */
+    base[25] = 0x38AF9220;
+    base[29] = 0x10000000;
+    base[30] = 0xE;
+    base[32] = 0x8020;
+    base[33] = 0x902A4000;
+    base[34] = 0x24242421;
+    base[35] = 4;
+    base[28] = 4;
+    base[31] = 0;
+    D_005F7080 = base + 36;
+    base[38] = 0x37EFACAD;
+    base[39] = 0x4708B800; /* 35000.0f */
+    base[37] = 0x1FF;
+    D_005F7088 = (f32 *)(base + 40);
+    m = (f32 *)(base + 56);
+    m[15] = 0.0f;
+    m[11] = 0.0f;
+    m[8] = 0.0f;
+    m[7] = 0.0f;
+    m[5] = 0.0f;
+    m[3] = 0.0f;
+    m[1] = 0.0f;
+    m[0] = 0.0f;
+    m[2] = 1.0f;
+    m[14] = 1.0f;
+    m[13] = 1.0f;
+    m[12] = 1.0f;
+    m[10] = 1.0f;
+    m[9] = 1.0f;
+    m[6] = 1.0f;
+    m[4] = 1.0f;
+    m = (f32 *)(base + 72);
+    for (i = 0; i < 16; i++) {
+        ((u32 *)m)[i] = 0;
+    }
+    m[8] = -7000.0f;
+    m[0] = 7000.0f;
+    m[6] = 7000.0f;
+    m[14] = -7000.0f;
+    m = (f32 *)(base + 88);
+    for (i = 0; i < 5; i++) {
+        m[2] = 1.0f;
+        m[0] = 1.0f;
+        m[6] = 0.0f;
+        m[4] = 0.0f;
+        m[3] = 1.0f;
+        m[1] = 1.0f;
+        m[7] = 0.0f;
+        m[5] = 0.0f;
+        m += 8;
+    }
+    p = base + 128;
+    func_003E6AB0(p, 0, 0);
+    p[0] = 0x03000020;
+    p++;
+    p[0] = 0x02000210;
+    p = func_003E6B10(p + 1, 35000.0f, 12288.0f);
+    *p++ = 0x14000708;
+    for (i = 1; i < far; i++) {
+        p = func_003E6B10(p, 35000.0f, 12288.0f);
+        *p++ = 0x17000000;
+    }
+    *p++ = 0x10000000;
+    func_003E6AA8(p);
+    p++;
+    D_005F707C = (f32 *)p;
+    p[1] = 0x38FB3339; /* (f32 words) */
+    p[3] = 0x38C9539C;
+    p += 4;
+    func_003E6AB0(p, 0, 5);
+    func_003E6AA8(p);
+    p++;
+    D_005F7084 = p;
+    p++;
+    p[0] = 0xFF;
+    p++;
+    p[0] = 0x392EC33E; /* (f32 word) */
+    p++;
+    ((f32 *)p)[0] = 6000.0f;
+    p++;
+    func_003E6AB0(p, 0, 8);
+    func_003E6AA8(p);
+    p++;
+    m = (f32 *)p;
+    for (i = 0; i < 16; i++) {
+        ((u32 *)m)[i] = 0;
+    }
+    m[8] = -3000.0f;
+    m[0] = 3000.0f;
+    m[6] = 3000.0f;
+    m[14] = -3000.0f;
+    p += 16;
+    func_003E6AB0(p, 0, 0x11);
+    p = func_003E6B10(p, 6000.0f, 6144.0f);
+    *p++ = 0x14000708;
+    for (i = 1; i < near; i++) {
+        p = func_003E6B10(p, 6000.0f, 6144.0f);
+        *p++ = 0x17000000;
+    }
+    i = ((u32)p >> 2) & 3;
+    size = (u8 *)p - (u8 *)base;
+    if (i != 0) {
         do {
-            var_s2_3 += 1;
-            temp_v0_3 = func_003E6B10(35000.0f, var_s0);
-            *temp_v0_3 = 0x17000000;
-            var_s0 = temp_v0_3 + 4;
-        } while (var_s2_3 < var_s4);
+            *p++ = 0;
+            i--;
+        } while (i != 0);
+        size = (u8 *)p - (u8 *)base;
     }
-    var_s2_4 = 0;
-    *var_s0 = 0x10000000;
-    temp_s0_4 = var_s0 + 4;
-    func_003E6AA8((u32 *)(temp_s0_4));
-    temp_s0_5 = temp_s0_4 + 4;
-    D_005F707C = temp_s0_5;
-    M32(temp_s0_5, 0x4) = (f32) 0.000119781536f;
-    M32(temp_s0_5, 0xC) = (f32) 9.60000034e-05f;
-    temp_s0_6 = temp_s0_5 + 0x10;
-    func_003E6AB0((u32 *)(temp_s0_6), 0, 5);
-    func_003E6AA8((u32 *)(temp_s0_6));
-    temp_s0_7 = temp_s0_6 + 4;
-    D_005F7084 = temp_s0_7;
-    temp_s0_8 = temp_s0_7 + 4;
-    M32(temp_s0_7, 0x4) = 0xFF;
-    temp_s0_9 = temp_s0_8 + 4;
-    M32(temp_s0_8, 0x4) = (f32) 0.000166666665f;
-    M32(temp_s0_9, 0x4) = (f32) 6000.0f;
-    temp_s0_10 = temp_s0_9 + 4 + 4;
-    func_003E6AB0((u32 *)(temp_s0_10), 0, 8);
-    func_003E6AA8((u32 *)(temp_s0_10));
-    temp_s0_11 = temp_s0_10 + 4;
-    temp_t2 = temp_s0_11 + 0x40;
-    temp_f3_2 = -3000.0f;
-    do {
-        temp_v0_4 = &temp_s0_11[var_s2_4];
-        var_s2_4 += 1;
-        *temp_v0_4 = 0;
-    } while (var_s2_4 < 0x10U);
-    M32(temp_s0_11, 0x20) = temp_f3_2;
-    M32(temp_s0_10, 0x4) = (f32) 3000.0f;
-    M32(temp_s0_11, 0x18) = (f32) 3000.0f;
-    var_s2_5 = 1;
-    M32(temp_s0_11, 0x38) = temp_f3_2;
-    func_003E6AB0((u32 *)(temp_t2), 0, 0x11);
-    temp_v0_5 = func_003E6B10(6000.0f, temp_t2);
-    *temp_v0_5 = 0x14000708;
-    var_s0_2 = temp_v0_5 + 4;
-    if (var_s5 > 1U) {
-        do {
-            var_s2_5 += 1;
-            temp_v0_6 = func_003E6B10(6000.0f, var_s0_2);
-            *temp_v0_6 = 0x17000000;
-            var_s0_2 = temp_v0_6 + 4;
-        } while (var_s2_5 < var_s5);
-    }
-    var_s2_6 = ((u32) var_s0_2 >> 2) & 3;
-    var_v1 = (u8 *)var_s0_2 - arg0;
-    if (var_s2_6 != 0) {
-        do {
-            *var_s0_2 = 0;
-            var_s2_6 -= 1;
-            var_s0_2 += 4;
-        } while (var_s2_6 != 0);
-        var_v1 = (u8 *)var_s0_2 - arg0;
-    }
-    temp_v1 = var_v1 >> 4;
+    size >>= 4;
     D_005F706C = 0;
-    D_005F7070 = temp_v1;
-    return temp_v1;
+    D_005F7070 = size;
+    return size;
 }
-#undef M32
 #else
 INCLUDE_ASM("asm/nonmatchings/gallery_jpeg", func_003E6DA0);
 #endif
@@ -923,96 +880,83 @@ LIT4_WORD(D_005F5928, 0x38C90FDB);
 LIT4_WORD(D_005F592C, 0x46EA6000);
 LIT4_WORD(D_005F5930, 0x45BB8000);
 #if 0
-/* NON_MATCHING: rough m2c-based draft (per-frame particle matrix and DMA kick), not tuned */
-#define M32(p, o) (*(s32 *)((u8 *)(p) + (o)))
-s32 Dma_Wait();
-s32 FlushCache(s32, s32 *);
-s32 Spr_Setup(s32, s32);
-f32 cosf(f32);
-void func_00343178(s32, s32);
-u8 *func_00343F08();
-void func_00344150();
-void func_003622F8();
-s32 func_003678C8();
-s32 func_003A9698();
-s32 sceVif1PkInit(u8 *, s32);
-s32 sceVif1PkRef(u8 *, s32, s32, s32);
-s32 sceVif1PkSize(u8 *);
-s32 sceVif1PkTerminate(u8 *);
-extern u8 D_00415808[];
+/* NON_MATCHING: written from the asm, not tuned. Per frame: when the particle packet exists (func_003678C8), sets
+ * its GIF register, view matrix and the far / near emitter positions around the camera (angle from D_00415808[1],
+ * position from D_00415808[5] / [7]) and the frame counter, then sends the packet to VIF1 by reference; the counter
+ * advances while the game runs (not paused, not mode 5, D_005F5F10 set). */
+/* VIF1 packet of the SDK (sceVif1Packet). */
+typedef struct {
+    /* 0x0 */ u32 *pCurrent;
+    /* 0x4 */ u32 *pBase;
+    /* 0x8 */ u32 *pDmaTag;
+    /* 0xC */ u32 *pVifCode;
+    /* 0x10 */ u32 pad10[4];
+} Vif1Packet;
+void FlushCache(s32 op);
+u32 Spr_Setup(u32 count, s32 reserved);
+void func_00343178(u32 spr, u32 qwc);
+u32 Dma_Wait(volatile u32 *chan);
+void sceVif1PkInit(Vif1Packet *pk, u32 base);
+void sceVif1PkRef(Vif1Packet *pk, void *addr, u32 size, u32 opt1, u32 opt2, u32 flag);
+void sceVif1PkTerminate(Vif1Packet *pk);
+u32 sceVif1PkSize(Vif1Packet *pk);
+s32 func_003678C8(void);
+void func_00344150(void);
+void func_003622F8(void);
+s32 func_003A9698(void);
+extern s32 D_00415808[];
 extern s32 D_005F5EE0;
 extern s32 D_005F5EE4;
 extern s32 D_005F5F10;
-extern s32 D_005F706C;
-extern s32 D_005F7070;
-extern u8 *D_005F7074;
-extern u8 *D_005F7078;
-extern s32 *D_005F707C;
-extern u8 *D_005F7080;
-extern s32 *D_005F7084;
-extern u8 *D_005F7088;
 extern s16 gMode;
-void func_003E7270(void *arg0_) {
-    u8 spbuf[0x400];
-    s32 arg0 = (s32)arg0_;
-    f32 *temp_v1;
-    f32 temp_f5;
-    f32 var_f0;
-    f32 var_f1;
-    f32 temp_f20;
-    s16 temp_s0;
-    s32 temp_a0;
-    s32 temp_v0;
-    s32 temp_v0_2;
-    s32 var_a0;
+void func_003E7270(void *arg0) {
+    Vif1Packet pk;
+    f32 *mtx = arg0;
+    s32 data;
+    s32 i;
+    s16 ang;
+    s32 a;
+    f32 c, s;
 
-    temp_v0 = func_003678C8();
-    temp_f20 = 3000.0f;
-    if (temp_v0 != 0) {
-        func_00344150();
-        func_003622F8();
-        var_a0 = 0;
-        *(s64 *)D_005F7074 = M32(func_00343F08(6), 0x10);
-        do {
-            temp_v0_2 = var_a0 * 4;
-            temp_v1 = temp_v0_2 + arg0;
-            var_a0 += 1;
-            *(s32 *)(temp_v0_2 + (s32)D_005F7088) = *temp_v1;
-        } while (var_a0 < 0x10);
-        temp_s0 = (s32) M32(((u8 *)&D_00415808), 0x4) * -0x10;
-        temp_a0 = temp_s0 & 0xFFFF;
-        if (temp_a0 <= 0x7FFF) {
-            var_f1 = (f32) temp_a0;
-            var_f0 = 9.58738019e-05f;
-        } else {
-            var_f1 = 9.58738019e-05f;
-            var_f0 = (f32) (temp_a0 + 0xFFFF0000);
-        }
-        temp_f5 = cosf(var_f0 * var_f1);
-        if (temp_s0 < 0) {
-            0;
-        } else {
-            0;
-        }
-        M32(D_005F7078, 0x0) = (f32) ((f32) temp_f20 + (0 * 30000.0f) + (f32) M32(((u8 *)&D_00415808), 0x14));
-        M32(D_005F7078, 0x8) = (f32) (((f32) temp_f20 - (temp_f5 * 30000.0f)) - (f32) M32(((u8 *)&D_00415808), 0x1C));
-        M32(D_005F707C, 0x0) = (f32) (0 + (0 * 6000.0f) + (f32) M32(((u8 *)&D_00415808), 0x14));
-        M32(D_005F707C, 0x8) = (f32) ((0 - (temp_f5 * 6000.0f)) - (f32) M32(((u8 *)&D_00415808), 0x1C));
-        *(s32 *)D_005F7080 = D_005F706C;
-        *D_005F7084 = D_005F706C;
-        FlushCache(0, D_005F7080);
-        Spr_Setup(1, 0x200);
-        sceVif1PkInit(spbuf, *(s32 *)0x70000000);
-        Dma_Wait(0x1000D400);
-        sceVif1PkRef(spbuf, temp_v0, D_005F7070, 0);
-        sceVif1PkTerminate(spbuf);
-        func_00343178(0 /* stack arg 1 */, sceVif1PkSize(spbuf));
-        if ((D_005F5EE0 == 0) && (D_005F5EE4 == 0) && (func_003A9698() == 0) && (gMode != 5) && (D_005F5F10 != 0)) {
-            D_005F706C += 1;
-        }
+    data = func_003678C8();
+    if (data == 0) {
+        return;
+    }
+    func_00344150();
+    func_003622F8();
+    *(u64 *)D_005F7074 = *(u64 *)((u8 *)func_00343F08(6) + 0x10);
+    for (i = 0; i < 16; i++) {
+        D_005F7088[i] = mtx[i];
+    }
+    ang = (s16)(-(s32)*(u16 *)((u8 *)D_00415808 + 4) * 16);
+    a = ang & 0xFFFF;
+    if (a <= 0x7FFF) {
+        c = cosf(9.58738019e-05f * (f32)a);
+    } else {
+        c = cosf((f32)(a - 0x10000) * 9.58738019e-05f);
+    }
+    if (ang < 0) {
+        s = -sqrtf(1.0f - c * c);
+    } else {
+        s = sqrtf(1.0f - c * c);
+    }
+    D_005F7078[0] = 17500.0f + s * 30000.0f + (f32)D_00415808[5];
+    D_005F7078[2] = 17500.0f - c * 30000.0f - (f32)D_00415808[7];
+    D_005F707C[0] = 3000.0f + s * 6000.0f + (f32)D_00415808[5];
+    D_005F707C[2] = 3000.0f - c * 6000.0f - (f32)D_00415808[7];
+    *D_005F7080 = D_005F706C;
+    *D_005F7084 = D_005F706C;
+    FlushCache(0);
+    Spr_Setup(1, 0x200);
+    sceVif1PkInit(&pk, *(u32 *)0x70000000);
+    Dma_Wait((volatile u32 *)0x1000D400);
+    sceVif1PkRef(&pk, (void *)data, D_005F7070, 0, 0, 0);
+    sceVif1PkTerminate(&pk);
+    func_00343178((u32)pk.pBase, sceVif1PkSize(&pk));
+    if (D_005F5EE0 == 0 && D_005F5EE4 == 0 && func_003A9698() == 0 && gMode != 5 && D_005F5F10 != 0) {
+        D_005F706C++;
     }
 }
-#undef M32
 #else
 INCLUDE_ASM("asm/nonmatchings/gallery_jpeg", func_003E7270);
 #endif
