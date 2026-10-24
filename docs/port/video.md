@@ -151,9 +151,10 @@ varies by 10-20 % with the thermal governor):
 
 ## Open
 
-- An exit-time crash was seen once in four 8x runs (after the report, as the window thread released the context);
-  not reproduced at 1x-4x.
-- In real time with a hidden offscreen window the scripted fight makes about 400 game frames in 1451 VBlanks (the
-  T36 build too, with either renderer): the game misses VBlanks there; the latency figures above are from that setup.
+- Fixed in T38 b0 ([README, Speed](README.md#speed)): the exit-time crash at 8x (the program exited while the window
+  thread was still releasing the GL driver) and the real-time frame drops (about 400 game frames in 1451 VBlanks: the
+  polls inside a frame slept). The latency figures above were measured in that slow real-time setup; with the fix,
+  over the whole 1451-VBlank replay (1x, flicker filter on): standard mean 17.3 ms; low latency 1403 early presents,
+  early mean 1.7 ms, max 20.2 ms. Not re-measured from picture 600 on as in the table.
 - Lines and points are not widened at higher resolutions; textures that are part of a target but at another block
   (a sub-rectangle) read GS memory at 1x.

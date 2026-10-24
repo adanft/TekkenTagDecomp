@@ -902,7 +902,10 @@ int Port_WindowClosed(void) {
 }
 
 /* The TTT_FRAMES report line (only when a window is open); then the window thread releases the window before the
-   program exits (GL drivers do not like a context still current on another thread at exit). */
+   program exits (GL drivers do not like a context still current on another thread at exit). The release takes
+   0.03 s at 1x but at 8x 0.6 s after 300 VBlanks, 1.9 s after 760 and more than 2 s after the fight (the driver frees
+   the large targets): the wait allows 30 s (it was 2 s, and at 8x the program then exited while SDL_Quit was
+   unloading the GL driver on the window thread, see Port_WindowExit). */
 void Port_WindowReport(void) {
     if (sState != 2) {
         return;
@@ -924,12 +927,23 @@ void Port_WindowReport(void) {
     while (sState == 2) {
         struct timespec ts;
         clock_gettime(CLOCK_REALTIME, &ts);
-        ts.tv_sec += 2;
+        ts.tv_sec += 30;
         if (pthread_cond_timedwait(&sCond, &sLock, &ts) != 0) {
             break; /* the window thread is stuck in the driver: exit anyway */
         }
     }
     pthread_mutex_unlock(&sLock);
+}
+
+/* The end of a TTT_FRAMES run, after the report (plat_hw.c). With a window, _exit after flushing: exit() runs the
+   exit handlers of the libraries SDL loaded, and at 8x (SDL_Quit still running on the window thread) one run in two
+   ended in a jump into unmapped memory after a complete report (T38 b0). The port registers no exit handlers. */
+void Port_WindowExit(int code) {
+    fflush(NULL);
+    if (sState >= 2) {
+        _exit(code);
+    }
+    exit(code);
 }
 
 /* ---- the GL back end's window (gs_gl.c, on the window thread) ---- */

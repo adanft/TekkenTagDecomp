@@ -536,6 +536,56 @@ throttles the whole slice when hot, so wall times move by 10-20% between runs; C
 - **Left:** the VU1 thread (the predecoded interpreter, 2 million VU1 instructions per fight VBlank) and the game
   thread (VU0 skinning about two thirds) are now the limits, with the window thread about half busy; the preparing
   thread for the GL batches was not needed for 60. Times vary by 10-20% with the thermal governor.
+- **Real time (T38 b0).** The numbers above use the headless clock. On the real-time clock (59.94 VBlanks a second of
+  wall time) the scripted fight made only about 400 game frames in 1451 VBlanks, with either renderer, from the
+  character select on (about one frame in five VBlanks), although the machine runs it at 84 VBlanks/s headless.
+  - The game's rate: `main` (src/main.c) waits for one VBlank per loop (`Frame_Begin` hands the frame to the VBlank
+    handler and waits in `Gfx_WaitVSync`; `Frame_PreUpdate` then waits for Timer 0 to pass 0x724, 3.2 ms), so the PS2
+    makes one game frame per VBlank whenever a frame's work fits; headless the replay makes 1401 frames in 1451
+    VBlanks (the stage load holds the loop for the rest).
+  - Cause: `Port_HwPoll` gave the host CPU back (`nanosleep` 0.2 ms) at every real-time poll more than 1 ms before
+    the next VBlank. Those polls are not only the waits: a frame's work polls hundreds of times (each DMA transfer it
+    starts is carried out by the next poll, which the game waits for), so a character select frame of about 3 ms
+    (headless) took about 80 ms. Measured with a per-30-VBlank log: the same VU0 program count per frame as headless,
+    a fifth of the frames per second; with only the sleep removed the frame counts match headless, so neither the
+    clock's catch-up rule, the GS threads, the ring nor the present was the cause, and the cgroup quota of
+    `scripts/cool.sh` gives the same counts as outside it.
+  - Fix (`rt_waiting` in `plat_hw.c`): a real-time poll sleeps only when the last 64 polls did no work (no DMA
+    transfer carried out, no VBlank raised; the interrupt handlers follow from these): the game's wait loops, never
+    the polls inside a frame's work. The check is out of line and only called in real time: a first version that
+    counted the work inside `Port_HwPoll` / `dma_poll` changed the idle run's hash (only the scratchpad region,
+    `TTT_HASH_REGIONS=1`: the host frames of the poll leave different bytes there), as any change to the code of the
+    headless poll path can. Headless runs are unchanged (idle run hash, GL fight hash).
+  - Scripted fight, 1451 VBlanks, hidden window (`SDL_VIDEO_DRIVER=offscreen`, `TTT_HEADLESS=0`), game frames:
+
+    | | before | after |
+    |---|---|---|
+    | GL, outside `cool.sh` | 395 | 1391-1400 |
+    | GL, under `cool.sh` | 399 | 1394-1397 |
+    | software, outside `cool.sh` | 389 | 1194-1200 |
+    | software, under `cool.sh` | 467 | 1195-1199 |
+    | headless (the intended count) | 1401 | 1401 |
+
+    The software renderer still drops frames in the fight: its raster workers manage about 23 fight VBlanks/s
+    (above). Before the fix the replay's presses at fixed VBlanks reached a slower game, so those runs never reached
+    the fight; now they reach it at the same VBlank as headless (about 562).
+  - `tests/test_port_window.py` (`RealTime`) runs the replay for 1000 real-time VBlanks with GL in a hidden window
+    (about 20 s; skipped without SDL3 or an OpenGL 3.3 context) and asks for at least 90% of the headless 950 frames.
+  - The exit crash at 8x (T37: SIGSEGV after a complete report in about half of the 8x fight runs here): the window
+    thread's release of the GL context, the window and SDL takes 0.03 s at 1x but at 8x 0.6 s after 300 VBlanks,
+    1.9 s after 760 and more after the fight, and the report waited only 2 s for it, then called `exit()`. The cores:
+    the window thread still inside `SDL_Quit`, the game's thread at an address outside every loaded library (most
+    likely an exit handler of a library `SDL_Quit` was unloading). The report now waits up to 30 s, and a run with a
+    window ends with `_exit` after flushing (`Port_WindowExit`; the port registers no exit handlers): 16 of 16 8x
+    fight runs exit cleanly (4 of 8 crashed before).
+  - Open, real time only (the spin generator, and so the stage and its effects, vary from run to run there):
+    - Once in 12 runs of the `RealTime` test the program crashed during the stage load in `func_003E6B10`
+      (src/gallery_jpeg.c, a `#if 1` m2c draft marked "not tuned", reached through `func_003E7210` from
+      `func_00367938`): it calls `func_003E6AA8(0)` where the original (asm line `jal func_003E6AA8` with `$a0`
+      unchanged) passes its packet pointer, so `func_003E6AB0` writes through a null pointer; it also declares
+      `f32 rand()`. Using the original (`#if 0`) or fixing both would remove it; src/ was outside this batch.
+    - Once, a pre-fix real-time run (its replay out of step, so another stage) hung in the lanes stage set-up
+      `func_003D5B58` (the original code: a random placement loop with no polls inside it); not reproduced since.
 
 ## Window
 

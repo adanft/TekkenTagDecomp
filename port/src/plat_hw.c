@@ -494,6 +494,29 @@ static void state_boundary(void) {
     }
 }
 
+/* Real time: whether the game is waiting, so a poll may give the host CPU back. Called at each real-time poll: the
+   work done since the previous one (DMA transfers carried out, VBlanks raised; the interrupt handlers follow from
+   these) and how many polls in a row did none. The game's wait loops (Gfx_WaitVSync, the Timer 0 wait of
+   Frame_PreUpdate) poll with no work; the polls inside a frame's work carry out the DMA transfers it waits for. Out of
+   line and not called headless: the code of the headless path, whose host stack frames leave their bytes in the EE
+   stack and scratchpad the state hash reads, stays as it was. */
+#define IDLE_POLLS_BEFORE_SLEEP 64
+static __attribute__((noinline)) int rt_waiting(void) {
+    static uint32_t last, idle;
+    uint32_t work = (uint32_t)sVBlanks;
+    int ch;
+    for (ch = 0; ch < 10; ch++) {
+        work += gPortDmaKicks[ch];
+    }
+    if (work != last) {
+        last = work;
+        idle = 0;
+    } else if (idle < IDLE_POLLS_BEFORE_SLEEP) {
+        idle++;
+    }
+    return idle >= IDLE_POLLS_BEFORE_SLEEP;
+}
+
 /* The settings overlay's pause (T36, plat_window.c): in real time, at a poll outside the interrupt handlers, the game's
    thread waits (off the EE stack) while the overlay is open with game.pause. The simulation does not advance; the
    real-time clock's origin moves by the time waited, so the game goes on where it stopped (no VBlank is dropped or
@@ -532,7 +555,10 @@ void Port_HwPoll(void) {
             sHostStart += now - keep;
             to = next;
         }
-        if (next > to && next - to > BUSCLK / 1000ull) { /* more than 1 ms to the next VBlank: give the CPU back */
+        /* More than 1 ms to the next VBlank and the game waiting: give the CPU back. Not at the polls inside a frame's
+           work: hundreds of them a frame, each sleeping 0.2 ms, made the character select and the fight one game frame
+           in five VBlanks (T38 b0). */
+        if (rt_waiting() && next > to && next - to > BUSCLK / 1000ull) {
             struct timespec ts = { 0, 200000 };
             nanosleep(&ts, NULL);
         }
@@ -632,6 +658,7 @@ static void peek_report(void) {
 }
 
 void Port_StateReport(void); /* plat_state.c */
+void Port_WindowExit(int code); /* plat_window.c */
 
 static void report_and_exit(void) {
     printf("ttt: %s: %u vblanks, %u frames\n", sHeadless ? "headless" : "real time", (unsigned)sVBlanks, (unsigned)gFrameCount);
@@ -650,8 +677,7 @@ static void report_and_exit(void) {
     Port_SndEnd();
     Port_StubReport();
     peek_report();
-    fflush(stdout);
-    exit(0);
+    Port_WindowExit(0);
 }
 
 /* ---- the state (plat_state.c) ---- */

@@ -163,5 +163,36 @@ class Overlay(unittest.TestCase):
         self.check("sw", "dummy", "400")
 
 
+@unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
+@unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
+@unittest.skipUnless(any(p.exists() for p in SDL32), "no 32-bit SDL3 (Arch: lib32-sdl3)")
+class RealTime(unittest.TestCase):
+    """The game's pace on the real-time clock (59.94 VBlanks a second of wall time), GL in a hidden window (SDL's
+    offscreen driver): the scripted run of tests/test_port_input.py (main menu, character select, stage load, round 1)
+    makes one game frame per VBlank as headless, where the same 1000 VBlanks make 950 frames (the main loop waits for
+    one VBlank per frame; the loads hold it longer). Before the fix the polls inside a frame slept and the character
+    select and the fight made about one frame in five VBlanks. About 20 s."""
+
+    VBLANKS, HEADLESS_FRAMES = 1000, 950
+
+    def test_real_time_keeps_the_game_frame_rate(self):
+        from test_port_input import IN_THE_FIGHT, TO_THE_FIGHT, stream
+
+        with tempfile.TemporaryDirectory(prefix="ttt-rt-") as d:
+            p = Path(d) / "in.txt"
+            p.write_text(stream(*TO_THE_FIGHT, *IN_THE_FIGHT))
+            r = run_ttt(TTT_FRAMES=str(self.VBLANKS), TTT_HEADLESS="0", TTT_SEED="1", TTT_INPUT_PLAY=str(p),
+                        TTT_WINDOW="1", TTT_WINDOW_HIDDEN="1", TTT_RENDERER="gl", TTT_AUDIO="0", TTT_VSYNC="0",
+                        SDL_VIDEO_DRIVER="offscreen")
+        self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
+        if "OpenGL renderer" not in r.stdout:
+            self.skipTest("no OpenGL 3.3 context here: " + r.stdout[-500:])
+        m = re.search(r"ttt: real time: (\d+) vblanks, (\d+) frames", r.stdout)
+        self.assertIsNotNone(m, r.stdout[-2000:])
+        self.assertEqual(int(m.group(1)), self.VBLANKS)
+        self.assertGreaterEqual(int(m.group(2)), self.HEADLESS_FRAMES * 9 // 10, r.stdout[-2000:])
+        self.assertRegex(re.search(r"ttt: modes: (.*)", r.stdout).group(1), r"\b5@\d+ 4@\d+$")  # in the fight
+
+
 if __name__ == "__main__":
     unittest.main()
