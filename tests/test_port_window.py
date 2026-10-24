@@ -194,5 +194,44 @@ class RealTime(unittest.TestCase):
         self.assertRegex(re.search(r"ttt: modes: (.*)", r.stdout).group(1), r"\b5@\d+ 4@\d+$")  # in the fight
 
 
+
+@unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
+@unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
+@unittest.skipUnless(any(p.exists() for p in SDL32), "no 32-bit SDL3 (Arch: lib32-sdl3)")
+class Pacing(unittest.TestCase):
+    """T38 (docs/port/video.md, Frame pacing): the intervals between the window's presents in real time over round 1
+    of the scripted fight (VBlanks 1101-1451, TTT_PACE_FROM), GL in a hidden window (SDL's offscreen driver, so the
+    swap waits for no display). Each picture is presented one VBlank (16.683 ms) after the last: the median is checked
+    to 0.03 ms (the histogram's bins are 20 us wide), which catches a clock off by 0.2 % (before T38 b2 the real-time
+    clock ran at 59.76 Hz: median 16.73 ms). The tails allow host stalls (a CPU quota's throttling pauses every thread
+    for up to 100 ms): p95 under 1.5 VBlanks, at most a tenth of the intervals longer. About 25 s."""
+
+    VBLANKS, FROM = 1451, 1101
+
+    def test_presents_follow_the_vblanks(self):
+        from test_port_input import IN_THE_FIGHT, TO_THE_FIGHT, stream
+
+        with tempfile.TemporaryDirectory(prefix="ttt-pace-") as d:
+            p = Path(d) / "in.txt"
+            p.write_text(stream(*TO_THE_FIGHT, *IN_THE_FIGHT))
+            r = run_ttt(TTT_FRAMES=str(self.VBLANKS), TTT_HEADLESS="0", TTT_SEED="1", TTT_INPUT_PLAY=str(p),
+                        TTT_WINDOW="1", TTT_WINDOW_HIDDEN="1", TTT_RENDERER="gl", TTT_AUDIO="0", TTT_VSYNC="0",
+                        TTT_PACE_FROM=str(self.FROM), SDL_VIDEO_DRIVER="offscreen")
+        self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
+        if "OpenGL renderer" not in r.stdout:
+            self.skipTest("no OpenGL 3.3 context here: " + r.stdout[-500:])
+        m = re.search(r"ttt: gl: pacing of presents from VBlank (\d+): (\d+) intervals, mean ([\d.]+) p50 ([\d.]+) "
+                      r"p95 ([\d.]+) p99 ([\d.]+) max ([\d.]+) ms, (\d+) over 1.5 VBlanks", r.stdout)
+        self.assertIsNotNone(m, r.stdout[-2000:])
+        n, p50, p95, late = int(m.group(2)), float(m.group(4)), float(m.group(5)), int(m.group(8))
+        self.assertEqual(int(m.group(1)), self.FROM)
+        span = self.VBLANKS - self.FROM
+        self.assertGreaterEqual(n, span * 9 // 10, m.group(0))
+        self.assertAlmostEqual(p50, 16.683, delta=0.03, msg=m.group(0))
+        self.assertLess(p95, 25.0, m.group(0))
+        self.assertLessEqual(late, span // 10, m.group(0))
+        self.assertRegex(r.stdout, r"ttt: gl: pacing: \d+ VBlank pictures, \d+ without a new game frame")
+
+
 if __name__ == "__main__":
     unittest.main()

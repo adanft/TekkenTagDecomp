@@ -2321,7 +2321,7 @@ static int cmd_done(uint32_t idx) {
     return sThreads <= 0 || (int32_t)(min_tail() - (idx + 1)) >= 0;
 }
 
-static void window_frames(const DispRegs *regs) {
+static void window_frames(const DispRegs *regs, uint32_t vblank) {
     int k, newest = -1;
     Cmd c;
 
@@ -2338,7 +2338,7 @@ static void window_frames(const DispRegs *regs) {
         c.serial = 0;
         c.barrier = 1; /* wakes the window thread */
         c.u.show.regs = *regs;
-        c.u.show.vblank = 0;
+        c.u.show.vblank = vblank; /* the frame-pacing report's start (gs_gl.c) */
         c.u.show.rgb = NULL;
         c.u.show.window = 1;
         {
@@ -2393,10 +2393,16 @@ static void window_frames(const DispRegs *regs) {
     submit(&c);
 }
 
+extern uint16_t gFrameCount; /* src/main.c */
+uint16_t gGsFrameAtVb[256];
+
 /* At each VBLANK_START (plat_hw.c, the game's thread): the display registers now; the picture is made in order with the
    drawing, by the GS thread when there is one (gs_async.c). */
 void Gs_VBlank(uint32_t vblank) {
     DispRegs regs;
+    if (Port_WindowOpen()) {
+        gGsFrameAtVb[vblank & 255] = gFrameCount; /* the frame-pacing report: the game's frames finished by now */
+    }
     disp_regs(&regs);
     if (!Gs_AsyncVBlank(vblank, &regs)) {
         Gs_VBlankRun(vblank, &regs);
@@ -2488,7 +2494,7 @@ void Gs_VBlankRun(uint32_t vblank, const DispRegs *regs) {
         }
     }
     if (Port_WindowOpen()) {
-        window_frames(regs);
+        window_frames(regs, vblank);
     }
     if (sDumpDir == NULL || *sDumpDir == 0 || vblank % sDumpEvery != 0) {
         return;

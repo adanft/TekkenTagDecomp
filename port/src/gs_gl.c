@@ -665,6 +665,19 @@ static DispRegs sLastRegs;
 static int sLastRegsValid;
 static uint64_t sShowNs[2]; /* when the last two window pictures' VBlanks were queued (host ns) */
 static struct { uint32_t presents, early, skipped, n[2]; uint64_t latSum[2], latMax[2]; } sPres; /* [1]: early presents */
+/* T38: frame pacing (docs/port/video.md), from the window picture of VBlank TTT_PACE_FROM (default 600) on: the
+   intervals between presents (swap returned) and between the VBlank pictures' queueing on the game's side, as
+   histograms of 20 us bins up to 100 ms (longer ones only counted and in the max). */
+#define PACE_BIN_NS 20000u
+#define PACE_BINS 5000u
+#define VBLANK_NS 16683333u /* 1 / 59.94 Hz */
+typedef struct { uint32_t bins[PACE_BINS], n, over, late; uint64_t sum, max, last; } Pace;
+static Pace sPacePres, sPaceQueue;
+static uint32_t sPaceFrom, sPaceDropped; /* 0: TTT_PACE_FROM not read yet */
+static uint32_t sPaceShows, sPaceRepeats; /* VBlank pictures, those without a new game frame since the last */
+static uint16_t sPaceLastFrame;
+static int sPaceOn;
+static uint64_t sSwapSum, sSwapMax;
 static int sDispW, sDispH; /* the display texture's size */
 static int sCause; /* what asks for a resolve / read back (TTT_FRAMES report): 0 texture, 1 CLUT, 2 upload, 3 display, 4 target */
 static uint32_t sResBy[5], sRbBy[5];
@@ -2236,6 +2249,35 @@ static uint64_t now_ns(void) {
     return (uint64_t)t.tv_sec * 1000000000ull + (uint64_t)t.tv_nsec;
 }
 
+/* One more event at host time t for a pacing histogram: the interval since the last one. */
+static void pace_add(Pace *p, uint64_t t) {
+    if (p->last != 0 && t > p->last) {
+        uint64_t d = t - p->last;
+        p->n++;
+        p->sum += d;
+        p->max = d > p->max ? d : p->max;
+        p->late += d * 2 > (uint64_t)VBLANK_NS * 3; /* more than 1.5 VBlanks */
+        if (d / PACE_BIN_NS < PACE_BINS) {
+            p->bins[d / PACE_BIN_NS]++;
+        } else {
+            p->over++;
+        }
+    }
+    p->last = t;
+}
+
+/* The interval at percentile q of a pacing histogram (the middle of its bin; the max beyond the bins), in ns. */
+static uint64_t pace_pct(const Pace *p, unsigned q) {
+    uint32_t want = (uint32_t)(((uint64_t)p->n * q + 99) / 100), seen = 0, i;
+    for (i = 0; i < PACE_BINS && want > 0; i++) {
+        seen += p->bins[i];
+        if (seen >= want) {
+            return (uint64_t)i * PACE_BIN_NS + PACE_BIN_NS / 2;
+        }
+    }
+    return p->max;
+}
+
 /* The display picture (sDispFbo, w x h) letterboxed into the window's back buffer, then presented (with the overlay,
    plat_window.c); low latency waits until the GPU is done (the driver queues no frame). `since`: the queue time of the
    VBlank after which the shown frame was complete (0: unknown), for the report's latency. */
@@ -2265,9 +2307,18 @@ static void window_blit(int w, int h, uint64_t since) {
     gl.BindFramebuffer(GL_READ_FRAMEBUFFER, sDispFbo);
     gl.ReadBuffer(GL_COLOR_ATTACHMENT0);
     gl.BlitFramebuffer(0, 0, w, h, x0, y0 + dh, x0 + dw, y0, GL_COLOR_BUFFER_BIT, sSmooth ? GL_LINEAR : GL_NEAREST); /* line 0 at the top */
-    Port_WindowGlSwap();
-    if (sLowLat) {
-        gl.Finish();
+    {
+        uint64_t t0 = now_ns(), t1;
+        Port_WindowGlSwap();
+        if (sLowLat) {
+            gl.Finish();
+        }
+        t1 = now_ns();
+        if (sPaceOn && since != 0) {
+            pace_add(&sPacePres, t1);
+            sSwapSum += t1 - t0;
+            sSwapMax = t1 - t0 > sSwapMax ? t1 - t0 : sSwapMax;
+        }
     }
     sPres.presents += since != 0;
     if (since != 0 && sFrame > 600) { /* from the first fight's VBlanks on (not the boot's loading) */
@@ -2432,6 +2483,19 @@ static void show(const Cmd *c) {
 
     if (c->u.show.window) {
         apply_settings();
+        if (sPaceFrom == 0) {
+            const char *e = getenv("TTT_PACE_FROM");
+            sPaceFrom = e != NULL && strtoul(e, NULL, 0) != 0 ? (uint32_t)strtoul(e, NULL, 0) : 600;
+        }
+        sPaceOn |= c->u.show.vblank >= sPaceFrom;
+        if (sPaceOn) {
+            uint16_t f = gGsFrameAtVb[c->u.show.vblank & 255];
+            pace_add(&sPaceQueue, c->u.show.ns);
+            sPaceDropped += gGsGlSkip != 0;
+            sPaceRepeats += sPaceShows != 0 && f == sPaceLastFrame;
+            sPaceLastFrame = f;
+            sPaceShows++;
+        }
         if (sEarlyShown && sLastRegsValid && memcmp(regs, &sLastRegs, sizeof *regs) == 0) {
             /* low latency: this picture went out when the game copied it */
             sEarlyShown = 0;
@@ -2676,6 +2740,25 @@ int Gl_Init(void *(*getproc)(const char *name), char *why, int whylen) {
 
 static unsigned tenths(uint64_t ns) { return (unsigned)(ns / 100000); } /* in tenths of a millisecond */
 
+static unsigned hundredths(uint64_t ns) { return (unsigned)(ns / 10000); } /* in hundredths of a millisecond */
+
+/* T38: one pacing histogram's line (ms): intervals, mean, percentiles, max, intervals over 1.5 VBlanks. */
+static void pace_report(const char *what, const Pace *p) {
+    uint64_t v[5];
+    int i;
+    v[0] = p->n ? p->sum / p->n : 0;
+    v[1] = pace_pct(p, 50);
+    v[2] = pace_pct(p, 95);
+    v[3] = pace_pct(p, 99);
+    v[4] = p->max;
+    printf("ttt: gl: pacing of %s from VBlank %u: %u intervals,", what, (unsigned)sPaceFrom, p->n);
+    for (i = 0; i < 5; i++) {
+        static const char *const names[5] = {"mean", "p50", "p95", "p99", "max"};
+        printf(" %s %u.%02u", names[i], hundredths(v[i]) / 100, hundredths(v[i]) % 100);
+    }
+    printf(" ms, %u over 1.5 VBlanks\n", p->late);
+}
+
 void Gl_Report(void) {
     if (sReady) {
         printf("ttt: gl: %u draw calls in %u batches, %u targets made, %u loads, %u resolves, %u pushes, %u read back, %u CLUT passes, %u pictures; "
@@ -2694,6 +2777,11 @@ void Gl_Report(void) {
                tenths(sPres.latMax[0]) / 10, tenths(sPres.latMax[0]) % 10,
                sPres.n[1], tenths(sPres.n[1] ? sPres.latSum[1] / sPres.n[1] : 0) / 10, tenths(sPres.n[1] ? sPres.latSum[1] / sPres.n[1] : 0) % 10,
                tenths(sPres.latMax[1]) / 10, tenths(sPres.latMax[1]) % 10);
+        pace_report("presents", &sPacePres);
+        pace_report("VBlank pictures queued", &sPaceQueue);
+        printf("ttt: gl: pacing: %u VBlank pictures, %u without a new game frame, %u not shown (a newer one queued), swap mean %u.%02u ms, max %u.%02u ms\n", sPaceShows, sPaceRepeats, sPaceDropped,
+               hundredths(sPacePres.n ? sSwapSum / sPacePres.n : 0) / 100, hundredths(sPacePres.n ? sSwapSum / sPacePres.n : 0) % 100,
+               hundredths(sSwapMax) / 100, hundredths(sSwapMax) % 100);
     }
 }
 

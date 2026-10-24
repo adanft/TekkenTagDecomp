@@ -288,7 +288,9 @@ wait loops drive the hardware.
 - **Clock.** Headless (`TTT_HEADLESS=1`, implied by `TTT_FRAMES`): one poll is one Timer 0 tick (256 bus cycles),
   nothing sleeps, a run repeats exactly (polls per frame, `gRngSpin`, the boot seed). Otherwise the clock is the
   host's monotonic time: VBlanks at real 59.94 Hz, seed and spin generator vary per run as on the console; a poll
-  more than 1 ms from the next VBlank sleeps 0.2 ms. When the host falls more than a VBlank behind, the lost time is
+  more than 1 ms from the next VBlank sleeps 0.2 ms when the game is waiting (T38 b0). Host nanoseconds become bus
+  cycles exactly (`ns_to_cycles`): until T38 b2 the factor was truncated to 147 cycles per microsecond (147.456), and
+  the real-time clock ran 0.3 % slow, 59.76 VBlanks a second ([video.md, Frame pacing](video.md#frame-pacing)). When the host falls more than a VBlank behind, the lost time is
   dropped (at most one VBlank per poll): a burst of VBlanks in one poll ran the game's VBlank handler again before the
   DMA it waits for could finish, and the game hung in `Dma_SendChain` (seen when SDL's start-up stalled a VBlank).
 - **Interrupts.** VBlank start raises INTC cause 2 and a finished DMA its DMAC channel; handlers run inside the poll
@@ -347,6 +349,7 @@ Switches:
 | `TTT_TIME_FROM=<vblank>` | Measurements: the GS path is drained at that VBlank and the report says `ttt: time: vblanks <from>-<end> in <n> ms` (drained again at the end). Nothing else changes. |
 | `TTT_WINDOW=0/1` | The window ([Window](#window)): default on in real time, off headless and for self-tests. `1` with `TTT_FRAMES` shows a headless run as it goes. |
 | `TTT_VSYNC=0` | The window presents without the renderer's vsync. |
+| `TTT_PACE_FROM=<vblank>` | The GL back end's frame-pacing report (`ttt: gl: pacing` lines, [video.md](video.md#frame-pacing)) starts at that VBlank's picture (default 600). |
 | `TTT_CONFIG=<file>` | The settings file (default `$XDG_CONFIG_HOME/ttt/settings.ini` or `~/.config/ttt/settings.ini`). Its values are the defaults of the variables of [settings.md](settings.md) (`TTT_RENDERER`, `TTT_VSYNC`, `TTT_MOVIES`, `TTT_SCALE`, `TTT_VOLUME`...); a variable set in the environment wins. `TTT_SELFTEST=settings` checks the file's round trip. |
 | `TTT_NO_QUIT_CONFIRM=1` | Close / Escape quit at once instead of asking "Quit?". |
 | `TTT_OVERLAY_TEST=1` | Tests: the overlay driven from inside a window run ([settings.md](settings.md)). |

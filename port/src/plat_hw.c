@@ -77,6 +77,16 @@ static uint64_t host_ns(void) {
 /* Bus cycle of the n-th VBLANK_START: n fields of 1001/60000 s. */
 static uint64_t vblank_cycle(uint64_t n) { return n * BUSCLK * 1001ull / 60000ull; }
 
+/* Real time: host nanoseconds to bus cycles and back, exact (BUSCLK / 1000000 truncated to 147 ran the real-time clock
+   0.3 % slow: 59.76 VBlanks a second, T38 b2), without overflow. Out of line: not on the headless path. */
+#define BUSKHZ (BUSCLK / 1000ull)
+static __attribute__((noinline)) uint64_t ns_to_cycles(uint64_t ns) {
+    return ns / 1000000ull * BUSKHZ + ns % 1000000ull * BUSKHZ / 1000000ull;
+}
+static __attribute__((noinline)) uint64_t cycles_to_ns(uint64_t c) {
+    return c / BUSKHZ * 1000000ull + c % BUSKHZ * 1000000ull / BUSKHZ;
+}
+
 int Port_Headless(void) {
     if (sHeadless < 0) {
         const char *h = getenv("TTT_HEADLESS"), *f = getenv("TTT_FRAMES");
@@ -546,12 +556,12 @@ void Port_HwPoll(void) {
         to = sCycles + TICK_CYCLES;
     } else {
         uint64_t now = host_ns() - sHostStart, next = vblank_cycle(sVBlanks + 1);
-        to = now * (BUSCLK / 1000000ull) / 1000ull;
+        to = ns_to_cycles(now);
         if (to > vblank_cycle(sVBlanks + 2)) {
             /* more than a VBlank behind (the host stalled): the lost time is dropped, at most one VBlank per poll.
                A burst of VBlanks in one poll would run the game's VBlank handler again before the DMA it waits for
                could finish (polls inside a handler return at once). */
-            uint64_t keep = next * 1000ull / (BUSCLK / 1000000ull);
+            uint64_t keep = cycles_to_ns(next);
             sHostStart += now - keep;
             to = next;
         }
@@ -683,7 +693,7 @@ static void report_and_exit(void) {
 /* ---- the state (plat_state.c) ---- */
 static void hw_after_load(void) {
     if (!Port_Headless()) { /* the real-time clock goes on from the loaded cycle count */
-        sHostStart = host_ns() - sCycles * 1000ull / (BUSCLK / 1000000ull);
+        sHostStart = host_ns() - cycles_to_ns(sCycles);
     }
 }
 

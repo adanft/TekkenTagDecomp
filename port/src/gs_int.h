@@ -86,6 +86,7 @@ const char *Gs_DumpDir(void);
 /* The GL back end's consumer (the window thread): carries out the commands queued so far, waiting up to `ms`
    milliseconds for the first one; returns how many it ran. */
 int Gs_GlPump(int ms);
+extern uint16_t gGsFrameAtVb[256]; /* the game's frame count at each VBlank (by its number & 255; window runs only) */
 extern int gGsGlSkip; /* while a window picture runs: a newer one is queued (the GL back end draws it, shows only the newer) */
 
 /* ---- the GS thread (gs_async.c) ---- */
