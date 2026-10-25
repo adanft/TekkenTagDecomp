@@ -72,13 +72,17 @@ With the cheat on:
 - more characters are selectable;
 - the hash differs.
 
+`tests/test_port_input.py` `Theater` uses the cheat to reach THEATER (up and Start on the main menu, whose cursor
+starts on GALLERY) and its music player.
+
 ## Open
 
-- **THEATER crashes the port.** Entering it crashes in `Mode_Theater` (`src/theater.c:745`). This bug was there
-  before T40 and is reachable by any real unlock too. The call `Text_Printf(D_00522AC0, sp7C, sp80, 0xA)` uses the
-  file's 4-argument prototype (`src/theater.c:509`), but the format reads a string argument the call never passes.
-  `Text_Printf` dereferences garbage (`select_results_b.c:2171`). The draft needs its missing arguments from the asm.
-  This port task cannot change `src/`, so the fix was not made here.
+- **THEATER (fixed in T41 b0).** Entering it crashed in `Mode_Theater`: the draft called `Text_Printf(D_00522AC0, x,
+  y, 0xA)` through a 4-argument local prototype, and the format's `%s` read a stack word as a string. `Mode_Theater`
+  and `Mode_MusicPlayer` are now written from the asm; `tests/test_port_input.py` `Theater` enters THEATER with
+  the cheat, opens the music player, plays a track and comes back (with `TTT_SLOW_TESTS=1` also an ending, and
+  every call compared with the original by `TTT_DIFF`). The defect class is audited by `port/tools/proto_audit.py`
+  ([README](README.md), gotcha 29).
 - Only "unlock everything". There are no per-item toggles and no other cheats (infinite health, timers): those
   would need fight-state addresses checked the same way.
 - Not checked: the costume / tag partner rules beyond the four selectable sets, and TEKKEN BOWL levels past the

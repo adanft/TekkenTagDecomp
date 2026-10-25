@@ -49,6 +49,8 @@ typedef struct {
     /* 0x4 */ s32 unk4;
     /* 0x8 */ s32 unk8;
     /* 0xC */ s32 unkC;
+    /* 0x10 */ s32 unk10; /* the row of the cursor's entry (Mode_Theater) */
+    /* 0x14 */ s32 unk14;
 } Th1FC4910;
 
 extern s16 gMode;
@@ -495,603 +497,510 @@ INCLUDE_RODATA("asm/nonmatchings/theater", D_00522AC0);
 INCLUDE_RODATA("asm/nonmatchings/theater", D_00522AD0);
 INCLUDE_RODATA("asm/nonmatchings/theater", D_00522AF8);
 #if 0
-/* NON_MATCHING: 1057 lines: m2c draft (switch trees, many stack locals) */
-#define M2C_UNK u8
-#define M2C_FIELD(expr, type, offset) (*(type)((u8 *)(expr) + (offset)))
-#define M2C_BITWISE(type, expr) ((type)(expr))
-s32 Input_SkipPressed();
+/* NON_MATCHING: about 1000 lines: rewritten from the asm (T41 b0), register allocation and block order not tried. The
+ * button table at sp+0x10 shares its stack with the tile in the original. */
+s32 Input_SkipPressed(void);
 void Mode_Change(s32);
-void Mode_EnterEnding(s32, s32, s32);
-void Mode_EnterLoading(s32);
-void Snd_PlaySe(s32, s32, ...);
-void Sprite_SetBlend(s32, s32);
-void Sprite_SetFilter(s32, s32);
-s32 Text_Printf(void *, s32, s32, s32);
-void Ui_DrawWindow(s32, s32, s32, s32);
-s32 func_00366460(s32);
-void func_0039C7D8(u8);
+void Mode_EnterEnding(s32 ret, s32 a, s32 b);
+void Mode_EnterLoading(s16 next);
+void Snd_PlaySe(s32 id, s32 player);
+void Sprite_SetBlend(s32 a, s32 b);
+void Sprite_SetFilter(s32 a, s32 b);
+s32 Text_Printf(const char *fmt, ...);
+void Ui_DrawWindow(s32 x, s32 y, s32 w, s32 h, s32 z, u32 c0, u32 c1);
+s32 func_00366460(s32 n);
+void func_0039C7D8(u32 movie);
 void func_003A9678(s32);
-s32 func_003B1378();
-void func_003B8A50();
-void func_003BF2F8(void *, u16 *);
-void func_003C4868();
-void func_003DBE98(s32, s32, s32, s32);
+s32 func_003B1378(void);
+void func_003B8A50(void);
+void func_003BF2F8(u8 *p, u16 *alpha);
+void func_003C4868(void);
+void func_003DBE98(u32 x, u32 y, u32 w, u32 h, u32 z, u32 c0, u32 c1, u32 c2, u32 c3);
+void func_00355C88(s32 id, s32 x, s32 y);
+void Theater_OpenMusicPlayer(s32 arg);
+s32 func_003545A8(s32 a);
 extern u8 D_0043B7F8[];
 extern s32 D_0043B838[];
-extern u8 D_00522908[];
-extern u8 D_00522A18[];
-extern u8 D_00522A28[];
-extern u8 D_00522A48[];
-extern u8 D_00522A58[];
-extern u8 D_00522A68[];
-extern u8 D_00522A78[];
-extern u8 D_00522A88[];
-extern u8 D_00522AA0[];
-extern u8 D_00522AB0[];
-extern u8 D_00522AC0[];
-extern u8 D_00522AF8[];
+extern const s8 D_00522908[];
+extern const char D_00522A18[];
+extern const char D_00522A28[];
+extern const char D_00522A48[];
+extern const char D_00522A58[];
+extern const char D_00522A68[];
+extern const char D_00522A78[];
+extern const char D_00522A88[];
+extern const char D_00522AA0[];
+extern const char D_00522AB0[];
+extern const char D_00522AC0[];
+extern const char D_00522AF8[];
 extern u16 D_005F5C76;
 extern s32 D_005F5CDC;
 extern s32 D_005F5CE0;
 extern u16 D_005F62AC;
-extern s64 D_005F6738;
+extern u64 D_005F6738;
 extern u8 D_005F6906;
-extern u8 D_005F6908;
+extern s16 D_005F6908; /* read as a byte, negated as a halfword */
 extern u8 D_005F705D;
 
+/* Mode 13: the theater menu. A grid of 41 movie tiles (D_004562F0), the selected row's movies with their unlock
+ * buttons below, and the THEATER title; a chosen movie plays as an ending, 0x1C0-0x1D7 are the special rows. */
 void Mode_Theater(void) {
-    s32 sp34, sp38, sp3C, sp40, sp7C, sp80, sp60, sp58;
-    u8 sp[0x200];
-    s32 subroutine_arg0, subroutine_arg1, subroutine_arg2, subroutine_arg3, subroutine_arg4, subroutine_arg5;
-    s32 sp10;
-    s32 sp14;
-    s32 sp18;
-    s32 sp1C;
-    s32 sp20;
-    s32 spB0;
-    s32 spB4;
-    s32 spB8;
-    s32 spBC;
-    s32 spC0;
-    s32 spC4;
-    s32 spC8;
-    M2C_UNK *temp_a1;
-    M2C_UNK *var_a0_2;
-    M2C_UNK *var_s2;
-    s16 temp_s0;
-    s16 temp_s0_2;
-    s16 temp_v1;
-    s32 temp_a2;
-    s32 temp_a2_2;
-    s32 temp_a2_3;
-    s32 temp_s3;
-    s32 temp_s4;
-    s32 temp_v0;
-    s32 temp_v0_2;
-    s32 var_a1_2;
-    s32 var_a3;
-    s32 var_fp;
-    s32 var_s0;
-    s32 var_s0_2;
-    s32 var_s0_3;
-    s32 var_s0_4;
-    s32 var_s1_2;
-    s32 var_s1_3;
-    s32 var_s1_4;
-    s32 var_s2_2;
-    s32 var_s2_3;
-    s32 var_s2_4;
-    s32 var_s3;
-    s32 var_s4;
-    s32 var_s6;
-    s32 var_v0;
-    s32 var_v0_2;
-    s32 var_v0_3;
-    s32 var_v0_4;
-    s32 var_v1_2;
-    s64 var_s1;
-    s8 var_a0;
-    s8 var_v1;
-    u8 temp_v1_3;
-    u8 var_a1;
-    void *temp_v1_2;
+    ThTile t;
+    ThEntry *e;
+    s32 btn[5];
+    s32 rep;
+    s32 pad;
+    s32 dir;
+    s32 cur;
+    s32 next;
+    s32 cancel;
+    s32 i;
+    s32 j;
+    s32 n;
+    s32 row;
+    s32 base;
+    s32 count;
+    s32 avail;
+    s32 shown;
+    s32 chosen;
+    s32 sel;
+    s32 idx;
+    s32 mask;
+    s32 name;
+    s32 bits;
+    s32 bit;
+    s32 k;
+    s32 col;
+    s32 x;
+    s32 y;
+    s32 id;
+    u32 a;
+    u8 v;
 
-    var_s0 = 0;
-    spB0 = 0;
+    rep = 0;
+    pad = 0;
     if (D_005F7056 == 0) {
         if (func_003B1378() != 0) {
             Mode_Change(3);
-        } else {
-            goto block_4;
+            return;
         }
     } else {
         D_005F7056 = 0;
         func_003B8A50();
-block_4:
-        if (D_005F7055 == 0) {
-            func_003992C8(0, 0, 0);
-            D_005F62AC += 4;
-            if (D_005F7057 == 0) {
-                var_v1 = D_005F7058;
-                if ((D_005F7058 == 0) && (D_005F705C == 0)) {
-                    var_s0 = D_005F5CE0;
-                    spB0 = D_005F5CDC;
-                } else {
-                    goto block_10;
-                }
+    }
+    if (D_005F7055 == 0) {
+        func_003992C8(0, 0, 0);
+        D_005F62AC += 4;
+        if (D_005F7057 == 0 && D_005F7058 == 0) {
+            if (D_005F705C == 0) {
+                pad = D_005F5CDC;
+                rep = D_005F5CE0;
             } else {
-                var_v1 = (s8) (u8) D_005F7058;
-block_10:
                 D_005F705C = 0;
             }
-            if (D_005F7059 < 0) {
-                D_005F7059 = (u8) D_005F7059 + 1;
-            }
-            var_v0 = var_v1 << 0x18;
-            if (D_005F7057 & 0x80) {
-                D_005F7057 += 1;
-                var_v0 = var_v1 << 0x18;
-            }
-            if (var_v0 < 0) {
-                D_005F7058 = var_v1 + 1;
-            }
         } else {
-            D_005F62AC -= 4;
+            D_005F705C = 0;
         }
-        if (spB0 & 0x100) {
-            spB0 = 0x100;
-            var_s0 = 0;
-            D_005F7055 = 1;
-            Snd_PlaySe(5, 0);
+        if ((s8)D_005F7059 < 0) {
+            D_005F7059++;
         }
-        if (D_005F705A == 0) {
-            if (D_005F705B == 0) {
-                D_005F6730 = 0xFFF70;
-                func_003C4868();
+        if ((s8)D_005F7057 < 0) {
+            D_005F7057++;
+        }
+        if ((s8)D_005F7058 < 0) {
+            D_005F7058++;
+        }
+    } else {
+        D_005F62AC -= 4;
+    }
+    if (pad & 0x100) {
+        pad = 0x100;
+        rep = 0;
+        D_005F7055 = 1;
+        Snd_PlaySe(5, 0);
+    }
+    if (D_005F705A == 0) {
+        if (D_005F705B == 0) {
+            D_005F6730 = 0xFFF70;
+            func_003C4868();
+        }
+        D_005F6730 = 0xFFF80;
+        Sprite_SetBlend(1, 0);
+        func_003BF2F8(D_0043B7F8, &D_005F62AC);
+    }
+    Input_SkipPressed();
+    if (D_005F7055 == 0) {
+        Text_Printf(D_00522AF8, 0xF0, 0x28, 0xA, 5, 0xD);
+        /* Cursor: the d-pad (repeat, else pressed) moves along the entry's links, skipping locked tiles (0x36). */
+        dir = rep & 0xA000;
+        cur = D_01FC4910.unk4;
+        if (dir == 0) {
+            dir = pad & 0x5000;
+        }
+        switch (dir) {
+        case 0x8000:
+            next = ((u8 *)&D_004562F0[cur])[3];
+            break;
+        case 0x2000:
+            next = ((u8 *)&D_004562F0[cur])[4];
+            break;
+        case 0x1000:
+            next = ((u8 *)&D_004562F0[cur])[1];
+            break;
+        case 0x4000:
+            next = ((u8 *)&D_004562F0[cur])[2];
+            break;
+        default:
+            next = -1;
+            break;
+        }
+        cancel = pad & 0x8F8;
+        if (next >= 0) {
+            D_005F68E8 = -1;
+            while (next != 0x28 && D_004562F0[next].unk6 == 0x36) {
+                switch (dir) {
+                case 0x8000:
+                    next = ((u8 *)&D_004562F0[next])[3];
+                    break;
+                case 0x2000:
+                    next = ((u8 *)&D_004562F0[next])[4];
+                    break;
+                case 0x1000:
+                    next = ((u8 *)&D_004562F0[next])[1];
+                    break;
+                case 0x4000:
+                    next = ((u8 *)&D_004562F0[next])[2];
+                    break;
+                }
             }
-            D_005F6730 = 0xFFF80;
-            Sprite_SetBlend(1, 0);
-            func_003BF2F8(((u8 *)&D_0043B7F8), ((u8 *)&D_005F62AC));
+            if (next != 0x28 && next != cur) {
+                D_01FC4910.unk4 = next;
+                D_01FC4910.unk14 = 0;
+                Snd_PlaySe(3, 0);
+                cur = D_01FC4910.unk4;
+            }
         }
-        Input_SkipPressed();
-        if (D_005F7055 == 0) {
-            Text_Printf(((u8 *)&D_00522AF8), 0xF0, 0x28, 0xA);
-            temp_a2 = var_s0 & 0xA000;
-            var_a3 = M2C_FIELD(((u8 *)&D_01FC4910), s32 *, 4);
-            temp_a2_2 = (temp_a2 == 0) ? (spB0 & 0x5000) : temp_a2;
-            switch (temp_a2_2) {                    /* switch 1; irregular */
-            case 0x8000:                            /* switch 1 */
-                var_a1 = M2C_FIELD(((var_a3 * 0xC) + ((u8 *)&D_004562F0)), u8 *, 3);
-block_36:
-                D_005F68E8 = -1;
-                if (var_a1 != 0x28) {
-                    if (M2C_FIELD(((var_a1 * 0xC) + ((u8 *)&D_004562F0)), s16 *, 6) == 0x36) {
-                        spC8 = spB0 & 0x8F8;
-loop_39:
-                        switch (temp_a2_2) {        /* switch 2; irregular */
-                        case 0x8000:                /* switch 2 */
-                            var_a1 = M2C_FIELD(((var_a1 * 0xC) + ((u8 *)&D_004562F0)), u8 *, 3);
-                            break;
-                        case 0x2000:                /* switch 2 */
-                            var_a1 = M2C_FIELD(((var_a1 * 0xC) + ((u8 *)&D_004562F0)), u8 *, 4);
-                            break;
-                        case 0x1000:                /* switch 2 */
-                            var_a1 = M2C_FIELD(((var_a1 * 0xC) + ((u8 *)&D_004562F0)), u8 *, 1);
-                            break;
-                        case 0x4000:                /* switch 2 */
-                            var_a1 = M2C_FIELD(((var_a1 * 0xC) + ((u8 *)&D_004562F0)), u8 *, 2);
-                            break;
+        D_01FC4910.unk10 = D_004562F0[cur].unk6;
+
+        /* The tiles. */
+        Sprite_SetFilter(1, 1);
+        Sprite_SetBlend(1, 1);
+        e = D_004562F0;
+        for (i = 0; i < 0x29; i++, e++) {
+            if (e->unk5 == 0) {
+                continue;
+            }
+            id = e->unk6;
+            if (id == 0xF) {
+                id = 0x24;
+            }
+            if (id == 0x36 || func_003545A8(e->unk6) != 0) {
+                a = 0x80;
+                if (D_01FC4910.unk4 == i && D_01FC4910.unk8 == 1) {
+                    a = 0xA0;
+                }
+            } else {
+                a = 0x30;
+            }
+            func_00354730(&t, e, a);
+            func_003DBE98(t.f.x, t.f.y, t.f.w, t.f.h, t.f.z, t.f.c0, t.f.c1, t.f.c2, t.f.c3);
+            switch (e->unk6) {
+            case 0x38:
+            case 0x3A:
+                func_003DBE98(t.x, t.y, t.w, t.h, t.z, t.c[0], t.c[1], t.c[2], t.c[3]);
+                Text_Printf(D_00522AC0, t.ix, t.iy, 0xA, t.iconKind, 0xD, t.icon);
+                break;
+            case 0x39:
+                if (D_005F5C76 != 0) {
+                    func_003DBE98(t.x, t.y, t.w, t.h, t.z, t.c[0], t.c[1], t.c[2], t.c[3]);
+                    Text_Printf(D_00522AC0, t.ix, t.iy, 0xA, t.iconKind, 0xD, t.icon);
+                } else {
+                    func_003DBE98(t.x, t.y, t.w, t.h, t.z, 0x20202080, 0x20202080, 0x20202080, 0x20202080);
+                    Text_Printf(D_00522AC0, t.ix, t.iy, 0xA, t.iconKind, 0x16, t.icon);
+                }
+                break;
+            default:
+                D_005F6738 = (u64)a | 0x80000000ULL | ((u64)a << 16) | ((u64)a << 8);
+                func_00355C88(id, t.x, t.y);
+                break;
+            }
+        }
+
+        /* The selected row: how many of its movies are open, then the list. */
+        chosen = -1;
+        avail = 0;
+        shown = 0;
+        sel = D_01FC4910.unk10;
+        base = sel * 8;
+        count = func_00366460(sel);
+        Ui_DrawWindow(0x40, 0x122, 0x200, 0x78, 0xFFFA, 0x8080, 0x1080);
+        if (sel == 0x38) {
+            avail = (func_003BFDC8() != 0) ? 4 : 3;
+            shown = 4;
+        } else if (sel < 0x38 || sel >= 0x3B) {
+            for (i = 0, n = 0; n < count && i < 6; i++) {
+                if (func_003543F8(base + i) != 0) {
+                    shown++;
+                    n++;
+                    if (func_003544C8(sel, i) != 0) {
+                        avail++;
+                    }
+                }
+            }
+        }
+        if (avail != 0) {
+            Text_Printf(D_00522A18, 0xFFFE0, 0x208, 0x19A, 6, avail, shown);
+        }
+        if (func_003545A8(sel) != 0) {
+            switch (sel) {
+            case 0x39:
+                if (D_005F5C76 != 0) {
+                    v = 1;
+                } else {
+                    Text_Printf(D_00522A28, 0xFFFE0, 0xAC, 0x136, 0xA, 4, 0x13, 0xC);
+                    v = 0;
+                }
+                break;
+            case 0x38:
+            case 0x3A:
+                v = 1;
+                break;
+            default:
+                v = func_003ADA08(D_0043B968, sel);
+                break;
+            }
+            if (v != 0) {
+                if (pad & 0x80) {
+                    mask = 1;
+                } else if (pad & 0x40) {
+                    mask = 2;
+                } else if (pad & 0x10) {
+                    mask = 4;
+                } else if (pad & 0x20) {
+                    mask = 8;
+                } else if (pad & 0x800) {
+                    mask = 0x10;
+                } else {
+                    mask = (pad << 2) & 0x20;
+                }
+                for (i = 0, n = 0; n < count && i < 6; i = next) {
+                    idx = base + i;
+                    name = func_003543F8(idx);
+                    btn[0] = 1 << i;
+                    btn[1] = 0;
+                    btn[2] = 0;
+                    btn[3] = 0;
+                    btn[4] = 0;
+                    bits = (idx < 0x110) ? D_00522908[idx] : 0;
+                    bit = 1;
+                    k = 1;
+                    while (bits != 0) {
+                        if (bits & 1) {
+                            btn[k++] = bit;
                         }
-                        if (var_a1 != 0x28) {
-                            if (M2C_FIELD(((var_a1 * 0xC) + ((u8 *)&D_004562F0)), s16 *, 6) != 0x36) {
-                                goto block_54;
-                            }
-                            goto loop_39;
+                        bits >>= 1;
+                        bit <<= 1;
+                    }
+                    next = i + 1;
+                    if (name == 0) {
+                        continue;
+                    }
+                    switch (func_003544C8(sel, i)) {
+                    case 1:
+                        col = 0x13;
+                        break;
+                    case 2:
+                        col = 0xB;
+                        break;
+                    default:
+                        col = 0x16;
+                        break;
+                    }
+                    if (sel >= 0x39 && sel < 0x3B) {
+                        if (pad & 0x8FC) {
+                            D_005F68E8 = base;
+                            chosen = base;
+                            Snd_PlaySe(5, 0);
                         }
-                    } else {
-                        spC8 = spB0 & 0x8F8;
-block_54:
-                        if ((var_a1 != 0x28) && (var_a1 != var_a3)) {
-                            M2C_FIELD(((u8 *)&D_01FC4910), s32 *, 4) = (s32) var_a1;
-                            M2C_FIELD(((u8 *)&D_01FC4910), s32 *, 0x14) = 0;
-                            Snd_PlaySe(3, 0, temp_a2_2, var_a3);
-                            var_a3 = M2C_FIELD(((u8 *)&D_01FC4910), s32 *, 4);
+                    } else if (mask & (btn[0] | btn[4] | (btn[2] | btn[1]) | btn[3])) {
+                        if (func_003544C8(sel, i) != 0) {
+                            D_005F68E8 = idx;
+                            chosen = idx;
+                            Snd_PlaySe(5, 0);
+                            col = 0x10;
+                        } else {
+                            chosen = -1;
                         }
                     }
-                } else {
-                    spC8 = spB0 & 0x8F8;
+                    if (sel == 0x38 && i == 3) {
+                        col = 0xB;
+                    }
+                    if (D_005F68E8 == idx) {
+                        col = 0x10;
+                    }
+                    row = n + 1;
+                    if (sel == 0x38 && i == 3 && func_003BFDC8() == 0) {
+                        n = row;
+                        continue;
+                    }
+                    if (sel >= 0x3B || sel < 0x39) {
+                        y = row * 0x14 + 0x122;
+                        x = 0x48;
+                        for (j = 0; j < 5; j++) {
+                            switch (btn[j]) {
+                            case 1:
+                                Text_Printf(D_00522A48, 0xFFFE0, x, y, 0xB, 8);
+                                x += 0x10;
+                                break;
+                            case 2:
+                                Text_Printf(D_00522A58, 0xFFFE0, x, y, 0xB, 8);
+                                x += 0x10;
+                                break;
+                            case 4:
+                                Text_Printf(D_00522A68, 0xFFFE0, x, y, 0xB, 8);
+                                x += 0x10;
+                                break;
+                            case 8:
+                                Text_Printf(D_00522A78, 0xFFFE0, x, y, 0xB, 8);
+                                x += 0x10;
+                                break;
+                            case 16:
+                                Text_Printf(D_00522A88, 0xFFFE0, x + j * 0x10, y, 0xA, 3, 5);
+                                x = 0x48;
+                                y += 0x14;
+                                break;
+                            case 32:
+                                Text_Printf(D_00522AA0, 0xFFFE0, x + j * 0x10, y, 0xB, 9);
+                                x += 0x20;
+                                break;
+                            }
+                        }
+                    }
+                    Text_Printf(D_00522AB0, 0xFFFE0, 0xA8, row * 0x14 + 0x122, 0xA, 4, col, name);
+                    n = row;
                 }
-                var_v1_2 = var_a3 * 0xC;
-                break;
-            case 0x2000:                            /* switch 1 */
-                var_a1 = M2C_FIELD(((var_a3 * 0xC) + ((u8 *)&D_004562F0)), u8 *, 4);
-                goto block_36;
-            case 0x1000:                            /* switch 1 */
-                var_a1 = M2C_FIELD(((var_a3 * 0xC) + ((u8 *)&D_004562F0)), u8 *, 1);
-                goto block_36;
-            case 0x4000:                            /* switch 1 */
-                var_a1 = M2C_FIELD(((var_a3 * 0xC) + ((u8 *)&D_004562F0)), u8 *, 2);
-                goto block_36;
-            default:                                /* switch 1 */
-                var_v1_2 = var_a3 * 0xC;
-                spC8 = spB0 & 0x8F8;
-                break;
             }
-            M2C_FIELD(((u8 *)&D_01FC4910), s32 *, 0x10) = (s32) M2C_FIELD((var_v1_2 + ((u8 *)&D_004562F0)), s16 *, 6);
+        }
+        if (cancel != 0 && chosen == -1) {
+            Snd_PlaySe(3, 0);
+        }
+
+        /* The pulsing highlight over the cursor's tile. */
+        v = D_005F6906 + (u8)D_005F6908;
+        D_005F6906 = v;
+        e = &D_004562F0[D_01FC4910.unk4];
+        if ((u8)(v - 0x60) >= 0x91) {
+            D_005F6908 = -(u16)D_005F6908;
+        }
+        if (e->unk5 != 0 && D_01FC4910.unk8 == 1) {
+            func_00354730(&t, e, 0x80);
+            D_005F6730 = 0xFFFD0;
             Sprite_SetFilter(1, 1);
-            var_s2 = ((u8 *)&D_004562F0);
-            Sprite_SetBlend(1, 1);
-            var_s3 = 0;
-            do {
-                if (M2C_FIELD(var_s2, u8 *, 5) != 0) {
-                    temp_s0 = M2C_FIELD(var_s2, s16 *, 6);
-                    temp_s0_2 = ((temp_s0 ^ 0xF) == 0) ? 0x24 : temp_s0;
-                    if ((temp_s0_2 == 0x36) || (func_003545A8(temp_s0) != 0)) {
-                        var_s1 = 0x80;
-                        if (M2C_FIELD(((u8 *)&D_01FC4910), s32 *, 4) == var_s3) {
-                            var_s1 = ((M2C_FIELD(((u8 *)&D_01FC4910), s32 *, 8) ^ 1) == 0) ? 0xA0 : 0x80;
-                        }
-                    } else {
-                        var_s1 = 0x30;
-                    }
-                    func_00354730(&sp10, var_s2, var_s1);
-                    func_003DBE98(sp10, sp14, sp18, sp1C);
-                    temp_v1 = M2C_FIELD(var_s2, s16 *, 6);
-                    switch (temp_v1) {              /* switch 3; irregular */
-                    case 0x3A:                      /* switch 3 */
-                    case 0x38:                      /* switch 3 */
-                        func_003DBE98(sp34, sp38, sp3C, sp40);
-block_76:
-                        Text_Printf(((u8 *)&D_00522AC0), sp7C, sp80, 0xA);
-                        break;
-                    case 0x39:                      /* switch 3 */
-                        if (D_005F5C76 != 0) {
-                            func_003DBE98(sp34, sp38, sp3C, sp40);
-                        } else {
-                            func_003DBE98(sp34, sp38, sp3C, sp40);
-                        }
-                        goto block_76;
-                    default:                        /* switch 3 */
-                        D_005F6738 = var_s1 | (0x8000 << 0x10) | ((var_s1 << 0x10) | (var_s1 << 8));
-                        func_00355C88(temp_s0_2, sp34, sp38);
-                        break;
-                    }
-                }
-                var_s3 += 1;
-                var_s2 += 0xC;
-            } while (var_s3 < 0x29);
-            var_fp = -1;
-            var_s2_2 = 0;
-            temp_s3 = M2C_FIELD(((u8 *)&D_01FC4910), s32 *, 0x10);
-            spB4 = temp_s3 * 8;
-            spB8 = func_00366460(temp_s3);
-            Ui_DrawWindow(0x40, 0x122, 0x200, 0x78);
-            if (temp_s3 != 0x38) {
-                if ((temp_s3 >= 0x38) && (temp_s3 < 0x3B)) {
-
-                } else {
-                    var_s1_2 = 0;
-                    var_s0_2 = 0;
-                    if (spB8 > 0) {
-loop_86:
-                        if (func_003543F8(spB4 + var_s1_2) != 0) {
-                            var_s0_2 += 1;
-                            var_s2_2 = (func_003544C8(temp_s3, var_s1_2) != 0) ? (var_s2_2 + 1) : var_s2_2;
-                        }
-                        var_s1_2 += 1;
-                        if ((var_s0_2 < spB8) && (var_s1_2 < 6)) {
-                            goto loop_86;
-                        }
-                    }
-                }
-            } else {
-                var_s2_2 = (func_003BFDC8() != 0) ? 4 : 3;
-            }
-            if (var_s2_2 != 0) {
-                Text_Printf(((u8 *)&D_00522A18), 0xFFFE0, 0x208, 0x19A);
-            }
-            if (func_003545A8((s16) temp_s3) != 0) {
-                switch (temp_s3) {                  /* switch 4; irregular */
-                case 0x39:                          /* switch 4 */
-                    if (D_005F5C76 != 0) {
-                    case 0x3A:                      /* switch 4 */
-                    case 0x38:                      /* switch 4 */
-                        var_v0_2 = 1;
-                    } else {
-                        Text_Printf(((u8 *)&D_00522A28), 0xFFFE0, 0xAC, 0x136);
-                        var_v0_2 = 0;
-                    }
-                    break;
-                default:                            /* switch 4 */
-                    var_v0_2 = func_003ADA08(((u8 *)&D_0043B968), temp_s3);
-                    break;
-                }
-                if (var_v0_2 != 0) {
-                    var_v0_3 = 1;
-                    if (!(spB0 & 0x80)) {
-                        if (spB0 & 0x40) {
-                            spBC = 2;
-                        } else if (spB0 & 0x10) {
-                            spBC = 4;
-                        } else if (spB0 & 0x20) {
-                            spBC = 8;
-                        } else if (spB0 & 0x800) {
-                            spBC = 0x10;
-                        } else {
-                            var_v0_3 = (spB0 * 4) & 0x20;
-                            goto block_114;
-                        }
-                    } else {
-block_114:
-                        spBC = var_v0_3;
-                    }
-                    var_s1_3 = 0;
-                    var_s0_3 = 0;
-                    if (spB8 > 0) {
-loop_117:
-                        temp_s4 = spB4 + var_s1_3;
-                        spC0 = func_003543F8(temp_s4);
-                        sp14 = 0;
-                        sp18 = 0;
-                        sp10 = 1 << var_s1_3;
-                        sp1C = 0;
-                        sp20 = 0;
-                        if (temp_s4 >= 0x110) {
-                            var_a0 = 0;
-                        } else {
-                            var_a0 = *(temp_s4 + ((u8 *)&D_00522908));
-                        }
-                        var_s2_3 = 1;
-                        var_a1_2 = 1;
-                        if (var_a0 != 0) {
-                            var_s6 = var_s1_3 + 1;
-                            do {
-                                if (var_a0 & 1) {
-                                    temp_v1_2 = sp + (var_a1_2 * 4);
-                                    var_a1_2 += 1;
-                                    M2C_FIELD(temp_v1_2, s32 *, 0x10) = var_s2_3;
-                                }
-                                var_a0 = (s8) (var_a0 >> 1);
-                                var_s2_3 *= 2;
-                            } while (var_a0 != 0);
-                        } else {
-                            var_s6 = var_s1_3 + 1;
-                        }
-                        if (spC0 != 0) {
-                            temp_v0 = func_003544C8(temp_s3, var_s1_3);
-                            switch (temp_v0) {      /* switch 5; irregular */
-                            case 1:                 /* switch 5 */
-                                break;
-                            case 2:                 /* switch 5 */
-                                break;
-                            }
-                            if (temp_s3 != 0x38) {
-                                if (temp_s3 >= 0x38) {
-                                    if (temp_s3 < 0x3B) {
-                                        if (spB0 & 0x8FC) {
-                                            D_005F68E8 = spB4;
-                                            var_fp = spB4;
-                                            Snd_PlaySe(5, 0);
-                                        }
-                                    } else {
-                                        goto block_139;
-                                    }
-                                } else {
-                                    goto block_140;
-                                }
-                            } else {
-block_139:
-block_140:
-                                if (spBC & (sp10 | sp20 | (sp18 | sp14) | sp1C)) {
-                                    if (func_003544C8(temp_s3, var_s1_3) != 0) {
-                                        D_005F68E8 = temp_s4;
-                                        var_fp = temp_s4;
-                                        Snd_PlaySe(5, 0);
-                                    } else {
-                                        var_fp = -1;
-                                    }
-                                }
-                            }
-                            if (temp_s3 == 0x38) {
-
-                            }
-                            if (temp_s3 == 0x38) {
-                                var_s4 = var_s0_3 + 1;
-                                if (var_s1_3 == 3) {
-                                    if (func_003BFDC8() != 0) {
-                                        goto block_149;
-                                    }
-                                } else {
-                                    goto block_150;
-                                }
-                            } else {
-block_149:
-                                var_s4 = var_s0_3 + 1;
-block_150:
-                                spC4 = var_s4;
-                                if ((temp_s3 >= 0x3B) || (temp_s3 < 0x39)) {
-                                    var_s1_4 = (var_s4 * 0x14) + 0x122;
-                                    var_s0_4 = 0x48;
-                                    var_s2_4 = 0;
-                                    var_v0_4 = 0 * 4;
-                                    do {
-                                        temp_v0_2 = *(&sp10 + var_v0_4);
-                                        switch (temp_v0_2) { /* switch 6; irregular */
-                                        case 1:     /* switch 6 */
-                                            var_a0_2 = ((u8 *)&D_00522A48);
-block_160:
-                                            Text_Printf(var_a0_2, 0xFFFE0, var_s0_4, var_s1_4);
-                                            var_s0_4 += 0x10;
-                                            break;
-                                        case 2:     /* switch 6 */
-                                            var_a0_2 = ((u8 *)&D_00522A58);
-                                            goto block_160;
-                                        case 4:     /* switch 6 */
-                                            var_a0_2 = ((u8 *)&D_00522A68);
-                                            goto block_160;
-                                        case 8:     /* switch 6 */
-                                            var_a0_2 = ((u8 *)&D_00522A78);
-                                            goto block_160;
-                                        case 16:    /* switch 6 */
-                                            Text_Printf(((u8 *)&D_00522A88), 0xFFFE0, var_s0_4 + (var_s2_4 * 0x10), var_s1_4);
-                                            var_s0_4 = 0x48;
-                                            var_s1_4 += 0x14;
-                                            break;
-                                        case 32:    /* switch 6 */
-                                            temp_a2_3 = var_s0_4 + (var_s2_4 * 0x10);
-                                            var_s0_4 += 0x20;
-                                            Text_Printf(((u8 *)&D_00522AA0), 0xFFFE0, temp_a2_3, var_s1_4);
-                                            break;
-                                        }
-                                        var_s2_4 += 1;
-                                        var_v0_4 = var_s2_4 * 4;
-                                    } while (var_s2_4 < 5);
-                                }
-                                Text_Printf(((u8 *)&D_00522AB0), 0xFFFE0, 0xA8, (spC4 * 0x14) + 0x122);
-                            }
-                            var_s0_3 = var_s4;
-                        }
-                        var_s1_3 = var_s6;
-                        if ((var_s0_3 < spB8) && (var_s6 < 6)) {
-                            goto loop_117;
-                        }
-                    }
-                }
-            }
-            if (spC8 != 0) {
-                if (var_fp == -1) {
-                    Snd_PlaySe(3, 0);
-                }
-            }
-            temp_v1_3 = D_005F6906 + D_005F6908;
-            D_005F6906 = temp_v1_3;
-            temp_a1 = ((u8 *)&D_004562F0) + (M2C_FIELD(((u8 *)&D_01FC4910), s32 *, 4) * 0xC);
-            if ((u32) ((temp_v1_3 - 0x60) & 0xFF) >= 0x91U) {
-                D_005F6908 = (s16) -(s16) (u16) D_005F6908;
-            }
-            if (M2C_FIELD(temp_a1, u8 *, 5) != 0) {
-                if (M2C_FIELD(((u8 *)&D_01FC4910), s32 *, 8) == 1) {
-                    func_00354730(&sp10, temp_a1, 0x80);
-                    D_005F6730 = 0xFFFD0;
-                    Sprite_SetFilter(1, 1);
-                    Sprite_SetBlend(1, 0);
-                    D_005F6738 = D_005F6906 | (0x8000 << 0x10) | (((s64) D_005F6906 << 0x10) | ((s64) D_005F6906 << 8));
-                    Sprite_DrawScaled(1, (sp60 < 0x3B) ? 0x73 : 0x76, 0x75, sp58, 0, 0, 0);
-                }
-            }
-            if (var_fp != -1) {
-                if (var_fp != 0x1C1) {
-                    if (var_fp < 0x1C2) {
-                        if (var_fp >= 0x108) {
-                            if (var_fp >= 0x10A) {
-                                if (var_fp != 0x1C0) {
-                                    goto block_199;
-                                }
-                                D_005F68E8 = -1;
-                                D_005F705B = 1;
-                                D_005F7059 = 1;
-                                D_005F705D = 0;
-                                goto block_195;
-                            }
-                            D_005F705D = 2;
-                            D_005F68E8 = -1;
-                            D_005F705B = 1;
-                            D_005F7059 = 1;
-                            D_005F705C = 1;
-                            D_005F7056 = 1;
-                        } else {
-block_199:
-                            D_005F705B = 1;
-                            D_0043B838[0] = var_fp;
-                            Mode_EnterEnding(0xD, var_fp, var_fp);
-                            D_005F7056 = 1;
-                            D_005F68E8 = -1;
-                        }
-                    } else if (var_fp != 0x1C3) {
-                        if (var_fp >= 0x1C3) {
-                            switch (var_fp) {       /* switch 7; irregular */
-                            case 0x1D0:             /* switch 7 */
-                                D_005F68E8 = -1;
-                                D_005F7055 = 1;
-                                break;
-                            case 0x1C8:             /* switch 7 */
-                                Theater_OpenMusicPlayer(0xD);
-                                D_005F68E8 = -1;
-                                break;
-                            }
-                        } else {
-                            D_005F705B = 1;
-                            D_005F7057 = 1;
-                            D_005F705A = 1;
-                        }
-                    } else {
-                        D_005F705B = 1;
-                        D_005F7058 = 1;
-                        D_005F705A = 1;
-                    }
-                } else {
-                    D_005F68E8 = -1;
-                    D_005F705B = 1;
-                    D_005F7059 = 1;
-                    D_005F705D = 1;
-block_195:
-                    D_005F705C = 1;
-                    D_005F7056 = 1;
-                }
-            }
-        } else if ((s16) D_005F62AC <= 0) {
-            func_003992C8(1, 0, 0);
-            Mode_Change(3);
+            Sprite_SetBlend(1, 0);
+            D_005F6738 = (u64)D_005F6906 | 0x80000000ULL | ((u64)D_005F6906 << 16) | ((u64)D_005F6906 << 8);
+            Sprite_DrawScaled(1, (t.s.w < 0x3B) ? 0x73 : 0x76, 0x75, t.s.x, t.s.y, t.s.w, t.s.h);
         }
-        if (D_005F7059 > 0) {
-            if (D_005F7059 >= 4) {
-                if (D_005F7059 != 4) {
 
-                } else {
-                    D_005F7059 = -2;
-                    D_005F705C = 1;
-                    D_005F705A = 0;
-                    func_0039C7D8(D_005F705D);
-                    D_005F7056 = 1;
-                    D_005F68E8 = -1;
-                }
-            } else {
-                D_005F7059 = (u8) D_005F7059 + 1;
+        /* The chosen movie. */
+        if (chosen != -1) {
+            switch (chosen) {
+            case 0x108:
+            case 0x109:
+                D_005F705D = 2;
+                D_005F68E8 = -1;
+                D_005F705B = 1;
+                D_005F7059 = 1;
+                D_005F705C = 1;
+                D_005F7056 = 1;
+                break;
+            case 0x1C0:
+                D_005F68E8 = -1;
+                D_005F705B = 1;
+                D_005F7059 = 1;
+                D_005F705D = 0;
+                D_005F705C = 1;
+                D_005F7056 = 1;
+                break;
+            case 0x1C1:
+                D_005F68E8 = -1;
+                D_005F705B = 1;
+                D_005F7059 = 1;
+                D_005F705D = 1;
+                D_005F705C = 1;
+                D_005F7056 = 1;
+                break;
+            case 0x1C2:
+                D_005F705B = 1;
+                D_005F7057 = 1;
+                D_005F705A = 1;
+                break;
+            case 0x1C3:
+                D_005F705B = 1;
+                D_005F7058 = 1;
+                D_005F705A = 1;
+                break;
+            case 0x1C8:
+                Theater_OpenMusicPlayer(0xD);
+                D_005F68E8 = -1;
+                break;
+            case 0x1D0:
+                D_005F68E8 = -1;
+                D_005F7055 = 1;
+                break;
+            default:
+                D_005F705B = 1;
+                D_0043B838[0] = chosen;
+                Mode_EnterEnding(0xD, chosen, chosen);
+                D_005F7056 = 1;
+                D_005F68E8 = -1;
+                break;
             }
         }
-        switch ((s8) D_005F7057) {                  /* switch 8; irregular */
-        case 1:                                     /* switch 8 */
-            D_005F7057 += 1;
-            break;
-        case 2:                                     /* switch 8 */
+    } else if ((s16)D_005F62AC <= 0) {
+        func_003992C8(1, 0, 0);
+        Mode_Change(3);
+    }
+    if ((s8)D_005F7059 > 0) {
+        if ((s8)D_005F7059 < 4) {
+            D_005F7059++;
+        } else if ((s8)D_005F7059 == 4) {
+            D_005F7059 = -2;
+            D_005F705C = 1;
             D_005F705A = 0;
-            D_005F7057 = -2U;
-            func_003992C8(1, 0, 0);
-            func_003A9678(0);
-            Mode_EnterLoading(0xD);
+            func_0039C7D8(D_005F705D);
             D_005F7056 = 1;
             D_005F68E8 = -1;
-            break;
-        }
-        switch (D_005F7058) {                       /* switch 9; irregular */
-        case 1:                                     /* switch 9 */
-            D_005F7058 = (u8) D_005F7058 + 1;
-            return;
-        case 2:                                     /* switch 9 */
-            D_005F705A = 0;
-            D_005F7058 = -2;
-            func_003992C8(1, 0, 0);
-            func_003A9678(1);
-            Mode_EnterLoading(0xD);
-            D_005F7056 = 1;
-            D_005F68E8 = -1;
-            break;
         }
     }
+    switch ((s8)D_005F7057) {
+    case 1:
+        D_005F7057++;
+        break;
+    case 2:
+        D_005F705A = 0;
+        D_005F7057 = -2;
+        func_003992C8(1, 0, 0);
+        func_003A9678(0);
+        Mode_EnterLoading(0xD);
+        D_005F7056 = 1;
+        D_005F68E8 = -1;
+        break;
+    }
+    switch ((s8)D_005F7058) {
+    case 1:
+        D_005F7058++;
+        break;
+    case 2:
+        D_005F705A = 0;
+        D_005F7058 = -2;
+        func_003992C8(1, 0, 0);
+        func_003A9678(1);
+        Mode_EnterLoading(0xD);
+        D_005F7056 = 1;
+        D_005F68E8 = -1;
+        break;
+    }
 }
-#undef M2C_UNK
-#undef M2C_FIELD
-#undef M2C_BITWISE
 #else
 INCLUDE_RODATA("asm/nonmatchings/theater", jtbl_00522B10);
 INCLUDE_ASM("asm/nonmatchings/theater", Mode_Theater);

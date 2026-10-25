@@ -4076,7 +4076,14 @@ void func_003EF8B0(s8 *arg0) {
     s32 var_v0_3;
     u8 temp_v0;
 
-    BOWL_SP(0x0, BowlB24) = *(BowlB24 *)((u8 *)sp + 0x20); BOWL_SP(0x20, BowlB12) = *(BowlB12 *)D_005239C8; BOWL_SP(0x40, BowlB24) = *(BowlB24 *)D_00523A18;
+    /* The colours (built at sp+0x20, copied to sp+0), the x of each message (D_005239C8), the messages (D_00523A18). */
+    ((s32 *)sp)[0] = 2;
+    ((s32 *)sp)[1] = 9;
+    ((s32 *)sp)[2] = 0x12;
+    ((s32 *)sp)[3] = 0xB;
+    ((s32 *)sp)[4] = 0x12;
+    ((s32 *)sp)[5] = (gFrameCount & 2) ? 0xB : 2;
+    BOWL_SP(0x20, BowlB12) = *(BowlB12 *)D_005239C8; BOWL_SP(0x40, BowlB24) = *(BowlB24 *)D_00523A18;
     temp_v1 = D_005F6A10;
     if (D_005F70CE == 0) {
         D_005F6A12 = 0;
@@ -4136,7 +4143,8 @@ block_22:
         }
     } else {
 block_25:
-        Text_Printf(D_005239A8, (*(s16 *)((u8 *)((sp + (temp_v1 * 2))) + 0x20)), 0x168, 0xA);
+        Text_Printf(D_005239A8, BOWL_SP(0x20 + temp_v1 * 2, s16), 0x168, 0xA, BOWL_SP(temp_v1 * 4, s32),
+                    BOWL_SP(0x40 + temp_v1 * 4, s32));
         func_003EF818((s32) D_005F6A12);
         D_005F70CE = (u16) D_005F70CE + 1;
     }
@@ -4346,6 +4354,7 @@ s32 func_003EFED0(void) {
 
 #if 0
 /* NON_MATCHING: 465 lines (766 instructions, draft 734): m2c draft, only made to compile (stack copies as struct copies, VU0 and unknown instructions as inline asm) */
+void Bowl_DrawHud(void *f, void *o, void *pos, s16 pad, s16 arg4); /* menu_bg.c */
 s32 func_003F0008(void) {
     BowlPlayer *temp_v0_2;
     BowlPlayer *var_s7;
@@ -4443,7 +4452,7 @@ block_11:
                     func_003BC540(temp_a0_2);
                 }
             }
-            Bowl_DrawHud(temp_s2, D_01FC5260, &D_01FC51E0, temp_s4);
+            Bowl_DrawHud(temp_s2, D_01FC5260, &D_01FC51E0, temp_s4, D_01FC61E0[D_005F70AC].unk0 & 1);
             if (func_003F1ED8() != 0) {
                 temp_v0_2 = &var_s7[D_005F70AC];
                 if (temp_v0_2->unk58[0] >= 0) {
@@ -4824,77 +4833,53 @@ INCLUDE_RODATA("asm/nonmatchings/tekken_bowl", D_00523B00);
 INCLUDE_RODATA("asm/nonmatchings/tekken_bowl", D_00523B18);
 INCLUDE_RODATA("asm/nonmatchings/tekken_bowl", D_00523B30);
 #if 0
-/* NON_MATCHING: 162 lines (171 instructions, draft 141): m2c draft, only made to compile (stack copies as struct copies, VU0 and unknown instructions as inline asm) */
-void func_003F0FF0(s32 arg0, s32 arg1, s32 arg2) {
-    f32 sp[64]; /* m2c stack */
-    s32 sp10;
-    s8 sp30;
-    s32 sp38;
-    s8 sp3C;
-    s32 sp40;
-    s32 sp44;
-    s32 sp48;
-    s32 *sp4C;
-    s32 sp50;
-    s32 sp54;
-    s8 *sp58;
-    s32 sp5C;
-    s32 temp_s0;
-    s32 temp_s3;
-    s32 temp_v0;
-    s32 var_a0;
-    s32 var_s0;
-    s32 var_s2;
-    s32 var_s4;
-    s8 *temp_a0;
-    u8 temp_v0_2;
-    void *temp_s0_2;
+/* NON_MATCHING: 162 lines (171 instructions): rewritten from the asm (T41 b0; the m2c draft dropped the Text_Printf
+ * arguments and the panel call's), register allocation not tried. The original copies the result words
+ * D_00523B00 and the format D_00523AF0 to its stack and prints from the copies. */
+/* The result screen of a two-team game: per team the two members' faces, PLAYER n, DRAW / LOSERS / WINNERS (the
+ * winner blinking), the total and the frame panel of `scores` (0x5E bytes a team). */
+void func_003F0FF0(s32 winner, s32 draw, s32 scores) {
+    char words[3][8];
+    char fmt[13];
+    BowlPlayer *p;
+    s32 i;
+    s32 k;
+    s32 y;
+    s32 w;
+    s32 c;
+    s32 kind;
 
     D_005F6738 = (0x8080 << 0x10) | 0x8080;
-    var_s4 = 0;
-    sp40 = arg0;
-    sp44 = arg1;
-    sp48 = arg2;
-    sp58 = &sp30;
-    sp4C = &sp10;
-    do {
-        temp_v0 = var_s4 * 0xB0;
-        BOWL_SP(0x10, BowlB24) = *(BowlB24 *)D_00523B00;
-        temp_a0 = D_00523AF0;
-        var_s2 = 0;
-        BOWL_SP(0x30, BowlB13) = *(BowlB13 *)D_00523AF0;
-        temp_s3 = temp_v0 + 0x40;
-        sp50 = var_s4 * 2;
-        sp54 = temp_v0 + 0x80;
-        sp5C = temp_v0 + 0x54;
-        var_s0 = 0 << 6;
-loop_2:
-        temp_s0 = var_s0 + 0xD8;
-        temp_v0_2 = func_003F0CC8(var_s4, var_s2);
-        var_s2 += 1;
-        func_003CC078(temp_s0, temp_s3, 0);
-        func_003CBFB8((s32) temp_v0_2, temp_s0, temp_s3, 0);
-        var_s0 = var_s2 << 6;
-        if (var_s2 < 2) {
-            goto loop_2;
+    for (i = 0; i < 2; i++) {
+        y = i * 0xB0;
+        *(BowlB24 *)words = *(BowlB24 *)D_00523B00;
+        *(BowlB13 *)fmt = *(BowlB13 *)D_00523AF0;
+        for (k = 0; k < 2; k++) {
+            w = func_003F0CC8(i, k);
+            func_003CC078(k * 0x40 + 0xD8, y + 0x40, 0);
+            func_003CBFB8(w, k * 0x40 + 0xD8, y + 0x40, 0);
         }
-        Text_Printf(D_00523B18, 0x30, temp_v0 + 0x74, 0xA);
-        var_a0 = 0x46;
-        if (sp44 != 0) {
-
-        } else if (var_s4 != sp40) {
-            var_a0 = 0x65;
+        Text_Printf(D_00523B18, 0x30, y + 0x74, 0xA, 5, 0xE, i + 1);
+        if (draw != 0) {
+            w = 0x46;
+            c = 0xA;
+            kind = 0;
+        } else if (i != winner) {
+            w = 0x65;
+            c = 0xC;
+            kind = 1;
         } else {
-            var_a0 = 0x73;
+            w = 0x73;
+            c = (gFrameCount & 2) ? 2 : 0xB;
+            kind = 2;
         }
-        Text_Printf(sp58, 0x1D8 - var_a0, temp_v0 + 0x4E, 0xA);
-        temp_s0_2 = sp48 + (var_s4 * 0x5E);
-        var_s4 += 1;
-        Text_Printf(D_00523B30, 0x19F, temp_v0 + 0x6E, 0xA);
-        func_003C59D8(0x24, sp54, 1, 1, 0 /* m2c: unknown value */, 0 /* m2c: unknown value */, 0 /* m2c: unknown value */, 0 /* m2c: unknown value */, -1);
+        Text_Printf(fmt, 0x1D8 - w, y + 0x4E, 0xA, 8, c, words[kind]);
+        p = (BowlPlayer *)((u8 *)scores + i * 0x5E);
+        Text_Printf(D_00523B30, 0x19F, y + 0x6E, 0xA, 8, c, *(s16 *)((u8 *)p + 0x56));
+        func_003C59D8(0x24, y + 0x80, 1, 1, 0xA, 1, p, NULL, -1);
         Sprite_SetBlend(1, 1);
-        func_003F0E28(0x7B, sp5C, (s32) *(sp50 + D_005F70F0));
-    } while (var_s4 < 2);
+        func_003F0E28(0x7B, y + 0x54, D_005F70F0[i]);
+    }
 }
 #else
 INCLUDE_ASM("asm/nonmatchings/tekken_bowl", func_003F0FF0);
@@ -4982,7 +4967,7 @@ s32 func_003F1570(void) {
     temp_s0 = func_003E9438(0);
     temp_s3 = func_003712C0() & 0x8F4;
     func_003CD728();
-    Text_Printf(D_00523B40, 0x70, 0x28, 0xA);
+    Text_Printf(D_00523B40, 0x70, 0x28, 0xA, 5, 0xF);
     temp_a1 = (u16) D_005F70EC;
     switch (D_005F70EC) {                           /* switch 1 */
     case 0:                                         /* switch 1 */
@@ -5110,60 +5095,82 @@ INCLUDE_RODATA("asm/nonmatchings/tekken_bowl", D_00523BB8);
 INCLUDE_RODATA("asm/nonmatchings/tekken_bowl", D_00523BD0);
 INCLUDE_RODATA("asm/nonmatchings/tekken_bowl", D_00523BF0);
 #if 0
-/* NON_MATCHING: 135 lines (211 instructions, draft 146): m2c draft, only made to compile (stack copies as struct copies, VU0 and unknown instructions as inline asm) */
+/* NON_MATCHING: 135 lines (211 instructions): rewritten from the asm (T41 b0; the m2c draft dropped the arguments of
+ * Ui_DrawWindow, the Text_Printf calls and func_003DBCF0), register allocation not tried. The original copies the
+ * two word pairs to its stack. */
+void Ui_DrawWindow(s32 x, s32 y, s32 w, s32 h, s32 z, u32 c0, u32 c1);
+void func_003BB890(s32 which, s32 x, s32 y, s32 c);
+void func_003E08D0(s32 a);
+/* The bowling options window: HELP MESSAGES, SPECIAL EFFECTS, JUKEBOX (the track's title, or OFF) and EXIT, the
+ * cursor row highlighted with its arrows, and the help line of rows 0-2. */
 void func_003F1968(s32 a) {
-    f32 sp[64]; /* m2c stack */
-    s32 var_a2;
-    u16 temp_a2;
+    s32 str[2];
+    s32 col[2];
+    s32 c;
+    s32 y;
+    s32 jc;
+    s32 js;
 
-    BOWL_SP(0x0, BowlB8) = *(BowlB8 *)D_005F6A60; BOWL_SP(0x10, BowlB8) = *(BowlB8 *)D_005F6A68;
-    Ui_DrawWindow(0x87, 0xAC, 0x172, 0x58);
+    str[0] = D_005F6A60[0];
+    str[1] = D_005F6A60[1];
+    col[0] = D_005F6A68[0];
+    col[1] = D_005F6A68[1];
+    Ui_DrawWindow(0x87, 0xAC, 0x172, 0x58, 0xFFEE, 0x4040, 0x4040);
+    c = 5;
     if (D_005F70F8 == 0) {
         func_003BB890(1, 0x1C2, 0xC8, 5);
+        c = 0xB;
         func_003F1898(0x123, 0xC8);
     }
-    Text_Printf(D_00523B78, 0x9B, 0xC8, 0xA);
+    Text_Printf(D_00523B78, 0x9B, 0xC8, 0xA, 4, c, col[D_005F70FA], str[D_005F70FA]);
+    c = 5;
     if (D_005F70F8 == 1) {
         func_003BB890(1, 0x1E3, 0xDC, 5);
+        c = 0xB;
         func_003F1898(0x142, 0xDC);
     }
-    Text_Printf(D_00523B98, 0x9B, 0xDC, 0xA);
+    Text_Printf(D_00523B98, 0x9B, 0xDC, 0xA, 4, c, col[D_005F70FC], str[D_005F70FC]);
+    y = 0xF0;
     if (D_005F70FE != 0) {
-        if (D_005F7100 != 0x15) {
-            if (D_005F5C76 == 0) {
-
-            }
+        if (D_005F7100 != 0x15 && D_005F5C76 != 0) {
+            jc = col[1];
+            js = *(s32 *)((u8 *)&D_00455D80[D_005F7100] + 4);
+        } else {
+            js = str[0];
+            jc = col[0];
         }
         if (D_005F5C76 == 0) {
-
-        } else if (D_005F70F8 == 2) {
-            func_003BB890(0, 0x128, 0xF0, 5);
-            func_003BB890(1, 0x1DB, 0xF0, 5);
-            func_003F1898(0x12A, 0xF0);
+            c = 0x16;
+        } else if (D_005F70F8 != 2) {
+            c = 0x11;
+        } else {
+            func_003BB890(0, 0x128, y, 5);
+            c = 0xB;
+            func_003BB890(1, 0x1DB, y, 5);
+            func_003F1898(0x12A, y);
         }
-        Text_Printf(D_00523BB8, 0x9B, 0xF0, 0xA);
+        Text_Printf(D_00523BB8, 0x9B, y, 0xA, 4, c, jc, js);
     } else {
-        Text_Printf(D_00523BD0, 0x9B, 0xF0, 0xA);
+        Text_Printf(D_00523BD0, 0x9B, 0xF0, 0xA, 4, 0x11);
     }
+    y += 0x14;
     if (D_005F70F8 == 3) {
-        func_003F1898(0x46, 0x104);
+        c = 0xB;
+        func_003F1898(0x46, y);
+    } else {
+        c = 5;
     }
-    Text_Printf(D_00523BF0, 0x9B, 0x104, 0xA);
-    if (func_003B1468() != 0) {
-        if (D_005F70F8 < 3) {
-            func_003DEB80(0);
-            func_003DBCF0(0, 0x185, 0x280, 0x30, 0 /* m2c: unknown value */, 0 /* m2c: unknown value */);
-            temp_a2 = (u16) D_005F70F8;
-            if (D_005F70F8 == 0) {
-                func_003E08D0(D_005F70FA);
-            }
-            var_a2 = temp_a2 << 0x10;
-            if ((s16) temp_a2 == 1) {
-                func_003E08D0(D_005F70FC);
-                var_a2 = (u16) D_005F70F8 << 0x10;
-            }
-            Text_DrawId(0x1E, 0x186, (var_a2 >> 0x10) + 0x6A, 0x60606080);
+    Text_Printf(D_00523BF0, 0x9B, y, 0xA, 4, c);
+    if (func_003B1468() != 0 && D_005F70F8 < 3) {
+        func_003DEB80(0);
+        func_003DBCF0(0, 0x185, 0x280, 0x30, 0xFFFE, 0x18181860);
+        if (D_005F70F8 == 0) {
+            func_003E08D0(D_005F70FA);
         }
+        if (D_005F70F8 == 1) {
+            func_003E08D0(D_005F70FC);
+        }
+        Text_DrawId(0x1E, 0x186, D_005F70F8 + 0x6A, 0x60606080);
     }
 }
 #else
@@ -5404,84 +5411,79 @@ INCLUDE_RODATA("asm/nonmatchings/tekken_bowl", D_00523E80);
 INCLUDE_RODATA("asm/nonmatchings/tekken_bowl", D_00523EA0);
 INCLUDE_RODATA("asm/nonmatchings/tekken_bowl", D_00523EB8);
 #if 0
-/* NON_MATCHING: 227 lines (280 instructions, draft 227): m2c draft, only made to compile (stack copies as struct copies, VU0 and unknown instructions as inline asm) */
+/* NON_MATCHING: 227 lines (280 instructions): rewritten from the asm (T41 b0; the m2c draft dropped the Text_Printf
+ * arguments and the panel call's, and counted into an uninitialised table), register allocation not tried. The
+ * original copies the five tables and the format D_00523E60 to its stack. */
+void func_003CF1C0(s32 a, s32 b, s32 x, s32 y);
+extern const char D_00523E70[];
+/* The score sheet of a one-player game: SCORE SHEET, the score (or RANK n with it) coloured by rank, the frame panel,
+ * the two members' faces and names, and the count of each kind of throw (strike, spare...) over frames 2-25. */
 void func_003F25D8(BowlPlayer *p, u8 c0, u8 c1, s32 d) {
-    f32 sp[64]; /* m2c stack */
-    f32 sp10[16]; /* m2c stack */
-    s32 sp30;
-    s32 sp70;
-    s8 spA0;
-    s32 spA8;
-    s8 spAC;
-    s32 *temp_v1;
-    s16 temp_s1;
-    s32 *temp_v0;
-    s32 *temp_v1_3;
-    s32 temp_s0;
-    s32 temp_v1_4;
-    s32 var_s1;
-    s32 var_s1_2;
-    s32 var_s1_3;
-    u32 var_s5;
-    u8 temp_v1_2;
+    s32 rcol[4];
+    s32 name[6];
+    s32 rname[5];
+    s32 col[6];
+    char fmt[13];
+    s32 count[7];
+    s32 score;
+    s32 rank;
+    s32 c;
+    s32 i;
+    s32 y;
+    s32 n;
 
-    BOWL_SP(0x30, BowlB16) = *(BowlB16 *)D_00523E08; BOWL_SP(0x40, BowlB24) = *(BowlB24 *)D_00523E18; BOWL_SP(0x60, BowlB20) = *(BowlB20 *)D_00523E30;
-    temp_v1 = D_00523E60;
-    temp_s1 = p->unk42[0xA];
-    BOWL_SP(0x80, BowlB24) = *(BowlB24 *)D_00523E48; BOWL_SP(0xA0, BowlB13) = *(BowlB13 *)D_00523E60;
-    if (temp_s1 == 0x12C) {
-        var_s5 = 0;
-    } else if (temp_s1 >= 0xE6) {
-        var_s5 = 1;
-    } else if (temp_s1 >= 0xAA) {
-        var_s5 = 2;
+    *(BowlB16 *)rcol = *(BowlB16 *)D_00523E08;
+    *(BowlB24 *)name = *(BowlB24 *)D_00523E18;
+    *(BowlB20 *)rname = *(BowlB20 *)D_00523E30;
+    score = p->unk42[0xA];
+    *(BowlB24 *)col = *(BowlB24 *)D_00523E48;
+    *(BowlB13 *)fmt = *(BowlB13 *)D_00523E60;
+    if (score == 0x12C) {
+        rank = 0;
+    } else if (score >= 0xE6) {
+        rank = 1;
+    } else if (score >= 0xAA) {
+        rank = 2;
     } else {
-        var_s5 = (temp_s1 >= 0x64) ? 3U : 4U;
+        rank = (score >= 0x64) ? 3 : 4;
     }
-    Text_Printf(&spA0, 0xCB, 0x50, 0xA);
-    if (var_s5 == 0) {
-
+    Text_Printf(fmt, 0xCB, 0x50, 0xA, 5, 0xA, D_00523E70);
+    if (rank == 0) {
+        c = rcol[(gFrameCount >> 1) & 1]; /* a perfect game blinks */
+    } else {
+        c = rcol[rank - 1];
     }
     if (d == 0) {
-        Text_Printf(D_00523E80, 0x4B, 0xD4, 0xA);
+        Text_Printf(D_00523E80, 0x4B, 0xD4, 0xA, 8, c, score);
     } else {
-        Text_Printf(D_00523EA0, 0x6A, 0xD4, 0xA);
+        Text_Printf(D_00523EA0, 0x6A, 0xD4, 0xA, 8, c, rname[d - 1], score);
     }
-    func_003C59D8(0x24, 0x64, 1, 1, 0 /* m2c: unknown value */, 0 /* m2c: unknown value */, 0 /* m2c: unknown value */, 0 /* m2c: unknown value */, -1);
-    var_s1 = 0;
+    func_003C59D8(0x24, 0x64, 1, 1, 0xA, 1, p, NULL, -1);
     Sprite_SetBlend(1, 1);
     D_005F6738 = (0x8080 << 0x10) | 0x8080;
     func_003CC078(0xF0, 0xF0, 0);
-    func_003CBFB8((s32) c0, 0xF0, 0xF0, 0);
+    func_003CBFB8(c0, 0xF0, 0xF0, 0);
     func_003CF1C0(1, c0, 0xCC, 0x128);
     func_003CC078(0xF0, 0x140, 0);
-    func_003CBFB8((s32) c1, 0xF0, 0x140, 0);
+    func_003CBFB8(c1, 0xF0, 0x140, 0);
     func_003CF1C0(1, c1, 0xCC, 0x178);
-    Text_Printf(&spA0, 0x16D, 0x103, 0xA);
-    do {
-        temp_v0 = &(&sp10[0])[var_s1];
-        var_s1 += 1;
-        *temp_v0 = 0;
-    } while (var_s1 < 7);
-    var_s1_2 = 2;
-    do {
-        temp_v1_2 = p->unk27[var_s1_2];
-        var_s1_2 += 1;
-        temp_v1_3 = &(&sp10[0])[temp_v1_2];
-        *temp_v1_3 += 1;
-    } while (var_s1_2 < 0x1A);
-    var_s1_3 = 1;
-    do {
-        temp_v1_4 = var_s1_3 * 0x1A;
-        temp_s0 = (var_s1_3 >= 5) ? (temp_v1_4 + 0xE9) : (temp_v1_4 + 0x103);
-        Text_Printf(&spA0, 0x150, temp_s0, 0xA);
-        if (var_s1_3 == 3) {
-
+    Text_Printf(fmt, 0x16D, 0x103, 0xA, 5, 0x13, D_005F6AC8);
+    for (i = 0; i < 7; i++) {
+        count[i] = 0;
+    }
+    for (i = 2; i < 0x1A; i++) {
+        count[p->unk27[i]]++;
+    }
+    for (i = 1; i < 7; i++) {
+        y = (i < 5) ? i * 0x1A + 0x103 : i * 0x1A + 0xE9;
+        Text_Printf(fmt, 0x150, y, 0xA, 5, col[i - 1], name[i - 1]);
+        n = (i == 3) ? count[3] + count[4] : count[i];
+        Text_Printf(D_00523EB8, 0x1DC, y, 0xA, 5, col[i - 1], n);
+        if (i == 3) {
+            i++;
         }
-        Text_Printf(D_00523EB8, 0x1DC, temp_s0, 0xA);
-        var_s1_3 = (((var_s1_3 ^ 3) == 0) ? (var_s1_3 + 1) : var_s1_3) + 1;
-    } while (var_s1_3 < 7);
-    func_003F2480(var_s5);
+    }
+    func_003F2480(rank);
 }
 #else
 INCLUDE_ASM("asm/nonmatchings/tekken_bowl", func_003F25D8);

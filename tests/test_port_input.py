@@ -138,6 +138,52 @@ class CharacterSelect(unittest.TestCase):
         self.assertNotEqual(moved[4], idle[4])  # the character under the cursor
 
 
+UP, LEFT, SELECT = 0x1000, 0x8000, 0x0100
+# With the unlock cheat (TTT_CHEAT_UNLOCK, docs/port/cheats.md) the main menu's cursor starts on GALLERY: up and Start
+# open THEATER (modes 12, 13). Left moves the theater's cursor from the movies tile to the music player tile; cross
+# opens it (modes 14, 15); down and cross play the second track; select returns to the theater.
+TO_THE_THEATER = ((200, UP, 4), (240, START, 6))
+TO_THE_MUSIC_PLAYER = ((300, LEFT, 4), (340, CROSS, 4), (390, DOWN, 4), (430, CROSS, 4), (540, SELECT, 4))
+
+
+@unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
+@unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
+class Theater(unittest.TestCase):
+    """T41 b0: THEATER and its music player run. Before, the m2c drafts of Mode_Theater and Mode_MusicPlayer called
+    Text_Printf through 4-argument local prototypes: their formats ("%H%V%F%S%c%s") read the dropped arguments, and
+    the %s took a stack word as a string (a crash 5 VBlanks into the theater). Both drafts are now written from the
+    asm."""
+
+    def play(self, frames, *presses, **env):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "in.txt"
+            p.write_text(stream(*presses))
+            r = run_ttt(timeout=900, TTT_FRAMES=frames, TTT_SEED="1", TTT_INPUT_PLAY=str(p), TTT_CHEAT_UNLOCK="1",
+                        TTT_AUDIO="0", TTT_PEEK=MODE, **env)
+        self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
+        return r
+
+    def test_theater_and_music_player(self):
+        """The theater (VBlank 245), the music player (341-540, a track played) and back, 640 VBlanks."""
+        r = self.play("640", *TO_THE_THEATER, *TO_THE_MUSIC_PLAYER)
+        modes = re.search(r"ttt: modes: (.*)", r.stdout).group(1)
+        self.assertRegex(modes, r"\b3@\d+ 12@\d+ 13@\d+ 14@\d+ 15@\d+ 13@5\d\d$")
+        self.assertEqual(peek(r, MODE), [0x0000000D])
+
+    @unittest.skipUnless(os.environ.get("TTT_SLOW_TESTS") == "1", "slow (about a minute): TTT_SLOW_TESTS=1")
+    def test_the_theater_drafts_agree_with_the_original(self):
+        """A movie of the first character's row (an ending, mode 8, left with cross), then the music player: every
+        call of Mode_Theater and Mode_MusicPlayer from VBlank 245 agrees with the executable's code (TTT_DIFF)."""
+        r = self.play("1150", *TO_THE_THEATER, (360, RIGHT, 4), (400, SQUARE, 4), (600, CROSS, 4),
+                      (760, LEFT, 4), (800, LEFT, 4), (840, CROSS, 4), (890, DOWN, 4), (930, CROSS, 4),
+                      (1040, SELECT, 4), TTT_DIFF="245:2000", TTT_DIFF_ONLY="Mode_Theater,Mode_MusicPlayer")
+        modes = re.search(r"ttt: modes: (.*)", r.stdout).group(1)
+        self.assertRegex(modes, r"\b13@\d+ 8@\d+ 13@\d+ 14@\d+ 15@\d+ 13@\d+$")
+        diffs = re.findall(r"ee-diff (Mode_Theater|Mode_MusicPlayer) \(VBlank \d+\): (\w+)", r.stdout)
+        self.assertGreater(len(diffs), 500)
+        self.assertEqual({d[1] for d in diffs}, {"same"}, [l for l in r.stdout.splitlines() if "DIFFERS" in l][:5])
+
+
 @unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
 @unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
 @unittest.skipUnless(os.environ.get("TTT_SLOW_TESTS") == "1", "slow (about three minutes): TTT_SLOW_TESTS=1")

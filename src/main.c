@@ -483,19 +483,39 @@ void Mode_Dispatch(void) {
         Mode_Loading();
         break;
     case 12:
+#ifdef PORT
+        PORT_DIFF(0x354BE0, Mode_EnterTheater, "i", 0); /* TTT_DIFF: the mode against the original code */
+#else
         Mode_EnterTheater();
+#endif
         break;
     case 13:
+#ifdef PORT
+        PORT_DIFF(0x354D68, Mode_Theater, "i", 0); /* TTT_DIFF: the mode against the original code */
+#else
         Mode_Theater();
+#endif
         break;
     case 14:
+#ifdef PORT
+        PORT_DIFF(0x355D30, Mode_EnterMusicPlayer, "i", 0); /* TTT_DIFF: the mode against the original code */
+#else
         Mode_EnterMusicPlayer();
+#endif
         break;
     case 15:
+#ifdef PORT
+        PORT_DIFF(0x355D90, Mode_MusicPlayer, "i", 0); /* TTT_DIFF: the mode against the original code */
+#else
         Mode_MusicPlayer();
+#endif
         break;
     case 16:
+#ifdef PORT
+        PORT_DIFF(0x3E5A98, Mode_Gallery, "i", 0); /* TTT_DIFF: the mode against the original code */
+#else
         Mode_Gallery();
+#endif
         break;
     }
     Mode_SetDrawFlags(gMode);

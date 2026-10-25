@@ -172,11 +172,14 @@ LIT4_WORD(D_005F5840, 0x3FC90FDC);
 /* NON_MATCHING: rough m2c-based draft (target scope rings / grid of the bowl HUD), not tuned */
 #define M32(p, o) (*(s32 *)((u8 *)(p) + (o)))
 void Gfx_DrawTriangle(f32 *, s32);
-s32 sceVu0AddVector(f32 *, u8 *, f32 *, s32);
-s32 sceVu0ScaleVector(s32, f32 *, f32 *);
+void sceVu0AddVector(f32 *v0, f32 *v1, f32 *v2);
+void sceVu0ScaleVector(f32 *v0, f32 *v1, f32 s);
 extern u8 D_00522FC0[];
 void func_003E1C68(MbgObj *arg0) {
     u8 spbuf[0x400];
+    f32 box[12] __attribute__((aligned(16)));
+    s32 scr[12] __attribute__((aligned(16)));
+    s32 k;
     s32 sp1B4;
     s32 sp1C0;
     s32 sp1C4;
@@ -289,14 +292,16 @@ void func_003E1C68(MbgObj *arg0) {
     u8 *temp_v1_2;
 
     var_s6 = 0;
-    sp10 = M32(((u8 *)&D_00522FC0), 0x10);
-    sp18 = M32(((u8 *)&D_00522FC0), 0x18);
-    sp28 = M32(((u8 *)&D_00522FC0), 0x28);
-    sp20 = M32(((u8 *)&D_00522FC0), 0x20);
-    var_f1 = 0 /* stack arg 0 */;
-    var_f2 = 0 /* stack arg 2 */;
-    var_f5 = (f32) sp10;
-    var_f3 = (f32) sp18;
+    /* The pins' bounding box on the floor (sp+0: min, sp+0x10: max, sp+0x20: their middle; D_00522FC0 the start),
+     * projected (sp+0x1B0) to size the target (T41 b0: the m2c draft kept the three vectors as scalars and wrote the
+     * vector results over its other locals). */
+    for (k = 0; k < 12; k++) {
+        box[k] = ((f32 *)D_00522FC0)[k];
+    }
+    var_f1 = box[0];
+    var_f2 = box[2];
+    var_f5 = box[4];
+    var_f3 = box[6];
     var_v0 = 0 * 0x180;
     do {
         temp_v1 = var_v0 + (u8 *)arg0;
@@ -305,29 +310,39 @@ void func_003E1C68(MbgObj *arg0) {
         } else {
             temp_f0 = M32(temp_v1, 0x0);
             if (temp_f0 < var_f1) {
+                box[0] = temp_f0;
                 var_f1 = temp_f0;
             }
             temp_f0_2 = -M32(temp_v1, 0x8);
             if (temp_f0_2 < var_f2) {
+                box[2] = temp_f0_2;
                 var_f2 = temp_f0_2;
             }
             if (var_f5 < temp_f0) {
-                sp10 = temp_f0;
+                box[4] = temp_f0;
                 var_f5 = temp_f0;
             }
             var_s6 += 1;
             if (var_f3 < temp_f0_2) {
-                sp18 = temp_f0_2;
+                box[6] = temp_f0_2;
                 var_f3 = temp_f0_2;
             }
         }
         var_v0 = var_s6 * 0x180;
     } while (var_s6 < 0xA);
-    sp18 = var_f3 + 200.0f;
-    sp10 = var_f5 + 200.0f;
-    sceVu0AddVector(&sp20, spbuf, &sp10, M32(((u8 *)&D_00522FC0), 0x8));
-    sceVu0ScaleVector(0x3F000000, &sp20, &sp20);
-    sceVu0RotTransPersN((void *)&sp1B0, D_004334C0, (void *)spbuf, 3, 0);
+    box[6] = var_f3 + 200.0f;
+    box[0] = var_f1 - 200.0f;
+    box[2] = var_f2 - 200.0f;
+    box[4] = var_f5 + 200.0f;
+    sceVu0AddVector(&box[8], box, &box[4]);
+    sceVu0ScaleVector(&box[8], &box[8], 0.5f);
+    sceVu0RotTransPersN((void *)scr, D_004334C0, (void *)box, 3, 0);
+    sp1B0 = scr[0];
+    sp1B4 = scr[1];
+    sp1C0 = scr[4];
+    sp1C4 = scr[5];
+    sp1D0 = scr[8];
+    sp1D4 = scr[9];
     var_v0_2 = sp1B0 - sp1C0;
     if (var_v0_2 < 0) {
         var_v0_2 = -var_v0_2;
@@ -487,7 +502,7 @@ loop_77:
                 temp_s2 = temp_s0_4 - 0x100;
                 Gfx_DrawRect((f32) temp_s1, (f32) temp_s0_4, (f32) temp_s3, (f32) temp_s2, 0);
                 Gfx_DrawRect((f32) temp_s3, (f32) temp_s2, (f32) (temp_s1 + 0x4C0), (f32) temp_s2, 0);
-                Text_Printf(D_00522FF0, (temp_s1 >> 4) - 0x6A8, (temp_s0_4 >> 4) - 0x728, 0xB);
+                Text_Printf(D_00522FF0, ((u32)temp_s1 >> 4) - 0x6A8, ((u32)temp_s0_4 >> 4) - 0x728, 0xB, 6, 6);
             }
         }
         goto block_80;
@@ -827,11 +842,13 @@ LIT4_WORD(D_005F588C, 0x3DCCCCCD);
 #if 0
 /* NON_MATCHING: rough m2c-based draft (scales, dial and wave of the bowl HUD), not tuned */
 #define M32(p, o) (*(s32 *)((u8 *)(p) + (o)))
-void func_003DFF30(f32, s32, s32, s32, s8);
+void func_003DFF30(f32 a, u32 x, u32 y, u32 size, u32 tile, u32 col);
 extern u8 D_01FC4A50[];
 extern u8 D_01FC4A6C[];
 void func_003E38F0(void) {
     u8 spbuf[0x400];
+    s32 temp_x;
+    s32 temp_y;
     s32 sp10;
     s32 sp14;
     s32 sp20;
@@ -967,11 +984,11 @@ block_13:
     temp_f20 = 2460.0f;
 loop_14:
     temp_f24 = ((((2.0f * (f32) var_s1_3) + 1.0f) * temp_f23) / 36.0f) + temp_f21;
-    sinf(temp_f24);
-    cosf(temp_f24);
+    temp_x = 0x8000 + (s32)(sinf(temp_f24) * temp_f20);
+    temp_y = (s32)(cosf(temp_f24) * temp_f20) + 0x7DE0;
     temp_a3_3 = D_01FC4A30[2][var_s1_3];
     var_s1_3 += 1;
-    func_003DFF30(-temp_f24, 0 + 0x8000, 0 + 0x7DE0, 0x50, temp_a3_3);
+    func_003DFF30(-temp_f24, temp_x, temp_y, 0x50, temp_a3_3, temp_s2_3);
     if (var_s1_3 < 0xC) {
         goto loop_14;
     }

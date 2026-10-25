@@ -248,7 +248,7 @@ u8 *Str_Next(u8 *s);
 u8 *func_003DFA00(u8 *fmt, ...);
 char *func_003E06A0(char *s, ...);
 void func_003E0460(u32 x, u32 y, u32 w, u32 h, u32 k, u32 col);
-void func_003DFF30(s32 a0, s32 a1, s32 a2, s32 a3, u32 col);
+void func_003DFF30(f32 a, u32 x, u32 y, u32 size, u32 tile, u32 col);
 void func_003DD918(void *f);
 s32 func_003E08D8(f32 *p, f32 *v);
 void func_003DECE0(void);
@@ -274,7 +274,7 @@ extern u8 D_01FC4930[];
 void Snd_PlaySe(s32, s32);
 s32 func_003DB9A0(u8 *);
 void func_003DBAA8(s32, s32, s32, s32);
-void func_003DC188(s32, s32, s32, s32);
+void func_003DC188(u32 x, u32 y, u32 w, u32 h, u32 z);
 extern u8 D_00415718[];
 extern u8 D_00415728[];
 extern u8 D_00522B90;
@@ -535,7 +535,7 @@ block_55:
     }
 block_56:
     func_003DBAA8(0, 0x27F, 0, 0x1BF);
-    func_003DC188(subroutine_arg1, sp10, 0x11C, 0x14A);
+    func_003DC188(subroutine_arg1, sp10, 0x11C, 0x14A, 0xFFFF);
     return;
 block_58:
     return;
@@ -1682,168 +1682,74 @@ u16 func_003DFF28(void) {
 }
 
 #if 0
-/* NON_MATCHING: 344 lines: m2c draft (the float to int conversions of the rotated corners are guesses) */
-#define M2C_UNK u8
-#define M2C_FIELD(expr, type, offset) (*(type)((u8 *)(expr) + (offset)))
-#define M2C_BITWISE(type, expr) ((type)(s32)(expr))
+/* NON_MATCHING: 344 lines: rewritten from the asm (T41 b0; the m2c draft took the angle ($f12) as no argument, five
+ * ints for six and lost the corner arithmetic), register allocation and scheduling not tried. */
 f32 cosf(f32);
-f32 sinf(f32, u32);
+f32 sinf(f32);
+/* One textured sprite of the menu font sheet rotated by `a` about (x, y) (12.4 fixed point): `size` scales the half
+ * width (size * 256 / 200), tile - 1 picks the 16 x 15 cell (u = (t & 15) * 256, v = ((t >> 6) * 15 + 4) * 16), col
+ * is RGBA. The y terms are scaled by 480 and back, as the original does. */
+void func_003DFF30(f32 a, u32 x, u32 y, u32 size, u32 tile, u32 col) {
+    u64 *p;
+    f32 r;
+    f32 n;
+    f32 s;
+    f32 c;
+    f32 fx;
+    f32 fy;
+    s32 x0, y0, x1, y1, x2, y2, x3, y3;
+    u32 u;
+    u32 v;
 
-void func_003DFF30(s32 arg0, s32 arg1, s32 arg2, s32 arg3, u32 arg4) {
-    u8 sp[0x200];
-    s32 subroutine_arg0, subroutine_arg1, subroutine_arg2, subroutine_arg3, subroutine_arg4, subroutine_arg5;
-    f32 temp_f21;
-    f32 temp_f4;
-    f32 temp_f5;
-    f32 var_f1;
-    f32 var_f1_2;
-    f32 var_f20;
-    s32 temp_a0;
-    s32 temp_a1;
-    s32 temp_a2;
-    s32 temp_a2_2;
-    s64 temp_a1_2;
-    s64 temp_a2_3;
-    s64 temp_a3;
-    s64 temp_a3_2;
-    u32 temp_lo;
-    u32 temp_s0;
-    u32 temp_s3;
-    u32 temp_s4;
-    u64 temp_t0;
-    void *temp_s0_10;
-    void *temp_s0_11;
-    void *temp_s0_12;
-    void *temp_s0_13;
-    void *temp_s0_14;
-    void *temp_s0_15;
-    void *temp_s0_16;
-    void *temp_s0_17;
-    void *temp_s0_18;
-    void *temp_s0_19;
-    void *temp_s0_20;
-    void *temp_s0_21;
-    void *temp_s0_22;
-    void *temp_s0_23;
-    void *temp_s0_24;
-    void *temp_s0_25;
-    void *temp_s0_26;
-    void *temp_s0_2;
-    void *temp_s0_3;
-    void *temp_s0_4;
-    void *temp_s0_5;
-    void *temp_s0_6;
-    void *temp_s0_7;
-    void *temp_s0_8;
-    void *temp_s0_9;
-
-    temp_s4 = arg4;
-    temp_s0 = arg2 << 8;
-    temp_lo = temp_s0 / 200U;
-    temp_s0_2 = func_00399520();
-    if ((s32) temp_lo >= 0) {
-        var_f20 = (f32) temp_lo;
-    } else {
-        var_f20 = 2.0f * (f32) ((temp_lo & 1) | (temp_s0 / 400));
+    r = (f32)((size << 8) / 200U);
+    p = func_00399520();
+    if (p == NULL) {
+        return;
     }
-    if (temp_s0_2 != NULL) {
-        temp_s3 = arg3 - 1;
-        temp_f21 = sinf(arg0, temp_lo);
-        temp_f5 = cosf(arg0);
-        if (arg0 >= 0) {
-
-        }
-        temp_f4 = -var_f20;
-        if (arg1 >= 0) {
-
-        }
-        if (arg0 >= 0) {
-            var_f1 = (f32) arg0;
-        } else {
-            var_f1 = 2.0f * (f32) ((arg0 & 1) | ((u32) arg0 >> 1));
-        }
-        if (arg1 >= 0) {
-
-        }
-        if (arg0 >= 0) {
-
-        }
-        if (arg1 >= 0) {
-
-        }
-        if (arg0 >= 0) {
-            var_f1_2 = (f32) arg0;
-        } else {
-            var_f1_2 = 2.0f * (f32) ((arg0 & 1) | ((u32) arg0 >> 1));
-        }
-        if (arg1 >= 0) {
-
-        }
-        M2C_FIELD(temp_s0_2, s64 *, 0) = (s64) ((0xC1AA4000ULL << 0x20) | 0x8001);
-        temp_s0_3 = temp_s0_2 + 8;
-        M2C_FIELD(temp_s0_2, s64 *, 8) = (s64) ((((0x4343ULL << 0x10) | 0x4343) << 0x10) | 0x1EEE);
-        temp_s0_4 = temp_s0_3 + 8;
-        M2C_FIELD(temp_s0_3, s64 *, 8) = (s64) (((temp_s3 & 0x30) * 4) | 4);
-        temp_s0_5 = temp_s0_4 + 8;
-        M2C_FIELD(temp_s0_4, s64 *, 8) = 0x1C;
-        temp_s0_6 = temp_s0_5 + 8;
-        M2C_FIELD(temp_s0_5, s64 *, 8) = (s64) ((((0x20D76806ULL << 0x10) | 0x2141) << 0x10) | 0x3B40);
-        temp_s0_7 = temp_s0_6 + 8;
-        M2C_FIELD(temp_s0_6, s64 *, 8) = 7;
-        temp_s0_8 = temp_s0_7 + 8;
-        M2C_FIELD(temp_s0_7, s64 *, 8) = 0x44;
-        temp_s0_9 = temp_s0_8 + 8;
-        M2C_FIELD(temp_s0_8, s64 *, 8) = 0x43;
-        temp_s0_10 = temp_s0_9 + 8;
-        M2C_FIELD(temp_s0_9, s64 *, 8) = (s64) (((temp_s4 >> 0x18) & 0xFF) | ((u64)((temp_s4 >> 0x10) & 0xFF) << 0x20));
-        temp_a2 = (temp_s3 & 0xF) << 8;
-        temp_a1 = (((temp_s3 >> 6) * 0xF) + 4) * 0x10;
-        temp_s0_11 = temp_s0_10 + 8;
-        temp_a0 = temp_a2 + 8;
-        M2C_FIELD(temp_s0_10, s64 *, 8) = (s64) (((temp_s4 >> 8) & 0xFF) | ((u64)(temp_s4 & 0xFF) << 0x20));
-        temp_a3 = (s64)(temp_a1 + 8) << 0x20;
-        temp_s0_12 = temp_s0_11 + 8;
-        M2C_FIELD(temp_s0_11, s64 *, 8) = (s64) (temp_a0 | temp_a3);
-        temp_s0_13 = temp_s0_12 + 8;
-        temp_t0 = -1U >> 0x1F;
-        M2C_FIELD(temp_s0_12, s64 *, 8) = 0;
-        temp_s0_14 = temp_s0_13 + 8;
-        temp_a1_2 = (s64)(temp_a1 + 0xE8) << 0x20;
-        M2C_FIELD(temp_s0_13, s64 *, 8) = (s64) (M2C_BITWISE(s32, (temp_f21 * temp_f4)) | (M2C_BITWISE(s64, (temp_f5 * temp_f4)) << 0x20));
-        temp_s0_15 = temp_s0_14 + 8;
-        M2C_FIELD(temp_s0_14, u64 *, 8) = temp_t0;
-        temp_s0_16 = temp_s0_15 + 8;
-        M2C_FIELD(temp_s0_15, s64 *, 8) = (s64) (temp_a0 | temp_a1_2);
-        temp_s0_17 = temp_s0_16 + 8;
-        M2C_FIELD(temp_s0_16, s64 *, 8) = 0;
-        temp_a2_2 = temp_a2 + 0xF8;
-        temp_s0_18 = temp_s0_17 + 8;
-        M2C_FIELD(temp_s0_17, s64 *, 8) = (s64) (M2C_BITWISE(s32, var_f1) | (0x43F00000LL << 0x20));
-        temp_s0_19 = temp_s0_18 + 8;
-        temp_a3_2 = temp_a2_2 | temp_a3;
-        M2C_FIELD(temp_s0_18, u64 *, 8) = temp_t0;
-        temp_s0_20 = temp_s0_19 + 8;
-        M2C_FIELD(temp_s0_19, s64 *, 8) = temp_a3_2;
-        temp_a2_3 = temp_a2_2 | temp_a1_2;
-        temp_s0_21 = temp_s0_20 + 8;
-        M2C_FIELD(temp_s0_20, s64 *, 8) = 0;
-        temp_s0_22 = temp_s0_21 + 8;
-        M2C_FIELD(temp_s0_21, s64 *, 8) = (s64) (0x43F00000 | (0x43F00000LL << 0x20));
-        temp_s0_23 = temp_s0_22 + 8;
-        M2C_FIELD(temp_s0_22, u64 *, 8) = temp_t0;
-        temp_s0_24 = temp_s0_23 + 8;
-        M2C_FIELD(temp_s0_23, s64 *, 8) = temp_a2_3;
-        temp_s0_25 = temp_s0_24 + 8;
-        M2C_FIELD(temp_s0_24, s64 *, 8) = 0;
-        temp_s0_26 = temp_s0_25 + 8;
-        M2C_FIELD(temp_s0_25, s64 *, 8) = (s64) (M2C_BITWISE(s32, var_f1_2) | (0x43F00000LL << 0x20));
-        M2C_FIELD(temp_s0_26, u64 *, 8) = temp_t0;
-        func_00399650((u64 *)(temp_s0_26 + 8 + 8));
-    }
+    tile--;
+    s = sinf(a);
+    c = cosf(a);
+    n = -r;
+    fx = (f32)x;
+    fy = (f32)y;
+    x0 = fx + (c * n - s * n);
+    y0 = fy + (s * n + c * n) * 480.0f / 480.0f;
+    x1 = fx + (c * n - s * r);
+    y1 = fy + (s * n + c * r) * 480.0f / 480.0f;
+    x2 = fx + (c * r - s * n);
+    y2 = fy + (s * r + c * n) * 480.0f / 480.0f;
+    x3 = fx + (c * r - s * r);
+    y3 = fy + (s * r + c * r) * 480.0f / 480.0f;
+    u = (tile & 0xF) << 8;
+    v = ((tile >> 6) * 15 + 4) << 4;
+    *p++ = (0xC1AA4000ULL << 32) | 0x8001;
+    *p++ = (((0x4343ULL << 16) | 0x4343) << 16) | 0x1EEE;
+    *p++ = ((tile & 0x30) << 2) | 4;
+    *p++ = 0x1C;
+    *p++ = (((0x20D76806ULL << 16) | 0x2141) << 16) | 0x3B40;
+    *p++ = 7;
+    *p++ = 0x44;
+    *p++ = 0x43;
+    *p++ = ((col >> 24) & 0xFF) | ((u64)((col >> 16) & 0xFF) << 32);
+    *p++ = ((col >> 8) & 0xFF) | ((u64)(col & 0xFF) << 32);
+    *p++ = (u + 8) | ((u64)(v + 8) << 32);
+    *p++ = 0;
+    *p++ = (s64)x0 | ((u64)(u32)y0 << 32);
+    *p++ = 0x1FFFFFFFFULL;
+    *p++ = (u + 8) | ((u64)(v + 0xE8) << 32);
+    *p++ = 0;
+    *p++ = (s64)x1 | ((u64)(u32)y1 << 32);
+    *p++ = 0x1FFFFFFFFULL;
+    *p++ = (u + 0xF8) | ((u64)(v + 8) << 32);
+    *p++ = 0;
+    *p++ = (s64)x2 | ((u64)(u32)y2 << 32);
+    *p++ = 0x1FFFFFFFFULL;
+    *p++ = (u + 0xF8) | ((u64)(v + 0xE8) << 32);
+    *p++ = 0;
+    *p++ = (s64)x3 | ((u64)(u32)y3 << 32);
+    *p++ = 0x1FFFFFFFFULL;
+    func_00399650(p);
 }
-#undef M2C_UNK
-#undef M2C_FIELD
-#undef M2C_BITWISE
 #else
 INCLUDE_ASM("asm/nonmatchings/demo", func_003DFF30);
 #endif

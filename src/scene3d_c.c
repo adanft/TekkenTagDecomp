@@ -336,6 +336,9 @@ INCLUDE_ASM("asm/nonmatchings/scene3d_c", func_00350728);
  * shapes D_00454710 / D_00454768 and colours D_00454B80 / D_004547C0) rotated along the blade and scaled by its
  * screen length; finally func_0034FF10 [V code; I meaning]. */
 #if 0
+void func_0034FF60(u128 v);
+void func_0034FFC0(u128 v);
+void func_00350020(u128 v);
 void func_00350C40(Fighter *f) {
     QWord cmd;
     sceVu0FVECTOR a[5];
@@ -461,7 +464,7 @@ void func_00350C40(Fighter *f) {
             q = (TrailVtx *)spr + 72;
             alpha = 75;
             c = D_004544D0[style];
-            func_0034FFC0(0x70000A0000A);
+            func_0034FFC0((u128)0x70000A0000A); /* por clears the upper 64 bits */
             tex.p.lo = (u32)(func_003988E0() | 0x28128000) | ((u64)0xA000 << 18);
             func_00350020(tex.q);
             do {

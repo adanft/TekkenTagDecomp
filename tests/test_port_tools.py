@@ -22,6 +22,7 @@ gen_data = _load("gen_data")
 link = _load("link")
 make_layout = _load("make_layout")
 undefined = _load("undefined")
+proto_audit = _load("proto_audit")
 
 DRAFTS = """\
 #include "common.h"
@@ -355,3 +356,51 @@ class GenDataTest(unittest.TestCase):
     def test_section_name_of_a_file(self):
         self.assertEqual(gen_data.section_name("1BBF70.data.s"), "1BBF70_data")
         self.assertEqual(gen_data.section_name("fn_func_003608E0_0.rodata.s"), "fn_func_003608E0_0_rodata")
+
+
+class ProtoAuditTest(unittest.TestCase):
+    """port/tools/proto_audit.py (T41 b0): i386 slot layouts of prototypes and Text_Printf argument counts."""
+
+    def decl(self, params, ret="I", name="f"):
+        return proto_audit.Decl(name, ret, params, "src/x.c", 1, False, "")
+
+    def setUp(self):
+        self.types = proto_audit.Types()
+        self.types.scan("typedef float sceVu0FVECTOR[4];\ntypedef struct { s32 a; } Box;\ntypedef s32 Id;")
+        self.saved, proto_audit.TYPES = proto_audit.TYPES, self.types
+
+    def tearDown(self):
+        proto_audit.TYPES = self.saved
+
+    def test_slot_classes(self):
+        t = self.types
+        self.assertEqual(proto_audit.layout(t, "s32 a, f32 b, u8 *p, u64 q, ..."), ("I", "F", "I", "L", "V"))
+        self.assertEqual(proto_audit.layout(t, "void"), ())
+        self.assertEqual(proto_audit.layout(t, ""), ("U",))
+        self.assertEqual(proto_audit.layout(t, "sceVu0FVECTOR v, Box b, Id i, void (*cb)(s32)"), ("I", "S:Box", "I", "I"))
+
+    def test_dropped_arguments_are_fewer(self):
+        ref = self.decl("u32 x, u32 y, u32 w, u32 h, u32 z, u32 c0, u32 c1, u32 c2, u32 c3")
+        self.assertEqual(proto_audit.compare(ref, self.decl("s32, s32, s32, s32"))[0], "fewer")
+
+    def test_int_float_order_is_a_swap(self):
+        ref = self.decl("s32 a, f32 b")
+        self.assertEqual(proto_audit.compare(ref, self.decl("f32 b, s32 a"))[0], "swap")
+
+    def test_variadic_and_fixed_differ(self):
+        ref = self.decl("const char *fmt, ...")
+        self.assertEqual(proto_audit.compare(ref, self.decl("void *, s32, s32, s32"))[0], "variadic")
+
+    def test_64_bit_halves_keep_the_layout(self):
+        ref = self.decl("u32 a, u32 b, u32 lo, u32 hi")
+        self.assertEqual(proto_audit.compare(ref, self.decl("u32 a, u32 b, u64 v"))[0], "class")
+
+    def test_same_layout_agrees(self):
+        self.assertIsNone(proto_audit.compare(self.decl("s32 a, u8 *p"), self.decl("u32, void *")))
+
+    def test_text_printf_directives(self):
+        self.assertEqual(proto_audit.tp_count("%H%V%F%S%c%s"), 6)
+        self.assertEqual(proto_audit.tp_count("%Z%H%V%F%S%cBGM VOLUME: %cOFF"), 7)
+        self.assertEqual(proto_audit.tp_count("%T%F%SRANDOM"), 2)
+        self.assertEqual(proto_audit.tp_count("100%% %2d%08x"), 2)
+

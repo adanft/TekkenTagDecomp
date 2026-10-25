@@ -1574,7 +1574,7 @@ void func_003C5848(s32 x, s32 y, u8 *p, s32 k, s32 j, s32 flag) {
         if (v < 0) {
             break;
         }
-        Text_Printf(D_0051FC70, x, y, 0xB, 6);
+        Text_Printf(D_0051FC70, x, y, 0xB, 6, v);
         break;
     case 1:
         Sprite_DrawBlended(1, 0x11C, 0x109, x - 5, y - 0x15);
@@ -1592,7 +1592,7 @@ void func_003C5848(s32 x, s32 y, u8 *p, s32 k, s32 j, s32 flag) {
         Text_Printf(D_0051FCA0, x, y, 0xB, 1);
         break;
     case 6:
-        Text_Printf(D_0051FC70, x, y, 0xB, 5);
+        Text_Printf(D_0051FC70, x, y, 0xB, 5, v);
         break;
     }
 }

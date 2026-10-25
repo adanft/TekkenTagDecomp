@@ -137,6 +137,10 @@ Shared modules: `toolchain.py` (paths, compiler flags, `TTT_CC`), `portsrc.py` (
 `config/SLUS_200.01.yaml` and the switch that turns drafts on). Their pure helpers are tested by
 `tests/test_port_tools.py`.
 
+Check, not part of the build: `python3 port/tools/proto_audit.py [-v] [name ...]` lists the declarations whose
+argument layout on i386 differs from the definition and the `Text_Printf` calls whose format reads another number of
+arguments ([gotcha 29](#porting-gotchas-found-so-far)); about 2 s.
+
 ## Architecture
 
 ### Game code
@@ -1113,6 +1117,20 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
     among them, so the fight's state differed from run to run with raster threads. The port's work that can wait or
     calls into the C library now runs off the EE stack (`Port_OffEe`, `plat_state.c`), and both reads start from 0
     under `PORT` ([determinism.md](determinism.md)). `TTT_SYNCTEST` (whole states, stack included) finds such cases.
+29. **Prototypes that drop or reorder arguments** (T41 b0). On the EE an integer argument travels in `$a0-$t3` and a
+    float in `$f12-$f19`, so a draft's local prototype with too few arguments, or a float listed after the ints it
+    precedes, still reads the right register. On i386 every argument is a stack slot in order: THEATER crashed 5
+    VBlanks in, `Text_Printf(D_00522AC0, x, y, 10)` (a 4-argument local prototype) running `%H%V%F%S%c%s` over the
+    stack and taking a stack word as the `%s` string. `port/tools/proto_audit.py` preprocesses every source the
+    port compiles, reduces each declaration (file and block scope) and definition to its i386 slot layout, and lists
+    the ones that differ (fewer arguments, int/float order, variadic against fixed, 8-byte against 4-byte), the
+    calls through implicit declarations, and the `Text_Printf` calls whose rodata format reads more or fewer
+    arguments than they pass. Its first run found 31 format mismatches and 16 short prototypes; the drafts on the
+    play paths are fixed from the asm (`Mode_Theater`, `Mode_MusicPlayer`, the TEKKEN BOWL option window, score
+    sheet and team results, `func_003DFF30` whose float angle the draft had dropped, the bowl aim's bounding box);
+    what is left is listed by the tool and harmless on i386 (extra trailing arguments, functions taken by address,
+    unused results). `TTT_DIFF` hooks on modes 12-16 (`main.c`) compare the theater, music player and gallery with
+    the original.
 
 ## EE float model
 
