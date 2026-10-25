@@ -969,6 +969,10 @@ __attribute__((constructor(102))) static void Port_HwSelfTestEntry(void) {
         int Gl_SelfTest(void); /* gs_gl.c */
         exit(Gl_SelfTest() != 0);
     }
+    if (t != NULL && strcmp(t, "texpack") == 0) {
+        int Tp_SelfTest(void); /* gs_texpack.c */
+        exit(Tp_SelfTest() != 0);
+    }
     if (t != NULL && strcmp(t, "state") == 0) {
         void Port_StateSelfTest(void); /* plat_state.c */
         sHeadless = 1;

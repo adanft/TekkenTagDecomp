@@ -56,6 +56,7 @@ const char *Port_WindowRendererName(void);
 const char *Port_DataPath(void);                               /* plat_data.c: the data file */
 const char *Port_DiscName(void);                               /* plat_file.c */
 extern int gPortModifiedData;                                  /* plat_data.c */
+const char *Tp_Folder(void);                                   /* gs_texpack.c: <textures>/SLUS-20001 */
 
 #ifdef __cplusplus
 }

@@ -107,6 +107,28 @@ void Gl_Exec(const Cmd *c);                                     /* one command, 
 void Gl_Report(void);
 int Gl_SelfTest(void);                                         /* TTT_SELFTEST=gl: fails */
 
+/* ---- gs_texpack.c: texture dumps and replacements (T39, docs/port/textures.md), for gs_gl.c (window thread) ---- */
+typedef struct TpName {
+    uint64_t tex, clut; /* XXH3 of the texture's data and of its CLUT (0: not indexed) */
+    uint32_t bits;      /* PSM | TW << 6 | TH << 10 | TEXA (16 / 24 bits) */
+    uint32_t rw, rh;    /* the CLAMP region's width / height (PCSX2's "-r<w>x<h>"), 0: the whole TW / TH */
+    uint32_t x0, y0, w, h; /* not in the name: the texels named, [x0, x0 + w) x [y0, y0 + h) */
+} TpName;
+/* PCSX2's name of the texture `d` samples from GS memory `vram` (pal: its 16 / 256 CLUT entries as R G B A, NULL when
+   the CPU does not know them); 0 when no pack can name it. */
+int Tp_Name(const uint32_t *vram, const Draw *d, const uint32_t *pal, TpName *n);
+void Tp_Rect(const Draw *d, TpName *n);  /* only the texels a name covers (x0 y0 w h, rw rh) */
+void Tp_Settings(int dump, int replace);  /* video.texture_dump / video.texture_replace, at each picture */
+void Tp_Dump(const uint32_t *vram, const Draw *d, const uint32_t *pal, const TpName *n); /* queued once per name */
+int Tp_Find(const TpName *n);             /* the replacement of that name (index), -1 none, -2 not known yet */
+int Tp_Count(void);                       /* replacements found (0 until the folder was read) */
+/* Replacement i's pixels (RGBA8, w x h, the caller frees them with Tp_Free): 1 taken, 0 not decoded yet, -1 none. */
+int Tp_Take(int i, uint8_t **px, int *w, int *h);
+void Tp_Free(uint8_t *px);
+void Tp_Report(uint32_t replacedDraws, uint32_t named, uint32_t gpuUploads); /* waits for the queued dumps */
+uint64_t Tp_Hash(const void *p, uint32_t n); /* XXH3-64 */
+int Tp_SelfTest(void);                    /* TTT_SELFTEST=texpack: fails */
+
 /* ---- plat_window.c, for gs_gl.c ---- */
 int Port_WindowGl(void);                                         /* the window draws with the GL back end */
 void Port_WindowGlSize(int *w, int *h);                          /* the window's drawable size in pixels */

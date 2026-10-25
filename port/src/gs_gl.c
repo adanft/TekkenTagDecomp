@@ -42,6 +42,9 @@
  *     snapshot at full resolution), widescreen margins on 640-wide targets (the full-width draws go on into them, the
  *     HUD's sprites stay 4:3), the game's flicker filter replaced by the frame it copies, low latency (a frame
  *     presented when the game has copied it).
+ *   - Texture packs (T39, docs/port/textures.md, gs_texpack.c): a textured primitive's texture is named as PCSX2 names
+ *     it (tp_lookup, cached per texture until its pages change), dumped when new, and sampled from a replacement
+ *     (uRepl) instead of GS memory when one has its name.
  *
  * Not modelled here (counted, `ttt: gl:` line of the TTT_FRAMES report): the destination alpha test (DATE), C = Ad on
  * a 32 / 16-bit frame (taken as 0x80), partial FBMSK bytes, COLCLAMP 0 (wrap), PABE with a subtracting equation; 16-bit
@@ -98,6 +101,10 @@ typedef char GLchar;
 #define GL_TEXTURE_MAG_FILTER 0x2800
 #define GL_NEAREST 0x2600
 #define GL_LINEAR 0x2601
+#define GL_LINEAR_MIPMAP_LINEAR 0x2703
+#define GL_TEXTURE_WRAP_S 0x2802
+#define GL_TEXTURE_WRAP_T 0x2803
+#define GL_REPEAT 0x2901
 #define GL_RGBA 0x1908
 #define GL_RGBA8 0x8058
 #define GL_RGBA16F 0x881A
@@ -200,6 +207,7 @@ static struct {
     void *(*MapBufferRange)(GLenum, GLintptr, GLsizeiptr, GLbitfield);
     GLboolean (*UnmapBuffer)(GLenum);
     void (*GetIntegerv)(GLenum, GLint *);
+    void (*GenerateMipmap)(GLenum);
 } gl;
 
 static const struct {
@@ -216,14 +224,14 @@ static const struct {
     F(ShaderSource), F(CompileShader), F(GetShaderiv), F(GetShaderInfoLog), F(CreateProgram), F(AttachShader),
     F(LinkProgram), F(GetProgramiv), F(GetProgramInfoLog), F(UseProgram), F(GetUniformLocation), F(Uniform1i),
     F(Uniform2i), F(Uniform4i), F(Uniform1ui), F(Uniform4iv), F(Uniform4uiv), F(DrawArrays), F(Finish),
-    F(MapBufferRange), F(UnmapBuffer), F(GetIntegerv),
+    F(MapBufferRange), F(UnmapBuffer), F(GetIntegerv), F(GenerateMipmap),
 #undef F
 };
 
 /* ------------------------------------------------------------------------------------------------ shaders */
 
 /* Texture units */
-enum { U_VRAM, U_TAB, U_INV, U_PAL, U_STATES, U_SRC, U_STAGE, U_CLUT, U_SNAP, U_DSP0, U_DSP1 };
+enum { U_VRAM, U_TAB, U_INV, U_PAL, U_STATES, U_SRC, U_STAGE, U_CLUT, U_SNAP, U_DSP0, U_DSP1, U_REPL };
 
 /* GS memory in the shader: the mirror and the page tables (gs_core.c's sIn32 / sIn16 / sIn16S / sIn8 / sIn4 at rows
    0 / 32 / 96 / 160 / 224 of a 128-wide R16UI texture), gs_read() = gs_core.c's vram_loc + vloc_read. */
@@ -283,7 +291,8 @@ static const char kLib[] =
    s0.y tbp | tbw << 14 | tpsm << 20 | lw << 26     s0.z lh | wms << 4 | wmt << 6 | CLUT row << 8 | aref << 24
    s0.w minu | maxu << 10 | lodk << 20               s1.x minv | maxv << 10 | afix << 20
    s1.y ta0 | ta1 << 8                               s1.z scissor x0 | x1 << 16   s1.w scissor y0 | y1 << 16
-   s2.x fog colour */
+   s2.x fog colour      s2.y the snapshot's margin
+   s2.z bit 0: a replacement texture (uRepl, T39) instead, of the texels x0 | w << 12 (bits 1-11, 12-23); s2.w y0 | h << 12 */
 static const char kDrawVs[] =
     "#version 330 core\n"
     "layout(location = 0) in ivec2 aXY;\n"
@@ -328,6 +337,7 @@ static const char kDrawFs[] =
     "uniform usamplerBuffer uStates;\n"
     "uniform usampler2D uPal;\n"
     "uniform sampler2D uSnap;\n" /* the snapshot of the target the texture is (scaled / widescreen, T37) */
+    "uniform sampler2D uRepl;\n" /* a texture pack's replacement of the texture (T39, docs/port/textures.md) */
     "uniform int uScale;\n"
     "uniform int uPass;\n"
     "noperspective in vec4 vCol;\n"
@@ -390,6 +400,28 @@ static const char kDrawFs[] =
     "    uvec4 c10 = tap(snap, u0 + 1, v0), c01 = tap(snap, u0, v0 + 1), c11 = tap(snap, u0 + 1, v0 + 1);\n"
     "    return (c00 * ((16u - fu) * (16u - fv)) + c10 * (fu * (16u - fv)) + c01 * ((16u - fu) * fv) + c11 * (fu * fv)) >> 8;\n"
     "}\n"
+    /* T39: the replacement instead of the texture, at its own resolution: the coordinate in texels of the GS texture
+       (1/16), wrapped as CLAMP says (REPEAT by the sampler, clamps on the edge texels' centres), then the replacement's
+       mip-mapped bilinear filter (TEX1 linear) or its nearest texel; its values are the GS's (alpha 0x80 = 1.0) */
+    "float rwrap(float x, uint wm, float size, uint mn, uint mx, float half) {\n"
+    "    if (wm == 1u) return clamp(x, half, size - half);\n"
+    "    if (wm == 2u) return clamp(x, float(mn) + half, float(mx) + 1.0 - half);\n"
+    "    if (wm == 3u) return float((int(floor(x)) & int(mn)) | int(mx)) + fract(x);\n"
+    "    return x;\n"
+    "}\n"
+    "uvec4 repl_sample(int u16, int v16) {\n"
+    "    uint lw = (s0.y >> 26) & 15u, lh = s0.z & 15u, fl = s0.x, filter = (fl >> 7) & 3u;\n"
+    "    vec2 ts = vec2(float(1 << min(lw, 10u)), float(1 << min(lh, 10u))), rs = vec2(textureSize(uRepl, 0));\n"
+    "    vec2 o = vec2(float((s2.z >> 1) & 2047u), float(s2.w & 4095u)), sz = vec2(float((s2.z >> 12) & 4095u), float((s2.w >> 12) & 4095u));\n"
+    "    vec2 p = vec2(float(u16), float(v16)) * 0.0625, h = 0.5 * sz / rs;\n"
+    "    vec2 g = p / sz, gx = dFdx(g), gy = dFdy(g);\n"
+    "    p.x = rwrap(p.x, (s0.z >> 4) & 3u, ts.x, s0.w & 1023u, (s0.w >> 10) & 1023u, h.x);\n"
+    "    p.y = rwrap(p.y, (s0.z >> 6) & 3u, ts.y, s1.x & 1023u, (s1.x >> 10) & 1023u, h.y);\n"
+    "    vec2 c = (p - o) / sz;\n"
+    "    bool linear = filter == 1u || (filter == 2u && (fl & (3u << 17)) != 0u);\n"
+    "    vec4 f = linear ? textureGrad(uRepl, c, gx, gy) : textureLod(uRepl, (floor(c * rs) + 0.5) / rs, 0.0);\n"
+    "    return uvec4(f * 255.0 + 0.5);\n"
+    "}\n"
     "int stq(float s, float q, uint lsize) {\n"
     "    float r = trunc(s / (q == 0.0 ? 1e-30 : q) * float(16 << lsize));\n"
     "    return int(clamp(r, -1073741823.0, 1073741823.0));\n"
@@ -406,7 +438,7 @@ static const char kDrawFs[] =
     "        int u16, v16;\n"
     "        if ((fl & 2u) != 0u) { u16 = int(floor(vTex.x)); v16 = int(floor(vTex.y)); }\n"
     "        else { u16 = stq(vTex.x, vTex.z, (s0.y >> 26) & 15u); v16 = stq(vTex.y, vTex.z, s0.z & 15u); }\n"
-    "        uvec4 tc = sample_tex(u16, v16, vTex.z);\n"
+    "        uvec4 tc = (s2.z & 1u) != 0u ? repl_sample(u16, v16) : sample_tex(u16, v16, vTex.z);\n"
     "        uint tfx = (fl >> 2) & 3u;\n"
     "        bool tcc = (fl & 16u) != 0u;\n"
     "        uvec3 rgb = tfx == 0u ? (tc.rgb * c.rgb) >> 7 : (tfx == 1u ? tc.rgb : ((tc.rgb * c.rgb) >> 7) + c.a);\n"
@@ -647,6 +679,7 @@ typedef struct Key {
     int cmask;              /* colour mask r g b a = bits 0..3 */
     int pass;               /* 0 one pass, no alpha test; 1 one pass, failing pixels dropped; 2 two passes */
     int fmask, fdwrite;     /* the second pass's masks */
+    GLuint repl;            /* a texture pack's replacement the primitives sample instead (T39), 0 none */
 } Key;
 
 static int sReady;
@@ -737,6 +770,27 @@ typedef struct Geo {
 /* The last primitive that wrote depth wherever it passed its depth test (see same_depth()). */
 static struct { int valid, zrt; Geo g; } sLastZ;
 static struct { uint32_t batches, draws, resolves, loads, pushes, readbacks, rts, date, ad, fbmsk, colclamp, pabe, overlapZ, shows, clutGpu; } sGlStat;
+/* T39: texture packs (gs_texpack.c, docs/port/textures.md). A texture's name is computed once per its fields, its CLUT
+   row and its pages' contents: a slot keeps the name until one of its pages changes (sPageGen, set from sGenClock when
+   the CPU copy or the mirror of a page changes). */
+typedef struct TpSlot {
+    uint64_t k0, k1, k2;    /* TEX0's texture fields and CLAMP's; TEXA (16 / 24 bits); the CLUT's XXH3 (indexed) */
+    uint32_t stamp;         /* sGenClock when named */
+    uint32_t pages[16];
+    int used, named, repl;  /* repl: the replacement's index, -1 none */
+    uint32_t s10, s11;      /* the state record's s2.z / s2.w with the replacement: the texels it stands for */
+} TpSlot;
+#define TP_SLOTS 4096
+static TpSlot *sTpSlot;
+static uint32_t sPageGen[512], sGenClock = 1;
+static uint8_t sPageDrawn[512]; /* bytes of the page's words the GPU wrote (resolves) since the CPU wrote them (uploads, copies) */
+static int sTpDump, sTpRepl;
+static GLuint *sTpTex;      /* per replacement: its GL texture (0: not uploaded yet) */
+static uint8_t *sTpGone;    /* per replacement: nothing to upload (failed, or taken) */
+static int sTpTexN;
+static uint8_t sPalGpu[PAL_ROWS]; /* per CLUT row: made on the GPU (its entries are not known here) */
+static uint64_t sPalXxh[PAL_ROWS]; /* per CLUT row: its entries' XXH3, 0 not computed yet */
+static struct { uint32_t named, drawn, other, gpuClut, uploads, replaced; } sTpStat;
 
 /* ------------------------------------------------------------------------------------------------ helpers */
 
@@ -786,7 +840,7 @@ static GLuint program(const char *vs, const char *fs, const char *fsLib, char *w
 static void samplers(GLuint p) {
     static const struct { const char *name; int unit; } k[] = {
         {"uVram", U_VRAM}, {"uTab", U_TAB}, {"uInv", U_INV}, {"uPal", U_PAL}, {"uStates", U_STATES}, {"uSrc", U_SRC}, {"uStage", U_STAGE},
-        {"uClut", U_CLUT}, {"uSnap", U_SNAP}, {"uDsp0", U_DSP0}, {"uDsp1", U_DSP1},
+        {"uClut", U_CLUT}, {"uSnap", U_SNAP}, {"uDsp0", U_DSP0}, {"uDsp1", U_DSP1}, {"uRepl", U_REPL},
     };
     size_t i;
     gl.UseProgram(p);
@@ -960,6 +1014,7 @@ static void readback(const uint32_t *set, uint32_t mask) {
             gl.ReadPixels(0, p * 2, 1024, 2, GL_RGBA_INTEGER, GL_UNSIGNED_BYTE, vram + p * 2048);
             sGpuNewer[p] = 0;
             sGpuPages--;
+            sPageGen[p] = ++sGenClock;
             sMemGen++;
             sGlStat.readbacks++;
             sRbBy[sCause]++;
@@ -1002,6 +1057,8 @@ static void resolve(int i) {
     for (p = p0; p < p0 + pages; p++) {
         sGpuPages += sGpuNewer[p] == 0;
         sGpuNewer[p] |= (uint8_t)r->bytes;
+        sPageGen[p] = ++sGenClock;
+        sPageDrawn[p] |= (uint8_t)r->bytes;
     }
     sGlStat.resolves++;
     sResBy[sCause]++;
@@ -1242,6 +1299,7 @@ static void ring_write(GLenum target, int fresh, GLintptr at, GLsizeiptr bytes, 
 static void flush(void) {
     uint32_t i;
     int curFbo = -1, curRt = -1, curZ = -1, curDf = -1, curBlend = -1, curPass = -1, curCmask = -1, curDmask = -1, curSrc = -1;
+    GLuint curRepl = 0;
 
     if (sNv == 0) {
         return;
@@ -1285,6 +1343,12 @@ static void flush(void) {
             gl.BindTexture(GL_TEXTURE_2D, sRt[k->src].snap);
             gl.ActiveTexture(GL_TEXTURE0 + U_VRAM);
             curSrc = k->src;
+        }
+        if (k->repl != curRepl && k->repl != 0) {
+            gl.ActiveTexture(GL_TEXTURE0 + U_REPL);
+            gl.BindTexture(GL_TEXTURE_2D, k->repl);
+            gl.ActiveTexture(GL_TEXTURE0 + U_VRAM);
+            curRepl = k->repl;
         }
         if (k->zrt >= 0) {
             uint32_t bits = (uint32_t)Gs_PsmBits(sRt[k->zrt].psm);
@@ -1381,6 +1445,7 @@ static int pal_row(const Draw *d) {
             sGlStat.clutGpu++;
             sPalA[sPalNext][0] = 0; /* not known here */
             sPalA[sPalNext][1] = 255;
+            sPalGpu[sPalNext] = 1;
             i = cacheNext++ & 31;
             cache[i].ver = sClutHash;
             cache[i].texa = d->texa;
@@ -1422,6 +1487,8 @@ static int pal_row(const Draw *d) {
         }
     }
     memcpy(sPal[sPalNext], tmp, n * 4);
+    sPalGpu[sPalNext] = 0;
+    sPalXxh[sPalNext] = 0;
     sPalA[sPalNext][0] = 255;
     sPalA[sPalNext][1] = 0;
     for (i = 0; i < n; i++) {
@@ -1820,6 +1887,158 @@ static int snap_source(const Draw *d) {
     return -1;
 }
 
+/* ---- T39: texture packs ---- */
+
+/* Replacement i as a GL texture, uploaded when the worker has decoded it (0 until then, or none). */
+static GLuint tp_texture(int i) {
+    uint8_t *px;
+    int w, h, r;
+    if (i >= sTpTexN) {
+        int n = Tp_Count();
+        GLuint *t = realloc(sTpTex, (size_t)n * sizeof *t);
+        uint8_t *g = t != NULL ? realloc(sTpGone, (size_t)n) : NULL;
+        if (t == NULL || g == NULL) {
+            sTpTex = t != NULL ? t : sTpTex;
+            return 0;
+        }
+        memset(t + sTpTexN, 0, (size_t)(n - sTpTexN) * sizeof *t);
+        memset(g + sTpTexN, 0, (size_t)(n - sTpTexN));
+        sTpTex = t;
+        sTpGone = g;
+        sTpTexN = n;
+        if (i >= n) {
+            return 0;
+        }
+    }
+    if (sTpTex[i] != 0 || sTpGone[i]) {
+        return sTpTex[i];
+    }
+    r = Tp_Take(i, &px, &w, &h);
+    if (r < 0) {
+        sTpGone[i] = 1;
+    }
+    if (r <= 0) {
+        return 0;
+    }
+    flush(); /* the unit and the binding change */
+    gl.ActiveTexture(GL_TEXTURE0 + U_REPL);
+    gl.PixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    sTpTex[i] = texture(GL_RGBA8, w, h, GL_RGBA, GL_UNSIGNED_BYTE, px);
+    gl.PixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    gl.GenerateMipmap(GL_TEXTURE_2D);
+    gl.ActiveTexture(GL_TEXTURE0 + U_VRAM);
+    Tp_Free(px);
+    sTpGone[i] = 1;
+    sTpStat.uploads++;
+    return sTpTex[i];
+}
+
+/* The texture pack's part in a textured primitive from GS memory: the texture named (dumped when new) and its
+   replacement's GL texture, 0 none. Only reads GS memory's CPU copy; textures in pages the GPU drew are not named. */
+static GLuint tp_lookup(const Draw *d, int palRow, uint32_t *s10, uint32_t *s11) {
+    static struct { uint64_t k0, k1, k2; uint32_t clock; GLuint tex; int slot; } last;
+    uint64_t k0 = (uint64_t)(d->tbp & 0x3FFF) | (uint64_t)(d->tbw & 63) << 14 | (uint64_t)(d->tpsm & 63) << 20 |
+                  (uint64_t)(d->lw & 15) << 26 | (uint64_t)(d->lh & 15) << 30 | (uint64_t)(d->wms & 3) << 34 | (uint64_t)(d->wmt & 3) << 36 |
+                  (uint64_t)(d->minu & 1023) << 38 | (uint64_t)(d->maxu & 1023) << 48;
+    uint64_t k1 = (uint64_t)(d->minv & 1023) | (uint64_t)(d->maxv & 1023) << 10, k2 = 0;
+    const uint32_t *pal = NULL;
+    TpSlot *t;
+    uint32_t w, h;
+    int i;
+
+    if (d->tbits <= 8) {
+        if (sPalGpu[palRow]) {
+            sTpStat.gpuClut++;
+            return 0;
+        }
+        pal = sPal[palRow];
+        if (sPalXxh[palRow] == 0) {
+            sPalXxh[palRow] = Tp_Hash(pal, (d->tbits == 8 ? 256 : 16) * 4) | 1; /* the key only */
+        }
+        k2 = sPalXxh[palRow];
+    } else if (d->tbits != 32) {
+        k1 |= (uint64_t)((d->ta0 & 255) | (d->ta1 & 255) << 8 | (d->aem & 1) << 16) << 20;
+    }
+    if (last.slot >= 0 && last.k0 == k0 && last.k1 == k1 && last.k2 == k2 && last.clock == sGenClock && sTpSlot[last.slot].used) {
+        *s10 = sTpSlot[last.slot].s10;
+        *s11 = sTpSlot[last.slot].s11;
+        return last.tex;
+    }
+    h = (uint32_t)((k0 ^ k0 >> 32) * 2654435761u ^ (k1 ^ k2 ^ k2 >> 32) * 2246822519u);
+    t = &sTpSlot[(h ^ h >> 15) & (TP_SLOTS - 1)];
+    if (t->used && t->k0 == k0 && t->k1 == k1 && t->k2 == k2 && t->stamp != sGenClock) { /* named before: are its pages unchanged? */
+        for (w = 0; w < 16 && t->used; w++) {
+            uint32_t bits = t->pages[w];
+            while (bits != 0) {
+                int p = (int)(w * 32 + (uint32_t)__builtin_ctz(bits));
+                bits &= bits - 1;
+                if (sPageGen[p] > t->stamp) {
+                    t->used = 0;
+                    break;
+                }
+            }
+        }
+    }
+    if (!t->used || t->k0 != k0 || t->k1 != k1 || t->k2 != k2) {
+        TpName n;
+        memset(t, 0, sizeof *t);
+        t->used = 1;
+        t->k0 = k0;
+        t->k1 = k1;
+        t->k2 = k2;
+        t->stamp = sGenClock;
+        t->repl = -1;
+        Tp_Rect(d, &n); /* the texels a name covers: TW x TH, or the CLAMP region (the game's atlases) */
+        Gs_PagesOf(t->pages, d->tbp, d->tbw, d->tpsm, n.x0, n.x0 + n.w - 1, n.y0, n.y0 + n.h - 1);
+        t->named = 1;
+        for (w = 0; w < 16; w++) {
+            uint32_t bits = t->pages[w];
+            while (bits != 0) {
+                int p = (int)(w * 32 + (uint32_t)__builtin_ctz(bits));
+                bits &= bits - 1;
+                t->named &= (sPageDrawn[p] & psm_bytes(d->tpsm)) == 0;
+            }
+        }
+        for (i = 0; i < MAX_RT && t->named; i++) { /* drawn by the game (render to texture), not a pack's */
+            t->named = !drew_over(i, t->pages, psm_bytes(d->tpsm));
+        }
+        if (!t->named) {
+            sTpStat.drawn++;
+        } else if (!Tp_Name(Gs_Vram(), d, pal, &n)) {
+            sTpStat.other++;
+            t->named = 0;
+        } else {
+            sTpStat.named++;
+            t->s10 = 1u | n.x0 << 1 | n.w << 12;
+            t->s11 = n.y0 | n.h << 12;
+            t->repl = sTpRepl ? Tp_Find(&n) : -1;
+            if (t->repl == -2) { /* the replacements folder is still being read: name it again next time */
+                t->repl = -1;
+                t->used = 0;
+            }
+            if (sTpDump) {
+                Tp_Dump(Gs_Vram(), d, pal, &n);
+            }
+        }
+    }
+    last.k0 = k0;
+    last.k1 = k1;
+    last.k2 = k2;
+    last.clock = sGenClock;
+    last.slot = (int)(t - sTpSlot);
+    last.tex = t->repl >= 0 ? tp_texture(t->repl) : 0;
+    *s10 = t->s10;
+    *s11 = t->s11;
+    if (last.tex == 0 && t->repl >= 0 && !sTpGone[t->repl]) {
+        last.slot = -1; /* not decoded yet: ask again next time */
+    }
+    return last.tex;
+}
+
 /* A sprite that covers the first or the last pixel of a widescreen target's row (w wide, margins m) goes on to the
    margin's edge; with UV (a copy of a widescreen target) U goes on at the same rate (negative U: the snapshot's left
    margin). 1 when it changed (o: the two vertices). */
@@ -1911,6 +2130,8 @@ static void prim(const Cmd *c) {
     int kind = c->type == CMD_LINE ? 1 : c->type == CMD_POINT ? 2 : 0;
     int outcome = 0, newState, zneed = (d->ztest && d->ztst != 1) || d->zwrite, rt, zrt = -1, palRow = 0, need = c->type == CMD_SPRITE ? 6 : 3;
     int src = -1, wide = 0, present = 0;
+    GLuint repl = 0;
+    uint32_t replS[2] = {0, 0};
     Key k;
     Vtx ext[2];
     uint32_t fpsm = d->fpsm;
@@ -1942,6 +2163,9 @@ static void prim(const Cmd *c) {
             palRow = pal_row(d);
         }
         src = snap_source(d);
+        if (sTpSlot != NULL && src < 0) {
+            repl = tp_lookup(d, palRow, &replS[0], &replS[1]);
+        }
     }
     /* The game's flicker filter: its frame (448 lines) copied into the display buffer (224) by UV sprites, two lines
        into one. The display buffer remembers whose snapshot it holds (video.deflicker 0 shows that one instead). */
@@ -2006,9 +2230,13 @@ static void prim(const Cmd *c) {
         uint32_t lo, hi;
         alpha_range(d, v, c->type, palRow, &lo, &hi);
         outcome = alpha_outcome(d->atst, d->aref, lo, hi);
+        if (repl != 0 && d->tcc) {
+            outcome = 0; /* the replacement's alpha is not known here: tested per pixel */
+        }
     }
     key_of(d, rt, zrt, kind, outcome, &k);
     k.src = src;
+    k.repl = repl;
     if (k.cmask == 0 && !k.dwrite) {
         return; /* writes nothing (every pixel fails, KEEP) */
     }
@@ -2027,6 +2255,11 @@ static void prim(const Cmd *c) {
     if (src >= 0) {
         st[0] |= 1u << 31; /* from the snapshot of target src */
         st[9] = (uint32_t)sRt[src].m;
+    }
+    if (repl != 0) {
+        st[10] = replS[0]; /* from the replacement (uRepl) */
+        st[11] = replS[1];
+        sTpStat.replaced++;
     }
     newState = sNs == 0 || memcmp(st, sS[sNs - 1], sizeof st) != 0;
     if (sNb == 0 || memcmp(&k, &sB[sNb - 1].k, sizeof k) != 0 || (k.pass == 2 && newState)) {
@@ -2109,6 +2342,8 @@ static void upload(const Cmd *c) {
     for (p = 0; p < 512; p++) {
         if ((set[p >> 5] >> (p & 31)) & 1) {
             sCpuDirty[p] |= (uint8_t)mask;
+            sPageGen[p] = ++sGenClock;
+            sPageDrawn[p] &= (uint8_t)~mask;
         }
     }
     sTexPages.valid = 0;
@@ -2136,6 +2371,8 @@ static void copy(const Cmd *c) {
     for (p = 0; p < 512; p++) {
         if ((dst[p >> 5] >> (p & 31)) & 1) {
             sCpuDirty[p] |= (uint8_t)mask;
+            sPageGen[p] = ++sGenClock;
+            sPageDrawn[p] &= (uint8_t)~mask;
         }
     }
     sTexPages.valid = 0;
@@ -2447,6 +2684,22 @@ static void apply_settings(void) {
     sDeflicker = Settings_GetInt("video.deflicker");
     sSmooth = Settings_GetInt("video.smooth");
     sLowLat = Settings_GetInt("video.low_latency");
+    { /* T39: texture packs; a change names every texture again */
+        int dump = Settings_GetInt("video.texture_dump"), repl = Settings_GetInt("video.texture_replace");
+        if (dump != sTpDump || repl != sTpRepl || (sTpSlot == NULL && (dump || repl))) {
+            Tp_Settings(dump, repl);
+            sTpDump = dump;
+            sTpRepl = repl;
+            if (sTpSlot == NULL && (dump || repl)) {
+                sTpSlot = calloc(TP_SLOTS, sizeof *sTpSlot);
+            } else if (sTpSlot != NULL && !dump && !repl) {
+                free(sTpSlot);
+                sTpSlot = NULL;
+            } else if (sTpSlot != NULL) {
+                memset(sTpSlot, 0, TP_SLOTS * sizeof *sTpSlot);
+            }
+        }
+    }
     if (scale != sScale || marg != sMarg) {
         for (i = 0; i < MAX_RT; i++) {
             rt_drop(i);
@@ -2782,6 +3035,11 @@ void Gl_Report(void) {
         printf("ttt: gl: pacing: %u VBlank pictures, %u without a new game frame, %u not shown (a newer one queued), swap mean %u.%02u ms, max %u.%02u ms\n", sPaceShows, sPaceRepeats, sPaceDropped,
                hundredths(sPacePres.n ? sSwapSum / sPacePres.n : 0) / 100, hundredths(sPacePres.n ? sSwapSum / sPacePres.n : 0) % 100,
                hundredths(sSwapMax) / 100, hundredths(sSwapMax) % 100);
+        if (sTpSlot != NULL) {
+            printf("ttt: gl: texture packs: %u namings, not named: %u in drawn pages, %u CLUT from the GPU, %u other (format, size, region)\n",
+                   sTpStat.named, sTpStat.drawn, sTpStat.gpuClut, sTpStat.other);
+        }
+        Tp_Report(sTpStat.replaced, sTpStat.named, sTpStat.uploads);
     }
 }
 

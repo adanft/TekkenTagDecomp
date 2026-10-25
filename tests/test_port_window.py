@@ -49,7 +49,10 @@ class HostCalls(unittest.TestCase):
         # the settings file and the overlay (T36): their C library calls go through the GOT too (-fno-plt), and no C++
         # run time is linked
         overlay = {"qsort", "vsnprintf", "strncmp", "strchr", "strncpy", "memchr", "localtime_r", "time", "setenv",
-                   "unsetenv", "mkdir", "access", "strerror", "atexit", "__cxa_atexit"}
+                   "unsetenv", "mkdir", "access", "strerror", "atexit", "__cxa_atexit",
+                   # the texture packs (T39, gs_texpack.c with stb_image / stb_image_write: the C library functions
+                   # only it calls; the others it shares with older code stay among the 48 entries, some now in .plt.got)
+                   "opendir", "readdir", "closedir", "stat"}
         self.assertEqual(sorted(set(plt) & overlay), [])
         self.assertEqual([n for n in plt if n.startswith(("_Z", "__cxa", "__gxx"))], [])
 

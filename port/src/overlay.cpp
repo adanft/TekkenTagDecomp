@@ -476,6 +476,12 @@ static void page_video(void) {
     check("Game's flicker filter (half height, blurred)", "video.deflicker");
     check("Smooth scaling to the window", "video.smooth");
     check("Low input lag", "video.low_latency");
+    /* T39: texture packs (gs_texpack.c, docs/port/textures.md), PCSX2's folder layout and names */
+    ImGui::SeparatorText("Texture packs");
+    check("Use replacement textures", "video.texture_replace");
+    check("Dump textures (new ones as PNG)", "video.texture_dump");
+    ImGui::TextDisabled("Folder: %s", Tp_Folder());
+    ImGui::TextDisabled("(replacements/ is read once a run; video.texture_dir or TTT_TEXTURES moves it, on the next start)");
     ImGui::EndDisabled();
 }
 

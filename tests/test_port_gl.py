@@ -2,12 +2,15 @@
 own SLUS_200.01 by port/tools/build.py): the GL back end's batching and hazard rules on made-up primitives
 (TTT_SELFTEST=gl, no GL context needed), the two GS threads against one and none, and the TTT_TIME_FROM measurement;
 the video options of T37 (internal resolution, widescreen, the game's flicker filter, low latency) in a hidden window.
-Skipped when the program has not been built; the game runs are also skipped without disc data."""
+Texture packs (T39): dumps named as PCSX2 names them, replacements drawn instead, in a hidden window. Skipped when the
+program has not been built; the game runs are also skipped without disc data."""
 
 import os
 import re
+import struct
 import tempfile
 import unittest
+import zlib
 from pathlib import Path
 
 from test_port_platform import EXE, disc, run_ttt
@@ -28,6 +31,14 @@ class GlSelfTest(unittest.TestCase):
         r = run_ttt(TTT_SELFTEST="gl", TTT_FRAMES="1")
         self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
         self.assertIn("ttt: gl self-test OK", r.stdout)
+
+    def test_texture_pack_names(self):
+        """PCSX2's texture names (T39) on a made-up GS memory: the stored blocks of a PSMCT32 texture in block-grid
+        order, the expanded texels of a small one and of a CLAMP region, TEXA in the bits, the CLUT's hash; names read
+        back from file names, malformed ones refused (no GL context, no files)."""
+        r = run_ttt(TTT_SELFTEST="texpack", TTT_FRAMES="1")
+        self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
+        self.assertIn("ttt: texpack self-test OK", r.stdout)
 
 
 @unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
@@ -176,6 +187,95 @@ class Video(unittest.TestCase):
         self.assertIsNotNone(state(runs[0]))
         for r in runs[1:]:
             self.assertEqual(state(r), state(runs[0]))
+
+
+def solid_png(path, w, h, rgba):
+    """An 8-bit RGBA PNG of one colour (a made-up replacement: no game data)."""
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+    rows = b"".join(b"\0" + bytes(rgba) * w for _ in range(h))
+    path.write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0)) +
+                     chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+
+
+def png_size(path):
+    w, h = struct.unpack(">II", path.read_bytes()[16:24])
+    return w, h
+
+
+NAME = re.compile(r"^[0-9a-f]{1,16}-(?:[0-9a-f]{1,16}-)?(?:r\d+x\d+-)?[0-9a-f]{8}\.png$")
+
+
+@unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
+@unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
+@unittest.skipUnless(any(p.exists() for p in SDL32), "no 32-bit SDL3 (Arch: lib32-sdl3)")
+class TexturePacks(unittest.TestCase):
+    """T39 (docs/port/textures.md) from the title to the versus screen (the scripted start of tests/test_port_input.py,
+    VBlanks 150 to 600: the menu, the character select, the versus screen; the title and the menu draw no texture a pack
+    can name), textures in a temporary folder (TTT_TEXTURES): nothing of the game's is kept."""
+
+    PICS = ("frame_00150.png", "frame_00300.png", "frame_00450.png", "frame_00600.png")
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.d = self.tmp.name
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_gl(self, name, **env):
+        from test_port_input import TO_THE_FIGHT, stream
+        p = Path(self.d) / "in.txt"
+        if not p.exists():
+            p.write_text(stream(*TO_THE_FIGHT))
+        r, out = gl_run(self.d, name, frames="601", TTT_INPUT_PLAY=str(p), **env)
+        self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
+        if "OpenGL renderer" not in r.stdout:
+            self.skipTest("no OpenGL 3.3 context here: " + r.stdout[-500:])
+        return r, out
+
+    def test_dump_names_are_deterministic_and_replacements_are_drawn(self):
+        """Dump mode writes each texture once, as a PNG named from its data, CLUT and format (PCSX2's names): two runs
+        write the same files, and the pictures and the state are those of a run without it. A replacement for every
+        dumped name (one colour, twice the size: made up here) is drawn instead of the texture in replace mode: the
+        fighter on the character select turns that colour, the state hash stays the same."""
+        plain, d0 = self.run_gl("plain")
+        tx = [Path(self.d) / f"tx{k}" for k in (1, 2)]
+        runs = [self.run_gl(f"dump{k}", TTT_TEXTURE_DUMP="1", TTT_TEXTURES=str(t)) for k, t in zip((1, 2), tx)]
+        dumps = [t / "SLUS-20001" / "dumps" for t in tx]
+        names = sorted(p.name for p in dumps[0].iterdir())
+        self.assertGreater(len(names), 10, runs[0][0].stdout[-1500:])
+        self.assertEqual([n for n in names if not NAME.match(n)], [])
+        self.assertEqual(names, sorted(p.name for p in dumps[1].iterdir()))
+        for n in names:
+            self.assertEqual((dumps[0] / n).read_bytes(), (dumps[1] / n).read_bytes(), n)
+        self.assertRegex(runs[0][0].stdout, rf"ttt: textures: .*dump on, replace off; \d+ textures named, {len(names)} dumped \(0 on")
+        for r, out in runs:
+            self.assertEqual(state(r), state(plain))
+            for pic in self.PICS:
+                self.assertEqual((out / pic).read_bytes(), (d0 / pic).read_bytes(), pic)
+        # replacements: every dumped name, magenta, twice as wide and high, in a sub-folder
+        repl = tx[0] / "SLUS-20001" / "replacements" / "pack"
+        repl.mkdir(parents=True)
+        for n in names:
+            w, h = png_size(dumps[0] / n)
+            solid_png(repl / n, 2 * w, 2 * h, (255, 0, 255, 128))
+        r, out = self.run_gl("replace", TTT_TEXTURE_REPLACE="1", TTT_TEXTURES=str(tx[0]))
+        self.assertEqual(state(r), state(plain))
+        m = re.search(r"ttt: textures: .*replace on; .* (\d+) replacements \((\d+) decoded, 0 failed.*?(\d+) uploaded, (\d+) primitives drawn with one", r.stdout)
+        self.assertIsNotNone(m, r.stdout[-1500:])
+        self.assertEqual(int(m.group(1)), len(names))
+        self.assertEqual(int(m.group(2)), len(names))
+        self.assertGreater(int(m.group(3)), 0)
+        self.assertGreater(int(m.group(4)), 0)
+
+        def magenta(path):
+            w, h, px = png_rgb(path)
+            return sum(1 for i in range(0, len(px), 3) if px[i] > 200 and px[i + 1] < 60 and px[i + 2] > 200) / (w * h)
+
+        # the character select: the fighter turns magenta (about 3% of the picture)
+        self.assertLess(magenta(d0 / "frame_00450.png"), 0.002)
+        self.assertGreater(magenta(out / "frame_00450.png"), 0.015)
 
 
 if __name__ == "__main__":

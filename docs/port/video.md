@@ -217,6 +217,11 @@ varies by 10-20 % with the thermal governor):
 | 8x | 29 |
 | 8x 21:9, filter off | 22 |
 
+## Texture packs
+
+Dumping the game's textures and drawing replacements (PCSX2's folders and names) is in [textures.md](textures.md)
+(T39, OpenGL only).
+
 ## Open
 
 - Fixed in T38 b0 ([README, Speed](README.md#speed)): the exit-time crash at 8x (the program exited while the window

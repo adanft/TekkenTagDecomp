@@ -36,6 +36,7 @@ def run_ttt(timeout=120, **env):
     with tempfile.TemporaryDirectory(prefix="ttt-saves-") as saves:
         e.setdefault("TTT_SAVES", saves)
         e.setdefault("TTT_CONFIG", str(Path(saves) / "settings.ini"))  # never the player's own settings file
+        e.setdefault("TTT_TEXTURES", str(Path(saves) / "textures"))  # texture packs (T39): never the repository's textures/
         return subprocess.run([str(EXE)], env=e, capture_output=True, text=True, timeout=timeout)
 
 

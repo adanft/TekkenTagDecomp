@@ -37,3 +37,6 @@ __pycache__/
 odd/
 .atl/
 saves/
+
+# Texture packs (T39): dumps and replacements made from your own game (docs/port/textures.md)
+textures/

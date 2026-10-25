@@ -68,7 +68,7 @@ OVERLAY_CXXFLAGS = ["-m32", "-std=c++17", "-O2", "-g", "-fno-pic", "-fno-plt", "
 # through SDL instead, so after compiling, that call is sent to a no-op in overlay.cpp (objcopy arguments).
 IMGUI_OBJCOPY = {"backends/imgui_impl_opengl3.cpp": ["--redefine-sym=atexit=ttt_imgl3w_atexit"]}
 # Port C files whose new C library calls must not add PLT entries: all their external calls through the GOT.
-NOPLT_FILES = ("plat_settings.c",)
+NOPLT_FILES = ("plat_settings.c", "gs_texpack.c")
 
 
 def host_float_objects():

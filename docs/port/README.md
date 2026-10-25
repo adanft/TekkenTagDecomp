@@ -269,6 +269,7 @@ wait loops drive the hardware.
 | `plat_state.c` | The state: the regions the modules register, the gameplay hash, save / load at the VBlank boundary (a stack switch), `Port_OffEe`, the synctest ([determinism.md](determinism.md)) |
 | `plat_window.c` | The SDL3 window: SDL loaded at run time, its own thread, the GL context ([Window](#window)), the audio stream, F1 / the quit question / the live settings, `TTT_SELFTEST=window` |
 | `gs_gl.c` | The GS's OpenGL 3.3 back end on the window thread ([GL back end](#gl-back-end)) |
+| `gs_texpack.c` | Texture packs for the GL back end: PCSX2's texture names (XXH3), PNG dumps and replacements on a worker thread, `third_party/stb` ([textures.md](textures.md)) |
 | `gs_async.c` | The GS threads: VIF1 and VU1, then the GIF and the GS front end, beside the game ([Speed](#speed)) |
 | `gs_int.h` | The GS commands and helpers both back ends share |
 | `port_host.h` | Host library calls added since T30, declared `noplt` (gotcha 20) |
@@ -354,6 +355,7 @@ Switches:
 | `TTT_NO_QUIT_CONFIRM=1` | Close / Escape quit at once instead of asking "Quit?". |
 | `TTT_OVERLAY_TEST=1` | Tests: the overlay driven from inside a window run ([settings.md](settings.md)). |
 | `TTT_RESOLUTION=1..8`, `TTT_ASPECT=4:3 / 16:9 / 21:9`, `TTT_DEFLICKER=0`, `TTT_SMOOTH=0`, `TTT_LOW_LATENCY=1` | The GL back end's video options (T37, [video.md](video.md)): internal resolution, widescreen, the game's flicker filter off, nearest scaling into the window, low input lag. Presentation only (the state is the same). |
+| `TTT_TEXTURE_DUMP=1`, `TTT_TEXTURE_REPLACE=1`, `TTT_TEXTURES=<folder>` | Texture packs (T39, [textures.md](textures.md)), GL only: write each new texture as `<folder>/SLUS-20001/dumps/<name>.png`, draw `replacements/<name>.png` instead, PCSX2's names (XXH3 of the texture's data and CLUT, format bits). Presentation only (the state is the same). `TTT_SELFTEST=texpack` checks the names. |
 | `TTT_RENDERER=gl / sw` | In a window: the GS draws on the GPU (`gl`, default; falls back to `sw` when no OpenGL 3.3 core context can be made) or with the software rasteriser (`sw`). Headless runs and dumps without a window are always `sw`. |
 | `TTT_WINDOW_HIDDEN=1` | The window stays hidden (tests, measurements; with `SDL_VIDEO_DRIVER=offscreen` no display is needed). |
 | `TTT_GS_ASYNC=0 / 1 / 2` | The GS threads ([Speed](#speed)): 1 one GS thread, 2 two (VIF1 / VU1, then the GIF / GS front end). Default 2 with GL, 1 with raster threads, 0 for traces and self-tests. The same results in every mode (`tests/test_port_gl.py`). |

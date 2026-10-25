@@ -54,6 +54,9 @@ static const Def kDefs[] = {
     {"video.deflicker", "TTT_DEFLICKER", 0, 1, 1, NULL, 0},
     {"video.smooth", "TTT_SMOOTH", 0, 1, 1, NULL, 0},
     {"video.low_latency", "TTT_LOW_LATENCY", 0, 1, 0, NULL, 0},
+    {"video.texture_dump", "TTT_TEXTURE_DUMP", 0, 1, 0, NULL, 0},
+    {"video.texture_replace", "TTT_TEXTURE_REPLACE", 0, 1, 0, NULL, 0},
+    {"video.texture_dir", "TTT_TEXTURES", 0, 0, 0, "", 1},
     {"audio.volume", "TTT_VOLUME", 0, 100, 100, NULL, 0},
     {"audio.mute", "TTT_MUTE", 0, 1, 0, NULL, 0},
     {"game.movies", "TTT_MOVIES", 0, 1, 1, NULL, 1},
@@ -67,7 +70,7 @@ static pthread_mutex_t sLock = PTHREAD_MUTEX_INITIALIZER;
 static char *sLines[MAX_LINES];
 static int sN;
 static char sPath[1100], sLoadErr[256], sSaveErr[1400];
-static char sEnvVal[NDEFS][128]; /* the environment's value at start, "" none */
+static char sEnvVal[NDEFS][1024]; /* the environment's value at start, "" none (a folder for video.texture_dir) */
 static int sEnvSet[NDEFS], sSetByUs[NDEFS];
 
 static const char *kButtons[SB_COUNT] = {"up", "down", "left", "right", "square", "triangle", "cross", "circle",

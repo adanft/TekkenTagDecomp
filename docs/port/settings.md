@@ -77,6 +77,9 @@ know are kept as they are, in place; a changed key's line is replaced, a new key
 | `video.deflicker` | 0 / 1 (the game's flicker filter) | 1 | `TTT_DEFLICKER` |
 | `video.smooth` | 0 / 1 (bilinear scaling into the window) | 1 | `TTT_SMOOTH` |
 | `video.low_latency` | 0 / 1 | 0 | `TTT_LOW_LATENCY` |
+| `video.texture_replace` | 0 / 1 (OpenGL: draw texture-pack replacements, [textures.md](textures.md)) | 0 | `TTT_TEXTURE_REPLACE` |
+| `video.texture_dump` | 0 / 1 (OpenGL: write new textures as PNG) | 0 | `TTT_TEXTURE_DUMP` |
+| `video.texture_dir` | a folder (read at start; empty: `textures/` of the checkout or beside the program) | (empty) | `TTT_TEXTURES` |
 | `audio.volume` | 0-100 | 100 | `TTT_VOLUME` |
 | `audio.mute` | 0 / 1 | 0 | `TTT_MUTE` |
 | `game.movies` | 0 / 1 | 1 | `TTT_MOVIES` |
@@ -111,7 +114,7 @@ GL context / renderer and the window, then `_exit(0)`). `TTT_NO_QUIT_CONFIRM=1` 
 |---|---|
 | `TTT_CONFIG=<file>` | The settings file. |
 | `TTT_NO_QUIT_CONFIRM=1` | Close / Escape quit without asking. |
-| `TTT_SCALE`, `TTT_FULLSCREEN`, `TTT_FPS_METER`, `TTT_VOLUME`, `TTT_MUTE`, `TTT_PAUSE_IN_MENU`, `TTT_RESOLUTION`, `TTT_ASPECT`, `TTT_DEFLICKER`, `TTT_SMOOTH`, `TTT_LOW_LATENCY` | The settings above, over the file. |
+| `TTT_SCALE`, `TTT_FULLSCREEN`, `TTT_FPS_METER`, `TTT_VOLUME`, `TTT_MUTE`, `TTT_PAUSE_IN_MENU`, `TTT_RESOLUTION`, `TTT_ASPECT`, `TTT_DEFLICKER`, `TTT_SMOOTH`, `TTT_LOW_LATENCY`, `TTT_TEXTURE_REPLACE`, `TTT_TEXTURE_DUMP`, `TTT_TEXTURES` | The settings above, over the file. |
 | `TTT_OVERLAY_TEST=1` | Tests: with a window, the overlay is driven from inside (made-up key events through the window's own handling at fixed frames: F1, a key pressed while open, Escape; every page drawn; a key bound through the capture path) and the report adds `ttt: overlay: ...` and `ttt: window: overlay test: ...`. Nothing is sent to the desktop. |
 | `TTT_SELFTEST=settings` | The file's round trip (comments, sections and unknown keys kept, no temporary file left), the environment's precedence, clamping, key names both ways, rebinding (swaps, F1 / Escape refused). Needs `TTT_CONFIG` (it writes that file). |
 
