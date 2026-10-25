@@ -2149,7 +2149,13 @@ tail:
     al.d = 1;
     w->v.alpha = al;
     a = 128.0f;
+#ifdef PORT
+    /* PC build: through u32, as gcc converts it into the 8-bit field (__fixunssfsi); clang's 32-bit software
+     * float cannot convert a float to a 64-bit integer (an internal error) */
+    w->v.alpha.fix = (u32)((1.0f - s->unk58) * s->unk44);
+#else
     w->v.alpha.fix = (1.0f - s->unk58) * s->unk44;
+#endif
 done:
     w->v.r = s->unk50;
     w->v.g = s->unk51;

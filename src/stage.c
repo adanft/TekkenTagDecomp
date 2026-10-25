@@ -1134,6 +1134,8 @@ s32 func_0038D1B8(s32 side, Fighter *a1, Fighter *a2) {
 
 /* NON_MATCHING: 2 lines: the store of r to unk3C is scheduled after the unkB8 store instead of first (as func_0038D3D0); no order of the five stores and the else block's four fixes it */
 #if 0
+void func_00392B38(s32 a0);
+
 s32 func_0038D290(s32 side, Fighter *a1, Fighter *f) {
     s32 r;
 

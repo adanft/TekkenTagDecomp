@@ -1575,7 +1575,11 @@ void func_003A2758(s16 kind, HitRec *p, s32 flag, f32 f) {
  * 0xF / 0x21 in moves 0x25 / 0x26 get func_003A2E20 instead. */
 void func_003A2BC0(s16 side, s16 unused, HitRec *p, s32 d) {
     Fighter *f;
+#ifdef PORT
+    f32 pos[4]; /* Light_StartFlash copies four floats: pos[3] is a stale stack word on the EE (sp + 12), 0 here */
+#else
     f32 pos[3];
+#endif
     f32 ang;
     s16 c;
     s16 base;
@@ -1604,6 +1608,9 @@ void func_003A2BC0(s16 side, s16 unused, HitRec *p, s32 d) {
     pos[0] = p->pos[0];
     pos[1] = -(f32)p->pos[1];
     pos[2] = -(f32)p->pos[2];
+#ifdef PORT
+    pos[3] = 0.0f;
+#endif
     ang = atan2f(p->unk10, -(f32)p->unk14);
     c = func_0035C970(f->unk26);
     base = side * 3 + 14;
@@ -1643,7 +1650,11 @@ void func_003A2BC0(s16 side, s16 unused, HitRec *p, s32 d) {
 }
 
 void func_003A2E20(HitRec *p) {
+#ifdef PORT
+    f32 pos[4]; /* Light_StartFlash copies four floats: pos[3] is a stale stack word on the EE (sp + 12), 0 here */
+#else
     f32 pos[3];
+#endif
     f32 ang;
     FxKind *k;
     EffectFunc cb;
@@ -1659,6 +1670,9 @@ void func_003A2E20(HitRec *p) {
     pos[0] = p->pos[0];
     pos[1] = -(f32)p->pos[1];
     pos[2] = -(f32)p->pos[2];
+#ifdef PORT
+    pos[3] = 0.0f;
+#endif
     ang = atan2f(p->unk10, -(f32)p->unk14);
     k = func_00347730(0x22);
     if (k == NULL) {

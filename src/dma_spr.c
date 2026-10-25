@@ -409,6 +409,8 @@ void func_0035D738(void) {
     }
 }
 
+void func_0035E388(s32 channel);
+
 /* Resets the scratchpad streaming: clears the header through toSPR DMA, stops the ring buffer and re-arms both
  * channels, then restarts the stream (func_0035DA78). */
 void func_0035D790(s32 arg) {
@@ -428,7 +430,14 @@ void func_0035D790(s32 arg) {
     }
     Dma_Wait(spr);
     spr[0x20] = Spr_Setup(0, 0x100);
+#ifdef PORT
+    /* the original sends `tag` uninitialised: stale stack bytes, and the channel's MADR keeps its stack address, both
+     * set by the compiler's frames. Here a zeroed quadword at a fixed EE RAM address (docs/port/README.md gotcha 32) */
+    *PORT_EE_SPARE_QW = 0;
+    Dma_SendNormal(*pspr, PORT_EE_SPARE_QW, 1);
+#else
     Dma_SendNormal(*pspr, &tag, 1);
+#endif
     func_0035E388(9);
     Dma_Wait(spr);
     *(volatile u32 *)0x1000E000 &= 0xFFFFFFFD;

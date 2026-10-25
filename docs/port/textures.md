@@ -7,7 +7,8 @@ is `port/src/gs_texpack.c` (names, files, a background thread) and the texture-p
 
 Nothing here touches the game: the GS memory is only read, everything runs on the window thread (and the worker
 thread for the files), and the state hash of a run is the same with dumping or replacing on (the GL fight replay:
-`0x3c2cd520128fc04d` with dumps on and with a replacement for every dumped texture). The software renderer and headless
+`0x3c2cd520128fc04d` with dumps on and with a replacement for every dumped texture; `0xcce5eb554fa51395` since T42 b1,
+[determinism.md](determinism.md) Values). The software renderer and headless
 runs never name a texture.
 
 ## Switches

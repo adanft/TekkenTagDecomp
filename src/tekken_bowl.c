@@ -4220,6 +4220,8 @@ s32 func_003EFED0(void) {
 }
 
 #if 0
+void func_003F1408(s32 n, s32 side);
+
 /* NON_MATCHING: 465 lines (766 instructions, draft 734): m2c draft, only made to compile (stack copies as struct copies, VU0 and unknown instructions as inline asm) */
 void Bowl_DrawHud(void *f, void *o, void *pos, s16 pad, s16 arg4); /* menu_bg.c */
 s32 func_003F0008(void) {

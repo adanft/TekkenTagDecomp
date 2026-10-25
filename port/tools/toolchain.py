@@ -2,17 +2,18 @@
 
 Everything the build writes goes under build/port/ (ignored by git: it holds data generated from the user's own
 executable). The first target is 32-bit x86 Linux with the host gcc: the game keeps addresses in 4-byte fields.
-TTT_CC=clang compiles the game code with clang instead (same flags), into build/port/obj_clang."""
+TTT_CC=clang compiles the game code with clang instead (same flags) into its own tree, build/port-clang/ (program
+build/port-clang/ttt), so the default build/port/ttt is never replaced."""
 import os
 import pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 VARIANT = os.environ.get("TTT_CC", "gcc")
-BUILD = ROOT / "build/port"
+BUILD = ROOT / ("build/port" if VARIANT == "gcc" else "build/port-" + VARIANT)
 GEN = BUILD / "gen"                       # generated sources: game C with the drafts switched on, data, stubs
-OBJ = BUILD / ("obj" if VARIANT == "gcc" else "obj_" + VARIANT)
+OBJ = BUILD / "obj"
 DATA_OBJ = BUILD / "obj_data"             # the game's data, assembled from GEN/data
-EXE = BUILD / ("ttt" if VARIANT == "gcc" else "ttt_" + VARIANT)
+EXE = BUILD / "ttt"
 YAML = ROOT / "config/SLUS_200.01.yaml"
 ASM = ROOT / "asm"                        # the matching build's split (configure.py), made from the user's executable
 
@@ -89,10 +90,12 @@ def vu_redefine_args():
     return [f"--redefine-sym={a}={b}" for a, b in sorted(VU_RENAMES.items())]
 
 
-# clang has no -fpermissive for C: the same diagnostics are turned back into warnings one by one.
-CLANG_CFLAGS = ["-Wno-error=int-conversion", "-Wno-error=incompatible-pointer-types", "-Wno-error=return-mismatch",
-                "-Wno-error=implicit-function-declaration", "-Wno-error=incompatible-function-pointer-types",
-                "-Wno-error=implicit-int"]
+# clang has no -fpermissive for C: the same diagnostics are turned back into warnings one by one. -mno-x87: on x86
+# clang's -msoft-float alone still computes on the x87 unit; without it every float operation is a call of the
+# software-float helpers (the EE float model), as with gcc -msoft-float, and floats travel in integer registers.
+CLANG_CFLAGS = ["-mno-x87", "-Wno-error=int-conversion", "-Wno-error=incompatible-pointer-types",
+                "-Wno-error=return-mismatch", "-Wno-error=implicit-function-declaration",
+                "-Wno-error=incompatible-function-pointer-types", "-Wno-error=implicit-int"]
 
 
 def cc():

@@ -12,7 +12,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-#define PORT_EE_STACK_TOP 0x01FFFF00u
+#define PORT_EE_STACK_TOP 0x01FFFF00u /* the 256 bytes above: PORT_EE_SPARE_QW (port_compat.h) */
 
 int __real_main(int argc, char **argv);
 int Port_WindowOpen(void); /* plat_window.c */

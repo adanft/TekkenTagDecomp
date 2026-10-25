@@ -113,7 +113,8 @@ pictures but change no game data: they are a setting (`video.texture_replace`), 
 never mark the data.
 
 The idle run (`TTT_FRAMES=2551 TTT_SEED=1`, a dump every 150 VBlanks) on the data loaded from the file gives the 17
-pictures byte for byte and the state hash `0xd36c82e9a145875a` of the build-linked data. EE RAM holds the same
+pictures byte for byte and the state hash `0xd36c82e9a145875a` of the build-linked data (`0x8ba37caeb2bacfa8` since
+T42 b1, [determinism.md](determinism.md) Values). EE RAM holds the same
 bytes; the only difference is 0x00415000-0x00415700, where the loader used to map the program's ELF header in
 front of the data and which the hash leaves out (`plat_state.c`); the host addresses moved inside the hash's fixed
 window.

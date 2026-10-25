@@ -4,7 +4,7 @@ game's executable nor its split: the game's data is not linked in, the program r
 (port/tools/data_layout.txt, port/src/plat_data.c, docs/port/data.md). Everything is written under build/port/.
 
 Usage: python3 port/tools/build.py [-v]      -> build/port/ttt (32-bit x86 Linux)
-       TTT_CC=clang python3 port/tools/build.py  (game code through clang -> build/port/ttt_clang)"""
+       TTT_CC=clang python3 port/tools/build.py  (game code through clang -> build/port-clang/ttt)"""
 import pathlib
 import subprocess
 import sys

@@ -100,7 +100,8 @@ Players: [install.md](install.md) (the setup screen, `ttt --setup <disc>`, where
 - Determinism (T27, [determinism.md](determinism.md)): the `ttt: state:` line's hash is now a 64-bit XXH3 of the
   whole gameplay state (EE RAM without the EE stack, scratchpad, hardware registers, VU0, the port's own state), with
   every host address in the game's memory counted as one constant, so that it does not move when the code changes
-  size (F04). The 2551-VBlank run keeps its 17 frames and ends with `hash 0xd36c82e9a145875a`. The whole state
+  size (F04). The 2551-VBlank run keeps its 17 frames and ends with `hash 0xd36c82e9a145875a` (`0x8ba37caeb2bacfa8` since T42 b1,
+  gotcha 32). The whole state
   (40 MB) can be saved at a VBlank boundary and loaded in the same or a fresh process (`TTT_SAVESTATE`,
   `TTT_LOADSTATE`, `Port_StateSave` / `Port_StateLoad`), and `TTT_SYNCTEST` runs every few VBlanks twice from a
   loaded state and compares. It found the fight's state depending on the GS threads' timing (stale stack words the
@@ -110,8 +111,10 @@ Players: [install.md](install.md) (the setup screen, `ttt --setup <disc>`, where
   are newlib's on the game's own state word. No host float code is linked ([EE float model](#ee-float-model)).
 - Last clean build: 76 objects (59 game, 17 port), 1270 data objects, 22 names placed by address, 43 stubs (none
   reached on the path above).
-- `TTT_CC=clang` (game code through clang 23) is not there yet: 55 of 62 objects; the other 7 stop on an implicit
-  declaration followed by a definition with another return type, which gcc accepts with `-fpermissive`.
+- `TTT_CC=clang` (T42 b1): the game code through clang 23 builds (every object) into its own tree,
+  `build/port-clang/ttt`, and ends the idle run and the scripted fight (GL too) with the gcc build's hashes; the
+  default build is unchanged but for two stale-stack reads now fixed under `PORT`, which gave new reference hashes
+  (gotcha 32, `tests/test_port_clang.py`).
 
 ## Build
 
@@ -119,6 +122,7 @@ Players: [install.md](install.md) (the setup screen, `ttt --setup <disc>`, where
 python3 port/tools/build.py                   # -> build/port/ttt (no game file needed)
 build/port/ttt                                # real time, in a window (needs the 32-bit SDL3, see Window)
 TTT_FRAMES=600 build/port/ttt                 # headless, 600 VBlanks, then a report
+TTT_CC=clang python3 port/tools/build.py      # the game code through clang -> build/port-clang/ttt (gotcha 32)
 ```
 
 `build.py` runs the two steps below in order and fails if any of them fails. Each can also be run on its own
@@ -1181,6 +1185,39 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
     alpha below the test's reference), so did the whole screen while the ball rolled, and the pause window had no
     labels. Found with `TTT_DIFF` on `Mode_Battle` at the stage load (VBlank 619: `D_005F6BCC` 0x349D against
     0x2300) and `TTT_DIFF_WATCH` on the slot sizes; `TTT_GS_TRACE` showed the overlapping uploads. Both renderers.
+
+32. **A second compiler shows what the frame layout decides (T42 b1, `TTT_CC=clang`).** clang builds the game code with
+    the gcc flags plus `toolchain.CLANG_CFLAGS`: one `-Wno-error=` per diagnostic `-fpermissive` relaxes for gcc (gotcha
+    2), and `-mno-x87`, without which clang's `-msoft-float` still computes on the x87 unit (with it every float
+    operation calls the EE float model's helpers, as gcc's does). The source needed local prototypes before implicit
+    calls whose definition has another return type (6 files), `__builtin_va_start` for the two variadic readers
+    (`demo.c`, `select_results_b.c`: clang has no `__builtin_next_arg`) and a `u32` step in the float to `u64` bitfield
+    stores of `dma_gif.c` / `effects_draw.c` (clang's 32-bit soft float stops on a float to 64-bit integer conversion;
+    the values are 0-255, and gcc's hashes do not move). The output goes to `build/port-clang/`, so the program a player
+    runs is never replaced. To find where the two builds part, a mix links gcc's objects with clang's one object at a
+    time (then one function at a time: `objcopy --localize-symbol` in one, `--keep-global-symbol` in the other) and
+    compares the idle run's hash; `TTT_HASH_DUMP` (EE RAM) and `TTT_HASH_DUMP_SPR=<file>` (the scratchpad, then the EE
+    hardware registers, as the hash sees them) give the words. Found:
+    - `render_fighter_b.c` `func_00341F68` passes its matrix `m1` to `Model_Render` as an object, whose two matrices
+      `func_00342E78` sends: the second is the 64 bytes after `m1`, which on the EE are `m2` (sp + 64, sp + 128). gcc's
+      frame had them in that order by chance; clang's had `rot` there, so the stage objects that take this path were
+      drawn with a unit matrix from VBlank 800. Under `PORT` the two are one array.
+    - Fixed under `PORT`, with new reference hashes: the game reads two uninitialised stack values, whose bytes and
+      addresses follow each compiler's frames. `dma_spr.c` `func_0035D790` sends its uninitialised `u128 tag` to the
+      scratchpad header (0x70000100-0x7000010F) by toSPR DMA, and the channel's MADR (0x1000D410) kept the tag's EE
+      stack address (0x01FFFEA0 with gcc, 0x01FFFEC0 with clang, whose frames above it differ, `main`'s first: gcc
+      realigns the stack there); the port sends a zeroed quadword at a fixed EE RAM address instead (`PORT_EE_SPARE_QW`,
+      0x01FFFFF0, above the EE stack's top). `scene3d_d.c` `Light_StartFlash` copies four floats from its callers' `f32
+      pos[3]` (`effects.c` `func_003A2BC0` / `func_003A2E20`, sp + 0 .. 8 on the EE, sp + 12 never written), so
+      `D_01FC4570 + 0xC` held whatever stack word followed `pos`; the port gives them `pos[4]` with `pos[3] = 0`.
+      Before, the clang build ended the idle run with `0x75924e86b98b474c` against gcc's `0xd36c82e9a145875a`, the
+      scripted fight with `0x4305eb1a09cc1bff` against `0x3c2cd520128fc04d`, every other hashed word alike. Now both
+      builds give the idle run `0x8ba37caeb2bacfa8` (same 17 pictures), the scripted fight `0xcce5eb554fa51395`
+      (software and GL) and the idle run with `TTT_CHEAT_UNLOCK=1` `0x700be073c8bac18e`, every region hash equal
+      ([determinism.md](determinism.md) Values). A 64-bit build will lay its frames out differently again, so reads like
+      these have to be found and fixed the same way.
+    `tests/test_port_clang.py` (clang installed, `TTT_SLOW_TESTS=1`) builds the variant, runs its self-tests and the
+    idle run on both builds, and requires the same state line and region hashes.
 
 ## Crash reports
 

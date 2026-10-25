@@ -58,7 +58,8 @@ ttt: unlocks: counter 0, ..., 20 selectable characters; cheat off (raised at 0 V
 ttt: unlocks: counter 14, clear bits 0x0000003fffffffff, gallery 1, bowl 1, theater 1, 34 selectable characters; cheat on (raised at 1 VBlanks)
 ```
 
-The 2551-VBlank idle run gives `0xba03f15fdc086048` with the cheat instead of `0xd36c82e9a145875a`. When it is off,
+The 2551-VBlank idle run gives `0x700be073c8bac18e` with the cheat instead of `0x8ba37caeb2bacfa8` (before T42 b1,
+`0xba03f15fdc086048` and `0xd36c82e9a145875a`: [determinism.md](determinism.md) Values). When it is off,
 nothing is written, and every hash is unchanged. Every `TTT_FRAMES` report has the `ttt: unlocks:` line. Its
 selectable count is the number of non-zero bytes of `D_0043B968`'s 0x22 bytes.
 
