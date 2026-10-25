@@ -1719,7 +1719,8 @@ void func_00367930(void) {
 /* NON_MATCHING: 96 lines: stack frame (0xF0 against 0xD0: the original has more stack locals) and register allocation of the bank pointers */
 #if 0
 void func_00367938(s32 stage) {
-    s32 sizes[4];
+    s32 sizes[16]; /* the sub-image blocks of slot 4 (func_00361EA8): sp + 0 .. 0x3F in the original, in front of
+                      blocks (sp + 0x40); TEKKEN BOWL's lane bank has more than four */
     s32 blocks[5];
     u8 *bank;
     u8 *bank2;

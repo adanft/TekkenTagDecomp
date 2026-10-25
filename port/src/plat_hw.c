@@ -722,6 +722,20 @@ static void report_and_exit(void) {
     Port_WindowExit(0);
 }
 
+/* TTT_DIFF (ee_diff.c): the interrupts raised and not yet delivered, and the Status register, saved before the port's
+   C runs and put back before the original's run, so that both deliver the same interrupts (save 1: into s[3]). */
+void Port_HwIrqState(uint32_t *s, int save) {
+    if (save) {
+        s[0] = sIntcPend;
+        s[1] = sDmacPend;
+        s[2] = Port_Mfc0Status();
+    } else {
+        sIntcPend = s[0];
+        sDmacPend = s[1];
+        Port_SetStatus(s[2]);
+    }
+}
+
 /* ---- the state (plat_state.c) ---- */
 static void hw_after_load(void) {
     if (!Port_Headless()) { /* the real-time clock goes on from the loaded cycle count */

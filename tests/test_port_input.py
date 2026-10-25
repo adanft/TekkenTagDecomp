@@ -9,6 +9,7 @@ import unittest
 from pathlib import Path
 
 from test_port_platform import EXE, disc, run_ttt
+from test_port_window import png_rgb
 
 IDLE = "80808080"
 
@@ -211,6 +212,65 @@ class Bowl(unittest.TestCase):
         self.assertRegex(modes, r"\b3@\d+ 4@\d+ 5@\d+ 4@\d+$")
         self.assertEqual(peek(r, MODE), [0x00080004])
 
+    def test_the_lane_and_the_pause_windows_draw(self):
+        """T41 b2: the lane (VBlank 780, the aim) has its wooden floor, and the pause window that Start opens at VBlank
+        790 has its labels (CANCEL, RESET, TOP BOWLERS...). Both were black: the m2c draft of the stage load
+        func_00367938 had 4 words for the sub-image blocks func_00361EA8 writes (16 in the original's frame, in front
+        of the five image blocks), so the bowl's bank wrote over blocks[0] and its images went into VRAM over the
+        lane's textures and the font. Then down, down and cross open TOP BOWLERS (VBlank 880: Bowl_DrawTop5, the
+        records' rows of func_003F2AC0) and triangle turns to the score sheet (VBlank 960: the frames' table, rank and
+        summary), the T41 b0 drafts."""
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "in.txt"
+            p.write_text(stream(*TO_THE_BOWL, (790, START, 4), (820, DOWN, 4), (840, DOWN, 4), (860, CROSS, 4),
+                                (940, TRIANGLE, 4)))
+            r = run_ttt(timeout=900, TTT_FRAMES="960", TTT_SEED="1", TTT_INPUT_PLAY=str(p), TTT_CHEAT_UNLOCK="1",
+                        TTT_AUDIO="0", TTT_DUMP=d, TTT_DUMP_EVERY="20", TTT_PEEK="5F5F08")
+            self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
+            lane, pause, top5, sheet = (png_rgb(Path(d) / f"frame_{v:05d}.png") for v in (780, 800, 880, 960))
+        self.assertNotIn("not implemented yet", r.stdout)
+        self.assertEqual(peek(r, "5F5F08"), [1])  # D_005F5F08: paused, by player 1
+
+        def region(pic, x0, y0, x1, y1):
+            """Mean level and white pixels of a region of a 640 x 448 picture."""
+            w, _, px = pic
+            sel = [px[(y * w + x) * 3:(y * w + x) * 3 + 3] for y in range(y0, y1) for x in range(x0, x1)]
+            return sum(map(sum, sel)) / (3 * len(sel)), sum(1 for c in sel if min(c) > 160)
+
+        self.assertGreater(region(lane, 160, 260, 480, 400)[0], 25)  # the floor in front of the bowler: about 46
+        self.assertGreater(region(pause, 250, 120, 440, 220)[1], 1000)  # the labels: about 2300 white pixels, 0 before
+        self.assertGreater(region(top5, 300, 60, 620, 420)[1], 8000)  # five rows of points and names: about 13600
+        self.assertGreater(region(sheet, 40, 120, 620, 170)[1], 3000)  # the frames' table: about 6400 (top 5: 1100)
+
+    @unittest.skipUnless(os.environ.get("TTT_SLOW_TESTS") == "1", "slow (about a minute): TTT_SLOW_TESTS=1")
+    def test_the_draw_passes_run_on_the_original_code(self):
+        """TTT_DIFF on main's five draw passes at VBlank 900 (the aim): the original's code runs to its end (COP0 ei /
+        di / Status, the hardware registers, vcallms on the port's VU0; before T41 b2 it stopped on mfc0 in
+        func_00357A50 and spun in func_00357A78). The fighters', the first and the last pass agree with the C."""
+        passes = ("func_00357BD0", "func_00357A50", "func_00357A78", "func_00357B28", "func_00357B50")
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "in.txt"
+            p.write_text(stream(*TO_THE_BOWL, *A_THROW))
+            r = run_ttt(timeout=900, TTT_FRAMES="901", TTT_SEED="1", TTT_INPUT_PLAY=str(p), TTT_CHEAT_UNLOCK="1",
+                        TTT_AUDIO="0", TTT_DIFF="900", TTT_DIFF_SECONDS="120", TTT_DIFF_ONLY=",".join(passes))
+        self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
+        self.assertNotIn("original not run to its end", r.stdout)
+        got = dict(re.findall(r"ee-diff (func_\w+) \(VBlank 900\): (\w+)", r.stdout))
+        self.assertEqual(sorted(got), sorted(passes))
+        self.assertEqual([got[n] for n in ("func_00357BD0", "func_00357A78", "func_00357B50")], ["same"] * 3)
+
+    @unittest.skipUnless(os.environ.get("TTT_SLOW_TESTS") == "1", "slow (about seven minutes): TTT_SLOW_TESTS=1")
+    def test_a_whole_game(self):
+        """Cross every 40 VBlanks from the lane on: ten frames of two balls each (the bowler and the partner take
+        turns), the game's end (func_003F1570) and the results (mode 10) at VBlank 10596."""
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "in.txt"
+            p.write_text(stream(*TO_THE_BOWL, *((v, CROSS, 4) for v in range(720, 10650, 40))))
+            r = run_ttt(timeout=1800, TTT_FRAMES="10650", TTT_SEED="1", TTT_INPUT_PLAY=str(p), TTT_CHEAT_UNLOCK="1",
+                        TTT_AUDIO="0")
+        self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
+        self.assertNotIn("not implemented yet", r.stdout)
+        self.assertRegex(re.search(r"ttt: modes: (.*)", r.stdout).group(1), r"\b5@\d+ 4@\d+ 10@\d+$")
 
 @unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
 @unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")

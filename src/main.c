@@ -395,11 +395,20 @@ int main(void) {
     Sys_Init();
     for (;;) {
         Frame_Begin();
+#ifdef PORT
+        /* TTT_DIFF: the draw passes against the original code */
+        PORT_DIFF(0x357BD0, func_00357BD0, "i", 0);
+        PORT_DIFF(0x357A50, func_00357A50, "i", 0);
+        PORT_DIFF(0x357A78, func_00357A78, "i", 0);
+        PORT_DIFF(0x357B28, func_00357B28, "i", 0);
+        PORT_DIFF(0x357B50, func_00357B50, "i", 0);
+#else
         func_00357BD0();
         func_00357A50();
         func_00357A78();
         func_00357B28();
         func_00357B50();
+#endif
         Frame_PreUpdate();
         Mode_Dispatch();
         if (gDrawEffectPass) {

@@ -881,7 +881,7 @@ port replacement. `port/src/ee_diff.c` compares such C with the original directl
   compile time with round-to-nearest (0x3FC90FDB) where the executable adds at run time with the EE's rounding toward
   zero (0x3FC90FDA): the sum now reads `atanhi[3]` through a volatile. The self-test has no tolerated difference left.
 - **What the original cannot do here** (T34 batch 2). `FlushCache` (syscall 0x64) does nothing, as the port's;
-  `bc0f` / `bc0t` see the DMA done; `ei` / `di` do nothing. The calls that talk to the IOP (`sceSifCallRpc`,
+  `bc0f` / `bc0t` see the DMA done; `ei` / `di` are the port's (since T41 b2, below). The calls that talk to the IOP (`sceSifCallRpc`,
   `sceSifCheckStatRpc`, `sceSdRemote`) or kick and wait for the DMA hardware (the game functions with `EE_HW_POLL` in
   their C: `Dma_Wait`, `Dma_SendChain`, `Dma_SendNormal`, `func_00343178`, `func_0035D6E0`, `func_0035D738`,
   `func_0035E6B8`, `func_0035E758`, `Gfx_WaitVSync`) go to the port's own functions with the same arguments (a0-a3,
@@ -912,6 +912,18 @@ port replacement. `port/src/ee_diff.c` compares such C with the original directl
     `geometry_b.c`, VBlanks 815, 1163-1165, 1384);
   - the sign of a zero in one joint matrix (VBlanks 620, 803): the hand-written `func_00349D70` multiplies the vf9 the
     previous VU0 code left, and the port's libvu0 (C on its own registers) leaves another one.
+- **The draw passes (T41 b2).** `main` hooks its five draw passes (`func_00357BD0`, `func_00357A50` (stage),
+  `func_00357A78` (fighters), `func_00357B28`, `func_00357B50`). For them the interpreter does what the port's C does
+  with the hardware: `ei` / `di` / `mfc0 Status` are `Port_Ei` / `Port_Di` / `Port_Mfc0Status` (an `ei` delivers the
+  DMA interrupts the port raised, as in the C), the EE hardware registers (0x10000000, 64 KB) and VU memory
+  (0x11000000) are plain memory, and `vcallms` / `vcallmsr` (CMSAR0) run the VU0 program on the port's VU0
+  (`vu0_micro.c`) with the interpreter's registers. The check saves and puts back those two regions, the VU0
+  registers and unit state and the pending interrupts (`Port_HwIrqState`) between the two runs. A run that does not
+  end (a wait on state nothing here changes) stops after `TTT_DIFF_SECONDS` (default 300) with the address it was
+  at. `TTT_DIFF_WATCH` also prints the word after each store. With one throw of TEKKEN BOWL (VBlanks 570-620 and
+  900) the five passes agree with the original, except the last bits of about ten floats of the stage pass's packet
+  (0x307350-0x3074BC, not traced further) and, in `func_00357B28`, one DMA interrupt count (`gSprDma`, byte
+  0x415FC2: 3 after the C, 2 after the original; the port's DMA keeps state outside the saved regions).
 - **Limits.** The check covers the hooked calls in the frames asked for (a path not taken there is not covered).
   About 0.3 s per checked call (two 32 MB copies); a whole fight frame (about 440,000 instructions) takes about 1 s;
   the stage load of VBlank 617 (256 million instructions, the wind generator's warm-up) about two minutes.
@@ -1145,6 +1157,15 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
     routines agree with the original on every call from VBlank 850 to 1399 (4,483 calls), the bowl frame and the
     whole `Mode_Battle` frame too, except the draw objects' `ctx.m3` / `ctx.m4` (`func_003D1468` never writes them:
     the game's own uninitialised local, garbage on both sides).
+
+31. **A draft's array smaller than the original's frame (T41 b2, TEKKEN BOWL).** The m2c draft of the stage load
+    `func_00367938` (`fighter_setup_b.c`) gave the sub-image blocks that `func_00361EA8` writes 4 words; the
+    original's frame has 16 (sp + 0 .. 0x3F, the five image blocks at sp + 0x40). TEKKEN BOWL's bank has more sub-
+    images, so on i386 they went over `blocks[0]`: the stage's images were uploaded at 0x349D instead of 0x2300, over
+    the lane's textures, the score sheet's and the font of the pause window. The lane drew black (its texels read 0,
+    alpha below the test's reference), so did the whole screen while the ball rolled, and the pause window had no
+    labels. Found with `TTT_DIFF` on `Mode_Battle` at the stage load (VBlank 619: `D_005F6BCC` 0x349D against
+    0x2300) and `TTT_DIFF_WATCH` on the slot sizes; `TTT_GS_TRACE` showed the overlapping uploads. Both renderers.
 
 ## EE float model
 

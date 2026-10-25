@@ -112,6 +112,13 @@ void Port_Vu0CallMs(uint32_t addr) {
     }
 }
 
+/* The unit's own state (pipeline, flags, where the last program stopped), saved and restored around a TTT_DIFF check
+   (ee_diff.c), which runs the original's programs on this unit too. */
+void *Port_Vu0Core(uint32_t *size) {
+    *size = (uint32_t)sizeof vu;
+    return &vu;
+}
+
 /* VU0's micro-mode side: its registers (shared with macro mode), VIF0, the unit's pipeline (not the predecoded program:
    each slot is checked against micro memory when it runs). */
 __attribute__((constructor(101))) static void vu0_state(void) {

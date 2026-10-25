@@ -11,8 +11,11 @@
  * build/SLUS_200.01 next to build/port/ttt, the matching build's output = your SLUS_200.01, else the disc's own
  * SLUS_200.01): .text, .rodata and .lit4 are read from its image
  * (the port does not keep .lit4 at its address), everything else from the running program's memory (the port keeps
- * the game's data at its PS2 addresses). Anything outside that set (an unknown instruction, a call outside .text,
- * a syscall, the VU0 flags) stops the check with a report; the port continues as if the check had not run.
+ * the game's data at its PS2 addresses). The hardware is the port's: ei / di / mfc0 Status are Port_Ei / Port_Di /
+ * Port_Mfc0Status, the EE hardware registers and VU memory are plain memory, vcallms runs on the port's VU0, and the
+ * calls of sNative go to the port's functions. Anything outside that set (an unknown instruction, a call outside
+ * .text, a syscall, the VU0 MAC / clip flags, a run longer than TTT_DIFF_SECONDS) stops the check with a report; the
+ * port continues as if the check had not run.
  *
  *   TTT_DIFF=<vblank>[:<calls>]  check the hooked calls (PORT_DIFF in the game sources) from that VBlank on, at most
  *                                <calls> per function (default 1).
@@ -25,10 +28,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 #include "softfloat_ps2_inl.h"
 
 uint32_t Port_VBlankCount(void);
+void Port_Di(void), Port_Ei(void);
+uint32_t Port_Mfc0Status(void); /* plat_ee.c: the interrupt state the port's C uses */
+void Port_HwIrqState(uint32_t *s, int save); /* plat_hw.c: interrupts pending, Status */
 long Port_DiscReadFile(const char *dirName, const char *name, void *dst, long max); /* plat_file.c */
 extern float gPortVu0Vf[32][4];
 
@@ -36,6 +43,10 @@ extern float gPortVu0Vf[32][4];
 #define RAM_HI 0x02000000u
 #define SPR_LO 0x70000000u
 #define SPR_SIZE 0x4000u
+#define HW_LO 0x10000000u /* the EE hardware registers (plain memory in the port, plat_mem.c; the DMA runs at a poll) */
+#define HW_SIZE 0x10000u
+#define VUMEM_LO 0x11000000u /* VU0 / VU1 micro and data memory (plain memory, plat_mem.c) */
+#define VUMEM_SIZE 0x10000u
 #define RET_MAGIC 0x00000010u /* return address of the outermost call: no code there */
 #define MAX_STEPS 2000000000u
 
@@ -160,8 +171,9 @@ typedef struct {
     uint32_t vf[32][4], vacc[4], q, vi_i;
     uint32_t vstat; /* the VU0 status flag (vi16): Z, S of the last FMAC result and their sticky bits ZS, SS */
     uint16_t vi[16];
+    uint32_t vi_cmsar; /* CMSAR0 (vi27): the start address of VCALLMSR */
     uint32_t pc;
-    uint64_t steps;
+    uint64_t steps, t0;
     int trace, depth, tracePending; /* TTT_DIFF_TRACE: the calls the outermost function makes */
     int stop; /* 0 running, 1 returned, -1 failed */
     char why[160];
@@ -239,6 +251,7 @@ static uint8_t *rptr(Ee *e, uint32_t a, uint32_t n) {
     }
     if ((a >= RAM_LO && a + n <= RAM_HI) || (a >= 0x20000000u + RAM_LO && a + n <= 0x22000000u) ||
         (a >= 0x30000000u + RAM_LO && a + n <= 0x32000000u) || (a >= SPR_LO && a + n <= SPR_LO + SPR_SIZE) ||
+        (a >= HW_LO && a + n <= HW_LO + HW_SIZE) || (a >= VUMEM_LO && a + n <= VUMEM_LO + VUMEM_SIZE) ||
         a >= 0x08000000u /* host memory: the interpreter's own stack */) {
         return (uint8_t *)(uintptr_t)a;
     }
@@ -265,7 +278,7 @@ static uint8_t *wptr(Ee *e, uint32_t a, uint32_t n) {
     do {                                                                                                               \
         T v_ = (T)(v);                                                                                                 \
         uint8_t *p_ = wptr(e, (a), sizeof(T));                                                                         \
-        if (sWatch != 0 && (uint32_t)(a) < sWatch + 4 && (uint32_t)(a) + sizeof(T) > sWatch) {                       \
+        if (sWatch != 0 && (uint32_t)(a) < sWatch + 4 && (uint32_t)(a) + sizeof(T) > sWatch) {                         \
             watch(e, (a), op);                                                                                         \
         }                                                                                                              \
         if (p_ == NULL) {                                                                                              \
@@ -273,6 +286,9 @@ static uint8_t *wptr(Ee *e, uint32_t a, uint32_t n) {
             return;                                                                                                    \
         }                                                                                                              \
         memcpy(p_, &v_, sizeof(T));                                                                                    \
+        if (sWatch != 0 && (uint32_t)(a) < sWatch + 4 && (uint32_t)(a) + sizeof(T) > sWatch) {                         \
+            printf("ee-watch %08X: now %08X\n", sWatch, rd32le(rptr(e, sWatch, 4)));                                   \
+        }                                                                                                              \
     } while (0)
 
 static uint64_t sx32(uint32_t v) { return (uint64_t)(int64_t)(int32_t)v; }
@@ -310,6 +326,45 @@ static uint32_t vitof(uint32_t v, int frac) {
     return SF_EXP(f) > (uint32_t)frac ? f - ((uint32_t)frac << 23) : (f & SF_SIGN);
 }
 
+/* VU0 micro mode for the original code: its registers go into the port's VU0 (shared by macro and micro mode, as on
+   the hardware), the program runs there, and they come back. The unit's own state is the check's (Port_DiffCall). */
+extern uint16_t gPortVu0Vi[16];
+extern uint32_t gPortVu0Acc[4], gPortVu0Q;
+void Port_Vu0CallMs(uint32_t addr);
+
+static void vu0_call(Ee *e, uint32_t addr) {
+    memcpy(gPortVu0Vf, e->vf, sizeof e->vf);
+    memcpy(gPortVu0Vi, e->vi, sizeof e->vi);
+    memcpy(gPortVu0Acc, e->vacc, sizeof e->vacc);
+    gPortVu0Q = e->q;
+    Port_Vu0CallMs(addr);
+    memcpy(e->vf, gPortVu0Vf, sizeof e->vf);
+    memcpy(e->vi, gPortVu0Vi, sizeof e->vi);
+    memcpy(e->vacc, gPortVu0Acc, sizeof e->vacc);
+    e->q = gPortVu0Q;
+}
+
+/* The port's VU0 registers around a check: the C's result is what the port continues with. */
+typedef struct {
+    uint32_t vf[32][4], acc[4], q;
+    uint16_t vi[16];
+} Vu0Regs;
+void *Port_Vu0Core(uint32_t *size); /* vu0_micro.c: the unit's own state (pipeline, flags) */
+
+static void vu0_save(Vu0Regs *r) {
+    memcpy(r->vf, gPortVu0Vf, sizeof r->vf);
+    memcpy(r->vi, gPortVu0Vi, sizeof r->vi);
+    memcpy(r->acc, gPortVu0Acc, sizeof r->acc);
+    r->q = gPortVu0Q;
+}
+
+static void vu0_load(const Vu0Regs *r) {
+    memcpy(gPortVu0Vf, r->vf, sizeof r->vf);
+    memcpy(gPortVu0Vi, r->vi, sizeof r->vi);
+    memcpy(gPortVu0Acc, r->acc, sizeof r->acc);
+    gPortVu0Q = r->q;
+}
+
 static void cop2(Ee *e, uint32_t op) {
     uint32_t dest = (op >> 21) & 15, ft = (op >> 16) & 31, fs = (op >> 11) & 31, fd = (op >> 6) & 31, fn = op & 63;
     uint32_t bc = op & 3, res[4], bcv = e->vf[ft][bc];
@@ -322,6 +377,10 @@ static void cop2(Ee *e, uint32_t op) {
 #define AC(c) (*A)[c]
 #define BC(c) (*B)[c]
     memcpy(res, e->vf[fd], 16);
+    if (fn == 0x38 || fn == 0x39) { /* VCALLMS / VCALLMSR: the program runs on the port's VU0 (vu0_micro.c) */
+        vu0_call(e, fn == 0x38 ? ((op >> 6) & 0x7FFF) * 8 : (uint32_t)e->vi_cmsar * 8);
+        return;
+    }
     if (fn < 0x3C) {
         switch (fn) {
         case 0x00: case 0x01: case 0x02: case 0x03: EACH res[c] = vadd(AC(c), bcv); tofd = 1; break;
@@ -478,6 +537,9 @@ static uint32_t cop2_ctrl_read(Ee *e, uint32_t r, uint32_t op) {
     if (r == 16) {
         return e->vstat;
     }
+    if (r == 27) {
+        return e->vi_cmsar;
+    }
     fail(e, "COP2 control register not modelled (flags)", op);
     return 0;
 }
@@ -499,6 +561,10 @@ static void cop2_ctrl_write(Ee *e, uint32_t r, uint32_t v, uint32_t op) {
     }
     if (r == 16) { /* only the sticky bits are written */
         e->vstat = (e->vstat & 0x3Fu) | (v & 0xFC0u);
+        return;
+    }
+    if (r == 27) {
+        e->vi_cmsar = v & 0xFFFF;
         return;
     }
     fail(e, "COP2 control register not modelled", op);
@@ -796,10 +862,20 @@ static void exec(Ee *e, uint32_t op, uint32_t pc, int *branch, uint32_t *target,
             fail(e, "COP2 transfer not modelled", op);
         }
         break;
-    case 0x10: /* COP0: the DMA wait (bc0f / bc0t on CPCOND0, the port's DMA is done at once) and ei / di */
+    case 0x10: /* COP0: the DMA wait (bc0f / bc0t on CPCOND0, the port's DMA is done at once), ei / di and the
+                  Status register as the port's C sees them (Port_Ei / Port_Di / Port_Mfc0Status, include/ee_asm.h):
+                  an ei delivers the interrupts the port's DMA raised, as in the C */
         if (rs == 8 && rt < 4) {
             BR(rt & 1, rt >> 1);
-        } else if (op != 0x42000038u && op != 0x42000039u) {
+        } else if (op == 0x42000038u) {
+            Port_Ei();
+        } else if (op == 0x42000039u) {
+            Port_Di();
+        } else if (rs == 0 && rd == 12 && (op & 0x7FF) == 0) { /* mfc0 rt, Status */
+            if (rt) {
+                e->r[rt].lo = sx32(Port_Mfc0Status());
+            }
+        } else {
             fail(e, "COP0 instruction not modelled", op);
         }
         break;
@@ -1103,6 +1179,16 @@ static int native_call(Ee *e, uint32_t pc) {
     return 1;
 }
 
+/* The guard against a wait the interpreter cannot end (a loop on state no interrupt here changes): the check gives up
+   after TTT_DIFF_SECONDS (default 300; a stage load takes about two minutes) and reports where the code was. */
+static uint32_t sDiffSeconds = 300;
+
+static int over_time(Ee *e) {
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (uint64_t)t.tv_sec - e->t0 > sDiffSeconds;
+}
+
 static void run(Ee *e) {
     while (e->stop == 0) {
         uint32_t pc = e->pc, op, target = 0;
@@ -1117,6 +1203,10 @@ static void run(Ee *e) {
         }
         if (++e->steps > MAX_STEPS) {
             fail(e, "too many steps", 0);
+            break;
+        }
+        if ((e->steps & 0xFFFFFF) == 0 && over_time(e)) {
+            fail_addr(e, "time limit (TTT_DIFF_SECONDS): still running", 0, pc);
             break;
         }
         op = fetch(e, pc);
@@ -1298,6 +1388,11 @@ static void ee_call(Ee *e, uint32_t addr, const char *sig, const uint32_t *args)
     e->r[29].lo = (uint32_t)(uintptr_t)(sStack + sizeof sStack - 64);
     e->r[31].lo = RET_MAGIC;
     e->pc = addr;
+    {
+        struct timespec t;
+        clock_gettime(CLOCK_MONOTONIC, &t);
+        e->t0 = (uint64_t)t.tv_sec;
+    }
     run(e);
 }
 
@@ -1309,6 +1404,9 @@ static void ee_call(Ee *e, uint32_t addr, const char *sig, const uint32_t *args)
 static int sDiffTrace;
 __attribute__((constructor)) static void diff_switches(void) {
     sDiffTrace = getenv("TTT_DIFF_TRACE") != NULL;
+    if (getenv("TTT_DIFF_SECONDS") != NULL) {
+        sDiffSeconds = (uint32_t)strtoul(getenv("TTT_DIFF_SECONDS"), NULL, 0);
+    }
     wanted("");
 }
 
@@ -1316,6 +1414,11 @@ uint32_t Port_DiffCall(const char *name, uint32_t addr, void *fn, const char *si
     uint32_t args[8] = {0}, n = (uint32_t)strcspn(sig, ":"), k, rc;
     char ret = sig[n] == ':' ? sig[n + 1] : 0;
     uint8_t *s0, *sc, *spr0, *sprc;
+    static uint8_t hw0[HW_SIZE], hwc[HW_SIZE], vm0[VUMEM_SIZE], vmc[VUMEM_SIZE];
+    static Vu0Regs r0, rC;
+    static uint8_t core0[4096], coreC[4096];
+    uint32_t coreN = 0, irq0[3], irqC[3];
+    uint8_t *core = Port_Vu0Core(&coreN);
     uint32_t vf0[32][4];
     uint32_t frame = (uint32_t)(uintptr_t)__builtin_frame_address(0);
     uint32_t skipLo, skipHi = frame + 8;
@@ -1343,6 +1446,10 @@ uint32_t Port_DiffCall(const char *name, uint32_t addr, void *fn, const char *si
         return ((FnR8)fn)(args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7]);
     }
     (*count_of(name))++;
+    if (coreN > sizeof core0) { /* (never: VuCore is about 2 KB) */
+        printf("ee-diff: VU0 state of %u bytes not saved\n", coreN);
+        coreN = 0;
+    }
     /* not restored nor compared: the port's own stack frames, from this one down to the end of .bss */
     skipLo = sBssEnd != 0 && sBssEnd < frame ? sBssEnd : frame - 0x10000u;
     s0 = malloc(RAM_HI - RAM_LO);
@@ -1356,16 +1463,33 @@ uint32_t Port_DiffCall(const char *name, uint32_t addr, void *fn, const char *si
     }
     memcpy(s0, (void *)(uintptr_t)RAM_LO, RAM_HI - RAM_LO);
     memcpy(spr0, (void *)(uintptr_t)SPR_LO, SPR_SIZE);
+    memcpy(hw0, (void *)(uintptr_t)HW_LO, HW_SIZE);
+    memcpy(vm0, (void *)(uintptr_t)VUMEM_LO, VUMEM_SIZE);
     memcpy(vf0, gPortVu0Vf, sizeof vf0);
+    vu0_save(&r0);
+    memcpy(core0, core, coreN);
+    Port_HwIrqState(irq0, 1);
     /* the port's C */
     rc = ((FnR8)fn)(args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7]);
     memcpy(sc, (void *)(uintptr_t)RAM_LO, RAM_HI - RAM_LO);
     memcpy(sprc, (void *)(uintptr_t)SPR_LO, SPR_SIZE);
+    memcpy(hwc, (void *)(uintptr_t)HW_LO, HW_SIZE);
+    memcpy(vmc, (void *)(uintptr_t)VUMEM_LO, VUMEM_SIZE);
+    vu0_save(&rC);
+    memcpy(coreC, core, coreN);
+    Port_HwIrqState(irqC, 1);
+    Port_HwIrqState(irq0, 0);
     /* the original, from the same memory (the port's own stack frames below this one excepted) */
     memcpy((void *)(uintptr_t)RAM_LO, s0, skipLo - RAM_LO);
     memcpy((void *)(uintptr_t)skipHi, s0 + (skipHi - RAM_LO), RAM_HI - skipHi);
     memcpy((void *)(uintptr_t)SPR_LO, spr0, SPR_SIZE);
+    memcpy((void *)(uintptr_t)HW_LO, hw0, HW_SIZE);
+    memcpy((void *)(uintptr_t)VUMEM_LO, vm0, VUMEM_SIZE);
+    memcpy(core, core0, coreN);
     memcpy(e->vf, vf0, sizeof vf0);
+    memcpy(e->vi, r0.vi, sizeof e->vi);
+    memcpy(e->vacc, r0.acc, sizeof e->vacc);
+    e->q = r0.q;
     e->trace = getenv("TTT_DIFF_TRACE") != NULL ? atoi(getenv("TTT_DIFF_TRACE")) : 0; /* the call depth traced */
     if (getenv("TTT_DIFF_TRACE") != NULL && e->trace < 1) {
         e->trace = 1;
@@ -1394,6 +1518,11 @@ uint32_t Port_DiffCall(const char *name, uint32_t addr, void *fn, const char *si
     memcpy((void *)(uintptr_t)RAM_LO, sc, skipLo - RAM_LO);
     memcpy((void *)(uintptr_t)skipHi, sc + (skipHi - RAM_LO), RAM_HI - skipHi);
     memcpy((void *)(uintptr_t)SPR_LO, sprc, SPR_SIZE);
+    memcpy((void *)(uintptr_t)HW_LO, hwc, HW_SIZE);
+    memcpy((void *)(uintptr_t)VUMEM_LO, vmc, VUMEM_SIZE);
+    vu0_load(&rC);
+    memcpy(core, coreC, coreN);
+    Port_HwIrqState(irqC, 0);
     fflush(stdout);
     free(s0);
     free(sc);

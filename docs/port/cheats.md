@@ -75,6 +75,12 @@ With the cheat on:
 `tests/test_port_input.py` `Theater` uses the cheat to reach THEATER (up and Start on the main menu, whose cursor
 starts on GALLERY) and its music player.
 
+`tests/test_port_input.py` `Bowl` uses it to reach TEKKEN BOWL: up twice and Start on the main menu, square, right,
+square at the character select (the bowler and the partner); on the lane cross three times (aim, spin, power).
+Start opens the pause window (VBlank 790); down twice and cross open TOP BOWLERS, triangle turns to the score sheet
+(T41 b2). With `TTT_SLOW_TESTS=1`: the draw passes against the original (`TTT_DIFF`), and a whole game (cross every
+40 VBlanks: ten frames, then the results, mode 10, at VBlank 10596).
+
 ## Open
 
 - **THEATER (fixed in T41 b0).** Entering it crashed in `Mode_Theater`: the draft called `Text_Printf(D_00522AC0, x,
@@ -85,5 +91,9 @@ starts on GALLERY) and its music player.
   ([README](README.md), gotcha 29).
 - Only "unlock everything". There are no per-item toggles and no other cheats (infinite health, timers): those
   would need fight-state addresses checked the same way.
-- Not checked: the costume / tag partner rules beyond the four selectable sets, and TEKKEN BOWL levels past the
-  menu entry.
+- **TEKKEN BOWL (fixed in T41 b1 / b2).** It runs (T41 b1), and since T41 b2 the lane, the screen while the ball
+  rolls and the pause window's labels draw: the stage load's draft wrote the bowl's sub-image blocks over its own
+  image blocks, and the images went into VRAM over the lane's textures and the font ([README](README.md), gotcha
+  31).
+- Not checked: the costume / tag partner rules beyond the four selectable sets, TEKKEN BOWL's name entry for a
+  top-five score and its two-player game.
