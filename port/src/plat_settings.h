@@ -31,6 +31,7 @@ void Settings_GetStr(const char *key, char *out, int n);
 int Settings_FromEnv(const char *key);     /* 1: its variable was set by the environment (the file's value waits) */
 int Settings_NeedsRestart(const char *key); /* 1: read at start only */
 const char *Settings_Env(const char *key);  /* its variable's name, or NULL */
+void Settings_Summary(char *out, int n);   /* every effective value, "key=value ..." */
 /* Changes the file's value (clamped to the setting's range) and writes the file at once (a temporary file renamed
    over it). Other lines (comments, keys this program does not know) stay as they are. 1 when written. */
 int Settings_SetInt(const char *key, int v);

@@ -52,7 +52,9 @@ class HostCalls(unittest.TestCase):
                    "unsetenv", "mkdir", "access", "strerror", "atexit", "__cxa_atexit",
                    # the texture packs (T39, gs_texpack.c with stb_image / stb_image_write: the C library functions
                    # only it calls; the others it shares with older code stay among the 48 entries, some now in .plt.got)
-                   "opendir", "readdir", "closedir", "stat"}
+                   "opendir", "readdir", "closedir", "stat",
+                   # the crash reports and the background check of TEKKEN.BIN (T41, plat_crash.c, plat_data.c)
+                   "sigaction", "sigaltstack", "syscall", "raise", "abort", "open", "read", "write", "close", "statx"}
         self.assertEqual(sorted(set(plt) & overlay), [])
         self.assertEqual([n for n in plt if n.startswith(("_Z", "__cxa", "__gxx"))], [])
 

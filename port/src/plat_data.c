@@ -22,14 +22,29 @@
  * SLUS_200.01's SHA-1; then the payload (the ranges' bytes in address order, as on the disc: the words of
  * gPortDataFix are rewritten in EE RAM after loading). It holds the user's own game data: never shipped.
  *
+ * T41: the data in use is verified or not (Port_DataState). Later runs check TEKKEN.BIN's content too, not only its
+ * size: its SHA-1 is kept in `<data file>.disc` with the host file's device, inode, size and modification time, and
+ * while those match it is not hashed again. When they do not (a new or changed disc file), the hash runs on a thread of
+ * its own (about a second, with its own file handle) while the game starts; a mismatch marks the run "[modified game
+ * data]" from then on (stderr, the window title, the overlay) and the next run refuses the disc unless
+ * TTT_ALLOW_MODIFIED=1. TTT_ALLOW_MODIFIED=1 alone marks nothing: only data that differs is marked. Texture
+ * replacements (gs_texpack.c) are not game data and are not marked here.
+ *
  * Runs in plat_mem.c's constructor, before anything of the game: no EE stack is involved.
  */
+#define _GNU_SOURCE /* statx */
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include "port_addr.h"
+#include "port_host.h"
+
+/* the C library calls added with the background check, through the GOT (port_host.h: the PLT stays as it was) */
+__typeof__(statx) statx __attribute__((noplt));
 
 /* port/tools/link.py: build/port/gen/data_table.c */
 extern const uint32_t gPortDataRanges[][2], gPortDataRangeN, gPortDataFix[][2], gPortDataFixN, gPortDataSize;
@@ -42,8 +57,16 @@ int Port_DiscRead(uint32_t sector, uint32_t offset, void *dst, uint32_t bytes);
 long Port_DiscReadFile(const char *dirName, const char *name, void *dst, long max);
 long long Port_DiscArchiveSize(void);
 const char *Port_DiscName(void);
+const char *Port_DiscArchiveFile(long long *offset);
 
 int gPortModifiedData; /* 1: the run uses game data that differs from the USA release (TTT_ALLOW_MODIFIED=1) */
+
+/* Port_DataState: what is known of the data in use (T41). */
+enum { DATA_VERIFIED, DATA_MODIFIED, DATA_CHECKING, DATA_UNCHECKED };
+static int sState = DATA_VERIFIED;
+static char sWhy[160]; /* the first difference found, or why a check could not be made */
+static pthread_mutex_t sLock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t sDone = PTHREAD_COND_INITIALIZER;
 
 /* The other files of the unmodified USA release (SLUS-20001) the port checks; SLUS_200.01's own come from the
    layout (gPortElfSha1). Hashes only. */
@@ -216,8 +239,10 @@ static void modified(const char *what, const uint8_t got[20], const uint8_t want
     if (allow_modified()) {
         if (!gPortModifiedData) {
             fprintf(stderr, "ttt: [modified game data] %s differs from the USA release (TTT_ALLOW_MODIFIED=1)\n", what);
+            snprintf(sWhy, sizeof sWhy, "%s", what);
         }
         gPortModifiedData = 1;
+        sState = DATA_MODIFIED;
         return;
     }
     fflush(stdout);
@@ -229,6 +254,8 @@ static void modified(const char *what, const uint8_t got[20], const uint8_t want
                     "TTT_ALLOW_MODIFIED=1 runs it anyway, marked [modified game data]\n");
     exit(4);
 }
+
+static void cache_put(const uint8_t h[20]);
 
 /* The disc's TEKKEN.BIN and RSPU2DRV.IRX, checked on every run (cheap) or with the archive's SHA-1 (full, when the
    data file is made: about a second). */
@@ -261,9 +288,188 @@ static void check_disc(int full) {
         }
         free(buf);
         sha1_final(&s, h);
+        cache_put(h);
         if (memcmp(h, kArchiveSha1, 20) != 0) {
             modified("TEKKEN.BIN", h, kArchiveSha1);
         }
+    }
+}
+
+/* ---------------------------------------------------------------------------------------------- TEKKEN.BIN's content */
+
+/* The host file holding TEKKEN.BIN as `<data file>.disc` keeps it: "TTTDISC 1 <device> <inode> <size> <mtime s>
+   <mtime ns> <archive offset> <SHA-1 of the archive>". Numbers and a hash only. */
+static int archive_key(char *key, int n) {
+    long long off;
+    const char *path = Port_DiscArchiveFile(&off);
+    struct statx st; /* not struct stat: -malign-double (PORT_CFLAGS) would move its 64-bit fields */
+    if (path == NULL || statx(AT_FDCWD, path, 0, STATX_INO | STATX_SIZE | STATX_MTIME, &st) != 0) {
+        return 0;
+    }
+    snprintf(key, (size_t)n, "TTTDISC 1 %u:%u %llu %llu %lld %u %lld", st.stx_dev_major, st.stx_dev_minor,
+             (unsigned long long)st.stx_ino, (unsigned long long)st.stx_size, (long long)st.stx_mtime.tv_sec,
+             st.stx_mtime.tv_nsec, off);
+    return 1;
+}
+
+static void cache_path(char *out, int n) { snprintf(out, (size_t)n, "%s.disc", sDatPath); }
+
+static void cache_put(const uint8_t h[20]) {
+    char key[200], path[1200], tmp[1300], x[41];
+    FILE *f;
+    int ok;
+    if (!archive_key(key, sizeof key)) {
+        return;
+    }
+    cache_path(path, sizeof path);
+    snprintf(tmp, sizeof tmp, "%s.tmp-%d", path, (int)getpid());
+    hex(h, x);
+    if ((f = fopen(tmp, "w")) == NULL) {
+        return; /* checked again next time */
+    }
+    ok = fprintf(f, "%s %s\n", key, x) > 0;
+    ok &= fclose(f) == 0;
+    if (!ok || rename(tmp, path) != 0) {
+        unlink(tmp);
+    }
+}
+
+/* 1 and the archive's SHA-1 when `<data file>.disc` holds it for the disc file as it is now. */
+static int cache_get(uint8_t h[20]) {
+    char key[200], path[1200], line[300];
+    size_t k;
+    FILE *f;
+    int i, ok;
+    if (!archive_key(key, sizeof key)) {
+        return 0;
+    }
+    cache_path(path, sizeof path);
+    if ((f = fopen(path, "r")) == NULL) {
+        return 0;
+    }
+    ok = fgets(line, sizeof line, f) != NULL;
+    fclose(f);
+    k = strlen(key);
+    if (!ok || memcmp(line, key, k) != 0 || line[k] != ' ' || strlen(line + k + 1) < 40) {
+        return 0;
+    }
+    for (i = 0; i < 40; i++) {
+        char c = line[k + 1 + i];
+        int v = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : -1;
+        if (v < 0) {
+            return 0;
+        }
+        h[i / 2] = (uint8_t)(i & 1 ? h[i / 2] | v : v << 4);
+    }
+    return 1;
+}
+
+/* A state found after start (the background check); a modification found first is kept. */
+static void set_state(int state, const char *why) {
+    pthread_mutex_lock(&sLock);
+    if (sState != DATA_MODIFIED) {
+        snprintf(sWhy, sizeof sWhy, "%s", why != NULL ? why : "");
+        __atomic_store_n(&sState, state, __ATOMIC_RELEASE);
+    }
+    pthread_cond_broadcast(&sDone);
+    pthread_mutex_unlock(&sLock);
+}
+
+/* The background check: the archive's SHA-1 read through a handle of its own, so the game's reads (sDisc) and their
+   timing are left alone. The game never waits for it. */
+static void *verify_main(void *arg) {
+    uint8_t h[20], *buf = malloc(IRX_MAX);
+    long long off;
+    const char *path = Port_DiscArchiveFile(&off);
+    FILE *f = path != NULL ? fopen(path, "rb") : NULL;
+    long long at;
+    int ok = f != NULL && buf != NULL && fseeko(f, (off_t)off, SEEK_SET) == 0;
+    Sha1 s;
+    (void)arg;
+    sha1_init(&s);
+    for (at = 0; ok && at < ARCHIVE_SIZE; at += IRX_MAX) {
+        size_t k = ARCHIVE_SIZE - at < IRX_MAX ? (size_t)(ARCHIVE_SIZE - at) : IRX_MAX;
+        ok = fread(buf, 1, k, f) == k;
+        if (ok) {
+            sha1_update(&s, buf, k);
+        }
+    }
+    if (f != NULL) {
+        fclose(f);
+    }
+    free(buf);
+    if (!ok) {
+        set_state(DATA_UNCHECKED, "TEKKEN.BIN could not be read for its check");
+        return NULL;
+    }
+    sha1_final(&s, h);
+    cache_put(h);
+    if (memcmp(h, kArchiveSha1, 20) == 0) {
+        set_state(DATA_VERIFIED, NULL);
+    } else {
+        char g[41];
+        hex(h, g);
+        __atomic_store_n(&gPortModifiedData, 1, __ATOMIC_RELEASE);
+        fprintf(stderr, "ttt: [modified game data] TEKKEN.BIN differs from the USA release (SHA-1 %s): the run goes on "
+                        "marked%s\n", g, allow_modified() ? "" : "; the next run refuses this disc unless TTT_ALLOW_MODIFIED=1");
+        set_state(DATA_MODIFIED, "TEKKEN.BIN");
+    }
+    return NULL;
+}
+
+/* TEKKEN.BIN's content on a run that loads the data file: from `<data file>.disc` when the disc file is unchanged
+   (refused if it differs, as when the data file is made), else hashed in the background. Self-tests do not hash. */
+static void verify_archive(int selftest) {
+    uint8_t h[20];
+    pthread_t t;
+    if (Port_DiscArchiveSize() != ARCHIVE_SIZE) {
+        return; /* check_disc said so already */
+    }
+    if (cache_get(h)) {
+        if (memcmp(h, kArchiveSha1, 20) != 0) {
+            modified("TEKKEN.BIN", h, kArchiveSha1);
+        }
+        return;
+    }
+    if (selftest) {
+        set_state(DATA_UNCHECKED, "TEKKEN.BIN not checked (self-test)");
+        return;
+    }
+    set_state(DATA_CHECKING, NULL);
+    if (pthread_create(&t, NULL, verify_main, NULL) != 0) {
+        set_state(DATA_UNCHECKED, "TEKKEN.BIN not checked (no thread)");
+        return;
+    }
+    pthread_detach(t);
+}
+
+/* What is known of the data in use: 0 verified (the USA release), 1 modified ([modified game data]), 2 being checked
+   (TEKKEN.BIN, in the background), 3 not checked. Any thread; also from the crash handler (a plain load). */
+int Port_DataState(void) { return __atomic_load_n(&sState, __ATOMIC_ACQUIRE); }
+
+/* The mark for titles and reports: "[modified game data]" or "". */
+const char *Port_DataMark(void) { return Port_DataState() == DATA_MODIFIED ? "[modified game data]" : ""; }
+
+/* The first difference found ("TEKKEN.BIN"...), or why the data is not checked; "" when verified. */
+const char *Port_DataWhy(void) { return sWhy; }
+
+/* The TTT_FRAMES report's line (plat_hw.c); a check still running is waited for (a second at most, once per disc). */
+void Port_DataReport(void) {
+    pthread_mutex_lock(&sLock);
+    while (sState == DATA_CHECKING) {
+        pthread_cond_wait(&sDone, &sLock);
+    }
+    pthread_mutex_unlock(&sLock);
+    switch (Port_DataState()) {
+    case DATA_VERIFIED:
+        printf("ttt: data: USA release (verified)\n");
+        break;
+    case DATA_MODIFIED:
+        printf("ttt: data: [modified game data] (%s)\n", sWhy);
+        break;
+    default:
+        printf("ttt: data: not checked (%s)\n", sWhy[0] ? sWhy : "no disc");
+        break;
     }
 }
 
@@ -394,11 +600,15 @@ void Port_LoadGameData(void) {
     if (load_dat(path, payload)) {
         if (Port_DiscOpen()) {
             check_disc(0);
+            verify_archive(st != NULL);
         } else if (st == NULL) {
             no_disc();
+        } else {
+            set_state(DATA_UNCHECKED, "no disc (self-test)");
         }
     } else {
         if (st != NULL && !Port_DiscOpen()) { /* a self-test without a disc: no game data */
+            set_state(DATA_UNCHECKED, "no disc (self-test)");
             free(payload);
             return;
         }

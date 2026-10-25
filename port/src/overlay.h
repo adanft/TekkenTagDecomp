@@ -55,7 +55,8 @@ const char *Port_WindowGamepadName(int pad);                   /* NULL: none */
 const char *Port_WindowRendererName(void);
 const char *Port_DataPath(void);                               /* plat_data.c: the data file */
 const char *Port_DiscName(void);                               /* plat_file.c */
-extern int gPortModifiedData;                                  /* plat_data.c */
+int Port_DataState(void);   /* plat_data.c: 0 verified, 1 modified, 2 being checked, 3 not checked */
+const char *Port_DataWhy(void); /* plat_data.c: the first difference, or why not checked */
 const char *Tp_Folder(void);                                   /* gs_texpack.c: <textures>/SLUS-20001 */
 
 #ifdef __cplusplus

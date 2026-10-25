@@ -133,6 +133,7 @@ static struct {
                                int nIndices, int indexSize);
     _Bool (*SetRenderClipRect)(void *renderer, const void *rect);
     _Bool (*SetTextureBlendMode)(void *texture, uint32_t mode);
+    _Bool (*SetWindowTitle)(void *window, const char *title); /* optional: the data mark (T41) */
 } sdl;
 
 static const struct {
@@ -363,6 +364,7 @@ static int sdl_load(void) {
         sHaveOverlayFuncs &= f != NULL;
         memcpy((char *)&sdl + kSdlOverlayFuncs[i].offset, &f, sizeof f);
     }
+    *(void **)&sdl.SetWindowTitle = dlsym(h, "SDL_SetWindowTitle");
     return 1;
 }
 
@@ -506,8 +508,27 @@ static void handle_event(const uint8_t *ev) {
     input_event(type, ev);
 }
 
+/* The window's title: "[modified game data]" after it when the game data in use is not the verified USA release
+   (plat_data.c; the background check of TEKKEN.BIN may find that after the window is open). */
+const char *Port_DataMark(void); /* plat_data.c */
+static char sTitle[96];
+static const char *window_title(void) {
+    const char *m = Port_DataMark();
+    snprintf(sTitle, sizeof sTitle, "Tekken Tag Tournament%s%s", *m ? " " : "", m);
+    return sTitle;
+}
+
+static void title_update(void) {
+    static int marked;
+    if (!marked && *Port_DataMark() && sWindow != NULL && sdl.SetWindowTitle != NULL) {
+        marked = 1;
+        sdl.SetWindowTitle(sWindow, window_title());
+    }
+}
+
 static void events(void) {
     uint8_t ev[128];
+    title_update();
     while (sdl.PollEvent(ev)) {
         handle_event(ev);
     }
@@ -670,6 +691,7 @@ static int quit_requested(void) {
     if (!__atomic_load_n(&sQuitReq, __ATOMIC_ACQUIRE)) {
         return 0;
     }
+    title_update();
     release();
     set_state(3);
     return 1;
@@ -689,7 +711,7 @@ static int gl_open(uint64_t flags, int vsync, int scale) {
     sdl.GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
     sdl.GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
     sdl.GL_SetAttribute(SDL_GL_DEPTH_SIZE, 0);
-    sWindow = sdl.CreateWindow("Tekken Tag Tournament", (640 + 2 * win_margin(1)) * scale, 448 * scale, flags | SDL_WINDOW_OPENGL);
+    sWindow = sdl.CreateWindow(window_title(), (640 + 2 * win_margin(1)) * scale, 448 * scale, flags | SDL_WINDOW_OPENGL);
     if (sWindow == NULL) {
         printf("ttt: window: no OpenGL window (%s): software renderer\n", sdl.GetError());
         return 0;
@@ -764,7 +786,7 @@ static void *window_main(void *arg) {
             }
         }
     }
-    sWindow = sdl.CreateWindow("Tekken Tag Tournament", 640 * scale, 448 * scale, flags);
+    sWindow = sdl.CreateWindow(window_title(), 640 * scale, 448 * scale, flags);
     sRenderer = sWindow != NULL ? sdl.CreateRenderer(sWindow, NULL) : NULL;
     if (sRenderer == NULL) {
         snprintf(sWhy, sizeof sWhy, "SDL window: %s", sdl.GetError());
@@ -950,6 +972,7 @@ void Port_WindowReport(void) {
         }
     }
     pthread_mutex_unlock(&sLock);
+    printf("ttt: window: title \"%s\"\n", sTitle); /* as last set (title_update before the release) */
 }
 
 /* The end of a TTT_FRAMES run, after the report (plat_hw.c). With a window, _exit after flushing: exit() runs the

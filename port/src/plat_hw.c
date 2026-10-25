@@ -484,6 +484,8 @@ void Port_SndVBlank(uint32_t n); /* plat_snd.c */
 void Port_SndEnd(void);
 void Port_CheatVBlank(void); /* plat_cheat.c */
 void Port_CheatReport(void);
+void Port_CrashVBlank(uint32_t n); /* plat_crash.c: TTT_CRASH_TEST */
+void Port_DataReport(void);        /* plat_data.c */
 
 static void vblank(void) {
     sVBlanks++;
@@ -491,6 +493,7 @@ static void vblank(void) {
     Gs_VBlank((uint32_t)sVBlanks); /* the frame dump: the picture shown during the field that ends here */
     Port_SndVBlank((uint32_t)sVBlanks); /* the sound of that field */
     Port_CheatVBlank(); /* T40: the opt-in unlocks, raised again at each VBlank (off by default: nothing written) */
+    Port_CrashVBlank((uint32_t)sVBlanks); /* T41: the crash test's fault, when TTT_CRASH_TEST asks for one */
     if (sTimeFrom != 0 && sVBlanks == sTimeFrom) {
         Gs_Finish();
         sTimeT0 = host_ns();
@@ -706,6 +709,7 @@ static void report_and_exit(void) {
     printf("ttt: state: seed 0x%x spin 0x%08x hash 0x%016llx cycles %llu\n", (unsigned)sSeed, (unsigned)gRngSpin,
            (unsigned long long)Port_StateHash(), (unsigned long long)sCycles);
     Port_StateReport();
+    Port_DataReport();
     Port_CheatReport();
     if (!sHeadless) {
         printf("ttt: speed: %d%% at the end\n", sSpeed);

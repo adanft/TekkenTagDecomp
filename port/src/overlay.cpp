@@ -64,6 +64,7 @@ static unsigned sShownN;
 static int sTest = -1, sTestFrames, sTestPages, sTestCapture; /* TTT_OVERLAY_TEST */
 static int sTestTab = -1;
 static unsigned sDrawn;
+static unsigned sMarkDrawn; /* frames the settings window showed the [modified game data] mark (TTT_OVERLAY_TEST) */
 
 static float rd_f32(const uint8_t *p) {
     float f;
@@ -568,7 +569,13 @@ static void page_game(void) {
     const char *disc = Port_DiscName(), *dat = Port_DataPath();
     ImGui::TextWrapped("Disc: %s", disc != nullptr && *disc ? disc : "(not opened)");
     ImGui::TextWrapped("Data file: %s", dat != nullptr && *dat ? dat : "(none)");
-    ImGui::TextWrapped("Game data: %s", gPortModifiedData ? "[modified game data]" : "USA release (verified)");
+    static const char *const kData[] = {"USA release (verified)", "[modified game data]",
+                                        "USA release so far (TEKKEN.BIN being checked)", "not checked"};
+    int st = Port_DataState();
+    ImGui::TextWrapped("Game data: %s", st >= 0 && st < 4 ? kData[st] : "?");
+    if ((st == 1 || st == 3) && *Port_DataWhy()) {
+        ImGui::TextWrapped("(%s)", Port_DataWhy());
+    }
     ImGui::SeparatorText("Settings file");
     const char *p = Settings_Path();
     ImGui::TextWrapped("%s", *p ? p : "(none: set TTT_CONFIG or HOME)");
@@ -589,7 +596,7 @@ static void page_cheats(void) {
 static void page_about(void) {
     ImGui::Text("Tekken Tag Tournament, native PC port");
     ImGui::Text("Build %s", TTT_GIT);
-    if (gPortModifiedData) {
+    if (Port_DataState() == 1) {
         ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "[modified game data]");
     }
     ImGui::Text("Dear ImGui %s (MIT)", IMGUI_VERSION);
@@ -630,6 +637,10 @@ static void ui(void) {
         ImGui::SetNextWindowSize(ImVec2(640.0f, 520.0f), ImGuiCond_Appearing);
         bool open = true;
         if (ImGui::Begin("Settings (F1)", &open, ImGuiWindowFlags_NoCollapse)) {
+            if (Port_DataState() == 1) { /* on every page: the game data in use is not the verified USA release */
+                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "[modified game data]");
+                sMarkDrawn++;
+            }
             if (ImGui::BeginTabBar("pages")) {
                 if (tab("Video", 0)) { page_video(); ImGui::EndTabItem(); }
                 if (tab("Audio", 1)) { page_audio(); ImGui::EndTabItem(); }
@@ -733,6 +744,7 @@ extern "C" void Overlay_Report(void) {
         Settings_KeyName(b[0][SB_SQUARE], name, sizeof name);
         printf("ttt: overlay: %d frames drawn (%s), pages %d/6, key capture %d (pad 1 square: %s)\n", sTestFrames,
                sMode == 1 ? "gl" : "sw", pages(), sTestCapture, name);
+        printf("ttt: overlay: data mark drawn %u times\n", sMarkDrawn);
         fflush(stdout);
     }
 }

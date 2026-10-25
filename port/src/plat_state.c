@@ -336,9 +336,11 @@ __asm__(".text\n"
         "\tret\n"
         ".size Port_StateBoundary, .-Port_StateBoundary\n");
 
-/* Port_OffEe: fn(arg) on a stack of its own when called on the EE stack (the game's thread), else where it is. */
+/* Port_OffEe: fn(arg) on a stack of its own when called on the EE stack (the game's thread), else where it is. The
+   EE stack pointer it left is kept in gPortOffEeEsp (the crash report's view of the game's frames, plat_crash.c). */
 #define OFF_STACK 262144
 uint8_t gPortOffStack[OFF_STACK] __attribute__((aligned(16)));
+uint32_t gPortOffEeEsp;
 __asm__(".text\n"
         ".globl Port_OffEe\n"
         ".type Port_OffEe, @function\n"
@@ -349,6 +351,7 @@ __asm__(".text\n"
         "\tmovl 12(%ebp), %edx\n"
         "\tcmpl $0x02000000, %esp\n"
         "\tjae 1f\n"
+        "\tmovl %esp, gPortOffEeEsp\n"
         "\tleal gPortOffStack+262144, %esp\n"
         "1:\n"
         "\tandl $-16, %esp\n"

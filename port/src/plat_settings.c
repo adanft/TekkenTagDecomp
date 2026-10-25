@@ -323,12 +323,31 @@ static int save_locked(void) {
     return 1;
 }
 
+void Port_CrashRefresh(void); /* plat_crash.c: the crash report's copy of the settings */
+
 int Settings_SetStr(const char *key, const char *v) {
     int ok;
     pthread_mutex_lock(&sLock);
     ok = file_set(key, v) && save_locked();
     pthread_mutex_unlock(&sLock);
+    Port_CrashRefresh();
     return ok;
+}
+
+/* Every setting's effective value on one line, "key=value ..." (the crash report, plat_crash.c). */
+void Settings_Summary(char *out, int n) {
+    int i, k = 0;
+    out[0] = 0;
+    for (i = 0; i < NDEFS && k < n - 1; i++) {
+        char v[128];
+        if (kDefs[i].sdef != NULL) {
+            Settings_GetStr(kDefs[i].key, v, sizeof v);
+        } else {
+            snprintf(v, sizeof v, "%d", Settings_GetInt(kDefs[i].key));
+        }
+        k += snprintf(out + k, (size_t)(n - k), "%s%s=%s%s", i ? " " : "", kDefs[i].key, v,
+                      sEnvSet[i] ? " (env)" : "");
+    }
 }
 
 int Settings_SetInt(const char *key, int v) {

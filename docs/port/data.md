@@ -52,7 +52,7 @@ On start (`Port_MapMemory` in `plat_mem.c`, a constructor, before anything of th
 1. The data file is `TTT_DATA`, else `ttt.dat` beside the program (`build/port/ttt.dat` in a checkout, ignored by
    git). If it is whole (header, size, the layout this program expects, payload SHA-1) and unmodified, its payload
    is copied into EE RAM; the disc is then checked lightly on every run: `TEKKEN.BIN`'s size and `RSPU2DRV.IRX`'s
-   SHA-1 (22 ms in all).
+   SHA-1 (22 ms in all), and `TEKKEN.BIN`'s content through its recorded check (below).
 2. Otherwise it is made from the disc (`TTT_DISC`, `iso/`: [README](README.md), "Platform layer"): `SLUS_200.01`
    (size and SHA-1), `RSPU2DRV.IRX` (SHA-1) and the whole `TEKKEN.BIN` (size and SHA-1) are checked against the USA
    release, the ranges' bytes are taken out of the executable's loadable segment and their SHA-1 compared with the
@@ -71,7 +71,44 @@ holds the user's own game data and is never shipped.
 | a file of the disc differs from the USA release | `ttt: unknown or modified disc (<disc>): <file> has SHA-1 <x>, expected <y>. …`, exit code 4, no data file written |
 | the same with `TTT_ALLOW_MODIFIED=1` | runs; `ttt: [modified game data] <file> differs from the USA release` on stderr, `gPortModifiedData = 1` (for T41's mark), the data file is flagged; a flagged file is used only under `TTT_ALLOW_MODIFIED=1`, otherwise it is made again (refused if the disc is still modified) |
 | a damaged data file (payload SHA-1) | `ttt: <file> is damaged: making it again from the disc` |
+| `TEKKEN.BIN` changed after the data file was made | found by the background check: `ttt: [modified game data] TEKKEN.BIN differs …` on stderr, the run goes on marked; the next run refuses the disc (exit code 4) unless `TTT_ALLOW_MODIFIED=1` |
 | `TTT_SELFTEST=<name>` without a disc | the self-test runs on zeroed EE RAM |
+
+## Data verification and the mark (T41)
+
+What each run verifies, against the hashes of the unmodified USA release:
+
+| Data | When the data file is made | Every later run |
+|---|---|---|
+| `SLUS_200.01` (the game's initialised data) | size and SHA-1 | the data file's payload SHA-1 against the layout's (the payload is all the game takes from it) |
+| `IRX/RSPU2DRV.IRX` (read at run time by the movie player) | SHA-1 | SHA-1 |
+| `TEKKEN.BIN` (every file the game reads; from a directory or inside the `.iso`) | size and SHA-1 | size; its SHA-1 from `<data file>.disc` while the host file is unchanged, else hashed again in the background |
+
+`<data file>.disc` (`build/port/ttt.dat.disc` beside the default data file) is one line: `TTTDISC 1 <device>
+<inode> <size> <modification time s> <ns> <archive offset> <SHA-1>` for the host file that holds `TEKKEN.BIN` (the
+disc directory's `TEKKEN.BIN` or the `.iso`, links followed). Numbers and a hash only: it holds no game data. It is
+written when the data file is made (the archive is hashed then anyway) and after each background check; any change
+of the host file (copied, replaced, touched) changes the key and the archive is hashed again. The background check
+reads with its own file handle on a thread of its own (about a second for 630 MB from the page cache) while the game
+starts; the game never waits for it, and nothing of the simulation reads its result. Self-tests (`TTT_SELFTEST`)
+skip it. A `TTT_FRAMES` run waits for it before its report line (`ttt: data: …`).
+
+The mark: when any of these differs (`TTT_ALLOW_MODIFIED=1` needed to run at all, except a `TEKKEN.BIN` found
+changed by the background check, which marks the run already going), the run shows `[modified game data]`:
+
+- on stderr when found (`ttt: [modified game data] <file> differs from the USA release …`);
+- in the window title (`Tekken Tag Tournament [modified game data]`, set again when the background check finds it
+  after the window is open);
+- in the settings overlay (F1): above every page, and on the Game page's "Game data" line with the file
+  (`plat_data.c`'s `Port_DataState`: verified, modified, being checked, not checked);
+- in a `TTT_FRAMES` run's report: `ttt: data: USA release (verified)`, `ttt: data: [modified game data] (<file>)`
+  or `ttt: data: not checked (<why>)`;
+- in a crash report's `game data:` line ([README](README.md#crash-reports)).
+
+Data that is the verified release shows no mark, also under `TTT_ALLOW_MODIFIED=1`: the variable allows a
+modified disc, it does not mark one that is not. Texture replacements ([textures.md](textures.md)) draw other
+pictures but change no game data: they are a setting (`video.texture_replace`), shown as such in a crash report, and
+never mark the data.
 
 The idle run (`TTT_FRAMES=2551 TTT_SEED=1`, a dump every 150 VBlanks) on the data loaded from the file gives the 17
 pictures byte for byte and the state hash `0xd36c82e9a145875a` of the build-linked data. EE RAM holds the same
@@ -92,6 +129,10 @@ writes `ttt.dat`. T43's installer will do step 2 natively instead of on first ru
 - `port/tools/link.py`: `read_layout`, `image_script` (absolute bounds `__ttt_data_*` / `__ttt_bss_*`), `resolve`
   (names in the layout's ranges -> their PS2 address), `data_table` (-> `build/port/gen/data_table.c`: ranges, words,
   hashes; only the words whose name the linker does not place at its own PS2 address).
-- `port/src/plat_data.c`: SHA-1, the data file, the disc checks, `Port_LoadGameData`.
-- `port/src/plat_file.c`: `Port_DiscReadFile(NULL, name)` reads a file of the disc's root; `Port_DiscArchiveSize`.
-- Tests: `tests/test_port_data.py`, `tests/test_port_mem.py`, `tests/test_port_tools.py`.
+- `port/src/plat_data.c`: SHA-1, the data file, the disc checks, `Port_LoadGameData`; T41: the `.disc` record, the
+  background check, `Port_DataState` / `Port_DataMark` / `Port_DataReport`.
+- `port/src/plat_file.c`: `Port_DiscReadFile(NULL, name)` reads a file of the disc's root; `Port_DiscArchiveSize`;
+  `Port_DiscArchiveFile` (the host file holding `TEKKEN.BIN` and its offset).
+- `port/src/plat_window.c` (title), `port/src/overlay.cpp` (overlay): the mark.
+- Tests: `tests/test_port_data.py` (`DataMarkTest`: the mark with a changed `RSPU2DRV.IRX` or `TEKKEN.BIN` in a
+  temporary copy of the disc, none otherwise), `tests/test_port_mem.py`, `tests/test_port_tools.py`.

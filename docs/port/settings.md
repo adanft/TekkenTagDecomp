@@ -63,6 +63,8 @@ model, `softfloat_ps2.c`). The exception is limited to the overlay and ImGui:
 Where: `TTT_CONFIG`, else `$XDG_CONFIG_HOME/ttt/settings.ini`, else `~/.config/ttt/settings.ini`. Nothing is written
 until a setting is changed in the overlay; then the whole file is written at once: a temporary file beside it
 (`settings.ini.tmp`), flushed and synced, renamed over the old one, so a crash leaves the old file or the new one.
+The file's directory is also the port's user directory: crash reports go to its `crash/` subdirectory
+([README](README.md#crash-reports)), with every setting's value at the time.
 
 Format: one `key = value` per line. Blank lines, comments (`#`, `;`), `[section]` lines and keys this program does not
 know are kept as they are, in place; a changed key's line is replaced, a new key is added at the end.

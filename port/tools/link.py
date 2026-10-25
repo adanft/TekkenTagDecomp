@@ -196,6 +196,31 @@ def main():
         print("  " + l[-200:])
     if r.returncode:
         sys.exit(1)
+    write_symbols(addr)
+
+
+def symbol_table(nm_out, addr):
+    """build/port/ttt.syms for the crash report (port/src/plat_crash.c): the program's code symbols in address order,
+    "<host address> <PS2 address or 00000000> <name>" (the PS2 address from the decompilation's names: func_XXXXXXXX
+    or the symbol list). The program's own symbols only: names and addresses, no data."""
+    out = []
+    for l in nm_out.splitlines():
+        f = l.split()
+        if len(f) != 3 or f[1] not in "tTwW":
+            continue
+        a, name = int(f[0], 16), f[2]
+        m = re.match(r"func_([0-9A-F]{8})(?:\.|$)", name)
+        ps2 = int(m.group(1), 16) if m else addr.get(name, 0)
+        out.append(f"{a:08x} {ps2 if 0 < ps2 < 0x02000000 else 0:08x} {name}\n")
+    return "".join(out)
+
+
+def write_symbols(addr):
+    nm = subprocess.run(["nm", "-n", "--defined-only", str(EXE)], capture_output=True, text=True, check=True).stdout
+    path = EXE.with_name(EXE.name + ".syms")
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(symbol_table(nm, addr))
+    tmp.replace(path)
 
 
 if __name__ == "__main__":

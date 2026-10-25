@@ -90,7 +90,8 @@ def jobs():
         out.append((cc(), src, OBJ / f"{f.stem}.o", game_cflags() + [f"-I{ROOT / 'src'}"]))
     for f in sorted((ROOT / "port/src").glob("*.c")):
         out.append(("gcc", f, OBJ / f"pc_{f.stem}.o", PORT_CFLAGS + (HOT_CFLAGS if f.name in HOT_FILES else [])
-                    + (SIMD_CFLAGS if f.name in SIMD_FILES else []) + (["-fno-plt"] if f.name in NOPLT_FILES else [])))
+                    + (SIMD_CFLAGS if f.name in SIMD_FILES else []) + (["-fno-plt"] if f.name in NOPLT_FILES else [])
+                    + ([f'-DTTT_GIT="{git_id()}"'] if f.name == "plat_crash.c" else [])))  # the crash report's build id
     for f in sorted((ROOT / "port/src").glob("*.cpp")):  # the settings overlay (T36), with the build's id for its About
         out.append(("g++", f, OBJ / f"pc_{f.stem}.o", OVERLAY_CXXFLAGS + [f'-DTTT_GIT="{git_id()}"']))
     for n in IMGUI_SOURCES:  # Dear ImGui

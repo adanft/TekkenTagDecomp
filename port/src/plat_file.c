@@ -235,6 +235,23 @@ long Port_DiscReadFile(const char *dirName, const char *name, void *dst, long ma
 long long Port_DiscArchiveSize(void) { return Port_DiscOpen() ? sArchiveSize : 0; }
 const char *Port_DiscName(void) { return sDiscName; }
 
+/* The host file that holds TEKKEN.BIN (the disc directory's TEKKEN.BIN, or the ISO image) and the archive's byte
+   offset in it, for plat_data.c's check on a thread of its own (with its own handle: sDisc's position belongs to the
+   game's reads); NULL without a disc. */
+const char *Port_DiscArchiveFile(long long *offset) {
+    static char path[1100];
+    if (!Port_DiscOpen()) {
+        return NULL;
+    }
+    *offset = sArchive;
+    if (sArchive == 0) {
+        snprintf(path, sizeof path, "%s/TEKKEN.BIN", sDiscName);
+    } else {
+        snprintf(path, sizeof path, "%s", sDiscName);
+    }
+    return path;
+}
+
 /* ---- RSPU2DRV ---- */
 static uint32_t sMovieStream[5]; /* 0x2058's arguments (sector, movie, audio sectors, video sectors), active */
 

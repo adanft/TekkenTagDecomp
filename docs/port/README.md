@@ -253,7 +253,7 @@ wait loops drive the hardware.
 |---|---|
 | `plat_hw.c` | Bus-cycle clock, timers 0-3, VBlank (59.94 Hz, GS CSR FIELD / VSINT), INTC / DMAC handlers (`AddIntcHandler`, `AddDmacHandler`, `EnableIntc`...), DMA channels, MFIFO, `TTT_FRAMES` report, `TTT_SELFTEST=hw` |
 | `plat_sys.c` | Kernel (cache, threads, semaphores), SIF (IOP reboot, module loads, commands, `sceSifBindRpc` / `sceSifCallRpc` and the table of IOP servers), CD init, `TTT_SELFTEST=rpc` |
-| `plat_data.c` | The game's initialised data from the disc into EE RAM at start, through the data file `ttt.dat`; the disc's SHA-1 checks and the refusal of a modified disc ([data.md](data.md)) |
+| `plat_data.c` | The game's initialised data from the disc into EE RAM at start, through the data file `ttt.dat`; the disc's SHA-1 checks, the refusal of a modified disc, the background check of `TEKKEN.BIN` and the `[modified game data]` state ([data.md](data.md)) |
 | `plat_file.c` | The disc (`TTT_DISC`: a directory with `TEKKEN.BIN` or the `.iso`; without it the program stops at the first read, exit code 2) and `sceSdRemote`: RSPU2DRV's file reads (0x204E / 0x2045), status (0x2030), the sound commands passed to `plat_snd.c`, the movie stream's arguments (0x2058) |
 | `spu2.c` | The SPU2 model: 2 MB sound RAM, 2 x 24 voices, PS-ADPCM, pitch, ADSR, the 48 kHz mix, `TTT_SELFTEST=spu` ([sound.md](sound.md)) |
 | `plat_snd.c` | libspu2's commands of RSPU2DRV on the model, the per-VBlank mix, `TTT_WAV`, the ring to the window's audio ([sound.md](sound.md)) |
@@ -271,7 +271,8 @@ wait loops drive the hardware.
 | `vu_fasttest.c` | `TTT_SELFTEST=vu1`'s second part: random programs on both interpreters, the SSE arithmetic against the model |
 | `plat_pkt.c` | libpkt: VIF1 and GIF packet builders |
 | `plat_vu0.c` | libvu0 in C (column-major matrices; `func_0034A868` is `sceVu0Normalize`) |
-| `plat_main.c` | Reads the settings file, `TTT_SELFTEST=settings` / `pad`, opens the window (on the host stack), then runs the game's `main` on the EE stack |
+| `plat_main.c` | Reads the settings file, `TTT_SELFTEST=settings` / `pad`, opens the window (on the host stack), installs the crash handlers, then runs the game's `main` on the EE stack |
+| `plat_crash.c` | Crash reports: the signal handlers on their own stack, the report file, `TTT_CRASH_TEST` ([Crash reports](#crash-reports)) |
 | `plat_settings.c` | The settings file (`key = value`, unknown lines kept, atomic writes), the environment's precedence, key names, the keyboard's bindings ([settings.md](settings.md)) |
 | `overlay.cpp` / `overlay.h` / `imconfig_ttt.h` | The F1 overlay and the quit question: Dear ImGui (`third_party/imgui`) on the window thread, its SDL glue, its software-renderer path, its maths ([settings.md](settings.md)) |
 | `plat_cheat.c` | Cheats (T40): "unlock everything" through the game's own save-block unlock flags, opt-in, the `ttt: unlocks:` report line ([cheats.md](cheats.md)) |
@@ -334,7 +335,8 @@ Switches:
 |---|---|
 | `TTT_DISC=<dir or .iso>` | The disc: a directory with `TEKKEN.BIN` (as `scripts/setup_disc.py` copies it to `iso/`) or the ISO 9660 image. Default: `iso/` of the repository (`build/port/ttt` -> `../../iso`), else `iso/` beside the program, else `iso/` in the working directory. Read only. Without a disc (and without a data file) the program stops with `ttt: no disc` on stderr and exit code 2. |
 | `TTT_DATA=<file>` | The data file holding the game's initialised data taken from the disc ([data.md](data.md)). Default: `ttt.dat` beside the program. Made on the first run. |
-| `TTT_ALLOW_MODIFIED=1` | Run a disc whose files differ from the USA release (otherwise refused with exit code 4); the run is marked `[modified game data]`. |
+| `TTT_ALLOW_MODIFIED=1` | Run a disc whose files differ from the USA release (otherwise refused with exit code 4); the run is marked `[modified game data]` (stderr, window title, overlay, report: [data.md](data.md#data-verification-and-the-mark-t41)). Unmodified data is not marked. |
+| `TTT_CRASH_TEST=<kind>[@<vblank>]` | Port tests only: make a fault at that VBlank (default 30) to check the crash report: `segv`, `stack` (bad stack pointer), `ill`, `fpe`, `bus`, `abrt` ([Crash reports](#crash-reports)). |
 | `TTT_FRAMES=<n>` | Stop after n VBlanks with a report: VBlanks and frames, `modes:` (mode@VBlank of each change), last mode and sub-state, `state:` (seed, `gRngSpin`, the gameplay hash of [determinism.md](determinism.md), cycles), placeholders hit. Exit code 0. Implies headless. |
 | `TTT_HASH_EVERY=<n>` / `TTT_SAVESTATE=<vblank>:<file>` / `TTT_LOADSTATE=<file>` / `TTT_SYNCTEST=<n>` | The gameplay hash every n VBlanks, a save, a load, the synctest ([determinism.md](determinism.md)). `TTT_SELFTEST=state` checks the hash's rule and an in-process save / load. |
 | `TTT_HEADLESS=0/1` | Force the real-time or the headless clock. |
@@ -1166,6 +1168,46 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
     alpha below the test's reference), so did the whole screen while the ball rolled, and the pause window had no
     labels. Found with `TTT_DIFF` on `Mode_Battle` at the stage load (VBlank 619: `D_005F6BCC` 0x349D against
     0x2300) and `TTT_DIFF_WATCH` on the slot sizes; `TTT_GS_TRACE` showed the overlapping uploads. Both renderers.
+
+## Crash reports
+
+T41. `plat_crash.c` handles SIGSEGV, SIGBUS, SIGILL, SIGFPE and SIGABRT: it writes a text report to
+`<user dir>/crash/ttt-crash-<UTC date>-<UTC time>-<pid>.txt` and prints `ttt: crash: <signal>; report written to
+<path>` on stderr. `<user dir>` is the settings file's directory (`TTT_CONFIG`'s, else `~/.config/ttt`:
+[settings.md](settings.md)); without one, the working directory. Then the signal takes its default course (the
+handler is installed with `SA_RESETHAND`): the exit status, and a core dump where the system makes one, are what they
+were without it.
+
+- **When.** Installed by `__wrap_main` after the settings and the window, before the game's `main`; crashes in the
+  constructors (the memory map, the data loading) come before it. Not a constructor: those go to `.text.startup`,
+  in front of the game's code.
+- **Its own stack.** `sigaltstack` (64 KB, mapped at start, outside the heap): the game thread runs on the EE stack
+  in EE RAM, and a fault with a bad stack pointer could not deliver a signal on it. The alternate stack is the main
+  thread's; the window, GS and audio threads report on their own stacks.
+- **Signal-safe.** Only `open`, `write`, `read`, `close`, `mkdir`, `clock_gettime`, `getpid`, `syscall(gettid)` and
+  `raise` in the handler, no `malloc` or `stdio`. Everything that needs the C library is formatted beforehand into
+  static text: the paths and the renderer at install, the settings line again after each change from the overlay
+  (`Settings_Summary`, into the copy the handler is not reading).
+- **Contents** (no memory of the game beyond a few words):
+
+  | Field | |
+  |---|---|
+  | `time (UTC)`, `build` | the build id is `git describe --always --dirty` at build time (as the overlay's About) |
+  | `signal`, `fault address` | the signal, its `si_code`; the address for a fault, `(none …)` for a raised signal (`abort`) |
+  | `thread` | main (the game) or another (window, GS, audio) |
+  | `registers` | eip, esp, ebp, eflags, eax-edi; `stack:` EE stack or host |
+  | `function` | the symbol the instruction is in, with its offset, and its PS2 address when it is a game function (`func_0035D790` or a named one from `config/symbols`): the game's code is native, so this is the EE pc to the function |
+  | `stack code address` | code addresses found in the first 4 KB above the stack pointer (at most 8), when the stack is one the program knows is mapped (the EE stack, the port's service stacks, the main thread's host stack); not for a fault in the stack's own guard page |
+  | `EE stack code address` | when the fault is off the EE stack on the game's thread (`Port_OffEe`: the VBlank, the library work), the same scan above the EE stack pointer `Port_OffEe` left (`gPortOffEeEsp`): the game's callers, a heuristic `ra` chain |
+  | `last vblank`, `renderer`, `settings`, `game data` | `Port_VBlankCount`; the window's renderer or `no window`; every setting (`(env)` when the environment set it); the data verification state ([data.md](data.md#data-verification-and-the-mark-t41)) |
+
+- **Names.** `port/tools/link.py` writes `build/port/ttt.syms` after linking: the program's code symbols from `nm`,
+  `<host address> <PS2 address or 0> <name>` in address order (the program's own names and addresses, no data). The
+  handler reads it in one pass at the crash; a program copied without it reports addresses only.
+- **Normal runs.** The handlers change nothing until a signal: the idle and GL fight state hashes are unchanged, and
+  the new C library calls go through the GOT (`plat_crash.c` is in `NOPLT_FILES`): the PLT keeps its 48 entries.
+- **Tests.** `tests/test_port_crash.py`: each kind of `TTT_CRASH_TEST` in a temporary directory with core dumps off
+  (`RLIMIT_CORE` 0), the exit by the same signal, the report's path and fields; `ttt.syms`'s format.
 
 ## EE float model
 

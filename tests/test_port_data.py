@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import struct
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -186,6 +187,102 @@ class ModifiedDiscTest(unittest.TestCase):
         r = run_ttt(TTT_FRAMES="1", TTT_DISC=str(d), TTT_DATA=str(self.dat))
         self.assertEqual(r.returncode, 4, r.stdout + r.stderr)
         self.assertIn("IRX/RSPU2DRV.IRX has SHA-1", r.stderr)
+
+
+SDL32 = [Path("/usr/lib32/libSDL3.so.0"), Path("/usr/lib/i386-linux-gnu/libSDL3.so.0")]
+MARK = "[modified game data]"
+
+
+@unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
+@unittest.skipUnless(disc() is not None and disc().is_dir(), "no disc directory (iso/ from scripts/setup_disc.py)")
+class DataMarkTest(unittest.TestCase):
+    """T41: "[modified game data]" in the report, the window title and the overlay when the data in use differs from
+    the USA release (here a copy of the disc with one file changed, made in a temporary directory), nothing otherwise,
+    TTT_ALLOW_MODIFIED=1 alone included."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory(prefix="ttt-mark-")
+        cls.dat = Path(cls.tmp.name) / "ttt.dat"
+        cls.first = run_ttt(TTT_SELFTEST="mem", TTT_DATA=str(cls.dat))
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def data_copy(self, where, cache=True):
+        """The data file (and, with `cache`, its record of TEKKEN.BIN's check) copied into `where`."""
+        dat = Path(where) / "ttt.dat"
+        shutil.copyfile(self.dat, dat)
+        if cache:
+            shutil.copyfile(str(self.dat) + ".disc", str(dat) + ".disc")
+        return dat
+
+    def test_check_recorded(self):
+        """Making the data file hashed all of TEKKEN.BIN: `<data file>.disc` keeps its SHA-1 for the file as it is."""
+        self.assertEqual(self.first.returncode, 0, self.first.stdout + self.first.stderr)
+        line = Path(str(self.dat) + ".disc").read_text()
+        self.assertRegex(line, r"^TTTDISC 1 \d+:\d+ \d+ 630474752 \d+ \d+ 0 0ae3157da21c92b94341ef12ceb9afb29bd2b6c0\n$")
+
+    def test_unmodified_no_mark(self):
+        for env in ({}, {"TTT_ALLOW_MODIFIED": "1"}):
+            with self.subTest(**env), tempfile.TemporaryDirectory(prefix="ttt-mark-") as d:
+                r = run_ttt(TTT_FRAMES="30", TTT_DATA=str(self.data_copy(d)), **env)
+                self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
+                self.assertIn("ttt: data: USA release (verified)\n", r.stdout)
+                self.assertNotIn(MARK, r.stdout + r.stderr)
+
+    def test_modified_sound_driver_marked(self):
+        with tempfile.TemporaryDirectory(prefix="ttt-mark-") as d:
+            disc_dir = disc_copy(d, {"IRX/RSPU2DRV.IRX"})
+            r = run_ttt(TTT_FRAMES="30", TTT_DISC=str(disc_dir), TTT_DATA=str(self.data_copy(d)), TTT_ALLOW_MODIFIED="1")
+            self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
+            self.assertIn(f"ttt: data: {MARK} (IRX/RSPU2DRV.IRX)\n", r.stdout)
+
+    @unittest.skipUnless(any(p.exists() for p in SDL32), "no 32-bit SDL3 (Arch: lib32-sdl3)")
+    def test_window_title_and_overlay(self):
+        """The title and the settings window (TTT_OVERLAY_TEST: F1 opened from inside, a hidden window on SDL's dummy
+        driver) carry the mark with the changed disc only."""
+        for damage, marked in (((), False), (("IRX/RSPU2DRV.IRX",), True)):
+            with self.subTest(marked=marked), tempfile.TemporaryDirectory(prefix="ttt-mark-") as d:
+                disc_dir = disc_copy(d, set(damage))
+                r = run_ttt(TTT_FRAMES="400", TTT_SEED="1", TTT_DISC=str(disc_dir), TTT_DATA=str(self.data_copy(d)),
+                            TTT_ALLOW_MODIFIED="1", TTT_WINDOW="1", TTT_WINDOW_HIDDEN="1", TTT_RENDERER="sw",
+                            TTT_AUDIO="0", SDL_VIDEO_DRIVER="dummy", TTT_OVERLAY_TEST="1",
+                            TTT_CONFIG=str(Path(d) / "settings.ini"))
+                self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
+                title = "Tekken Tag Tournament" + (" " + MARK if marked else "")
+                self.assertIn(f'ttt: window: title "{title}"\n', r.stdout)
+                n = int(re.search(r"ttt: overlay: data mark drawn (\d+) times", r.stdout).group(1))
+                self.assertEqual(n > 0, marked, r.stdout[-1500:])
+
+    def test_modified_archive_found_in_the_background(self):
+        """A changed TEKKEN.BIN (one byte, in a copy) with a data file already made: it is hashed on a thread of its
+        own while the game runs, the run is marked from then on, and the next run refuses the disc unless
+        TTT_ALLOW_MODIFIED=1."""
+        src = disc() / "TEKKEN.BIN"
+        if shutil.disk_usage(EXE.parent).free < 3 * src.stat().st_size:
+            self.skipTest("not enough free space for a copy of TEKKEN.BIN")
+        with tempfile.TemporaryDirectory(prefix="ttt-mark-", dir=EXE.parent) as d:  # build/: the same file system
+            disc_dir = disc_copy(d)
+            (disc_dir / "TEKKEN.BIN").unlink()
+            subprocess.run(["cp", "--reflink=auto", str(src), str(disc_dir / "TEKKEN.BIN")], check=True)
+            with open(disc_dir / "TEKKEN.BIN", "r+b") as f:
+                f.seek(300 << 20)
+                b = f.read(1)
+                f.seek(300 << 20)
+                f.write(bytes([b[0] ^ 1]))
+            dat = self.data_copy(d, cache=False)
+            r = run_ttt(TTT_FRAMES="30", TTT_DISC=str(disc_dir), TTT_DATA=str(dat))
+            self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
+            self.assertIn(f"ttt: data: {MARK} (TEKKEN.BIN)\n", r.stdout)
+            self.assertIn("the next run refuses this disc unless TTT_ALLOW_MODIFIED=1", r.stderr)
+            r = run_ttt(TTT_FRAMES="30", TTT_DISC=str(disc_dir), TTT_DATA=str(dat))
+            self.assertEqual(r.returncode, 4, r.stdout[-2000:] + r.stderr[-2000:])
+            self.assertIn("TEKKEN.BIN has SHA-1", r.stderr)
+            r = run_ttt(TTT_FRAMES="30", TTT_DISC=str(disc_dir), TTT_DATA=str(dat), TTT_ALLOW_MODIFIED="1")
+            self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
+            self.assertIn(f"ttt: data: {MARK} (TEKKEN.BIN)\n", r.stdout)
 
 
 @unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
