@@ -60,6 +60,31 @@ const char *Port_DiscName(void);                               /* plat_file.c */
 int Port_DataState(void);   /* plat_data.c: 0 verified, 1 modified, 2 being checked, 3 not checked */
 const char *Port_DataWhy(void); /* plat_data.c: the first difference, or why not checked */
 const char *Tp_Folder(void);                                   /* gs_texpack.c: <textures>/SLUS-20001 */
+/* the window's clipboard (paths pasted into the setup screen) and the system's file dialog, when SDL has them */
+const char *Port_WindowClipboard(void);                        /* a copy, valid until the next call; NULL: none */
+void Port_WindowSetClipboard(const char *text);
+int Port_WindowDialogAvailable(void);
+void Port_WindowDialog(int folder, const char *start);         /* opens it; the choice comes later: */
+int Port_WindowDialogResult(char *out, int n);                 /* 1 once with the path chosen */
+
+/* ---- plat_setup.c, for the setup screen (T43; window thread) ---- */
+typedef struct {
+    int busy;          /* a disc is being checked */
+    int permille;      /* its progress */
+    char stage[64];    /* what is being done */
+    char error[700];   /* why the last disc was refused, or why the game could not start; "" none */
+    char path[1024];   /* the path to start from */
+    const char *dataPath; /* where the data file goes */
+} PortSetupView;
+typedef struct {
+    char name[256];
+    int kind; /* 1 a folder, 2 a disc image (.iso .bin .cue), 3 a folder holding TEKKEN.BIN */
+} PortSetupEntry;
+int Port_SetupActive(void);                     /* the setup screen is up (the game has not started) */
+void Port_SetupView(PortSetupView *v);
+void Port_SetupRequest(const char *path);       /* "Check and install" */
+int Port_SetupList(const char *dir, PortSetupEntry *out, int max); /* the browser: -1 when unreadable */
+void Port_SetupTestNote(int entries, int errorShown); /* TTT_SETUP_TEST: a frame drawn */
 
 #ifdef __cplusplus
 }

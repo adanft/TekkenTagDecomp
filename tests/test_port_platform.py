@@ -37,6 +37,8 @@ def run_ttt(timeout=120, **env):
         e.setdefault("TTT_SAVES", saves)
         e.setdefault("TTT_CONFIG", str(Path(saves) / "settings.ini"))  # never the player's own settings file
         e.setdefault("TTT_TEXTURES", str(Path(saves) / "textures"))  # texture packs (T39): never the repository's textures/
+        e.setdefault("XDG_DATA_HOME", str(Path(saves) / "data"))  # T43: a data folder that is never the player's
+        e.setdefault("XDG_CONFIG_HOME", str(Path(saves) / "config"))
         return subprocess.run([str(EXE)], env=e, capture_output=True, text=True, timeout=timeout)
 
 
@@ -114,6 +116,10 @@ class ProgramElsewhere(unittest.TestCase):
         if disc_dir is not None:
             e["TTT_DISC"] = str(disc_dir)
         e["TTT_SAVES"] = str(Path(self.tmp.name) / "saves")  # an empty card, whatever the repository's saves/ holds
+        # a copy outside the repository is an installed program (T43, plat_paths.c): its data file and settings go to
+        # the per-user folders, here temporary ones
+        e["XDG_DATA_HOME"] = str(Path(self.tmp.name) / "data")
+        e["TTT_CONFIG"] = str(Path(self.tmp.name) / "settings.ini")
         e["TTT_MOVIES"] = "0"  # as run_ttt
         e.update(env)
         return subprocess.run([str(exe)], env=e, cwd=self.dir, capture_output=True, text=True, timeout=120)

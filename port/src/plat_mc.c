@@ -4,7 +4,8 @@
  * Card port 0 is `<saves>/mc0/` (a card path `/BASLUS-20001TekkenTT/xiao2d.ico` is the host file
  * `<saves>/mc0/BASLUS-20001TekkenTT/xiao2d.ico`); port 1 has no card unless TTT_MC1 says so (`<saves>/mc1/`).
  * `<saves>` is TTT_SAVES, else the repository's saves/ when the program is build/port/ttt of a checkout (the file
- * ../../port/tools/build.py exists beside it), else saves/ beside the program.
+ * ../../port/tools/build.py exists beside it), else saves/ in the player's data folder (plat_paths.c: beside the
+ * program when portable.txt is there, else $XDG_DATA_HOME/ttt or ~/.local/share/ttt; T43).
  *
  * TTT_MC0 / TTT_MC1 = formatted (port 0's default: an empty formatted 8 MB card when the directory does not exist yet)
  * | unformatted (unformatted until the game formats it, which creates the directory; an existing directory is a
@@ -121,31 +122,15 @@ static int exists(const char *p) {
     return stat(p, &st) == 0;
 }
 
+void Port_UserFolder(const char *leaf, char *out, int n); /* plat_paths.c */
+
 static void saves_dir(void) {
     const char *e = getenv("TTT_SAVES");
-    char exe[1024];
-    char probe[1100];
-    ssize_t k;
     if (e != NULL && *e) {
         snprintf(sSaves, sizeof sSaves, "%s", e);
         return;
     }
-    snprintf(sSaves, sizeof sSaves, "saves");
-    k = readlink("/proc/self/exe", exe, sizeof exe - 1);
-    if (k > 0) {
-        char *slash;
-        exe[k] = 0;
-        slash = strrchr(exe, '/');
-        if (slash != NULL) {
-            *slash = 0;
-            snprintf(probe, sizeof probe, "%s/../../port/tools/build.py", exe);
-            if (exists(probe)) {
-                snprintf(sSaves, sizeof sSaves, "%s/../../saves", exe);
-            } else {
-                snprintf(sSaves, sizeof sSaves, "%s/saves", exe);
-            }
-        }
-    }
+    Port_UserFolder("saves", sSaves, sizeof sSaves);
 }
 
 static int card_kind(const char *env, int dflt) {

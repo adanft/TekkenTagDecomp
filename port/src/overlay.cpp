@@ -1,6 +1,8 @@
 /*
  * The settings overlay (T36, docs/port/settings.md): Dear ImGui (third_party/imgui, MIT) over the window's picture.
- * F1 opens it; the close button or Escape asks "Quit?".
+ * F1 opens it; the close button or Escape asks "Quit?". Before the game starts it can be the setup screen instead (T43,
+ * plat_setup.c, docs/port/install.md): the player's disc, picked by path, by the built-in browser or by the system's
+ * file dialog, checked by the main thread while this screen shows the progress.
  *
  * Window thread only (plat_window.c calls every function here): ImGui computes in host floating point, which the rest of
  * the port never does, so nothing of it reaches the game. What the player chooses goes to the settings file
@@ -49,13 +51,14 @@ extern "C" void Overlay_AssertFailed(const char *what, const char *file, int lin
 enum : uint32_t {
     EV_KEY_DOWN = 0x300, EV_KEY_UP = 0x301, EV_MOUSE_MOTION = 0x400, EV_MOUSE_DOWN = 0x401, EV_MOUSE_UP = 0x402,
     EV_MOUSE_WHEEL = 0x403, EV_MOUSE_LEAVE = 0x20D, EV_FOCUS_LOST = 0x20F, EV_PAD_AXIS = 0x650, EV_PAD_DOWN = 0x651,
-    EV_PAD_UP = 0x652,
+    EV_PAD_UP = 0x652, EV_TEXT_INPUT = 0x303,
     PIXELFORMAT_RGBA32 = 0x16762004u, TEXTUREACCESS_STATIC = 0, BLENDMODE_BLEND = 1,
 };
 static const int kScancodeAt = 24, kKeyModAt = 32, kKeyDownAt = 36, kKeyRepeatAt = 37; /* SDL_KeyboardEvent */
 static const int kMouseXAt = 28, kMouseYAt = 32, kButtonAt = 24, kButtonDownAt = 25;  /* SDL_Mouse*Event */
 static const int kWheelXAt = 24, kWheelYAt = 28, kWheelDirAt = 32;
 static const int kPadCodeAt = 20, kPadDownAt = 21, kPadAxisValueAt = 24; /* SDL_Gamepad{Button,Axis}Event */
+static const int kTextAt = 20; /* SDL_TextInputEvent.text (a pointer: after windowID on i386) */
 
 static int sMode; /* 0 none, 1 GL, 2 SDL renderer */
 static OverlaySdlRenderer sSw;
@@ -70,6 +73,7 @@ static int sTest = -1, sTestFrames, sTestPages, sTestCapture, sTestGpCapture; /*
 static int sTestTab = -1;
 static unsigned sDrawn;
 static unsigned sMarkDrawn; /* frames the settings window showed the [modified game data] mark (TTT_OVERLAY_TEST) */
+static void (*sBindFramebuffer)(GLenum target, GLuint fb); /* the setup screen clears the window (GL) */
 
 static float rd_f32(const uint8_t *p) {
     float f;
@@ -91,6 +95,9 @@ static void init_common(void) {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
     io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
     io.BackendPlatformName = "ttt_sdl3_raw";
+    ImGuiPlatformIO &pio = ImGui::GetPlatformIO(); /* the clipboard: a path pasted into the setup screen */
+    pio.Platform_GetClipboardTextFn = [](ImGuiContext *) -> const char * { return Port_WindowClipboard(); };
+    pio.Platform_SetClipboardTextFn = [](ImGuiContext *, const char *t) { Port_WindowSetClipboard(t); };
     ImGui::StyleColorsDark();
     ImGuiStyle &st = ImGui::GetStyle();
     st.FontSizeBase = 18.0f;
@@ -106,6 +113,7 @@ extern "C" int Overlay_InitGl(void *(*getproc)(const char *name)) {
         return 1;
     }
     imgl3wInit2((GL3WGetProcAddressProc)getproc);
+    sBindFramebuffer = (void (*)(GLenum, GLuint))getproc("glBindFramebuffer");
     if (glGetIntegerv == nullptr) {
         fprintf(stderr, "ttt: overlay: no OpenGL functions\n");
         return 0;
@@ -400,6 +408,14 @@ extern "C" int Overlay_Event(uint32_t type, const uint8_t *ev) {
     case EV_FOCUS_LOST:
         io.AddFocusEvent(false);
         break;
+    case EV_TEXT_INPUT: {
+        const char *t;
+        memcpy(&t, ev + kTextAt, sizeof t);
+        if (t != nullptr) {
+            io.AddInputCharactersUTF8(t);
+        }
+        break;
+    }
     case EV_PAD_DOWN:
     case EV_PAD_UP: {
         unsigned b = ev[kPadCodeAt];
@@ -442,7 +458,7 @@ extern "C" int Overlay_Event(uint32_t type, const uint8_t *ev) {
 }
 
 extern "C" void Overlay_Toggle(void) {
-    if (sMode == 0 || sQuitAsk) {
+    if (sMode == 0 || sQuitAsk || Port_SetupActive()) {
         return;
     }
     sSettings = !sSettings;
@@ -464,10 +480,11 @@ extern "C" void Overlay_AskQuit(void) {
 
 extern "C" int Overlay_QuitAsked(void) { return sQuitAsk; }
 extern "C" int Overlay_WantsQuit(void) { return sQuitYes; }
-extern "C" int Overlay_Open(void) { return sMode != 0 && (sSettings || sQuitAsk); }
+extern "C" int Overlay_Open(void) { return sMode != 0 && (sSettings || sQuitAsk || Port_SetupActive()); }
 
 extern "C" int Overlay_Visible(void) {
-    return sMode != 0 && (sSettings || sQuitAsk || sTest >= 0 || Settings_GetInt("video.fps_meter") != 0);
+    return sMode != 0 && (sSettings || sQuitAsk || sTest >= 0 || Port_SetupActive() ||
+                          Settings_GetInt("video.fps_meter") != 0);
 }
 
 extern "C" void Overlay_FrameShown(int64_t now_ns) {
@@ -760,12 +777,186 @@ static void meter(void) {
     ImGui::End();
 }
 
+/* ---- the setup screen (T43) ---- */
+static char sSetupPath[1024], sBrowseDir[1024];
+static bool sSetupInit, sBrowse, sSetupAsked;
+static PortSetupEntry sEntries[512];
+static int sEntryN = -1;
+static int sSetupTest = -1; /* TTT_SETUP_TEST: the screen's frames */
+
+static void browse_to(const char *dir) {
+    snprintf(sBrowseDir, sizeof sBrowseDir, "%s", *dir ? dir : "/");
+    size_t n = strlen(sBrowseDir);
+    while (n > 1 && sBrowseDir[n - 1] == '/') {
+        sBrowseDir[--n] = 0;
+    }
+    sEntryN = Port_SetupList(sBrowseDir, sEntries, (int)(sizeof sEntries / sizeof sEntries[0]));
+}
+
+static void parent_of(const char *path, char *out, size_t n) {
+    snprintf(out, n, "%s", path);
+    char *s = strrchr(out, '/');
+    if (s == out) {
+        out[1] = 0;
+    } else if (s != nullptr) {
+        *s = 0;
+    } else {
+        snprintf(out, n, "/");
+    }
+}
+
+static void browse_up(void) {
+    char up[1024];
+    parent_of(sBrowseDir, up, sizeof up);
+    browse_to(up);
+}
+
+static void setup_request(void) {
+    Port_SetupRequest(sSetupPath);
+    sSetupAsked = true;
+}
+
+static void setup_test_step(const PortSetupView &v) {
+    const char *t = getenv("TTT_SETUP_TEST");
+    if (t == nullptr || *t == 0) {
+        return;
+    }
+    int n = ++sSetupTest;
+    if (n == 1) { /* the browser on the disc's folder (or the folder holding the image) */
+        char up[1024];
+        parent_of(t, up, sizeof up);
+        sBrowse = true;
+        browse_to(up);
+    } else if (n == 5) { /* the path typed */
+        snprintf(sSetupPath, sizeof sSetupPath, "%s", t);
+    } else if (n == 8) { /* "Check and install" */
+        setup_request();
+    }
+    Port_SetupTestNote(sEntryN, sSetupAsked && !v.busy && v.error[0] != 0);
+}
+
+static void setup_screen(void) {
+    ImGuiIO &io = ImGui::GetIO();
+    PortSetupView v;
+    Port_SetupView(&v);
+    if (!sSetupInit) {
+        sSetupInit = true;
+        snprintf(sSetupPath, sizeof sSetupPath, "%s", v.path);
+        const char *home = getenv("HOME");
+        browse_to(home != nullptr && *home == '/' ? home : "/");
+    }
+    setup_test_step(v);
+    char got[1024];
+    if (Port_WindowDialogResult(got, sizeof got)) {
+        snprintf(sSetupPath, sizeof sSetupPath, "%s", got);
+    }
+    ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+    ImGui::SetNextWindowSize(io.DisplaySize);
+    if (ImGui::Begin("Setup", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                                           ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus)) {
+        ImGui::SeparatorText("Tekken Tag Tournament: setup");
+        ImGui::TextWrapped("The game's data comes from your own disc of Tekken Tag Tournament (USA, SLUS-20001); "
+                           "nothing of the game is in this program. Pick the disc: the folder of a mounted disc or of "
+                           "its files, or an image of it (.iso, .bin or .cue). It is checked against the unmodified "
+                           "release, then the game's data file is made and the game starts.");
+        if (v.error[0] != 0 && !v.busy) {
+            ImGui::Spacing();
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.5f, 0.4f, 1.0f));
+            ImGui::TextWrapped("%s", v.error);
+            ImGui::PopStyleColor();
+        }
+        ImGui::Spacing();
+        ImGui::BeginDisabled(v.busy != 0);
+        ImGui::Text("Disc");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(-1.0f);
+        if (ImGui::InputText("##disc", sSetupPath, sizeof sSetupPath, ImGuiInputTextFlags_EnterReturnsTrue)) {
+            setup_request();
+        }
+        if (ImGui::Button("Check and install")) {
+            setup_request();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(sBrowse ? "Hide the browser" : "Browse...")) {
+            sBrowse = !sBrowse;
+        }
+        if (Port_WindowDialogAvailable()) {
+            ImGui::SameLine();
+            if (ImGui::Button("Image file (system dialog)...")) {
+                Port_WindowDialog(0, sBrowseDir);
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Folder (system dialog)...")) {
+                Port_WindowDialog(1, sBrowseDir);
+            }
+        }
+        ImGui::EndDisabled();
+        if (v.busy) {
+            ImGui::ProgressBar((float)v.permille / 1000.0f, ImVec2(-1.0f, 0.0f), v.stage);
+        }
+        float footer = ImGui::GetFrameHeightWithSpacing() * 2.0f + ImGui::GetTextLineHeightWithSpacing();
+        if (sBrowse && !v.busy) {
+            ImGui::SeparatorText("Browse");
+            if (ImGui::Button("Up")) {
+                browse_up();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Home")) {
+                const char *home = getenv("HOME");
+                browse_to(home != nullptr && *home == '/' ? home : "/");
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Use this folder")) {
+                snprintf(sSetupPath, sizeof sSetupPath, "%s", sBrowseDir);
+            }
+            ImGui::SameLine();
+            ImGui::TextWrapped("%s", sBrowseDir);
+            if (ImGui::BeginChild("##entries", ImVec2(0.0f, -footer), ImGuiChildFlags_Borders)) {
+                if (sEntryN < 0) {
+                    ImGui::TextDisabled("This folder cannot be read.");
+                } else if (sEntryN == 0) {
+                    ImGui::TextDisabled("No folders or disc images (.iso, .bin, .cue) here.");
+                }
+                char go[1024] = "";
+                for (int i = 0; i < sEntryN; i++) {
+                    const PortSetupEntry &e = sEntries[i];
+                    char label[300];
+                    snprintf(label, sizeof label, "%s%s%s", e.kind == 3 ? "[disc] " : e.kind == 2 ? "[image] " : "",
+                             e.name, e.kind != 2 ? "/" : "");
+                    char full[1300];
+                    snprintf(full, sizeof full, "%s/%s", strcmp(sBrowseDir, "/") == 0 ? "" : sBrowseDir, e.name);
+                    if (ImGui::Selectable(label, strcmp(full, sSetupPath) == 0, ImGuiSelectableFlags_AllowDoubleClick)) {
+                        if (e.kind == 1 || (e.kind == 3 && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))) {
+                            snprintf(go, sizeof go, "%s", full); /* into the folder */
+                        } else {
+                            snprintf(sSetupPath, sizeof sSetupPath, "%s", full); /* a disc folder or an image */
+                        }
+                    }
+                }
+                if (go[0]) {
+                    browse_to(go);
+                }
+            }
+            ImGui::EndChild();
+        }
+        ImGui::Separator();
+        ImGui::TextDisabled("The data file goes to %s", v.dataPath != nullptr && *v.dataPath ? v.dataPath : "?");
+        if (ImGui::Button("Quit")) {
+            Overlay_AskQuit();
+        }
+    }
+    ImGui::End();
+}
+
 static void ui(void) {
     ImGuiIO &io = ImGui::GetIO();
-    if (Settings_GetInt("video.fps_meter")) {
+    if (Settings_GetInt("video.fps_meter") && !Port_SetupActive()) {
         meter();
     }
-    if (sSettings) {
+    if (Port_SetupActive()) {
+        setup_screen();
+    }
+    if (sSettings && !Port_SetupActive()) {
         ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Appearing,
                                 ImVec2(0.5f, 0.5f));
         ImGui::SetNextWindowSize(ImVec2(640.0f, 520.0f), ImGuiCond_Appearing);
@@ -823,6 +1014,15 @@ extern "C" void Overlay_Render(int win_w, int win_h, int pix_w, int pix_h, int64
     io.DeltaTime = dt > 0.0001f ? dt : 0.0001f;
     sLastNs = now_ns;
     if (sMode == 1) {
+        if (Port_SetupActive()) { /* no picture of the game under the setup screen: a plain background */
+            if (sBindFramebuffer != nullptr) {
+                sBindFramebuffer(0x8D40 /* GL_FRAMEBUFFER */, 0);
+            }
+            glViewport(0, 0, pix_w, pix_h);
+            glDisable(GL_SCISSOR_TEST);
+            glClearColor(0.07f, 0.07f, 0.09f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT);
+        }
         ImGui_ImplOpenGL3_NewFrame();
     }
     ImGui::NewFrame();

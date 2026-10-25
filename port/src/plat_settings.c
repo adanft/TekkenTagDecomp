@@ -2,8 +2,9 @@
  * The player's settings (T36, docs/port/settings.md).
  *
  * A text file of `key = value` lines (`#` / `;` comments, blank lines, `[section]` lines and keys this program does not
- * know are kept as they are when the file is written again). Where: TTT_CONFIG, else $XDG_CONFIG_HOME/ttt/settings.ini,
- * else ~/.config/ttt/settings.ini. Written at once when the overlay (overlay.cpp) changes a value: a temporary file
+ * know are kept as they are when the file is written again). Where: TTT_CONFIG, else settings.ini beside the program
+ * when it is portable (portable.txt beside it, plat_paths.c), else $XDG_CONFIG_HOME/ttt/settings.ini, else
+ * ~/.config/ttt/settings.ini. Written at once when the overlay (overlay.cpp) changes a value: a temporary file
  * beside it, flushed to the disk, renamed over it, so a crash leaves the old file or the new one.
  *
  * Settings that existed as environment variables keep them, and the variables win: at start a file value becomes its
@@ -62,6 +63,7 @@ static const Def kDefs[] = {
     {"audio.music", "TTT_MUSIC_VOLUME", 0, 100, 100, NULL, 0},
     {"audio.effects", "TTT_EFFECTS_VOLUME", 0, 100, 100, NULL, 0},
     {"game.movies", "TTT_MOVIES", 0, 1, 1, NULL, 1},
+    {"game.disc", "TTT_DISC", 0, 0, 0, "", 1}, /* the disc the setup checked (T43, plat_setup.c) */
     {"game.pause", "TTT_PAUSE_IN_MENU", 0, 1, 1, NULL, 0},
     {"game.speed", "TTT_SPEED", 25, 400, 100, NULL, 0},
     {"game.fast_forward", "TTT_FAST_FORWARD", 100, 400, 300, NULL, 0},
@@ -169,10 +171,15 @@ static int file_set(const char *key, const char *val) {
     return 1;
 }
 
+int Port_Portable(void);        /* plat_paths.c: portable.txt beside the program */
+const char *Port_ExeDir(void);
+
 static void resolve_path(void) {
     const char *e = getenv("TTT_CONFIG"), *x = getenv("XDG_CONFIG_HOME"), *h = getenv("HOME");
     if (e != NULL && *e != 0) {
         snprintf(sPath, sizeof sPath, "%s", e);
+    } else if (Port_Portable()) {
+        snprintf(sPath, sizeof sPath, "%s/settings.ini", Port_ExeDir());
     } else if (x != NULL && *x == '/') {
         snprintf(sPath, sizeof sPath, "%s/ttt/settings.ini", x);
     } else if (h != NULL && *h != 0) {

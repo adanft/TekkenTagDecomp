@@ -21,6 +21,8 @@ void Port_WindowSelfTest(void); /* plat_window.c: TTT_SELFTEST=window */
 void Settings_Load(void); /* plat_settings.c: the settings file, before anything reads the variables it sets */
 void Settings_SelfTest(void); /* TTT_SELFTEST=settings */
 void Port_CrashInstall(void); /* plat_crash.c: the crash report handlers, with their own signal stack */
+void Port_SetupArgs(int argc, char **argv); /* plat_setup.c: `--setup <disc>` (exits) or `--setup` (the screen) */
+void Port_SetupRun(void); /* plat_setup.c: the setup screen when the game's data is not loaded yet (T43) */
 
 int __wrap_main(int argc, char **argv) {
     /* the settings and the window first, on the host stack: SDL's start-up is neither for the EE stack nor for the
@@ -29,7 +31,9 @@ int __wrap_main(int argc, char **argv) {
     Settings_SelfTest();
     Port_PadSelfTest();
     Port_WindowSelfTest();
+    Port_SetupArgs(argc, argv);
     Port_WindowOpen();
+    Port_SetupRun();
     Port_CrashInstall();
     /* The callee-saved registers are cleared first: they hold the C library's values here (__libc_start_main's), and
        the game's functions push them on the EE stack, which a state holds (plat_state.c). This never returns. */

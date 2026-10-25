@@ -3,6 +3,7 @@
 The PC port is built from the same C as the matching decompilation. Nothing of the game is committed or linked in:
 the build needs neither your `SLUS_200.01` nor its split, and the program takes the game's data from **your own
 disc** when it runs (`ttt.dat`, [data.md](data.md)). Everything is written under `build/port/`, which git ignores.
+Players: [install.md](install.md) (the setup screen, `ttt --setup <disc>`, where the files go).
 
 ## Status (T27, 2026-10-24)
 
@@ -122,7 +123,8 @@ TTT_FRAMES=600 build/port/ttt                 # headless, 600 VBlanks, then a re
 
 `build.py` runs the two steps below in order and fails if any of them fails. Each can also be run on its own
 from the repository root. Heavy runs go through `scripts/cool.sh`. The first run of the program checks your disc
-and writes `build/port/ttt.dat` (about a second, [data.md](data.md)).
+and writes `build/port/ttt.dat` (about a second, [data.md](data.md)); without a disc it shows the setup screen (T43,
+[install.md](install.md)).
 
 | Step | Tool | Writes |
 |---|---|---|
@@ -254,7 +256,9 @@ wait loops drive the hardware.
 | `plat_hw.c` | Bus-cycle clock, timers 0-3, VBlank (59.94 Hz, GS CSR FIELD / VSINT), INTC / DMAC handlers (`AddIntcHandler`, `AddDmacHandler`, `EnableIntc`...), DMA channels, MFIFO, `TTT_FRAMES` report, `TTT_SELFTEST=hw` |
 | `plat_sys.c` | Kernel (cache, threads, semaphores), SIF (IOP reboot, module loads, commands, `sceSifBindRpc` / `sceSifCallRpc` and the table of IOP servers), CD init, `TTT_SELFTEST=rpc` |
 | `plat_data.c` | The game's initialised data from the disc into EE RAM at start, through the data file `ttt.dat`; the disc's SHA-1 checks, the refusal of a modified disc, the background check of `TEKKEN.BIN` and the `[modified game data]` state ([data.md](data.md)) |
-| `plat_file.c` | The disc (`TTT_DISC`: a directory with `TEKKEN.BIN` or the `.iso`; without it the program stops at the first read, exit code 2) and `sceSdRemote`: RSPU2DRV's file reads (0x204E / 0x2045), status (0x2030), the sound commands passed to `plat_snd.c`, the movie stream's arguments (0x2058) |
+| `plat_setup.c` | The setup (T43, [install.md](install.md)): `ttt --setup <disc>` without a window, else the setup screen (overlay.cpp) when the game's data could not be loaded, the disc checked on the host thread while the window thread draws; the built-in browser's listing; `game.disc` remembered |
+| `plat_paths.c` | Where the player's files go: portable (`portable.txt` beside the program), a checkout (`build/port/ttt`: as before), else `$XDG_DATA_HOME/ttt` for `ttt.dat`, `saves/`, `textures/` |
+| `plat_file.c` | The disc (`TTT_DISC` / `game.disc`: a folder with `TEKKEN.BIN`, names in any case, or an image: `.iso`, raw `.bin` / `.cue`; without it the program stops at the first read, exit code 2) and `sceSdRemote`: RSPU2DRV's file reads (0x204E / 0x2045), status (0x2030), the sound commands passed to `plat_snd.c`, the movie stream's arguments (0x2058) |
 | `spu2.c` | The SPU2 model: 2 MB sound RAM, 2 x 24 voices, PS-ADPCM, pitch, ADSR, the 48 kHz mix, `TTT_SELFTEST=spu` ([sound.md](sound.md)) |
 | `plat_snd.c` | libspu2's commands of RSPU2DRV on the model, the per-VBlank mix, `TTT_WAV`, the ring to the window's audio ([sound.md](sound.md)) |
 | `plat_bgm.c` | RSPU2DRV's BGM stream engine: the 28 tracks, the sound queue (0x7F0F), status bits 4 / 6, the double buffers ([sound.md](sound.md)) |
@@ -333,8 +337,10 @@ Switches:
 
 | Variable | Effect |
 |---|---|
-| `TTT_DISC=<dir or .iso>` | The disc: a directory with `TEKKEN.BIN` (as `scripts/setup_disc.py` copies it to `iso/`) or the ISO 9660 image. Default: `iso/` of the repository (`build/port/ttt` -> `../../iso`), else `iso/` beside the program, else `iso/` in the working directory. Read only. Without a disc (and without a data file) the program stops with `ttt: no disc` on stderr and exit code 2. |
-| `TTT_DATA=<file>` | The data file holding the game's initialised data taken from the disc ([data.md](data.md)). Default: `ttt.dat` beside the program. Made on the first run. |
+| `TTT_DISC=<dir or image>` | The disc: a folder with `TEKKEN.BIN` (a mounted disc, lower-case names too, or the copy `scripts/setup_disc.py` makes in `iso/`) or an image: `.iso` (2048-byte sectors) or a raw `.bin` / its `.cue` (2352-byte sectors, MODE2 or MODE1). Default: the settings' `game.disc` (written by the setup, T43), else `iso/` of the repository (`build/port/ttt` -> `../../iso`), else `iso/` beside the program, else `iso/` in the working directory. Read only. Without a disc (and without a data file) the program stops with `ttt: no disc` on stderr and exit code 2. |
+| `TTT_DATA=<file>` | The data file holding the game's initialised data taken from the disc ([data.md](data.md)). Default: `ttt.dat` in the data folder ([install.md](install.md): beside the program for a checkout or portable, else `$XDG_DATA_HOME/ttt/`). Made on the first run or by the setup. |
+| `--setup <disc>` | Command line (T43): checks the disc, makes the data file, remembers the disc as `game.disc`, exits (0; 2 no disc there or cannot write; 4 refused). `--setup` alone: the setup screen. |
+| `TTT_SETUP_TEST=<disc>` | Tests (with `TTT_WINDOW=1 TTT_WINDOW_HIDDEN=1`): the setup screen opens and drives itself (browser on the disc's folder, path typed, button pressed) and reports `ttt: setup: screen test: ...`; a refused disc ends the run with its exit code. |
 | `TTT_ALLOW_MODIFIED=1` | Run a disc whose files differ from the USA release (otherwise refused with exit code 4); the run is marked `[modified game data]` (stderr, window title, overlay, report: [data.md](data.md#data-verification-and-the-mark-t41)). Unmodified data is not marked. |
 | `TTT_CRASH_TEST=<kind>[@<vblank>]` | Port tests only: make a fault at that VBlank (default 30) to check the crash report: `segv`, `stack` (bad stack pointer), `ill`, `fpe`, `bus`, `abrt` ([Crash reports](#crash-reports)). |
 | `TTT_FRAMES=<n>` | Stop after n VBlanks with a report: VBlanks and frames, `modes:` (mode@VBlank of each change), last mode and sub-state, `state:` (seed, `gRngSpin`, the gameplay hash of [determinism.md](determinism.md), cycles), placeholders hit. Exit code 0. Implies headless. |
@@ -364,7 +370,7 @@ Switches:
 | `TTT_WINDOW=0/1` | The window ([Window](#window)): default on in real time, off headless and for self-tests. `1` with `TTT_FRAMES` shows a headless run as it goes. |
 | `TTT_VSYNC=0` | The window presents without the renderer's vsync. |
 | `TTT_PACE_FROM=<vblank>` | The GL back end's frame-pacing report (`ttt: gl: pacing` lines, [video.md](video.md#frame-pacing)) starts at that VBlank's picture (default 600). |
-| `TTT_CONFIG=<file>` | The settings file (default `$XDG_CONFIG_HOME/ttt/settings.ini` or `~/.config/ttt/settings.ini`). Its values are the defaults of the variables of [settings.md](settings.md) (`TTT_RENDERER`, `TTT_VSYNC`, `TTT_MOVIES`, `TTT_SCALE`, `TTT_VOLUME`...); a variable set in the environment wins. `TTT_SELFTEST=settings` checks the file's round trip. |
+| `TTT_CONFIG=<file>` | The settings file (default `settings.ini` beside a portable program, else `$XDG_CONFIG_HOME/ttt/settings.ini` or `~/.config/ttt/settings.ini`). Its values are the defaults of the variables of [settings.md](settings.md) (`TTT_RENDERER`, `TTT_VSYNC`, `TTT_MOVIES`, `TTT_SCALE`, `TTT_VOLUME`...); a variable set in the environment wins. `TTT_SELFTEST=settings` checks the file's round trip. |
 | `TTT_NO_QUIT_CONFIRM=1` | Close / Escape quit at once instead of asking "Quit?". |
 | `TTT_SPEED=25..400`, `TTT_FAST_FORWARD=100..400` | Game speed in percent in real time, and while Tab is held (T40, [settings.md](settings.md#game-speed)). Headless runs ignore them. The report adds `ttt: speed: <n>% at the end` in real time. |
 | `TTT_VOLUME`, `TTT_MUSIC_VOLUME`, `TTT_EFFECTS_VOLUME=0..100`, `TTT_MUTE=1` | The port's output volumes, window and `TTT_WAV` (T40, [sound.md](sound.md) section 4.1). The state is the same. |
@@ -782,7 +788,8 @@ a sequence of libmc calls, each started and then polled with `sceMcSync(1, ...)`
 
 - **Where.** Card port 0 is the directory `<saves>/mc0/`: the card path `/BASLUS-20001TekkenTT/icon.sys` is the file
   `<saves>/mc0/BASLUS-20001TekkenTT/icon.sys`. `<saves>` is `TTT_SAVES`, else the repository's `saves/` when the
-  program is `build/port/ttt` of a checkout, else `saves/` beside the program. Nothing is created until the game
+  program is `build/port/ttt` of a checkout, else `saves/` in the data folder (T43: beside the program when
+  portable, else `$XDG_DATA_HOME/ttt/saves`). Nothing is created until the game
   writes. The files hold data from your disc (the icons) and your records: keep them out of git (`saves/` must be in
   `.gitignore`). Tests and idle runs use a temporary `TTT_SAVES` (`tests/test_port_platform.py`'s `run_ttt`).
 - **Cards.** `TTT_MC0` / `TTT_MC1` = `formatted` (port 0's default: an empty formatted card while the directory does

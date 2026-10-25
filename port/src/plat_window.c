@@ -138,6 +138,15 @@ static struct {
     _Bool (*SetTextureBlendMode)(void *texture, uint32_t mode);
     _Bool (*SetWindowTitle)(void *window, const char *title); /* optional: the data mark (T41) */
     _Bool (*RumbleGamepad)(void *gamepad, uint16_t low, uint16_t high, uint32_t ms); /* optional: vibration (T34) */
+    /* optional: the setup screen's text entry, clipboard and the system's file dialog (T43) */
+    _Bool (*StartTextInput)(void *window);
+    char *(*GetClipboardText)(void);
+    _Bool (*SetClipboardText)(const char *text);
+    void (*free)(void *p);
+    void (*ShowOpenFileDialog)(void (*cb)(void *user, const char *const *files, int filter), void *user, void *window,
+                               const void *filters, int nfilters, const char *start, _Bool many);
+    void (*ShowOpenFolderDialog)(void (*cb)(void *user, const char *const *files, int filter), void *user,
+                                 void *window, const char *start, _Bool many);
 } sdl;
 
 static const struct {
@@ -458,6 +467,12 @@ static int sdl_load(void) {
     }
     *(void **)&sdl.SetWindowTitle = dlsym(h, "SDL_SetWindowTitle");
     *(void **)&sdl.RumbleGamepad = dlsym(h, "SDL_RumbleGamepad");
+    *(void **)&sdl.StartTextInput = dlsym(h, "SDL_StartTextInput");
+    *(void **)&sdl.GetClipboardText = dlsym(h, "SDL_GetClipboardText");
+    *(void **)&sdl.SetClipboardText = dlsym(h, "SDL_SetClipboardText");
+    *(void **)&sdl.free = dlsym(h, "SDL_free");
+    *(void **)&sdl.ShowOpenFileDialog = dlsym(h, "SDL_ShowOpenFileDialog");
+    *(void **)&sdl.ShowOpenFolderDialog = dlsym(h, "SDL_ShowOpenFolderDialog");
     return 1;
 }
 
@@ -625,8 +640,13 @@ static void title_update(void) {
 
 static int64_t now_ns(void);
 static void events(void) {
+    static int textOn;
     uint8_t ev[128];
     title_update();
+    if (!textOn && Port_SetupActive() && sdl.StartTextInput != NULL) { /* the setup screen's path entry (T43) */
+        textOn = 1;
+        sdl.StartTextInput(sWindow);
+    }
     while (sdl.PollEvent(ev)) {
         handle_event(ev);
     }
@@ -899,7 +919,9 @@ static void *window_main(void *arg) {
             }
             Gs_GlPump(4);
             if (Overlay_Open() && now_ns() - sLastPresent > 16000000) { /* the game shows nothing new (paused) */
-                Gl_Redisplay();
+                if (!Gl_Redisplay() && Port_SetupActive()) {
+                    Port_WindowGlSwap(); /* the setup screen before the game's first picture (overlay.cpp clears) */
+                }
             }
         }
     }
@@ -1101,6 +1123,75 @@ void Port_WindowExit(int code) {
         _exit(code);
     }
     exit(code);
+}
+
+/* ---- the setup screen's helpers (T43, overlay.cpp; window thread) ---- */
+
+/* The clipboard's text (a copy, valid until the next call), NULL when there is none or SDL has no clipboard. */
+const char *Port_WindowClipboard(void) {
+    static char *copy;
+    char *t;
+    free(copy);
+    copy = NULL;
+    if (sdl.GetClipboardText == NULL || (t = sdl.GetClipboardText()) == NULL) {
+        return NULL;
+    }
+    copy = malloc(strlen(t) + 1);
+    if (copy != NULL) {
+        memcpy(copy, t, strlen(t) + 1);
+    }
+    if (sdl.free != NULL) {
+        sdl.free(t);
+    }
+    return copy;
+}
+
+void Port_WindowSetClipboard(const char *text) {
+    if (sdl.SetClipboardText != NULL) {
+        sdl.SetClipboardText(text);
+    }
+}
+
+/* The system's file dialog (SDL 3.2's, through the desktop's portal or zenity): asynchronous, its answer may come on
+   another thread, kept here until the setup screen takes it. */
+static pthread_mutex_t sDialogLock = PTHREAD_MUTEX_INITIALIZER;
+static char sDialogPath[1024];
+static int sDialogDone;
+
+static void dialog_done(void *user, const char *const *files, int filter) {
+    (void)user, (void)filter;
+    if (files != NULL && files[0] != NULL) {
+        pthread_mutex_lock(&sDialogLock);
+        snprintf(sDialogPath, sizeof sDialogPath, "%s", files[0]);
+        sDialogDone = 1;
+        pthread_mutex_unlock(&sDialogLock);
+    }
+}
+
+int Port_WindowDialogAvailable(void) { return sdl.ShowOpenFileDialog != NULL && sdl.ShowOpenFolderDialog != NULL; }
+
+void Port_WindowDialog(int folder, const char *start) {
+    static const char *const kFilter[2] = {"Disc images (iso, bin, cue)", "iso;bin;cue"};
+    if (!Port_WindowDialogAvailable()) {
+        return;
+    }
+    if (folder) {
+        sdl.ShowOpenFolderDialog(dialog_done, NULL, sWindow, start != NULL && *start ? start : NULL, 0);
+    } else {
+        sdl.ShowOpenFileDialog(dialog_done, NULL, sWindow, kFilter, 1, start != NULL && *start ? start : NULL, 0);
+    }
+}
+
+int Port_WindowDialogResult(char *out, int n) {
+    int done;
+    pthread_mutex_lock(&sDialogLock);
+    done = sDialogDone;
+    if (done) {
+        snprintf(out, (size_t)n, "%s", sDialogPath);
+        sDialogDone = 0;
+    }
+    pthread_mutex_unlock(&sDialogLock);
+    return done;
 }
 
 /* ---- the GL back end's window (gs_gl.c, on the window thread) ---- */

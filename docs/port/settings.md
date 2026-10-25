@@ -63,7 +63,8 @@ model, `softfloat_ps2.c`). The exception is limited to the overlay and ImGui:
 
 ## The settings file
 
-Where: `TTT_CONFIG`, else `$XDG_CONFIG_HOME/ttt/settings.ini`, else `~/.config/ttt/settings.ini`. Nothing is written
+Where: `TTT_CONFIG`, else `settings.ini` beside the program when it is portable (`portable.txt` beside it,
+[install.md](install.md)), else `$XDG_CONFIG_HOME/ttt/settings.ini`, else `~/.config/ttt/settings.ini`. Nothing is written
 until a setting is changed in the overlay; then the whole file is written at once: a temporary file beside it
 (`settings.ini.tmp`), flushed and synced, renamed over the old one, so a crash leaves the old file or the new one.
 The file's directory is also the port's user directory: crash reports go to its `crash/` subdirectory
@@ -86,12 +87,13 @@ know are kept as they are, in place; a changed key's line is replaced, a new key
 | `video.low_latency` | 0 / 1 | 0 | `TTT_LOW_LATENCY` |
 | `video.texture_replace` | 0 / 1 (OpenGL: draw texture-pack replacements, [textures.md](textures.md)) | 0 | `TTT_TEXTURE_REPLACE` |
 | `video.texture_dump` | 0 / 1 (OpenGL: write new textures as PNG) | 0 | `TTT_TEXTURE_DUMP` |
-| `video.texture_dir` | a folder (read at start; empty: `textures/` of the checkout or beside the program) | (empty) | `TTT_TEXTURES` |
+| `video.texture_dir` | a folder (read at start; empty: `textures/` of the checkout, else in the data folder, [install.md](install.md)) | (empty) | `TTT_TEXTURES` |
 | `audio.volume` | 0-100 | 100 | `TTT_VOLUME` |
 | `audio.mute` | 0 / 1 | 0 | `TTT_MUTE` |
 | `audio.music` | 0-100 (the BGM and movie voices) | 100 | `TTT_MUSIC_VOLUME` |
 | `audio.effects` | 0-100 (every other voice) | 100 | `TTT_EFFECTS_VOLUME` |
 | `game.movies` | 0 / 1 | 1 | `TTT_MOVIES` |
+| `game.disc` | the disc's folder or image (written by the setup, [install.md](install.md); read at start) | (empty) | `TTT_DISC` |
 | `game.pause` | 0 / 1 | 1 | `TTT_PAUSE_IN_MENU` |
 | `game.speed` | 25-400 (percent; the overlay offers 25, 50, 75, 100, 150, 200, 300, 400) | 100 | `TTT_SPEED` |
 | `game.fast_forward` | 100-400 (percent, while Tab is held) | 300 | `TTT_FAST_FORWARD` |

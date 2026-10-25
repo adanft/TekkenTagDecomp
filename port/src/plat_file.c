@@ -7,10 +7,12 @@
  * once from the user's disc and the status word shows it finished at the next poll, as a fast drive would.
  * The data is the archive as stored (scrambled): the game descrambles it itself.
  *
- * The disc: TTT_DISC=<directory> holding TEKKEN.BIN (the copy scripts/setup_disc.py makes in iso/), or
- * TTT_DISC=<image.iso> (ISO 9660, 2048-byte sectors: TEKKEN.BIN is found in its root directory). Without TTT_DISC,
- * the repository's iso/ (build/port/ttt -> ../../iso), iso/ beside the program, or iso/ in the working directory.
- * Without a disc the first read stops the program (exit code 2). Nothing of the disc is ever written.
+ * The disc: TTT_DISC (or the settings' game.disc, which the setup writes: plat_setup.c, T43) = a folder holding the
+ * disc's files (a mounted disc, names in any case, or the copy scripts/setup_disc.py makes in iso/), or an image of the
+ * disc: .iso (ISO 9660, 2048-byte sectors) or a raw .bin / .cue (2352-byte sectors, MODE2 or MODE1); TEKKEN.BIN is
+ * found in its root directory. Without TTT_DISC, the repository's iso/ (build/port/ttt -> ../../iso), iso/ beside the
+ * program, or iso/ in the working directory. Without a disc the first read stops the program (exit code 2). Nothing
+ * of the disc is ever written.
  *
  * Every other RSPU2DRV command is sound (T32): libspu2's commands in plat_snd.c on the SPU2 model (spu2.c), the BGM
  * tracks, the sound queue and the status bits 4 / 6 in plat_bgm.c (docs/port/sound.md). The movie stream (0x2058)
@@ -21,11 +23,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include "port_addr.h"
 #include "port_host.h"
 #include "spu2.h"
 #include "plat_state.h"
+
+/* C library calls the T43 disc formats added, through the GOT (port_host.h: the PLT stays as it was) */
+__typeof__(stat) stat __attribute__((noplt));
+__typeof__(strchr) strchr __attribute__((noplt));
 
 int Port_SndCommand(int cmd, const uint32_t *a); /* plat_snd.c */
 void Port_SndGet(int cmd, uint8_t *out);
@@ -36,67 +43,214 @@ uint32_t Port_BgmStatus(void); /* plat_bgm.c: bits 4 and 6 */
 #define ARCHIVE_SECTOR0 0x4820 /* the table's sectors count from here (systems/files.md) */
 #define SIZE_BIAS 0x350A
 
-static FILE *sDisc;          /* the ISO or TEKKEN.BIN */
-static long long sArchive;   /* byte offset of TEKKEN.BIN in it */
+/* A disc image: 2048-byte sectors (.iso), or raw CD sectors (.bin of a .cue: 2352 bytes, the 2048 data bytes at 24 in
+   MODE2 form 1, at 16 in MODE1). A disc folder's TEKKEN.BIN is read as an image of 2048-byte sectors from 0. */
+typedef struct {
+    FILE *f;
+    int raw, at;
+} Img;
+
+static Img sImg;             /* the disc: the image, or the folder's TEKKEN.BIN */
+static int sDir;             /* the disc is a folder */
+static long long sArchive;   /* byte offset of TEKKEN.BIN in the image's data */
 static long long sArchiveSize;
 static int sDiscTried;
-static char sDiscName[1024];
+static char sDiscName[1024]; /* as given: a folder, an .iso, a .bin or a .cue */
+static char sImage[1100];    /* the host file read: the image, the .cue's .bin, or the folder's TEKKEN.BIN */
 
 static uint32_t le32(const uint8_t *p) { return p[0] | p[1] << 8 | p[2] << 16 | (uint32_t)p[3] << 24; }
 
-/* TEKKEN.BIN in the root directory of an ISO 9660 image. */
-static int find_in_iso(FILE *f) {
-    uint8_t pvd[SECTOR], dir[SECTOR];
-    uint32_t lba, size, off;
-    if (fseeko(f, 16LL * SECTOR, SEEK_SET) != 0 || fread(pvd, 1, SECTOR, f) != SECTOR ||
-        memcmp(pvd + 1, "CD001", 5) != 0) {
-        return 0;
+/* `n` bytes at byte `off` of the image's data (its 2048-byte sectors end to end). */
+static int img_read(const Img *im, long long off, void *dst, size_t n) {
+    uint8_t *d = dst;
+    if (im->raw == SECTOR) {
+        return fseeko(im->f, off, SEEK_SET) == 0 && fread(dst, 1, n, im->f) == n;
     }
-    lba = le32(pvd + 156 + 2);
-    size = le32(pvd + 156 + 10);
-    for (off = 0; off < size; off += SECTOR) {
-        uint32_t i = 0;
-        if (fseeko(f, (long long)(lba + off / SECTOR) * SECTOR, SEEK_SET) != 0 || fread(dir, 1, SECTOR, f) != SECTOR) {
+    while (n > 0) {
+        long long lba = off / SECTOR;
+        size_t in = (size_t)(off % SECTOR), k = SECTOR - in < n ? SECTOR - in : n;
+        if (fseeko(im->f, lba * im->raw + im->at + (long long)in, SEEK_SET) != 0 || fread(d, 1, k, im->f) != k) {
             return 0;
         }
-        while (i < SECTOR && dir[i] != 0) {
-            uint8_t len = dir[i], nlen = dir[i + 32];
-            if (nlen >= 10 && memcmp(dir + i + 33, "TEKKEN.BIN", 10) == 0) {
-                sArchive = (long long)le32(dir + i + 2) * SECTOR;
-                sArchiveSize = le32(dir + i + 10);
-                return 1;
+        d += k, off += (long long)k, n -= k;
+    }
+    return 1;
+}
+
+/* Opens `path` as an ISO 9660 image in any of the layouts above; 0 (nothing left open) when it is none. */
+static int img_open(Img *im, const char *path) {
+    static const int kLayouts[3][2] = {{2048, 0}, {2352, 24}, {2352, 16}};
+    uint8_t pvd[8];
+    int i;
+    im->f = fopen(path, "rb");
+    for (i = 0; im->f != NULL && i < 3; i++) {
+        im->raw = kLayouts[i][0];
+        im->at = kLayouts[i][1];
+        if (img_read(im, 16LL * SECTOR, pvd, sizeof pvd) && memcmp(pvd + 1, "CD001", 5) == 0) {
+            return 1;
+        }
+    }
+    if (im->f != NULL) {
+        fclose(im->f);
+        im->f = NULL;
+    }
+    return 0;
+}
+
+/* `name` (or `name;1`) in the directory at sector `lba` (`size` bytes) of the image: its sector and size, or -1. */
+static long img_find(const Img *im, uint32_t lba, uint32_t size, const char *name, uint32_t *outLba) {
+    uint8_t dir[SECTOR];
+    size_t nl = strlen(name);
+    uint32_t off;
+    for (off = 0; off < size; off += SECTOR) {
+        uint32_t i = 0;
+        if (!img_read(im, (long long)(lba + off / SECTOR) * SECTOR, dir, SECTOR)) {
+            return -1;
+        }
+        while (i + 33 < SECTOR && dir[i] != 0) {
+            uint8_t len = dir[i], n = dir[i + 32];
+            if (n >= nl && i + 33 + n <= SECTOR && memcmp(dir + i + 33, name, nl) == 0 &&
+                (n == nl || dir[i + 33 + nl] == ';')) {
+                *outLba = le32(dir + i + 2);
+                return (long)le32(dir + i + 10);
             }
             i += len;
         }
     }
-    return 0;
+    return -1;
 }
 
-/* Opens `name` as the disc: a directory holding TEKKEN.BIN, or an ISO 9660 image. */
+/* `dir`/`name` (`name` in the root directory when dir is NULL) of the image: its sector and size, or -1. */
+static long img_file(const Img *im, const char *dirName, const char *name, uint32_t *lba) {
+    uint8_t pvd[SECTOR];
+    long size;
+    if (!img_read(im, 16LL * SECTOR, pvd, SECTOR)) {
+        return -1;
+    }
+    *lba = le32(pvd + 156 + 2);
+    size = (long)le32(pvd + 156 + 10);
+    if (dirName != NULL && (size = img_find(im, *lba, (uint32_t)size, dirName, lba)) < 0) {
+        return -1;
+    }
+    return img_find(im, *lba, (uint32_t)size, name, lba);
+}
+
+/* A file of a disc folder: `base`/`dir`/`name` as on the disc, in lower case (a disc mounted by Linux shows its names
+   so), or with ISO 9660's ";1" (mounted with map=off). Opened, its path in `out`; NULL when none. */
+static FILE *dir_open(const char *base, const char *dirName, const char *name, char *out, size_t n) {
+    char lo[300];
+    size_t i, k;
+    int v;
+    for (v = 0; v < 3; v++) {
+        FILE *f;
+        if (dirName != NULL) {
+            snprintf(lo, sizeof lo, "%s/%s%s", dirName, name, v == 2 ? ";1" : "");
+        } else {
+            snprintf(lo, sizeof lo, "%s%s", name, v == 2 ? ";1" : "");
+        }
+        for (i = 0, k = strlen(lo); v == 1 && i < k; i++) {
+            lo[i] = lo[i] >= 'A' && lo[i] <= 'Z' ? (char)(lo[i] + 32) : lo[i];
+        }
+        snprintf(out, n, "%s/%s", base, lo);
+        if ((f = fopen(out, "rb")) != NULL) {
+            return f;
+        }
+    }
+    return NULL;
+}
+
+/* The .bin a .cue sheet names first (`FILE "disc.bin" BINARY`), beside the sheet: 1 and its path in `out`. */
+static int cue_bin(const char *cue, char *out, size_t n) {
+    char line[1200], *a, *b;
+    const char *slash = strrchr(cue, '/');
+    FILE *f = fopen(cue, "r");
+    int ok = 0;
+    while (f != NULL && !ok && fgets(line, sizeof line, f) != NULL) {
+        for (a = line; *a == ' ' || *a == '\t'; a++) {
+        }
+        if (memcmp(a, "FILE ", 5) != 0) {
+            continue;
+        }
+        a += 5;
+        if (*a == '"') {
+            b = strrchr(++a, '"');
+        } else {
+            b = a + strcspn(a, " \t\r\n");
+        }
+        if (b == NULL || b == a) {
+            break;
+        }
+        *b = 0;
+        if (*a == '/' || slash == NULL) {
+            snprintf(out, n, "%s", a);
+        } else {
+            snprintf(out, n, "%.*s/%s", (int)(slash - cue), cue, a);
+        }
+        ok = 1;
+    }
+    if (f != NULL) {
+        fclose(f);
+    }
+    return ok;
+}
+
+static int ends_with(const char *s, const char *tail) {
+    size_t n = strlen(s), k = strlen(tail), i;
+    if (n < k) {
+        return 0;
+    }
+    for (i = 0; i < k; i++) {
+        char c = s[n - k + i];
+        if ((c >= 'A' && c <= 'Z' ? c + 32 : c) != tail[i]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* Opens `name` as the disc: a folder holding TEKKEN.BIN, or an image whose root directory holds it (.iso, .bin, or the
+   .bin of a .cue). */
 static int try_disc(const char *name) {
-    char path[1200];
-    snprintf(path, sizeof path, "%s/TEKKEN.BIN", name);
-    sDisc = fopen(path, "rb");
-    if (sDisc != NULL) {
-        sArchive = 0;
-        fseeko(sDisc, 0, SEEK_END);
-        sArchiveSize = ftello(sDisc);
+    char bin[1100];
+    uint32_t lba;
+    long size;
+    FILE *f = dir_open(name, NULL, "TEKKEN.BIN", sImage, sizeof sImage);
+    sDir = 0;
+    sArchive = sArchiveSize = 0;
+    if (f != NULL) {
+        sDir = 1;
+        sImg.f = f;
+        sImg.raw = SECTOR;
+        sImg.at = 0;
+        fseeko(f, 0, SEEK_END);
+        sArchiveSize = ftello(f);
         return 1;
     }
-    sDisc = fopen(name, "rb");
-    if (sDisc != NULL && find_in_iso(sDisc)) {
+    if (ends_with(name, ".cue")) {
+        if (!cue_bin(name, bin, sizeof bin)) {
+            return 0;
+        }
+    } else {
+        snprintf(bin, sizeof bin, "%s", name);
+    }
+    snprintf(sImage, sizeof sImage, "%s", bin);
+    if (!img_open(&sImg, bin)) {
+        return 0;
+    }
+    if ((size = img_file(&sImg, NULL, "TEKKEN.BIN", &lba)) >= 0) {
+        sArchive = (long long)lba * SECTOR;
+        sArchiveSize = size;
         return 1;
     }
-    if (sDisc != NULL) {
-        fclose(sDisc);
-        sDisc = NULL;
-    }
+    fclose(sImg.f);
+    sImg.f = NULL;
     return 0;
 }
 
-/* Opens the disc once; 0 when there is none. Without TTT_DISC: the repository's iso/ (build/port/ttt -> ../../iso),
-   then iso/ beside the program, then iso/ in the working directory. The program's own directory comes from
-   /proc/self/exe (symbolic links resolved), so a copy of the program elsewhere finds only the last two. */
+/* Opens the disc once; 0 when there is none. TTT_DISC (game.disc, which the setup writes: plat_setup.c), else the
+   repository's iso/ (build/port/ttt -> ../../iso), then iso/ beside the program, then iso/ in the working directory.
+   The program's own directory comes from /proc/self/exe (symbolic links resolved), so a copy of the program elsewhere
+   finds only the last two. */
 int Port_DiscOpen(void) {
     static const char *const kNear[] = { "/../../iso", "/iso" };
     const char *d;
@@ -104,7 +258,7 @@ int Port_DiscOpen(void) {
     ssize_t k;
     unsigned i;
     if (sDiscTried) {
-        return sDisc != NULL;
+        return sImg.f != NULL;
     }
     sDiscTried = 1;
     d = getenv("TTT_DISC");
@@ -131,14 +285,25 @@ int Port_DiscOpen(void) {
     return try_disc(sDiscName);
 }
 
+/* The setup (plat_setup.c, before the game starts): the disc is `name` from now on; 0 when it is none. */
+int Port_DiscUse(const char *name) {
+    if (sImg.f != NULL) {
+        fclose(sImg.f);
+        sImg.f = NULL;
+    }
+    sDiscTried = 1;
+    snprintf(sDiscName, sizeof sDiscName, "%s", name);
+    return try_disc(sDiscName);
+}
+
 /* The game cannot run without its data: on the PS2 a read error is retried for ever, here a missing disc would let
    the boot go on over memory the reads never filled (it crashed in func_00345410 when the program was copied away
    from the repository's iso/, with the message lost in stdout's buffer). Stop at the first read instead. */
 static void no_disc(void) {
     fflush(stdout);
     fprintf(stderr,
-            "ttt: no disc: set TTT_DISC to a directory with TEKKEN.BIN or to the game's .iso "
-            "(or put iso/ beside the program; last tried %s)\n",
+            "ttt: no disc: run `ttt --setup <disc>` with your disc's folder or image (.iso, .bin, .cue), or set "
+            "TTT_DISC to it (or put iso/ beside the program; last tried %s)\n",
             sDiscName);
     _exit(2);
 }
@@ -149,107 +314,100 @@ static int read_archive(uint32_t sector, void *dst, uint32_t bytes) {
     if (!Port_DiscOpen() || off < 0 || off + bytes > sArchiveSize) {
         return 0;
     }
-    if (fseeko(sDisc, sArchive + off, SEEK_SET) != 0) {
-        return 0;
-    }
-    return fread(dst, 1, bytes, sDisc) == bytes;
+    return img_read(&sImg, sArchive + off, dst, bytes);
 }
 
 /* `bytes` from `offset` of the file at table sector `sector` (the BGM streams, plat_bgm.c); 0 on a failed read. */
 int Port_DiscRead(uint32_t sector, uint32_t offset, void *dst, uint32_t bytes) {
     long long off = ((long long)sector - ARCHIVE_SECTOR0) * SECTOR + offset;
-    if (!Port_DiscOpen() || off < 0 || off + bytes > sArchiveSize || fseeko(sDisc, sArchive + off, SEEK_SET) != 0) {
+    if (!Port_DiscOpen() || off < 0 || off + bytes > sArchiveSize) {
         return 0;
     }
-    return fread(dst, 1, bytes, sDisc) == bytes;
+    return img_read(&sImg, sArchive + off, dst, bytes);
 }
 
 /* A file of the disc outside TEKKEN.BIN (`dir`/`name`, e.g. IRX/RSPU2DRV.IRX, or `name` in the root directory when
-   dir is NULL, e.g. SLUS_200.01) into `dst`: its size, or -1. The disc directory, or the ISO image's root directory
-   and one subdirectory. */
-static long find_iso_entry(uint32_t lba, uint32_t size, const char *name, uint32_t *outLba) {
-    uint8_t dir[SECTOR];
-    size_t nl = strlen(name);
-    uint32_t off;
-    for (off = 0; off < size; off += SECTOR) {
-        uint32_t i = 0;
-        if (fseeko(sDisc, (long long)(lba + off / SECTOR) * SECTOR, SEEK_SET) != 0 || fread(dir, 1, SECTOR, sDisc) != SECTOR) {
-            return -1;
-        }
-        while (i < SECTOR && dir[i] != 0) {
-            uint8_t len = dir[i], n = dir[i + 32];
-            if (n >= nl && memcmp(dir + i + 33, name, nl) == 0 && (n == nl || dir[i + 33 + nl] == ';')) {
-                *outLba = le32(dir + i + 2);
-                return (long)le32(dir + i + 10);
-            }
-            i += len;
-        }
-    }
-    return -1;
-}
-
-long Port_DiscReadFile(const char *dirName, const char *name, void *dst, long max) {
+   dir is NULL, e.g. SLUS_200.01) into `dst`: its size, or -1. The disc folder, or the image's root directory and one
+   subdirectory. */
+static long read_file(const Img *im, int isDir, const char *base, const char *dirName, const char *name, void *dst,
+                      long max) {
     char path[1300];
     FILE *f;
     long n;
-    if (!Port_DiscOpen()) {
-        return -1;
-    }
-    if (sArchive == 0) { /* a directory */
-        if (dirName != NULL) {
-            snprintf(path, sizeof path, "%s/%s/%s", sDiscName, dirName, name);
-        } else {
-            snprintf(path, sizeof path, "%s/%s", sDiscName, name);
-        }
-        f = fopen(path, "rb");
-        if (f == NULL) {
+    uint32_t lba;
+    if (isDir) {
+        if ((f = dir_open(base, dirName, name, path, sizeof path)) == NULL) {
             return -1;
         }
         n = (long)fread(dst, 1, (size_t)max, f);
         fclose(f);
         return n;
-    } else { /* an ISO image */
-        uint8_t pvd[SECTOR];
-        uint32_t lba = 0;
-        long size;
-        if (fseeko(sDisc, 16LL * SECTOR, SEEK_SET) != 0 || fread(pvd, 1, SECTOR, sDisc) != SECTOR) {
-            return -1;
-        }
-        lba = le32(pvd + 156 + 2);
-        size = (long)le32(pvd + 156 + 10);
-        if (dirName != NULL && (size = find_iso_entry(lba, (uint32_t)size, dirName, &lba)) < 0) {
-            return -1;
-        }
-        if ((size = find_iso_entry(lba, (uint32_t)size, name, &lba)) < 0) {
-            return -1;
-        }
-        n = size < max ? size : max;
-        if (fseeko(sDisc, (long long)lba * SECTOR, SEEK_SET) != 0 || fread(dst, 1, (size_t)n, sDisc) != (size_t)n) {
-            return -1;
-        }
-        return n;
     }
+    if ((n = img_file(im, dirName, name, &lba)) < 0) {
+        return -1;
+    }
+    n = n < max ? n : max;
+    return img_read(im, (long long)lba * SECTOR, dst, (size_t)n) ? n : -1;
+}
+
+long Port_DiscReadFile(const char *dirName, const char *name, void *dst, long max) {
+    if (!Port_DiscOpen()) {
+        return -1;
+    }
+    return read_file(&sImg, sDir, sDiscName, dirName, name, dst, max);
+}
+
+/* The program a disc boots (SYSTEM.CNF's BOOT2, e.g. "SLUS_200.01") into `out`, for the setup's messages about a disc
+   that is not the one expected (plat_data.c): a folder or an image, opened on its own. 0 when there is none. */
+int Port_DiscBootName(const char *name, char *out, int n) {
+    char cnf[512], bin[1100], *p, *e;
+    Img im = {NULL, SECTOR, 0};
+    long k;
+    struct stat st;
+    out[0] = 0;
+    if (stat(name, &st) == 0 && S_ISDIR(st.st_mode)) {
+        k = read_file(&im, 1, name, NULL, "SYSTEM.CNF", cnf, sizeof cnf - 1);
+    } else {
+        snprintf(bin, sizeof bin, "%s", name);
+        if ((ends_with(name, ".cue") && !cue_bin(name, bin, sizeof bin)) || !img_open(&im, bin)) {
+            return 0;
+        }
+        k = read_file(&im, 0, NULL, NULL, "SYSTEM.CNF", cnf, sizeof cnf - 1);
+        fclose(im.f);
+    }
+    if (k <= 0) {
+        return 0;
+    }
+    cnf[k] = 0;
+    if ((p = strstr(cnf, "BOOT2")) == NULL || (p = strchr(p, '\\')) == NULL) {
+        return 0;
+    }
+    p++;
+    e = p + strcspn(p, ";\r\n \t");
+    snprintf(out, (size_t)n, "%.*s", (int)(e - p), p);
+    return out[0] != 0;
 }
 
 /* TEKKEN.BIN's size in bytes (0: no disc), and the name the disc was found under (plat_data.c's messages). */
 long long Port_DiscArchiveSize(void) { return Port_DiscOpen() ? sArchiveSize : 0; }
 const char *Port_DiscName(void) { return sDiscName; }
 
-/* The host file that holds TEKKEN.BIN (the disc directory's TEKKEN.BIN, or the ISO image) and the archive's byte
-   offset in it, for plat_data.c's check on a thread of its own (with its own handle: sDisc's position belongs to the
-   game's reads); NULL without a disc. */
+/* The host file that holds TEKKEN.BIN (the disc folder's TEKKEN.BIN, or the image) and the archive's offset in the
+   image's data, for plat_data.c's check on a thread of its own (with its own handle: sImg's position belongs to the
+   game's reads, Port_DiscArchiveReadAt); NULL without a disc. */
 const char *Port_DiscArchiveFile(long long *offset) {
-    static char path[1100];
     if (!Port_DiscOpen()) {
         return NULL;
     }
     *offset = sArchive;
-    if (sArchive == 0) {
-        snprintf(path, sizeof path, "%s/TEKKEN.BIN", sDiscName);
-    } else {
-        snprintf(path, sizeof path, "%s", sDiscName);
-    }
-    return path;
+    return sImage;
+}
+
+/* `n` bytes from byte `off` of TEKKEN.BIN through `f`, a handle of Port_DiscArchiveFile's own (the image's layout). */
+int Port_DiscArchiveReadAt(FILE *f, long long off, void *dst, size_t n) {
+    Img im = sImg;
+    im.f = f;
+    return Port_DiscOpen() && off >= 0 && off + (long long)n <= sArchiveSize && img_read(&im, sArchive + off, dst, n);
 }
 
 /* ---- RSPU2DRV ---- */

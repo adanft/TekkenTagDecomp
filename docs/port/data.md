@@ -49,11 +49,13 @@ addresses (`build/port/gen/symbols.ld`, `image.ld`).
 
 On start (`Port_MapMemory` in `plat_mem.c`, a constructor, before anything of the game):
 
-1. The data file is `TTT_DATA`, else `ttt.dat` beside the program (`build/port/ttt.dat` in a checkout, ignored by
-   git). If it is whole (header, size, the layout this program expects, payload SHA-1) and unmodified, its payload
+1. The data file is `TTT_DATA`, else `ttt.dat` in the data folder: beside the program in a checkout
+   (`build/port/ttt.dat`, ignored by git) or when portable, else `$XDG_DATA_HOME/ttt/` ([install.md](install.md)).
+   The folder is made when the file is written. If it is whole (header, size, the layout this program expects, payload SHA-1) and unmodified, its payload
    is copied into EE RAM; the disc is then checked lightly on every run: `TEKKEN.BIN`'s size and `RSPU2DRV.IRX`'s
    SHA-1 (22 ms in all), and `TEKKEN.BIN`'s content through its recorded check (below).
-2. Otherwise it is made from the disc (`TTT_DISC`, `iso/`: [README](README.md), "Platform layer"): `SLUS_200.01`
+2. Otherwise it is made from the disc (`TTT_DISC`, the settings' `game.disc`, `iso/`: [README](README.md),
+   "Platform layer"; a folder, `.iso`, or raw `.bin` / `.cue`): `SLUS_200.01`
    (size and SHA-1), `RSPU2DRV.IRX` (SHA-1) and the whole `TEKKEN.BIN` (size and SHA-1) are checked against the USA
    release, the ranges' bytes are taken out of the executable's loadable segment and their SHA-1 compared with the
    layout's, and the file is written (temporary file, `fsync`, rename). About 1.1 s once. If the file cannot be
@@ -67,7 +69,7 @@ holds the user's own game data and is never shipped.
 
 | Case | Result |
 |---|---|
-| no data file and no disc | `ttt: no disc: …` on stderr, exit code 2 (as before) |
+| no data file and no disc | a run in real time with a window: the setup screen ([install.md](install.md)); otherwise `ttt: no disc: …` on stderr, exit code 2 (as before) |
 | a file of the disc differs from the USA release | `ttt: unknown or modified disc (<disc>): <file> has SHA-1 <x>, expected <y>. …`, exit code 4, no data file written |
 | the same with `TTT_ALLOW_MODIFIED=1` | runs; `ttt: [modified game data] <file> differs from the USA release` on stderr, `gPortModifiedData = 1` (for T41's mark), the data file is flagged; a flagged file is used only under `TTT_ALLOW_MODIFIED=1`, otherwise it is made again (refused if the disc is still modified) |
 | a damaged data file (payload SHA-1) | `ttt: <file> is damaged: making it again from the disc` |
@@ -118,10 +120,22 @@ window.
 
 ## Shipping model
 
-A release is the program (and later its setup, T43) built from the repository: `build/port/ttt` contains the
-decompiled code, the platform layer, the layout's addresses and the hashes above, no byte of the game. The user
-points it at their disc (an `.iso`, or the folder `scripts/setup_disc.py` makes); the first run checks the disc and
-writes `ttt.dat`. T43's installer will do step 2 natively instead of on first run; T44 packages the program alone.
+A release is the program built from the repository: `build/port/ttt` contains the decompiled code, the platform
+layer, the layout's addresses and the hashes above, no byte of the game. The player points it at their disc on the
+setup screen or with `ttt --setup <disc>` (T43, [install.md](install.md): a mounted disc, a folder of its files, an
+`.iso`, or a raw `.bin` / `.cue`); the program checks the disc and writes `ttt.dat` itself, and remembers the disc as
+`game.disc`. Nothing a player does needs Python: `scripts/setup_disc.py` (copying a disc into the repository's `iso/`)
+and `port/tools/*.py` are developer tools. T44 packages the program alone.
+
+### Before and after T43
+
+| Step | Before | Now |
+|---|---|---|
+| Disc as a raw `.bin` / `.cue` | `scripts/setup_disc.py` (Python) copied it to `iso/` | read directly (`plat_file.c`) |
+| Disc mounted by the system (lower-case names) | not found | found |
+| Telling the program where the disc is | `TTT_DISC` or `iso/` beside the program, by hand | the setup screen or `--setup`, remembered as `game.disc` |
+| Making `ttt.dat` | first run, beside the program | first run or the setup, in the per-user data folder |
+| A refused or missing disc | message and exit code | the same without a window; the setup screen with the reason in a real-time run |
 
 ## Files
 
@@ -132,7 +146,11 @@ writes `ttt.dat`. T43's installer will do step 2 natively instead of on first ru
 - `port/src/plat_data.c`: SHA-1, the data file, the disc checks, `Port_LoadGameData`; T41: the `.disc` record, the
   background check, `Port_DataState` / `Port_DataMark` / `Port_DataReport`.
 - `port/src/plat_file.c`: `Port_DiscReadFile(NULL, name)` reads a file of the disc's root; `Port_DiscArchiveSize`;
-  `Port_DiscArchiveFile` (the host file holding `TEKKEN.BIN` and its offset).
+  `Port_DiscArchiveFile` (the host file holding `TEKKEN.BIN` and its offset) and `Port_DiscArchiveReadAt` (a read
+  through another handle, in the image's sector layout); T43: raw `.bin` / `.cue`, lower-case folders,
+  `Port_DiscUse`, `Port_DiscBootName`.
+- `port/src/plat_setup.c`, `port/src/plat_paths.c` (T43): the setup and the data folder; `Port_DataInstall`,
+  `Port_DataPending` in `plat_data.c`.
 - `port/src/plat_window.c` (title), `port/src/overlay.cpp` (overlay): the mark.
 - Tests: `tests/test_port_data.py` (`DataMarkTest`: the mark with a changed `RSPU2DRV.IRX` or `TEKKEN.BIN` in a
   temporary copy of the disc, none otherwise), `tests/test_port_mem.py`, `tests/test_port_tools.py`.

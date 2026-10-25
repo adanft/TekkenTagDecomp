@@ -7,9 +7,9 @@
  *   <textures>/SLUS-20001/replacements/**<name>.png  read here, any size, any sub-folder (replace mode)
  *
  * <textures> is video.texture_dir (TTT_TEXTURES), else the repository's textures/ when the program is build/port/ttt
- * of a checkout, else textures/ beside the program. A name is PCSX2's (GSTextureReplacements.cpp, GSTextureCache.cpp
- * HashTextureLevel / HashCacheKey::Create): `<tex>-<bits>` or, for an indexed texture, `<tex>-<clut>-<bits>`, with
- * <tex> and <clut> XXH3-64 in lower-case hex without leading zeros and <bits> eight hex digits:
+ * of a checkout, else textures/ in the player's data folder (plat_paths.c, T43: beside the program when portable).
+ * A name is PCSX2's (GSTextureReplacements.cpp, GSTextureCache.cpp HashTextureLevel / HashCacheKey::Create):
+ * `<tex>-<bits>` or, for an indexed texture, `<tex>-<clut>-<bits>`, with <tex> and <clut> XXH3-64 in lower-case hex without leading zeros and <bits> eight hex digits:
  *
  *   - tex: XXH3-64 of the texture's data at level 0, TW x TH texels from TBP0 / TBW / PSM. PSMCT32, PSMT8 and PSMT4
  *     textures at least one block wide and high hash their 256-byte blocks of GS memory as stored, block rows top to
@@ -387,26 +387,15 @@ static int parse_name(const char *f, TpName *n) {
 
 static char sRoot[1024], sGame[1100];
 
+void Port_UserFolder(const char *leaf, char *out, int n); /* plat_paths.c */
+
 static void folders(void) {
-    char exe[1024], probe[1100];
-    ssize_t k;
     if (sGame[0]) {
         return;
     }
     Settings_GetStr("video.texture_dir", sRoot, sizeof sRoot);
     if (!sRoot[0]) {
-        snprintf(sRoot, sizeof sRoot, "textures");
-        k = readlink("/proc/self/exe", exe, sizeof exe - 1);
-        if (k > 0) {
-            char *slash;
-            exe[k] = 0;
-            slash = strrchr(exe, '/');
-            if (slash != NULL) {
-                *slash = 0;
-                snprintf(probe, sizeof probe, "%s/../../port/tools/build.py", exe);
-                snprintf(sRoot, sizeof sRoot, access(probe, F_OK) == 0 ? "%s/../../textures" : "%s/textures", exe);
-            }
-        }
+        Port_UserFolder("textures", sRoot, sizeof sRoot);
     }
     snprintf(sGame, sizeof sGame, "%s/" SERIAL, sRoot);
 }
