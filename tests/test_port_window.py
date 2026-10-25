@@ -154,6 +154,9 @@ class Overlay(unittest.TestCase):
             self.assertIn(WINDOW_TEST, r.stdout)
             self.assertNotIn("ImGui check failed", r.stderr)
             self.assertIn("keys.p1.square = Space\n", cfg.read_text())
+            # T34: a gamepad binding through the capture path (a made-up gamepad event), saved by name
+            self.assertIn("ttt: overlay: gamepad capture 1 (pad 2 cross: north)", r.stdout)
+            self.assertIn("pad.p2.cross = north\n", cfg.read_text())
             plain = run_ttt(TTT_FRAMES=frames, TTT_SEED="1")
             self.assertIsNotNone(state(plain), plain.stdout[-2000:])
             self.assertEqual(state(r), state(plain))

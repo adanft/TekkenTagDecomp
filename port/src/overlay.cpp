@@ -10,7 +10,8 @@
  * into this file's and ImGui's functions only (tests/test_port_float.py).
  *
  * Platform glue written here (SDL3 is loaded at run time, so ImGui's SDL3 backend, which links SDL, is not used): the
- * raw SDL events by offset, as plat_window.c reads them. Renderers: ImGui's OpenGL 3 backend (functions from
+ * raw SDL events by offset, as plat_window.c reads them (keys, mouse, and gamepads for ImGui's gamepad navigation: the
+ * d-pad or left stick moves, south activates, east goes back). Renderers: ImGui's OpenGL 3 backend (functions from
  * SDL_GL_GetProcAddress), or a small SDL_Renderer path for TTT_RENDERER=sw (SDL_RenderGeometryRaw).
  */
 #include <float.h>
@@ -47,21 +48,25 @@ extern "C" void Overlay_AssertFailed(const char *what, const char *file, int lin
 /* SDL3 values (plat_window.c's style: no SDL headers) */
 enum : uint32_t {
     EV_KEY_DOWN = 0x300, EV_KEY_UP = 0x301, EV_MOUSE_MOTION = 0x400, EV_MOUSE_DOWN = 0x401, EV_MOUSE_UP = 0x402,
-    EV_MOUSE_WHEEL = 0x403, EV_MOUSE_LEAVE = 0x20D, EV_FOCUS_LOST = 0x20F,
+    EV_MOUSE_WHEEL = 0x403, EV_MOUSE_LEAVE = 0x20D, EV_FOCUS_LOST = 0x20F, EV_PAD_AXIS = 0x650, EV_PAD_DOWN = 0x651,
+    EV_PAD_UP = 0x652,
     PIXELFORMAT_RGBA32 = 0x16762004u, TEXTUREACCESS_STATIC = 0, BLENDMODE_BLEND = 1,
 };
 static const int kScancodeAt = 24, kKeyModAt = 32, kKeyDownAt = 36, kKeyRepeatAt = 37; /* SDL_KeyboardEvent */
 static const int kMouseXAt = 28, kMouseYAt = 32, kButtonAt = 24, kButtonDownAt = 25;  /* SDL_Mouse*Event */
 static const int kWheelXAt = 24, kWheelYAt = 28, kWheelDirAt = 32;
+static const int kPadCodeAt = 20, kPadDownAt = 21, kPadAxisValueAt = 24; /* SDL_Gamepad{Button,Axis}Event */
 
 static int sMode; /* 0 none, 1 GL, 2 SDL renderer */
 static OverlaySdlRenderer sSw;
 static bool sSettings, sQuitAsk, sQuitYes;
 static int sCapturePad = -1, sCaptureButton = -1;
+static bool sCaptureGamepad; /* the binding being captured is a gamepad's (pad.*), not a key's */
+static int sGamepadPage;     /* the Controls page's gamepad: pad 1-4 */
 static int64_t sLastNs;
 static int64_t sShown[64]; /* the meter: when the last pictures reached the window */
 static unsigned sShownN;
-static int sTest = -1, sTestFrames, sTestPages, sTestCapture; /* TTT_OVERLAY_TEST */
+static int sTest = -1, sTestFrames, sTestPages, sTestCapture, sTestGpCapture; /* TTT_OVERLAY_TEST */
 static int sTestTab = -1;
 static unsigned sDrawn;
 static unsigned sMarkDrawn; /* frames the settings window showed the [modified game data] mark (TTT_OVERLAY_TEST) */
@@ -83,7 +88,8 @@ static void init_common(void) {
     ImGuiIO &io = ImGui::GetIO();
     io.IniFilename = nullptr;
     io.LogFilename = nullptr;
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
+    io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
     io.BackendPlatformName = "ttt_sdl3_raw";
     ImGui::StyleColorsDark();
     ImGuiStyle &st = ImGui::GetStyle();
@@ -295,6 +301,59 @@ static void bind_captured(uint32_t sc) {
     sCapturePad = sCaptureButton = -1;
 }
 
+static void bind_captured_gamepad(unsigned input) {
+    uint8_t g[SETTINGS_PADS][SB_GAMEPAD_COUNT];
+    Port_WindowGetGamepad(g);
+    if (Settings_RebindGamepad(g, sCapturePad, sCaptureButton, input)) {
+        Port_WindowSetGamepad(g);
+        Settings_SaveGamepad(g);
+        sTestGpCapture += sTest >= 0;
+    }
+    sCapturePad = sCaptureButton = -1;
+}
+
+static int16_t rd_s16(const uint8_t *p) {
+    int16_t v;
+    memcpy(&v, p, 2);
+    return v;
+}
+
+/* SDL gamepad buttons (SDL_GamepadButton order) as ImGui's gamepad keys */
+static const ImGuiKey kPadKeys[15] = {
+    ImGuiKey_GamepadFaceDown, ImGuiKey_GamepadFaceRight, ImGuiKey_GamepadFaceLeft, ImGuiKey_GamepadFaceUp,
+    ImGuiKey_GamepadBack, ImGuiKey_None, ImGuiKey_GamepadStart, ImGuiKey_GamepadL3, ImGuiKey_GamepadR3,
+    ImGuiKey_GamepadL1, ImGuiKey_GamepadR1, ImGuiKey_GamepadDpadUp, ImGuiKey_GamepadDpadDown,
+    ImGuiKey_GamepadDpadLeft, ImGuiKey_GamepadDpadRight,
+};
+
+static void stick_keys(ImGuiKey neg, ImGuiKey pos, int16_t raw) {
+    ImGuiIO &io = ImGui::GetIO();
+    float v = (float)raw / 32767.0f;
+    io.AddKeyAnalogEvent(neg, v < -0.3f, v < 0.0f ? -v : 0.0f);
+    io.AddKeyAnalogEvent(pos, v > 0.3f, v > 0.0f ? v : 0.0f);
+}
+
+/* A gamepad event while a binding is captured: 1 when taken (a button or a trigger past half way binds, guide
+   cancels). Releases and the sticks go on: ImGui sees the release of the button that started the capture. */
+static int capture_gamepad_event(uint32_t type, const uint8_t *ev) {
+    if (type == EV_PAD_DOWN) {
+        unsigned b = ev[kPadCodeAt];
+        if (b == SETTINGS_GP_GUIDE || !sCaptureGamepad) {
+            sCapturePad = sCaptureButton = -1; /* cancelled (guide; or a key was asked for) */
+        } else if (b < SETTINGS_GP_LTRIGGER) {
+            bind_captured_gamepad(b);
+        }
+        return 1;
+    }
+    if (type == EV_PAD_AXIS && (ev[kPadCodeAt] == 4 || ev[kPadCodeAt] == 5)) {
+        if (sCaptureGamepad && rd_s16(ev + kPadAxisValueAt) >= 16384) {
+            bind_captured_gamepad(ev[kPadCodeAt] == 4 ? SETTINGS_GP_LTRIGGER : SETTINGS_GP_RTRIGGER);
+        }
+        return 1;
+    }
+    return 0;
+}
+
 extern "C" int Overlay_Event(uint32_t type, const uint8_t *ev) {
     if (sMode == 0) {
         return 0;
@@ -302,12 +361,15 @@ extern "C" int Overlay_Event(uint32_t type, const uint8_t *ev) {
     if ((type == EV_KEY_DOWN || type == EV_KEY_UP) && sCapturePad >= 0) {
         uint32_t sc = rd_u32(ev + kScancodeAt);
         if (type == EV_KEY_DOWN && ev[kKeyRepeatAt] == 0) {
-            if (sc == SETTINGS_SC_ESCAPE || sc == SETTINGS_SC_OPEN) {
-                sCapturePad = sCaptureButton = -1; /* cancelled */
+            if (sc == SETTINGS_SC_ESCAPE || sc == SETTINGS_SC_OPEN || sCaptureGamepad) {
+                sCapturePad = sCaptureButton = -1; /* cancelled (Escape, F1; any key for a gamepad's binding) */
             } else {
                 bind_captured(sc);
             }
         }
+        return 1;
+    }
+    if (sCapturePad >= 0 && capture_gamepad_event(type, ev)) {
         return 1;
     }
     if (!Overlay_Open()) {
@@ -338,6 +400,27 @@ extern "C" int Overlay_Event(uint32_t type, const uint8_t *ev) {
     case EV_FOCUS_LOST:
         io.AddFocusEvent(false);
         break;
+    case EV_PAD_DOWN:
+    case EV_PAD_UP: {
+        unsigned b = ev[kPadCodeAt];
+        if (b < 15 && kPadKeys[b] != ImGuiKey_None) {
+            io.AddKeyEvent(kPadKeys[b], type == EV_PAD_DOWN && ev[kPadDownAt] != 0);
+        }
+        break;
+    }
+    case EV_PAD_AXIS: {
+        int16_t v = rd_s16(ev + kPadAxisValueAt);
+        switch (ev[kPadCodeAt]) {
+        case 0: stick_keys(ImGuiKey_GamepadLStickLeft, ImGuiKey_GamepadLStickRight, v); break;
+        case 1: stick_keys(ImGuiKey_GamepadLStickUp, ImGuiKey_GamepadLStickDown, v); break;
+        case 2: stick_keys(ImGuiKey_GamepadRStickLeft, ImGuiKey_GamepadRStickRight, v); break;
+        case 3: stick_keys(ImGuiKey_GamepadRStickUp, ImGuiKey_GamepadRStickDown, v); break;
+        case 4: io.AddKeyAnalogEvent(ImGuiKey_GamepadL2, v >= 16384, v > 0 ? (float)v / 32767.0f : 0.0f); break;
+        case 5: io.AddKeyAnalogEvent(ImGuiKey_GamepadR2, v >= 16384, v > 0 ? (float)v / 32767.0f : 0.0f); break;
+        default: break;
+        }
+        break;
+    }
     case EV_KEY_DOWN:
     case EV_KEY_UP: {
         uint32_t sc = rd_u32(ev + kScancodeAt);
@@ -520,8 +603,11 @@ static void speed_choice(const char *label, const char *key, int lo) {
 
 static void page_controls(void) {
     uint16_t b[2][SB_COUNT];
-    char name[32], id[32];
+    uint8_t g[SETTINGS_PADS][SB_GAMEPAD_COUNT];
+    char name[32], id[48];
     Port_WindowGetBindings(b);
+    Port_WindowGetGamepad(g);
+    ImGui::SeparatorText("Keyboard");
     ImGui::TextWrapped("Click a key, then press the new key (Escape cancels). F1, Escape and Tab (fast-forward) are kept for the overlay.");
     if (ImGui::BeginTable("keys", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit)) {
         ImGui::TableSetupColumn("Button");
@@ -534,12 +620,13 @@ static void page_controls(void) {
             ImGui::TextUnformatted(Settings_ButtonName(k));
             for (int p = 0; p < 2; p++) {
                 ImGui::TableNextColumn();
-                bool waiting = sCapturePad == p && sCaptureButton == k;
+                bool waiting = !sCaptureGamepad && sCapturePad == p && sCaptureButton == k;
                 Settings_KeyName(b[p][k], name, sizeof name);
-                snprintf(id, sizeof id, "%s##%d_%d", waiting ? "press a key..." : name, p, k);
+                snprintf(id, sizeof id, "%s##k%d_%d", waiting ? "press a key..." : name, p, k);
                 if (ImGui::Button(id, ImVec2(150.0f, 0.0f))) {
                     sCapturePad = p;
                     sCaptureButton = k;
+                    sCaptureGamepad = false;
                 }
             }
         }
@@ -550,12 +637,59 @@ static void page_controls(void) {
         Port_WindowSetBindings(b);
         Settings_SaveBindings(b);
     }
+
     ImGui::SeparatorText("Gamepads");
-    for (int p = 0; p < 2; p++) {
+    for (int p = 0; p < SETTINGS_PADS; p++) {
         const char *n = Port_WindowGamepadName(p);
-        ImGui::Text("Pad %d: %s", p + 1, n != nullptr ? n : "(none: keyboard only)");
+        ImGui::Text("Pad %d: %s", p + 1, n != nullptr ? n : p < 2 ? "(none: keyboard only)" : "(none)");
     }
-    ImGui::TextDisabled("The first two gamepads SDL finds are pads 1 and 2, in the order they connect.");
+    ImGui::TextDisabled("The first four gamepads SDL finds are pads 1-4, in the order they connect. Guide opens this window.");
+    for (int p = 0; p < SETTINGS_PADS; p++) {
+        snprintf(id, sizeof id, "Pad %d##gp", p + 1);
+        if (p > 0) {
+            ImGui::SameLine();
+        }
+        if (ImGui::RadioButton(id, sGamepadPage == p)) {
+            sGamepadPage = p;
+        }
+    }
+    ImGui::TextWrapped("Click a button, then press the gamepad's button or trigger (guide or any key cancels).");
+    const int gp = sGamepadPage;
+    if (ImGui::BeginTable("gamepad", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit)) {
+        ImGui::TableSetupColumn("Button");
+        ImGui::TableSetupColumn("Gamepad", ImGuiTableColumnFlags_WidthFixed, 200.0f);
+        ImGui::TableHeadersRow();
+        for (int k = 0; k < SB_GAMEPAD_COUNT; k++) {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(Settings_ButtonName(k));
+            ImGui::TableNextColumn();
+            bool waiting = sCaptureGamepad && sCapturePad == gp && sCaptureButton == k;
+            snprintf(id, sizeof id, "%s##g%d_%d", waiting ? "press a button..." : Settings_GamepadInputName(g[gp][k]), gp, k);
+            if (ImGui::Button(id, ImVec2(190.0f, 0.0f))) {
+                sCapturePad = gp;
+                sCaptureButton = k;
+                sCaptureGamepad = true;
+            }
+        }
+        ImGui::EndTable();
+    }
+    snprintf(id, sizeof id, "Default buttons (pad %d)", gp + 1);
+    if (ImGui::Button(id)) {
+        uint8_t d[SETTINGS_PADS][SB_GAMEPAD_COUNT];
+        Settings_DefaultGamepad(d);
+        memcpy(g[gp], d[gp], sizeof g[gp]);
+        Port_WindowSetGamepad(g);
+        Settings_SaveGamepad(g);
+    }
+
+    ImGui::SeparatorText("Sticks, vibration, multitap");
+    slider("Stick dead zone", "input.deadzone", 0, 90, "%d%%");
+    check("Left stick works the d-pad", "input.stick_dpad");
+    ImGui::TextDisabled("The game itself reads the d-pad only; the sticks also reach it as they are.");
+    check("Vibration", "input.vibration");
+    check("Multitap: four players (pads 1-4 on port 1A-1D)", "input.multitap");
+    ImGui::TextDisabled("With the multitap, pad 2 is slot 1B and port 2 is empty; recordings keep their own setting.");
 }
 
 static void page_game(void) {
@@ -722,6 +856,17 @@ extern "C" void Overlay_TestStep(void) {
         ev[kKeyDownAt] = 1;
         Overlay_Event(type, ev);
     }
+    if (n == 29) { /* bind pad 2's cross to north through the gamepad capture path: a made-up gamepad event */
+        uint8_t ev[128] = {0};
+        uint32_t type = EV_PAD_DOWN;
+        sCapturePad = 1;
+        sCaptureButton = SB_CROSS;
+        sCaptureGamepad = true;
+        memcpy(ev, &type, 4);
+        ev[kPadCodeAt] = 3; /* north */
+        ev[kPadDownAt] = 1;
+        Overlay_Event(type, ev);
+    }
     if (n == 40) { /* the window's test asked "Quit?" with Escape at its frame 30: answer no */
         sQuitAsk = false;
         Port_WindowApply();
@@ -745,6 +890,10 @@ extern "C" void Overlay_Report(void) {
         printf("ttt: overlay: %d frames drawn (%s), pages %d/6, key capture %d (pad 1 square: %s)\n", sTestFrames,
                sMode == 1 ? "gl" : "sw", pages(), sTestCapture, name);
         printf("ttt: overlay: data mark drawn %u times\n", sMarkDrawn);
+        uint8_t g[SETTINGS_PADS][SB_GAMEPAD_COUNT];
+        Port_WindowGetGamepad(g);
+        printf("ttt: overlay: gamepad capture %d (pad 2 cross: %s)\n", sTestGpCapture,
+               Settings_GamepadInputName(g[1][SB_CROSS]));
         fflush(stdout);
     }
 }

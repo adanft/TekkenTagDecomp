@@ -11,8 +11,11 @@
  * renderer's vsync (TTT_VSYNC=0: without). The game's pace is the platform clock's (plat_hw.c): 59.94 Hz in real
  * time, as fast as it goes headless. Closing the window or Escape ends the program (Port_WindowClosed).
  *
- * Input (T34): the window thread keeps the keyboard's and the first two SDL gamepads' state as two PS2 pads
- * (libpad's button bits, the sticks as bytes); plat_pad.c takes a copy at each VBlank (Port_WindowPads).
+ * Input (T34): the window thread keeps the keyboard's state (pads 1 and 2) and the first four SDL gamepads' (pads 1-4,
+ * in the order they connect) raw; plat_pad.c takes the pads at each VBlank (Port_WindowPads), made there into libpad's
+ * button bits and stick bytes through the bindings (keys.*, pad.*), the sticks' dead zone (input.deadzone) and the left
+ * stick as the d-pad (input.stick_dpad). The game's vibration (plat_pad.c, Port_WindowRumble) goes to the pad's
+ * gamepad from this thread (SDL_RumbleGamepad, input.vibration); the guide button opens the settings, as F1 does.
  *
  * Only pointer and integer arguments cross into SDL (no SDL_FRect: the port has no host floating point).
  *
@@ -134,6 +137,7 @@ static struct {
     _Bool (*SetRenderClipRect)(void *renderer, const void *rect);
     _Bool (*SetTextureBlendMode)(void *texture, uint32_t mode);
     _Bool (*SetWindowTitle)(void *window, const char *title); /* optional: the data mark (T41) */
+    _Bool (*RumbleGamepad)(void *gamepad, uint16_t low, uint16_t high, uint32_t ms); /* optional: vibration (T34) */
 } sdl;
 
 static const struct {
@@ -191,7 +195,7 @@ static int sQuitReq; /* the game's thread asks the window thread to release the 
 static void *sWindow, *sRenderer, *sGlContext;
 static char sWhy[512];
 
-/* ---- input: two PS2 pads from the keyboard and the gamepads ---- */
+/* ---- input: PS2 pads from the keyboard and the gamepads ---- */
 /* libpad's button bits (1 = pressed) */
 #define PB_L2 0x0001u
 #define PB_R2 0x0002u
@@ -209,27 +213,32 @@ static char sWhy[512];
 #define PB_RIGHT 0x2000u
 #define PB_DOWN 0x4000u
 #define PB_LEFT 0x8000u
+#define NGAMEPADS SETTINGS_PADS
 
 /* Keyboard (SDL scancodes, the key's place, whatever the layout): [pad][SB_*] (plat_settings.h), from the settings
    file over the defaults (pad 1 on the letters, pad 2 on the arrows and the keypad; Tekken's default: square left
    punch, triangle right punch, cross left kick, circle right kick). Window thread only. */
 static uint16_t sBind[2][SB_COUNT];
-static const uint16_t kBindBits[SB_COUNT] = {PB_UP, PB_DOWN, PB_LEFT, PB_RIGHT, PB_SQUARE, PB_TRIANGLE, PB_CROSS,
-                                             PB_CIRCLE, PB_L1, PB_R1, PB_L2, PB_R2, PB_START, PB_SELECT};
-
-/* SDL gamepad buttons (SDL_GamepadButton: south, east, west, north, back, guide, start, sticks, shoulders, d-pad) */
-static const uint16_t kPadButtons[15] = {
-    PB_CROSS, PB_CIRCLE, PB_SQUARE, PB_TRIANGLE, PB_SELECT, 0, PB_START, PB_L3, PB_R3, PB_L1, PB_R1,
-    PB_UP, PB_DOWN, PB_LEFT, PB_RIGHT,
-};
+static const uint16_t kBindBits[SB_GAMEPAD_COUNT] = {PB_UP, PB_DOWN, PB_LEFT, PB_RIGHT, PB_SQUARE, PB_TRIANGLE,
+                                                     PB_CROSS, PB_CIRCLE, PB_L1, PB_R1, PB_L2, PB_R2, PB_START,
+                                                     PB_SELECT, PB_L3, PB_R3};
 
 static pthread_mutex_t sPadLock = PTHREAD_MUTEX_INITIALIZER;
-static uint16_t sKeyButtons[2], sPadButtons[2];
-static uint16_t sLatched[2]; /* buttons pressed since the last VBlank's look: a tap between two VBlanks still counts */
-static uint8_t sAnalog[2][4] = {{0x80, 0x80, 0x80, 0x80}, {0x80, 0x80, 0x80, 0x80}};
-static void *sGamepad[2];  /* the gamepad of each pad, the first two connected */
-static uint32_t sGamepadId[2];
-static char sGamepadName[2][128];
+static uint16_t sKeyButtons[2];
+static uint16_t sLatched[2]; /* keys pressed since the last VBlank's look: a tap between two VBlanks still counts */
+/* The gamepads, raw (under sPadLock): SDL buttons down (bit = SDL_GamepadButton), pressed since the last look, axes
+   (left x, left y, right x, right y, left trigger, right trigger). Bindings [pad][SB_* / SB_L3 / SB_R3]. */
+static uint32_t sGpDown[NGAMEPADS], sGpLatched[NGAMEPADS];
+static int16_t sGpAxis[NGAMEPADS][6];
+static uint8_t sGpBind[NGAMEPADS][SB_GAMEPAD_COUNT];
+static int sDeadzone = 20, sStickDpad = 1, sVibration = 1; /* input.* as last applied (under sPadLock) */
+static void *sGamepad[NGAMEPADS]; /* the gamepad of each pad, the first four connected (window thread) */
+static uint32_t sGamepadId[NGAMEPADS];
+static char sGamepadName[NGAMEPADS][128];
+static uint32_t sRumbleWant[NGAMEPADS]; /* the game's motors (atomic): large * 257 << 16 | small ? 0xFFFF : 0 */
+static uint32_t sRumbleSent[NGAMEPADS];
+static int64_t sRumbleAt[NGAMEPADS];
+static int sNoRumble; /* TTT_WINDOW_HIDDEN: a hidden window (the tests) never rumbles a gamepad */
 static int sInputBlocked; /* the overlay is open: the pads see nothing pressed (under sPadLock) */
 static int sPaused;       /* the overlay is open and game.pause: the game's clock waits (atomic) */
 static int sFastHeld;     /* Tab (SETTINGS_SC_FAST) is held: game.fast_forward instead of game.speed (window thread) */
@@ -241,7 +250,7 @@ static void pad_set(uint16_t *b, uint16_t bit, int down) {
 
 static int gamepad_slot(uint32_t id) {
     int i;
-    for (i = 0; i < 2; i++) {
+    for (i = 0; i < NGAMEPADS; i++) {
         if (sGamepad[i] != NULL && sGamepadId[i] == id) {
             return i;
         }
@@ -269,11 +278,13 @@ static void input_event(uint32_t type, const uint8_t *ev) {
         memcpy(&id, ev + SDL_WHICH_OFFSET, 4);
         i = gamepad_slot(id);
         if (type == SDL_EVENT_GAMEPAD_ADDED && i < 0) {
-            i = sGamepad[0] == NULL ? 0 : sGamepad[1] == NULL ? 1 : -1;
-            if (i >= 0 && (sGamepad[i] = sdl.OpenGamepad(id)) != NULL) {
+            for (i = 0; i < NGAMEPADS && sGamepad[i] != NULL; i++) {
+            }
+            if (i < NGAMEPADS && (sGamepad[i] = sdl.OpenGamepad(id)) != NULL) {
                 const char *name = sdl.GetGamepadName(sGamepad[i]);
                 sGamepadId[i] = id;
                 snprintf(sGamepadName[i], sizeof sGamepadName[i], "%s", name != NULL ? name : "gamepad");
+                sRumbleSent[i] = 0;
                 printf("ttt: input: pad %d: %s\n", i + 1, name != NULL ? name : "gamepad");
                 fflush(stdout);
             }
@@ -281,23 +292,21 @@ static void input_event(uint32_t type, const uint8_t *ev) {
             sdl.CloseGamepad(sGamepad[i]);
             sGamepad[i] = NULL;
             sGamepadName[i][0] = 0;
-            sPadButtons[i] = 0;
-            memset(sAnalog[i], 0x80, 4);
+            sGpDown[i] = sGpLatched[i] = 0;
+            memset(sGpAxis[i], 0, sizeof sGpAxis[i]);
         } else if (type == SDL_EVENT_GAMEPAD_AXIS_MOTION && i >= 0) {
             uint8_t axis = ev[SDL_BUTTON_OFFSET];
             int16_t v;
             memcpy(&v, ev + SDL_AXIS_VALUE_OFFSET, 2);
-            if (axis < 4) { /* left x, left y, right x, right y -> libpad's right x, right y, left x, left y */
-                sAnalog[i][axis ^ 2] = (uint8_t)((v + 32768) >> 8);
-            } else if (axis < 6) { /* triggers: L2 / R2 past half way */
-                pad_set(&sPadButtons[i], axis == 4 ? PB_L2 : PB_R2, v >= 16384);
+            if (axis < 6) {
+                sGpAxis[i][axis] = v;
             }
         } else if ((type == SDL_EVENT_GAMEPAD_BUTTON_DOWN || type == SDL_EVENT_GAMEPAD_BUTTON_UP) && i >= 0) {
             uint8_t b = ev[SDL_BUTTON_OFFSET];
-            if (b < 15) {
-                pad_set(&sPadButtons[i], kPadButtons[b], ev[SDL_BUTTON_DOWN_OFFSET] != 0);
+            if (b < 32) {
+                sGpDown[i] = ev[SDL_BUTTON_DOWN_OFFSET] != 0 ? sGpDown[i] | 1u << b : sGpDown[i] & ~(1u << b);
                 if (ev[SDL_BUTTON_DOWN_OFFSET] != 0) {
-                    sLatched[i] |= kPadButtons[b];
+                    sGpLatched[i] |= 1u << b;
                 }
             }
         }
@@ -305,21 +314,104 @@ static void input_event(uint32_t type, const uint8_t *ev) {
     pthread_mutex_unlock(&sPadLock);
 }
 
-/* The pads now (plat_pad.c, at a VBlank, on the game's thread): keyboard and gamepad buttons together; nothing
-   pressed while the overlay is open. */
-void Port_WindowPads(uint16_t buttons[2], uint8_t analog[2][4]) {
-    int i;
-    pthread_mutex_lock(&sPadLock);
-    for (i = 0; i < 2; i++) {
-        buttons[i] = sInputBlocked ? 0 : (uint16_t)(sKeyButtons[i] | sPadButtons[i] | sLatched[i]);
-        sLatched[i] = 0;
-        if (sInputBlocked) {
-            memset(analog[i], 0x80, 4);
-        } else {
-            memcpy(analog[i], sAnalog[i], 4);
+/* One stick (SDL's -32768..32767, y down) as libpad's two bytes (0x80 centre, y down) past the dead zone (`dz` percent,
+   round: inside it the stick is centred; outside, each axis is stretched to the full range again), and the d-pad
+   directions it presses when `dpad` is set: past half way, in eight 45-degree sectors. Integers only. */
+static void stick(int x, int y, int dz, int dpad, uint8_t out[2], uint16_t *buttons) {
+    uint32_t ax = (uint32_t)(x < 0 ? -x : x), ay = (uint32_t)(y < 0 ? -y : y), d = (uint32_t)dz * 32767u / 100u;
+    uint32_t sx, sy;
+
+    out[0] = out[1] = 0x80;
+    if (ax * ax + ay * ay < d * d) {
+        return;
+    }
+    sx = ax <= d ? 0 : (ax - d) * 32767u / (32767u - d);
+    sy = ay <= d ? 0 : (ay - d) * 32767u / (32767u - d);
+    sx = sx > 32767 ? 32767 : sx;
+    sy = sy > 32767 ? 32767 : sy;
+    out[0] = (uint8_t)((x < 0 ? 32768 - sx : 32768 + sx) >> 8);
+    out[1] = (uint8_t)((y < 0 ? 32768 - sy : 32768 + sy) >> 8);
+    if (dpad && (sx >= 16384 || sy >= 16384)) {
+        if (sy * 29 <= sx * 70) { /* within 67.5 degrees of the x axis (tan 67.5 = 2.414 ~ 70 / 29) */
+            *buttons |= x < 0 ? PB_LEFT : PB_RIGHT;
+        }
+        if (sx * 29 <= sy * 70) {
+            *buttons |= y < 0 ? PB_UP : PB_DOWN;
         }
     }
+}
+
+/* A gamepad's buttons through its pad's bindings (SDL buttons, the triggers past half way). Lock held. */
+static uint16_t gamepad_buttons(int i) {
+    uint32_t bits = sGpDown[i] | sGpLatched[i];
+    uint16_t b = 0;
+    int k;
+    for (k = 0; k < SB_GAMEPAD_COUNT; k++) {
+        unsigned in = sGpBind[i][k];
+        int down = in < SETTINGS_GP_LTRIGGER ? (int)(bits >> in & 1)
+                   : in == SETTINGS_GP_LTRIGGER  ? sGpAxis[i][4] >= 16384
+                   : in == SETTINGS_GP_RTRIGGER  ? sGpAxis[i][5] >= 16384
+                                                 : 0;
+        if (down) {
+            b |= kBindBits[k];
+        }
+    }
+    return b;
+}
+
+/* The pads now (plat_pad.c, at a VBlank, on the game's thread): keyboard (pads 1 and 2) and gamepad buttons together,
+   the sticks; nothing pressed while the overlay is open. */
+void Port_WindowPads(uint16_t buttons[4], uint8_t analog[4][4]) {
+    int i;
+    pthread_mutex_lock(&sPadLock);
+    for (i = 0; i < NGAMEPADS; i++) {
+        uint16_t b = i < 2 ? (uint16_t)(sKeyButtons[i] | sLatched[i]) : 0;
+        if (sGamepad[i] != NULL) {
+            b |= gamepad_buttons(i);
+            stick(sGpAxis[i][2], sGpAxis[i][3], sDeadzone, 0, analog[i], &b);
+            stick(sGpAxis[i][0], sGpAxis[i][1], sDeadzone, sStickDpad, analog[i] + 2, &b);
+        } else {
+            memset(analog[i], 0x80, 4);
+        }
+        buttons[i] = sInputBlocked ? 0 : b;
+        if (sInputBlocked) {
+            memset(analog[i], 0x80, 4);
+        }
+        if (i < 2) {
+            sLatched[i] = 0;
+        }
+        sGpLatched[i] = 0;
+    }
     pthread_mutex_unlock(&sPadLock);
+}
+
+/* The game's motors for pad `pad` (plat_pad.c, game's thread): the small one on or off, the large one 0-255. */
+void Port_WindowRumble(int pad, int small, int large) {
+    if (pad >= 0 && pad < NGAMEPADS) {
+        uint32_t v = (uint32_t)(large & 0xFF) * 257u << 16 | (small ? 0xFFFFu : 0u);
+        __atomic_store_n(&sRumbleWant[pad], v, __ATOMIC_RELAXED);
+    }
+}
+
+/* The motors to the gamepads (window thread, with the events): a change at once, a running motor again every half
+   second for one second (the game may stop, or this thread, and SDL ends a rumble when its time runs out); off while
+   the overlay is open, with input.vibration off, and in a hidden window. */
+static void rumble_update(int64_t now) {
+    int i;
+    for (i = 0; i < NGAMEPADS; i++) {
+        uint32_t want = __atomic_load_n(&sRumbleWant[i], __ATOMIC_RELAXED);
+        if (sGamepad[i] == NULL || sdl.RumbleGamepad == NULL) {
+            continue;
+        }
+        if (!sVibration || sNoRumble || Overlay_Open()) {
+            want = 0;
+        }
+        if (want != sRumbleSent[i] || (want != 0 && now - sRumbleAt[i] > 500000000)) {
+            sdl.RumbleGamepad(sGamepad[i], (uint16_t)(want >> 16), (uint16_t)want, want != 0 ? 1000 : 0);
+            sRumbleSent[i] = want;
+            sRumbleAt[i] = now;
+        }
+    }
 }
 
 /* Loads SDL3 and fills the table; 0 with the reason in sWhy when it cannot. */
@@ -365,6 +457,7 @@ static int sdl_load(void) {
         memcpy((char *)&sdl + kSdlOverlayFuncs[i].offset, &f, sizeof f);
     }
     *(void **)&sdl.SetWindowTitle = dlsym(h, "SDL_SetWindowTitle");
+    *(void **)&sdl.RumbleGamepad = dlsym(h, "SDL_RumbleGamepad");
     return 1;
 }
 
@@ -492,6 +585,10 @@ static void handle_event(const uint8_t *ev) {
     if (Overlay_Event(type, ev)) {
         return;
     }
+    if (type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && ev[SDL_BUTTON_OFFSET] == SETTINGS_GP_GUIDE) {
+        Overlay_Toggle(); /* the guide button: F1 for a gamepad */
+        return;
+    }
     if (type == SDL_EVENT_KEY_DOWN && sc == SETTINGS_SC_OPEN) {
         if (ev[SDL_KEY_REPEAT_OFFSET] == 0) {
             Overlay_Toggle();
@@ -526,12 +623,14 @@ static void title_update(void) {
     }
 }
 
+static int64_t now_ns(void);
 static void events(void) {
     uint8_t ev[128];
     title_update();
     while (sdl.PollEvent(ev)) {
         handle_event(ev);
     }
+    rumble_update(now_ns());
     if (Overlay_WantsQuit()) {
         quit_now();
     }
@@ -611,9 +710,13 @@ static void apply_speed(void) {
 void Port_WindowApply(void) {
     int vsync = Settings_GetInt("video.vsync"), scale = Settings_GetInt("video.scale");
     int fs = Settings_GetInt("video.fullscreen"), marg = win_margin(sGlMode);
+    int dz = Settings_GetInt("input.deadzone"), dpad = Settings_GetInt("input.stick_dpad");
     pthread_mutex_lock(&sPadLock);
     sInputBlocked = Overlay_Open();
+    sDeadzone = dz;
+    sStickDpad = dpad;
     pthread_mutex_unlock(&sPadLock);
+    sVibration = Settings_GetInt("input.vibration");
     __atomic_store_n(&sPaused, Overlay_Open() && Settings_GetInt("game.pause") != 0, __ATOMIC_RELEASE);
     Port_SndSetVolumes(Settings_GetInt("audio.mute") ? 0 : Settings_GetInt("audio.volume"), Settings_GetInt("audio.music"),
                        Settings_GetInt("audio.effects"));
@@ -649,8 +752,20 @@ void Port_WindowSetBindings(const uint16_t b[2][14]) {
     memcpy(sBind, b, sizeof sBind); /* window thread: input_event runs here too */
 }
 
+void Port_WindowGetGamepad(uint8_t g[4][16]) {
+    pthread_mutex_lock(&sPadLock);
+    memcpy(g, sGpBind, sizeof sGpBind);
+    pthread_mutex_unlock(&sPadLock);
+}
+
+void Port_WindowSetGamepad(const uint8_t g[4][16]) {
+    pthread_mutex_lock(&sPadLock); /* the game's thread maps the gamepads at its VBlanks */
+    memcpy(sGpBind, g, sizeof sGpBind);
+    pthread_mutex_unlock(&sPadLock);
+}
+
 const char *Port_WindowGamepadName(int pad) {
-    return pad >= 0 && pad < 2 && sGamepad[pad] != NULL ? sGamepadName[pad] : NULL;
+    return pad >= 0 && pad < NGAMEPADS && sGamepad[pad] != NULL ? sGamepadName[pad] : NULL;
 }
 
 const char *Port_WindowRendererName(void) {
@@ -747,6 +862,7 @@ static void *window_main(void *arg) {
     uint64_t flags = SDL_WINDOW_RESIZABLE | (hs != NULL && atoi(hs) != 0 ? SDL_WINDOW_HIDDEN : 0);
 
     (void)arg;
+    sNoRumble = hs != NULL && atoi(hs) != 0;
     if (!sdl.Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD) && !sdl.Init(SDL_INIT_VIDEO)) {
         snprintf(sWhy, sizeof sWhy, "SDL_Init: %s", sdl.GetError());
         set_state(-1);
@@ -754,6 +870,7 @@ static void *window_main(void *arg) {
     }
     v = sdl.GetVersion();
     Settings_Bindings(sBind);
+    Settings_Gamepad(sGpBind);
     audio_open();
     if (rs != NULL && strcmp(rs, "sw") != 0 && strcmp(rs, "gl") != 0) {
         printf("ttt: window: TTT_RENDERER=%s unknown (gl or sw): gl\n", rs);
@@ -1005,14 +1122,74 @@ void Port_WindowGlSwap(void) {
     __atomic_add_fetch(&sShown, 1, __ATOMIC_RELAXED);
 }
 
+/* ---- TTT_SELFTEST=pad (plat_pad.c): the gamepads' path on made-up events. SDL is not loaded: its gamepad functions
+   are stand-ins here (made-up handles, a recorder for the rumble), so no real gamepad is opened or rumbled. ---- */
+static uint32_t sTestRumbles[NGAMEPADS];
+static uint16_t sTestRumble[NGAMEPADS][2];
+static void *test_open(uint32_t id) { return (void *)(uintptr_t)(0x1000u + id); }
+static void test_close(void *g) { (void)g; }
+static const char *test_name(void *g) { (void)g; return "test gamepad"; }
+static _Bool test_rumble(void *g, uint16_t low, uint16_t high, uint32_t ms) {
+    int i;
+    (void)ms;
+    for (i = 0; i < NGAMEPADS; i++) {
+        if (sGamepad[i] == g) {
+            sTestRumbles[i]++;
+            sTestRumble[i][0] = low;
+            sTestRumble[i][1] = high;
+        }
+    }
+    return 1;
+}
+
+/* The stand-ins (only while SDL is not loaded), the default gamepad bindings and the input options. */
+void Port_WindowTestInput(int deadzone, int stickDpad, int vibration) {
+    if (sdl.OpenGamepad == NULL || sdl.OpenGamepad == test_open) {
+        sdl.OpenGamepad = test_open;
+        sdl.CloseGamepad = test_close;
+        sdl.GetGamepadName = test_name;
+        sdl.RumbleGamepad = test_rumble;
+    }
+    Settings_DefaultGamepad(sGpBind);
+    sDeadzone = deadzone;
+    sStickDpad = stickDpad;
+    sVibration = vibration;
+}
+
+/* A made-up gamepad event (SDL's layout) through the window's own handling. */
+void Port_WindowTestEvent(uint32_t type, uint32_t which, int code, int value) {
+    uint8_t ev[128] = {0};
+    int16_t v = (int16_t)value;
+    if (sdl.OpenGamepad != test_open) {
+        return;
+    }
+    memcpy(ev, &type, 4);
+    memcpy(ev + SDL_WHICH_OFFSET, &which, 4);
+    ev[SDL_BUTTON_OFFSET] = (uint8_t)code;
+    ev[SDL_BUTTON_DOWN_OFFSET] = (uint8_t)(value != 0);
+    memcpy(ev + SDL_AXIS_VALUE_OFFSET, &v, 2);
+    handle_event(ev);
+}
+
+/* The motors sent now (a fixed clock: no refresh), and what gamepad `pad` has been sent: the calls so far. */
+int Port_WindowTestRumble(int pad, uint16_t *low, uint16_t *high) {
+    if (sdl.RumbleGamepad != test_rumble) {
+        return -1;
+    }
+    rumble_update(0);
+    *low = sTestRumble[pad][0];
+    *high = sTestRumble[pad][1];
+    return (int)sTestRumbles[pad];
+}
+
 /* TTT_SELFTEST=window: the keyboard's default mapping and the window's quit keys, on made-up SDL events (no SDL, no
    window, nothing sent to the desktop): a tap of Return between two VBlanks is pad 1's Start for one look, a held one
    until released, keypad Enter is pad 2's Start, W A S D the d-pad, Escape (by key code or by place, not its repeat) and
    the close button ask to end the program, other keys do not. */
 void Port_WindowSelfTest(void) {
     const char *t = getenv("TTT_SELFTEST");
-    uint16_t b[2];
-    uint8_t a[2][4];
+    uint16_t b[4];
+    uint8_t a[4][4];
     int fails = 0;
 
     if (t == NULL || strcmp(t, "window") != 0) {

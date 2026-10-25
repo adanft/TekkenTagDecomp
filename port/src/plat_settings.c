@@ -12,7 +12,7 @@
  * environment holds.
  *
  * Nothing here is game state and nothing of the game reads it: the window thread applies the choices to the window,
- * the sound device and the keyboard (plat_window.c). Integer and text values only (the port has no host float).
+ * the sound device, the keyboard and the gamepads (plat_window.c; input.multitap, read once at start, by plat_pad.c). Integer and text values only (the port has no host float).
  * Runs on the host stack: at start in __wrap_main (plat_main.c), later on the window thread; a mutex covers the lines.
  */
 #include <errno.h>
@@ -66,6 +66,10 @@ static const Def kDefs[] = {
     {"game.speed", "TTT_SPEED", 25, 400, 100, NULL, 0},
     {"game.fast_forward", "TTT_FAST_FORWARD", 100, 400, 300, NULL, 0},
     {"cheats.unlock_all", "TTT_CHEAT_UNLOCK", 0, 1, 0, NULL, 0},
+    {"input.vibration", "TTT_VIBRATION", 0, 1, 1, NULL, 0},
+    {"input.deadzone", "TTT_DEADZONE", 0, 90, 20, NULL, 0},
+    {"input.stick_dpad", "TTT_STICK_DPAD", 0, 1, 1, NULL, 0},
+    {"input.multitap", "TTT_MULTITAP", 0, 1, 0, NULL, 1},
 };
 #define NDEFS ((int)(sizeof kDefs / sizeof kDefs[0]))
 
@@ -78,8 +82,8 @@ static char sPath[1100], sLoadErr[256], sSaveErr[1400];
 static char sEnvVal[NDEFS][1024]; /* the environment's value at start, "" none (a folder for video.texture_dir) */
 static int sEnvSet[NDEFS], sSetByUs[NDEFS];
 
-static const char *kButtons[SB_COUNT] = {"up", "down", "left", "right", "square", "triangle", "cross", "circle",
-                                         "l1", "r1", "l2", "r2", "start", "select"};
+static const char *kButtons[SB_GAMEPAD_COUNT] = {"up", "down", "left", "right", "square", "triangle", "cross",
+                                                 "circle", "l1", "r1", "l2", "r2", "start", "select", "l3", "r3"};
 static const uint16_t kDefaultKeys[2][SB_COUNT] = {
     {26, 22, 4, 7, 24, 12, 13, 14, 28, 18, 11, 15, 40, 42},  /* W S A D, U I J K, Y O H L, Return, Backspace */
     {82, 81, 80, 79, 92, 93, 89, 90, 95, 94, 96, 97, 88, 87}, /* arrows, keypad 4 5 1 2, 7 6 8 9, Enter, + */
@@ -433,7 +437,7 @@ uint32_t Settings_KeyFromName(const char *name) {
 
 /* ---- bindings ---- */
 const char *Settings_ButtonName(int button) {
-    return button >= 0 && button < SB_COUNT ? kButtons[button] : "?";
+    return button >= 0 && button < SB_GAMEPAD_COUNT ? kButtons[button] : "?";
 }
 
 void Settings_DefaultBindings(uint16_t b[2][SB_COUNT]) {
@@ -485,6 +489,90 @@ int Settings_SaveBindings(const uint16_t b[2][SB_COUNT]) {
             snprintf(key, sizeof key, "keys.p%d.%s", p + 1, kButtons[k]);
             Settings_KeyName(b[p][k], name, sizeof name);
             ok &= file_set(key, name);
+        }
+    }
+    ok = ok && save_locked();
+    pthread_mutex_unlock(&sLock);
+    return ok;
+}
+
+/* ---- the gamepads' bindings (T34) ---- */
+static const char *kGamepadInputs[SETTINGS_GP_INPUTS] = {
+    "south", "east", "west", "north", "back", "guide", "start", "left_stick", "right_stick", "left_shoulder",
+    "right_shoulder", "dpad_up", "dpad_down", "dpad_left", "dpad_right", "misc1", "right_paddle1", "left_paddle1",
+    "right_paddle2", "left_paddle2", "touchpad", "misc2", "misc3", "misc4", "misc5", "misc6", "left_trigger",
+    "right_trigger"};
+/* up, down, left, right, square, triangle, cross, circle, l1, r1, l2, r2, start, select, l3, r3 */
+static const uint8_t kDefaultGamepad[SB_GAMEPAD_COUNT] = {11, 12, 13, 14, 2, 3, 0, 1, 9, 10, 26, 27, 6, 4, 7, 8};
+
+const char *Settings_GamepadInputName(unsigned input) {
+    return input < SETTINGS_GP_INPUTS ? kGamepadInputs[input] : "none";
+}
+
+unsigned Settings_GamepadInputFromName(const char *name) {
+    unsigned i;
+    for (i = 0; name != NULL && i < SETTINGS_GP_INPUTS; i++) {
+        if (same_name(kGamepadInputs[i], name)) {
+            return i;
+        }
+    }
+    return SETTINGS_GP_NONE;
+}
+
+void Settings_DefaultGamepad(uint8_t g[SETTINGS_PADS][SB_GAMEPAD_COUNT]) {
+    int p;
+    for (p = 0; p < SETTINGS_PADS; p++) {
+        memcpy(g[p], kDefaultGamepad, sizeof kDefaultGamepad);
+    }
+}
+
+int Settings_RebindGamepad(uint8_t g[SETTINGS_PADS][SB_GAMEPAD_COUNT], int pad, int button, unsigned input) {
+    uint8_t old;
+    int k;
+    if (pad < 0 || pad >= SETTINGS_PADS || button < 0 || button >= SB_GAMEPAD_COUNT || input >= SETTINGS_GP_INPUTS ||
+        input == SETTINGS_GP_GUIDE) {
+        return 0;
+    }
+    old = g[pad][button];
+    for (k = 0; k < SB_GAMEPAD_COUNT; k++) {
+        if (g[pad][k] == input && k != button) {
+            g[pad][k] = old;
+        }
+    }
+    g[pad][button] = (uint8_t)input;
+    return 1;
+}
+
+void Settings_Gamepad(uint8_t g[SETTINGS_PADS][SB_GAMEPAD_COUNT]) {
+    char key[64], v[LINE_MAX];
+    int p, k;
+    Settings_DefaultGamepad(g);
+    pthread_mutex_lock(&sLock);
+    for (p = 0; p < SETTINGS_PADS; p++) {
+        for (k = 0; k < SB_GAMEPAD_COUNT; k++) {
+            unsigned in;
+            snprintf(key, sizeof key, "pad.p%d.%s", p + 1, kButtons[k]);
+            if (!file_get(key, v, sizeof v)) {
+                continue;
+            }
+            if (same_name(v, "none")) {
+                g[p][k] = SETTINGS_GP_NONE;
+            } else if ((in = Settings_GamepadInputFromName(v)) != SETTINGS_GP_NONE) {
+                Settings_RebindGamepad(g, p, k, in); /* the overlay's rule: one button per input */
+            }
+        }
+    }
+    pthread_mutex_unlock(&sLock);
+}
+
+int Settings_SaveGamepad(const uint8_t g[SETTINGS_PADS][SB_GAMEPAD_COUNT]) {
+    char key[64];
+    int p, k, ok = 1;
+    pthread_mutex_lock(&sLock);
+    for (p = 0; p < SETTINGS_PADS; p++) {
+        for (k = 0; k < SB_GAMEPAD_COUNT; k++) {
+            snprintf(key, sizeof key, "pad.p%d.%s", p + 1, kButtons[k]);
+            ok &= file_set(key, Settings_GamepadInputName(g[p][k]));
         }
     }
     ok = ok && save_locked();
@@ -613,6 +701,53 @@ void Settings_SelfTest(void) {
     expect(memcmp(b, c, sizeof b) == 0, "bindings read back");
     file_text(cfg, text, sizeof text);
     expect(strstr(text, "keys.p1.up = Up\n") != NULL && strstr(text, "keys.p2.up = U\n") != NULL, "bindings by name");
+
+    /* the gamepads (T34): defaults, one button per input on a pad (the two swap), guide refused, the file's round trip */
+    {
+        uint8_t g[SETTINGS_PADS][SB_GAMEPAD_COUNT], h[SETTINGS_PADS][SB_GAMEPAD_COUNT];
+        unsigned in;
+        Settings_DefaultGamepad(g);
+        expect(g[0][SB_CROSS] == 0 && g[3][SB_CIRCLE] == 1 && g[1][SB_L2] == SETTINGS_GP_LTRIGGER &&
+                   g[2][SB_UP] == 11 && g[0][SB_R3] == 8,
+               "gamepad defaults: south cross, east circle, triggers L2 / R2, d-pad, stick clicks");
+        expect(Settings_RebindGamepad(g, 1, SB_SQUARE, 0) && g[1][SB_SQUARE] == 0 && g[1][SB_CROSS] == 2 &&
+                   g[0][SB_CROSS] == 0,
+               "south on pad 2's square: pad 2's cross gets west, pad 1 unchanged");
+        expect(!Settings_RebindGamepad(g, 0, SB_START, SETTINGS_GP_GUIDE) && g[0][SB_START] == 6, "guide is refused");
+        expect(!Settings_RebindGamepad(g, 4, SB_START, 0) && !Settings_RebindGamepad(g, 0, SB_GAMEPAD_COUNT, 0) &&
+                   !Settings_RebindGamepad(g, 0, SB_START, SETTINGS_GP_INPUTS),
+               "no such pad, button or input");
+        expect(Settings_RebindGamepad(g, 3, SB_L3, SETTINGS_GP_RTRIGGER) && g[3][SB_R2] == 7, "a trigger swaps with L3");
+        g[2][SB_SELECT] = SETTINGS_GP_NONE;
+        expect(Settings_SaveGamepad(g), "gamepad bindings written");
+        Settings_Load();
+        Settings_Gamepad(h);
+        expect(memcmp(g, h, sizeof g) == 0, "gamepad bindings read back");
+        file_text(cfg, text, sizeof text);
+        expect(strstr(text, "pad.p2.square = south\n") != NULL && strstr(text, "pad.p4.r2 = left_stick\n") != NULL &&
+                   strstr(text, "pad.p3.select = none\n") != NULL,
+               "gamepad bindings by name");
+        for (in = 0; in < SETTINGS_GP_INPUTS; in++) {
+            expect(Settings_GamepadInputFromName(Settings_GamepadInputName(in)) == in, "gamepad input names round trip");
+        }
+        expect(Settings_GamepadInputFromName("DPAD_UP") == 11 && Settings_GamepadInputFromName("nonsense") == SETTINGS_GP_NONE,
+               "gamepad names in any case, unknown names");
+        expect(strcmp(Settings_ButtonName(SB_L3), "l3") == 0 && strcmp(Settings_ButtonName(SB_R3), "r3") == 0, "l3 / r3");
+    }
+    /* input options (T34): vibration, deadzone (clamped), stick as d-pad, multitap (next start) */
+    expect(Settings_GetInt("input.vibration") == 1 && Settings_GetInt("input.deadzone") == 20 &&
+               Settings_GetInt("input.stick_dpad") == 1 && Settings_GetInt("input.multitap") == 0,
+           "input defaults");
+    expect(Settings_SetInt("input.vibration", 0) && Settings_SetInt("input.deadzone", 95) &&
+               Settings_SetInt("input.stick_dpad", 0) && Settings_SetInt("input.multitap", 1),
+           "input options written");
+    Settings_Load();
+    expect(Settings_GetInt("input.vibration") == 0 && Settings_GetInt("input.deadzone") == 90 &&
+               Settings_GetInt("input.stick_dpad") == 0 && Settings_GetInt("input.multitap") == 1,
+           "input options read back (deadzone clamped to 90)");
+    expect(getenv("TTT_MULTITAP") != NULL && strcmp(getenv("TTT_MULTITAP"), "1") == 0 && Settings_NeedsRestart("input.multitap") &&
+               !Settings_NeedsRestart("input.vibration"),
+           "multitap: its variable, on the next start");
 
     for (sc = 1; sc < 300; sc++) {
         char n[32];

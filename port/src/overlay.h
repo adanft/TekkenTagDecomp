@@ -29,8 +29,8 @@ int Overlay_InitSw(const OverlaySdlRenderer *r);       /* 1 when ready */
 void Overlay_Shutdown(void);                            /* before the context / renderer goes */
 int Overlay_Ready(void);
 
-/* One SDL event (raw bytes, plat_window.c's offsets). 1: the overlay took it (a key being bound), the window does
-   nothing more with it. While the overlay is open its mouse and keys feed ImGui. */
+/* One SDL event (raw bytes, plat_window.c's offsets). 1: the overlay took it (a key or a gamepad input being bound),
+   the window does nothing more with it. While the overlay is open its mouse, keys and gamepad buttons feed ImGui. */
 int Overlay_Event(uint32_t type, const uint8_t *ev);
 void Overlay_Toggle(void);    /* F1: the settings window */
 void Overlay_AskQuit(void);   /* the close button or Escape: the "Quit?" question */
@@ -51,7 +51,9 @@ void Overlay_Report(void);
 void Port_WindowApply(void);                                   /* the live settings changed: apply them */
 void Port_WindowGetBindings(uint16_t b[2][14]);
 void Port_WindowSetBindings(const uint16_t b[2][14]);
-const char *Port_WindowGamepadName(int pad);                   /* NULL: none */
+void Port_WindowGetGamepad(uint8_t g[4][16]);                  /* the gamepads' bindings (plat_settings.h) */
+void Port_WindowSetGamepad(const uint8_t g[4][16]);
+const char *Port_WindowGamepadName(int pad);                   /* pad 0-3; NULL: none */
 const char *Port_WindowRendererName(void);
 const char *Port_DataPath(void);                               /* plat_data.c: the data file */
 const char *Port_DiscName(void);                               /* plat_file.c */

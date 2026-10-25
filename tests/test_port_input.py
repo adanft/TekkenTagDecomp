@@ -116,6 +116,25 @@ class Replay(unittest.TestCase):
         self.assertEqual(state(a), state(b))
         self.assertEqual(rec, rec2)
 
+    def test_multitap_recording(self):
+        """A version 2 recording (`multitap 1`, four pads a line): the game finds the multitap on port 0 (gMultitap)
+        and four ready DualShock 2 pads on slots 1A-1D (gPadPorts' connectors 0, 2, 3, 4 in phase 0x30; connector 1,
+        port 2, empty); Start of pad 1 leaves the main menu as with two pads, and the run replays identically."""
+        idle4 = " ".join(["0000 " + IDLE] * 4)
+        text = (f"ttt-input 2 pads 4 multitap 1\n200 0800 {IDLE} 0000 {IDLE} 0000 {IDLE} 0040 {IDLE}\n"
+                f"206 {idle4}\n")
+        a, rec_a = self.play(text, TTT_PEEK="5F6C5C,8BCC80:45")
+        b, rec_b = self.play(text, TTT_PEEK="5F6C5C,8BCC80:45")
+        self.assertIn("ttt: input: 4 pads (multitap), 6 vblanks with a button down (played)", a.stdout)
+        self.assertEqual(peek(a, "5F6C5C"), [1])
+        phases = [w & 0xFFFF for w in peek(a, "8BCC80")[0::9]]
+        self.assertEqual(phases, [0x30, 0, 0x30, 0x30, 0x30])
+        self.assertRegex(re.search(r"ttt: modes: (.*)", a.stdout).group(1), r"\b3@\d+ 4@2\d\d")
+        self.assertTrue(rec_a.startswith("ttt-input 2 pads 4 multitap 1\n"))
+        self.assertIn(f"200 0800 {IDLE} 0000 {IDLE} 0000 {IDLE} 0040 {IDLE}\n", rec_a)
+        self.assertEqual(state(a), state(b))
+        self.assertEqual(rec_a, rec_b)
+
 
 @unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
 @unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")

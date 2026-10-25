@@ -261,7 +261,7 @@ wait loops drive the hardware.
 | `plat_lib.c` | libgraph (`sceGsSyncV` waits for the next VBlank; `sceGsResetGraph`, `sceGsSetDefDBuff`, `sceGsSetDefDispEnv`, `sceGsPutDispEnv`, `sceGsSwapDBuff` build the environments and write the GS), a cache call |
 | `plat_movie.c` | The movies' pictures (the video of the interleaved file, PSS split, `third_party/pl_mpeg2` MPEG-2 decoder, the IPU's RGBA32 layout) and audio track (the driver's per-movie table), `TTT_MOVIES` ([movies.md](movies.md)) |
 | `plat_mc.c` | libmc: memory cards as directories under `TTT_SAVES`, asynchronous requests finished by `sceMcSync` after a fixed number of polls, atomic writes, `TTT_SELFTEST=mc` ([Memory cards](#memory-cards)) |
-| `plat_pad.c` | libpad / libmtap: two DualShock 2 pads on ports 0 and 1, no multitap, the per-VBlank latch, `TTT_INPUT_PLAY` / `TTT_INPUT_RECORD`, `TTT_SELFTEST=pad` ([Input](#input)) |
+| `plat_pad.c` | libpad / libmtap: two DualShock 2 pads on ports 0 and 1, or four on the multitap's slots 1A-1D (`input.multitap`), the per-VBlank latch, vibration to the window, `TTT_INPUT_PLAY` / `TTT_INPUT_RECORD`, `TTT_SELFTEST=pad` ([Input](#input), [input.md](input.md)) |
 | `gs_core.c` | GS: GIF paths (PACKED / REGLIST / IMAGE), registers, 4 MB GS memory with its layout, CLUT buffer, the software reference rasteriser, the frame dump, `TTT_SELFTEST=gs` |
 | `gs_vif1.c` | VIF1: UNPACK into VU1 memory, MPG, DIRECT / DIRECTHL to the GIF, MSCAL / MSCALF / MSCNT run the VU1 program |
 | `gs_vu1.c` | VU1: registers, the program runs, XGKICK on PATH1, `TTT_SELFTEST=vu1` |
@@ -378,7 +378,7 @@ Switches:
 | `TTT_SELFTEST=gl` | The GL back end's rules on made-up primitives, no GL context: the alpha test's outcome over a primitive's alpha range, the shared depth write, the texels a UV primitive reads, the CLUT halves of a load (`tests/test_port_gl.py`). |
 | `TTT_SELFTEST=window` | The keyboard's default mapping and the quit keys on made-up SDL events (no SDL, no window). |
 | `TTT_SDL_LIB=<path>` | The SDL3 library to load (default `libSDL3.so.0`). |
-| `TTT_PADS=0/1/2` | Pads connected ([Input](#input)). Default: 2 in real time, 0 headless, 2 with `TTT_INPUT_PLAY`. |
+| `TTT_PADS=0/1/2` | Pads connected ([Input](#input)), up to 4 with the multitap. Default: 2 (4 with `TTT_MULTITAP=1`) in real time, 0 headless, the recording's with `TTT_INPUT_PLAY`. |
 | `TTT_INPUT_PLAY=<file>` | The pads' states come from that recording instead of the keyboard and gamepads. |
 | `TTT_INPUT_RECORD=<file>` | Write the pads' states latched at each VBlank to that file (a line per change). |
 | `TTT_SELFTEST=pad` | The recording's line format, libpad's read data and the answers of the game's pad set-up sequence (`tests/test_port_input.py`). |
@@ -716,13 +716,15 @@ throttles the whole slice when hot, so wall times move by 10-20% between runs; C
 ## Input
 
 `port/src/plat_pad.c` answers libpad and libmtap as the game uses them (`src/pad.c`); `plat_window.c` reads the
-keyboard and the gamepads on the window thread.
+keyboard and the gamepads on the window thread. Gamepad bindings, dead zone, the left stick as the d-pad, the multitap
+and the vibration: [input.md](input.md).
 
-- **What the game sees.** Two DualShock 2 pads, on ports 0 and 1 (slot 0), no multitap: `scePadGetState` stable (6),
+- **What the game sees.** Two DualShock 2 pads, on ports 0 and 1 (slot 0), no multitap (with `input.multitap`: four
+  on port 0's slots 1A-1D, [input.md](input.md)): `scePadGetState` stable (6),
   analog id 7 (current and extended), pressure mode entered at once, 2 actuators, every request complete at once.
   `Pad_Update` walks them to ready (phase 0x30) in a few frames; from then on `scePadRead` returns libpad's data of
   kind 0x79: the buttons active low, the sticks (right x, right y, left x, left y; 0x80 centre), 12 pressure bytes
-  (0xFF down, 0 up). Vibration (`scePadSetActDirect`) is accepted and not played.
+  (0xFF down, 0 up). Vibration (`scePadSetActDirect`) is played on the pad's gamepad (`input.vibration`).
 - **Once per VBlank.** At each VBlank, before the game's VBlank handler, the pads' state is latched from one source
   (`Port_PadVBlank`, called by `plat_hw.c`); every read until the next VBlank returns it. The window thread keeps the
   keyboard and gamepad state under a mutex and the game thread takes a copy at that point only.
@@ -730,7 +732,8 @@ keyboard and the gamepads on the window thread.
   the report still lists `scePadGetState` for them), 2 with `TTT_INPUT_PLAY`. `TTT_FRAMES` runs with pads add
   `ttt: input: N pads, M vblanks with a button down`.
 - **Record and replay.** `TTT_INPUT_RECORD=<file>` writes the latched states; `TTT_INPUT_PLAY=<file>` feeds them back
-  instead of the keyboard. The file is text: `ttt-input 1 pads 2`, then one line per VBlank where the state changes,
+  instead of the keyboard. The file is text: `ttt-input 1 pads 2` (`ttt-input 2 pads 4 multitap 1` and four pads a
+  line with the multitap, [input.md](input.md)), then one line per VBlank where the state changes,
   `<vblank> <buttons pad 1> <sticks pad 1> <buttons pad 2> <sticks pad 2>` in hex, buttons with 1 = pressed in
   libpad's order (0x8000 left, 0x4000 down, 0x2000 right, 0x1000 up, 0x0800 Start, 0x0400 R3, 0x0200 L3,
   0x0100 Select, 0x80 square, 0x40 cross, 0x20 circle, 0x10 triangle, 8 R1, 4 L1, 2 R2, 1 L2), sticks as 8 hex
@@ -746,9 +749,9 @@ Controls (the key's place, whatever the keyboard layout; Tekken's default: squar
 punch, cross left kick, circle right kick). The keyboard's keys are the defaults: F1's Controls page rebinds them and
 the settings file keeps them (`keys.p1.square = Space`, [settings.md](settings.md)):
 
-| PS2 button | Pad 1 keys | Pad 2 keys | SDL gamepad |
+| PS2 button | Pad 1 keys | Pad 2 keys | SDL gamepad (default) |
 |---|---|---|---|
-| D-pad | W A S D | arrows | d-pad (left stick: the analog stick) |
+| D-pad | W A S D | arrows | d-pad, and the left stick past half way (`input.stick_dpad`; it is also the analog stick) |
 | Square (LP) / Triangle (RP) | U / I | keypad 4 / 5 | west / north (X / Y on Xbox) |
 | Cross (LK) / Circle (RK) | J / K | keypad 1 / 2 | south / east (A / B on Xbox) |
 | L1 / R1 | Y / O | keypad 7 / 6 | shoulders |
@@ -756,9 +759,10 @@ the settings file keeps them (`keys.p1.square = Space`, [settings.md](settings.m
 | Start / Select | Return / Backspace | keypad Enter / keypad + | Start / Back |
 | L3 / R3 | | | stick buttons |
 
-The first two gamepads connected become pads 1 and 2 (`ttt: input: pad N: <name>`), together with the keyboard. Escape
-or closing the window asks "Quit?". While the F1 overlay is open the pads see nothing pressed. Gamepad buttons are not
-rebindable yet.
+The first four gamepads connected become pads 1-4 (`ttt: input: pad N: <name>`; pads 3 and 4 with the multitap), with
+the keyboard on pads 1 and 2. F1's Controls page also rebinds each pad's gamepad (`pad.p1.cross = south`); the guide
+button opens the overlay, which a gamepad can navigate. Escape or closing the window asks "Quit?". While the F1 overlay
+is open the pads see nothing pressed.
 
 From the main menu to the fight (T34 batch 2): Start at the main menu starts ARCADE; in the character select the
 d-pad moves the cursor, a punch / kick button picks the character (its costume), and a second pick takes the tag
@@ -1249,6 +1253,6 @@ more frames, both fighters) are the systematic way on. More speed in fights: the
 skinning are the limits now ([Speed](#speed)); T31's native replacements. libgraph
 (`plat_lib.c`): the DBuff buffer pairing and SwapDBuff's ids differ from the library with the same GS result. TEKKEN
 BOWL past the first frame of balls (T41 b1 checked one throw and its roll); the libm PCSX2 run; the other game types after the character select (VS, team, survival: the same step
-function, not checked frame by frame) and the leftover-register calls of gotcha 23 off the fight's path; the multitap,
-vibration and gamepad rebinding; the open movie items of [movies.md](movies.md) (the attract and ending movies through the
+function, not checked frame by frame) and the leftover-register calls of gotcha 23 off the fight's path; a four-player battle
+with the multitap ([input.md](input.md)); the open movie items of [movies.md](movies.md) (the attract and ending movies through the
 game's own paths, the driver's movie timing).
