@@ -67,8 +67,21 @@ Core 1's master volume gives the output.
   - Bit 2 (loop start): the loop address takes the block's address, unless the loop address was written.
   - Bit 0 (end): ENDX is set and the voice goes on at the loop address.
   - Bit 0 without bit 1 (repeat): the voice also falls silent (envelope 0, off).
-- **Pitch.** 0x1000 is one source sample per output sample, capped at 0x3FFF. The model interpolates linearly between
-  the last two samples. The chip uses a 4-tap Gaussian filter, so the tone differs slightly but the timing does not.
+- **Pitch.** 0x1000 is one source sample per output sample, capped at 0x3FFF.
+- **Interpolation (F06).** The chip's 4-point Gaussian interpolation, as psx-spx (nocash) documents it and PCSX2's
+  SPU2 implements it. The four most recent decoded samples are used: oldest, older, old, new, where new is the sample
+  the pitch counter is on. Bits 4-11 of the counter give the index i, and the output is
+  `(g[0xFF-i]*oldest >> 15) + (g[0x1FF-i]*older >> 15) + (g[0x100+i]*old >> 15) + (g[i]*new >> 15)`.
+  - The 512-entry table `g` is the published one, the same as in DuckStation. `tests/test_port_sound.py` checks it
+    by SHA-1. Each phase's four weights sum to 0x7F7F-0x7F81, so the result never leaves 16 bits and needs no clamp.
+  - At frac 0 the filter is centred on `older`, one sample later than the old linear interpolation was. The timing
+    of everything the game reads (key status, ENDX, envelopes, addresses) is unchanged.
+  - At the start of a block the filter reaches 3 samples back, into the previous block. The last one was already in
+    the hashed voice (`d[1]`). The other two are kept in `spu2.tail`, saved with the state for rollback but left out
+    of the hash. Only the sound depends on them. Samples before a key on count as 0, as PCSX2 resets its decode
+    buffer at key on.
+  - So the state hashes did not change: idle run `0xd36c82e9a145875a`, GL fight `0x3c2cd520128fc04d`. The `TTT_WAV`
+    output changed, and is still the same bytes from run to run.
 - **ADSR.** As on the SPU:
   - The step is `(7 - (rate & 3)) << (11 - shift)` going up, or `(-8 + (rate & 3)) << ...` going down.
   - It is applied every `1 << (shift - 11)` samples.
@@ -113,7 +126,7 @@ over each VBlank's samples.
 | State | Meaning |
 |---|---|
 | 1 | Idle. A request starts the track and moves to 2. |
-| 2 | Prefill. Lasts 9 ticks, the time a 24x CD needs for the driver's 64-sector first read. |
+| 2 | Prefill. Lasts 9 ticks, the bare transfer time of the driver's 64-sector first read at 24x (see 3.1). |
 | 3 | Ready, and held while the hold flag is set. Status bit 4. |
 | 4 | Playing. |
 | 5 | Stopped. Goes back to 1. |
@@ -127,12 +140,54 @@ left ADPCM followed by 1024 bytes of right.
 - At the end of the track, or on a stop, the last chunk ends in a silent block that loops on itself (`00 07`).
   Reaching it keys the voices off.
 
+**Loop flags (checked, F06).** The driver's own SpuSt code (IOP 0x5730 and 0x5784) rewrites the flags of three
+blocks per half: 6 / 2 / 2 in the first half and 2 / 2 / 3 in the second. The port does the same. The model's flag
+rules (start on load, end and repeat on leaving a block, end without repeat silences) are those of PCSX2's SPU2 and
+psx-spx. `TTT_SELFTEST=spu` plays a two-half buffer with those flags and checks that it loops to its start.
+
+Unresolved: every BGM track carries one block with only the loop-start flag (4), on its first non-silent block.
+- On most tracks that is block 0 of the first sector, which the rewrite overwrites.
+- On tracks 9, 10, 11, 13, 15, 20, 21 and 22 it is in the middle of the first sector's first half (blocks 9-49),
+  after a lead-in of silent blocks. The model moves the voice's loop address there, and it stays there: after each
+  second half the voice jumps back to that block, so the head of every later first half is skipped.
+- The scripted fight's stage track 21 shows it: voice 22's loop address goes to 0x1EE140, which skips 20 of 64
+  blocks of every other sector.
+- No write of the loop address was found in the driver's stream path. Its SpuSetVoiceAttr calls use mask 0xFF93,
+  which has no LSAX bit. PCSX2 and DuckStation also let a loop-start flag move the loop address unless software
+  wrote it.
+- Either the console skips those blocks too, or something not yet found prevents it. This needs the console or a
+  closer reading of libspu2's SpuSt, and is left unchanged. A fix would change the hashed loop address, so the state
+  hashes.
+
 **Volume.** Every tick, `v = option * scale * fade >> 14`. In stereo, voice 22 gets (v, 0) and voice 23 gets (0, v).
 In mono, both get v * 65 / 100 on both sides.
 
 **Not modelled.**
 - The driver's 512 KB IOP ring and its CD timing. A sector is read from the disc (or from EE memory for type 3) when
   its half is refilled.
+
+### 3.1 CD read timing (checked, F06)
+
+How the driver starts a disc track (`scripts/irx.py dis iso/IRX/RSPU2DRV.IRX`):
+- IOP 0x16A4 sets a 64-sector request (`0x11B6C0` = 2).
+- The file service (IOP 0x1EC0, substates at `0x11B61A`) turns it into reads of at most 32 sectors. It issues
+  `sceCdRead` (substate 8, IOP 0x22F4), then polls `sceCdSync(1)` once per tick (substate 9, IOP 0x236C). It
+  starts the second read in the tick the first one is seen done, and sets `0x11B6C0` = 3 when both are done.
+- The BGM machine runs before the service in each tick, so it sees 3 one tick later and goes to state 3 (status
+  bit 4).
+- The disc is read as a CD (`sceCdMmode(1)`) with read mode {0 retries, spindle 1 (nominal), 2048-byte sectors}.
+
+So on the console, state 3 comes at T0 + 2 + a + b ticks, where T0 is the request's tick and a, b are the ticks each
+32-sector read takes. Each is at least 1, because completion is only polled.
+- At 24x (about 1800 sectors/s at the outer edge), a 32-sector read takes 4.2 ticks, so a = b = 5: about 12 ticks.
+  Inner tracks read slower, and the first read also pays a seek, which nothing here measures.
+- The port's 9 ticks are the bare 64-sector transfer at 24x (8.5 ticks, rounded up). They leave out the 2 ticks of
+  structure and the per-read polling.
+
+Not changed: the speed at the tracks' radius and the seek time are not measured. The prefill also shows in the state
+hashes (the stream voices' key-on tick), so a guessed value would only move the references. The game does not
+depend on it closely: it waits up to 300 frames for bit 4 (`loading_title.c`), and the attract cycle holds track 1
+for 50 VBlanks before releasing it.
 - The SIF command 1 exchange for type 3 tracks. The engine reads EE memory directly.
 - Movie audio (code 0x5C) is handled as a one-shot track; see [movies.md](movies.md).
 
@@ -186,8 +241,16 @@ of the hashed `.sbss` differ:
 
 ## 6. Tests
 
-- `TTT_SELFTEST=spu` uses synthetic ADPCM blocks. It checks the decoder, loop flags, ENDX, key status 1 / 2 / 3 / 0,
-  pitch, attack / decay / release, and a deterministic, non-silent mix of both cores.
+- `TTT_SELFTEST=spu` uses synthetic ADPCM blocks. It checks:
+  - the decoder, loop flags, ENDX, key status 1 / 2 / 3 / 0, pitch, attack / decay / release;
+  - the Gaussian interpolation against six reference values, and a voice's output sample by sample against the
+    interpolation of the decoded stream, across block boundaries;
+  - SpuSt's two-half buffer looping to its start;
+  - a deterministic, non-silent mix of both cores.
+  
+  It also prints a digest of the interpolation over all 256 phases of six windows.
+- `GaussTable` / `GaussSelfTest` (`tests/test_port_sound.py`): the model's table against the published table's SHA-1
+  and its per-phase sums, and that digest recomputed in Python from the table, apart from the C code.
 - `tests/test_port_sound.py` runs the replay through the title, the main menu and the character select headless with
   `TTT_WAV`, twice. It checks that the two WAVs are identical, that the boot is silent, that the title's effect
   sounds, and that the select screen's stereo BGM plays. The WAVs are written to a temporary directory and deleted.
@@ -200,7 +263,7 @@ of the hashed `.sbss` differ:
 - Movie audio (with the movies).
 - Reverb: the game leaves the effect unit off (ATTR bit 7 clear, EVOL 0), so the console plays none either; a model
   would only matter for other software.
-- Gaussian interpolation, if exact tone matters.
 - Volume sweeps, which the game does not use.
-- Whether some track blocks other than the three rewritten per half carry loop flags.
-- Measuring the prefill time (9 ticks) and the effect latency against the console.
+- The loop-start flags inside eight tracks' first sector (section 3, Loop flags): how the console treats them.
+- Measuring the prefill time (9 ticks; the driver's structure gives at least 4, about 12 at 24x, section 3.1) and the
+  effect latency against the console.

@@ -52,12 +52,13 @@ memory), while the game has a memory card file open, and with the GL back end (b
 | COP0 Status (interrupts on), VU0 registers (vf, vi, ACC, Q), VIF0, VU0's pipeline | `plat_ee.c`, `vu0_micro.c` | yes |
 | VU1 registers and pipeline, VIF1, the GS front end (registers, GIF paths, CLUT state), GS memory (4 MB), the CLUT buffer, the GS threads' pending CSR bits | `gs_vu1.c`, `gs_vif1.c`, `gs_core.c`, `gs_async.c` | no (the GS threads' side: the game never reads it back) |
 | SPU2 model (cores, 2 MB sound RAM), libspu2 core, BGM timer phase, BGM streamer | `spu2.c`, `plat_snd.c`, `plat_bgm.c` | yes |
+| SPU2 interpolation tail (each voice's previous block's samples 25 and 26, F06) | `spu2.c` | no (only what is heard depends on it; [sound.md](sound.md) section 2) |
 | RSPU2DRV status, movie stream arguments | `plat_file.c` | yes |
 | libgraph modes; kernel threads, semaphores, modules, SIF handlers | `plat_lib.c`, `plat_sys.c` | yes |
 | The pads as latched at the last VBlank | `plat_pad.c` | yes |
 | libmc: the request in flight, each card's directory state | `plat_mc.c` | yes |
 
-40,029,648 bytes. Not saved, drained or rebuilt instead: the GS threads' queues and the raster workers (`Gs_Finish` at
+40,029,888 bytes (`TTT_SELFTEST=state`). Not saved, drained or rebuilt instead: the GS threads' queues and the raster workers (`Gs_Finish` at
 the save or load: they are idle there), the predecoded VU programs (each slot is checked against micro memory when it
 runs), the GL back end, the window, the audio ring, the WAV file, open files. Things that come from the switches stay
 the loading process's: `TTT_FRAMES`, the replay file (its position follows the loaded VBlank count), `TTT_SAVES`.
