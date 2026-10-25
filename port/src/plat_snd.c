@@ -14,6 +14,9 @@
  *   - TTT_WAV=<file>: a 48 kHz 16-bit stereo WAV of the whole run (headless runs included);
  *   - the window's SDL3 audio stream (plat_window.c), through a ring the window thread drains: the game's thread only
  *     writes, the window thread only reads, with 32-bit atomic indices. TTT_AUDIO=0: no audio device.
+ * Both get the host's volumes (T40: audio.volume master, audio.music for the music voices, audio.effects for the rest,
+ * audio.mute), applied to the mixed output only: the SPU2 model and what the game reads back never see them. While the
+ * game speed is not 1x (plat_hw.c) the window plays nothing; TTT_WAV still gets every frame, at the game's pace.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,6 +25,7 @@
 #include "port_host.h"
 #include "spu2.h"
 #include "plat_state.h"
+#include "plat_settings.h"
 
 static int sCore; /* SpuSetCore */
 static uint32_t sHalfLines; /* the BGM timer's phase in the field (half H-lines) */
@@ -290,13 +294,44 @@ void Port_SndRingEnable(int on) {
     __atomic_store_n(&sRingOn, on, __ATOMIC_RELEASE);
 }
 
+/* The host's volumes (percent; mute is a master of 0): set by the window (Port_SndSetVolumes, its thread) or read from
+   the settings at the first VBlank (headless runs). Read by the game's thread at each VBlank, one 32-bit word. */
+static int sVolumes = -1; /* master | music << 8 | effects << 16 */
+void Port_SndSetVolumes(int master, int music, int effects) {
+    __atomic_store_n(&sVolumes, (master & 0xFF) | (music & 0xFF) << 8 | (effects & 0xFF) << 16, __ATOMIC_RELEASE);
+}
+static int volumes(void) {
+    int v = __atomic_load_n(&sVolumes, __ATOMIC_ACQUIRE);
+    if (v < 0) {
+        Port_SndSetVolumes(Settings_GetInt("audio.mute") ? 0 : Settings_GetInt("audio.volume"),
+                           Settings_GetInt("audio.music"), Settings_GetInt("audio.effects"));
+        v = __atomic_load_n(&sVolumes, __ATOMIC_ACQUIRE);
+    }
+    return v;
+}
+
+/* The mixed buses (Spu2_MixBus) at the volumes, into 16-bit frames: (effects * fx + music * mu) * master. */
+static void apply_volumes(int16_t *pcm, const int32_t *bus, int n, int v) {
+    int64_t master = v & 0xFF, mu = (v >> 8) & 0xFF, fx = (v >> 16) & 0xFF;
+    int k;
+    for (k = 0; k < 2 * n; k++) {
+        int32_t all = bus[2 * k - (k & 1)], mus = bus[2 * k - (k & 1) + 2];
+        int64_t s = ((int64_t)(all - mus) * fx + (int64_t)mus * mu) * master / 10000;
+        pcm[k] = (int16_t)(s > 32767 ? 32767 : s < -32768 ? -32768 : s);
+    }
+}
+
+uint32_t Port_BgmVoices(void); /* plat_bgm.c */
+int Port_Speed(void);          /* plat_hw.c: the game speed in percent (100 headless) */
+
 /* VBlank `n` (1, 2, ...): the frames of the field that ends here, 800.8 a VBlank. The BGM engine's timer ticks every
    66 H-lines (262.5 a field: 3 or 4 ticks), spread evenly over the field's frames; between pieces of at most 128
    frames the engine refills its buffers. */
 void Port_SndVBlank(uint32_t n) {
     static int16_t pcm[2 * 801];
+    static int32_t bus[4 * 801];
     int frames = (int)((uint64_t)n * 4004u / 5u - (uint64_t)(n - 1) * 4004u / 5u);
-    int ticks = 0, t, done = 0;
+    int ticks = 0, t, done = 0, v = volumes();
     for (sHalfLines += 525; sHalfLines >= 132; sHalfLines -= 132) {
         ticks++;
     }
@@ -305,13 +340,18 @@ void Port_SndVBlank(uint32_t n) {
         Port_BgmTick();
         while (done < end) {
             int k = end - done > 128 ? 128 : end - done;
-            Spu2_Mix(pcm + 2 * done, k);
+            Spu2_MixBus(pcm + 2 * done, bus + 4 * done, Port_BgmVoices(), k);
             done += k;
             Port_BgmService();
         }
     }
     if (!gPortResim) { /* frames run again (TTT_SYNCTEST) were heard already */
+        if (v != (100 | 100 << 8 | 100 << 16)) {
+            apply_volumes(pcm, bus, frames, v);
+        }
         wav_write(pcm, frames);
-        ring_write(pcm, frames);
+        if (Port_Speed() == 100) {
+            ring_write(pcm, frames);
+        }
     }
 }

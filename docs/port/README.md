@@ -92,6 +92,10 @@ disc** when it runs (`ttt.dat`, [data.md](data.md)). Everything is written under
   rebinding, game, about), kept in `~/.config/ttt/settings.ini` (`TTT_CONFIG`; environment variables still win);
   closing the window or Escape asks "Quit?" first. The overlay is the only host float code besides the VU
   interpreter's SSE, on the window thread, and nothing of the simulation reads it.
+- Game speed, volumes, cheats (T40): `game.speed` 0.25x-4x and Tab held for `game.fast_forward` scale the real-time
+  clock only ([settings.md](settings.md#game-speed); no sound off 1x); master / music / effects volumes scale the
+  output after the SPU2 model ([sound.md](sound.md) section 4.1); the Cheats page's "unlock everything" raises the
+  game's own unlock flags, opt-in and marked as changing the game's state ([cheats.md](cheats.md)).
 - Determinism (T27, [determinism.md](determinism.md)): the `ttt: state:` line's hash is now a 64-bit XXH3 of the
   whole gameplay state (EE RAM without the EE stack, scratchpad, hardware registers, VU0, the port's own state), with
   every host address in the game's memory counted as one constant, so that it does not move when the code changes
@@ -266,6 +270,7 @@ wait loops drive the hardware.
 | `plat_main.c` | Reads the settings file, `TTT_SELFTEST=settings` / `pad`, opens the window (on the host stack), then runs the game's `main` on the EE stack |
 | `plat_settings.c` | The settings file (`key = value`, unknown lines kept, atomic writes), the environment's precedence, key names, the keyboard's bindings ([settings.md](settings.md)) |
 | `overlay.cpp` / `overlay.h` / `imconfig_ttt.h` | The F1 overlay and the quit question: Dear ImGui (`third_party/imgui`) on the window thread, its SDL glue, its software-renderer path, its maths ([settings.md](settings.md)) |
+| `plat_cheat.c` | Cheats (T40): "unlock everything" through the game's own save-block unlock flags, opt-in, the `ttt: unlocks:` report line ([cheats.md](cheats.md)) |
 | `plat_state.c` | The state: the regions the modules register, the gameplay hash, save / load at the VBlank boundary (a stack switch), `Port_OffEe`, the synctest ([determinism.md](determinism.md)) |
 | `plat_window.c` | The SDL3 window: SDL loaded at run time, its own thread, the GL context ([Window](#window)), the audio stream, F1 / the quit question / the live settings, `TTT_SELFTEST=window` |
 | `gs_gl.c` | The GS's OpenGL 3.3 back end on the window thread ([GL back end](#gl-back-end)) |
@@ -353,6 +358,9 @@ Switches:
 | `TTT_PACE_FROM=<vblank>` | The GL back end's frame-pacing report (`ttt: gl: pacing` lines, [video.md](video.md#frame-pacing)) starts at that VBlank's picture (default 600). |
 | `TTT_CONFIG=<file>` | The settings file (default `$XDG_CONFIG_HOME/ttt/settings.ini` or `~/.config/ttt/settings.ini`). Its values are the defaults of the variables of [settings.md](settings.md) (`TTT_RENDERER`, `TTT_VSYNC`, `TTT_MOVIES`, `TTT_SCALE`, `TTT_VOLUME`...); a variable set in the environment wins. `TTT_SELFTEST=settings` checks the file's round trip. |
 | `TTT_NO_QUIT_CONFIRM=1` | Close / Escape quit at once instead of asking "Quit?". |
+| `TTT_SPEED=25..400`, `TTT_FAST_FORWARD=100..400` | Game speed in percent in real time, and while Tab is held (T40, [settings.md](settings.md#game-speed)). Headless runs ignore them. The report adds `ttt: speed: <n>% at the end` in real time. |
+| `TTT_VOLUME`, `TTT_MUSIC_VOLUME`, `TTT_EFFECTS_VOLUME=0..100`, `TTT_MUTE=1` | The port's output volumes, window and `TTT_WAV` (T40, [sound.md](sound.md) section 4.1). The state is the same. |
+| `TTT_CHEAT_UNLOCK=1` | "Unlock everything" (T40, [cheats.md](cheats.md)): changes the game's state (and its hash). Every report has a `ttt: unlocks:` line. |
 | `TTT_OVERLAY_TEST=1` | Tests: the overlay driven from inside a window run ([settings.md](settings.md)). |
 | `TTT_RESOLUTION=1..8`, `TTT_ASPECT=4:3 / 16:9 / 21:9`, `TTT_DEFLICKER=0`, `TTT_SMOOTH=0`, `TTT_LOW_LATENCY=1` | The GL back end's video options (T37, [video.md](video.md)): internal resolution, widescreen, the game's flicker filter off, nearest scaling into the window, low input lag. Presentation only (the state is the same). |
 | `TTT_TEXTURE_DUMP=1`, `TTT_TEXTURE_REPLACE=1`, `TTT_TEXTURES=<folder>` | Texture packs (T39, [textures.md](textures.md)), GL only: write each new texture as `<folder>/SLUS-20001/dumps/<name>.png`, draw `replacements/<name>.png` instead, PCSX2's names (XXH3 of the texture's data and CLUT, format bits). Presentation only (the state is the same). `TTT_SELFTEST=texpack` checks the names. |

@@ -128,6 +128,19 @@ Results (sw): `TTT_SYNCTEST=4` over the whole idle run and `TTT_SYNCTEST=1` over
 as the runs without the synctest. A state saved at VBlank 700 (idle) or in the fight and loaded in a fresh process
 continues with the same pictures, modes and state as the run that saved it.
 
+## Game speed, volumes, cheats (T40)
+
+- **Game speed** scales only the real-time clock (`plat_hw.c` `rt_scale`, out of line, called from the real-time
+  branches of `Port_HwPoll` and the overlay's pause only). Headless runs never call it: the idle and GL fight hashes
+  are unchanged, and so are real-time runs at 1x. Real-time runs were never hash-reproducible (the RNG spin follows
+  the host's timing); at any speed the game runs the same frames on the same inputs. A rollback netplay session
+  (T45) must keep every peer at 1x and ignore the fast-forward key.
+- **Volumes** act on the mixed output after the SPU2 model ([sound.md](sound.md) section 4.1): no state changes.
+- **Cheats** change the game's state on purpose: `cheats.unlock_all` writes the save block's unlock flags at each
+  VBlank ([cheats.md](cheats.md)), so a run with it has another hash (the 300-VBlank idle run: 34 selectable
+  characters instead of 20). Off (the default) nothing is written and every hash is as before. The write happens in
+  the VBlank work, off the EE stack, so the check itself leaves no host bytes in the hashed memory.
+
 ## Open
 
 - **GL back end.** GS memory is partly on the GPU only (resolved targets), so saves are refused with

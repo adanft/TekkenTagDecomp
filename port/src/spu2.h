@@ -45,6 +45,10 @@ void Spu2_KeyOff(int core, uint32_t mask);
 int Spu2_KeyStatus(int core, int voice);
 /* Mixes `n` stereo frames (interleaved L, R) into `out` (NULL: advance the voices only). */
 void Spu2_Mix(int16_t *out, int n);
+/* The same, and the output as two buses for the host's volumes (T40, applied after the model, never in it): `bus` gets
+   four values a frame, the whole mix (L, R, before the clamp to 16 bits) and the part of it from core 0's voices in
+   `musicVoices` (L, R, through the same master and core 1 volumes). The voices advance exactly as with Spu2_Mix. */
+void Spu2_MixBus(int16_t *out, int32_t *bus, uint32_t musicVoices, int n);
 /* Decodes one 16-byte PS-ADPCM block into 28 samples with the predictor history; returns the block's flags byte. */
 int Spu2_DecodeBlock(const uint8_t *blk, int16_t *out, int16_t *h1, int16_t *h2);
 /* TTT_SELFTEST=spu: synthetic ADPCM blocks through the decoder and the voices; 0 when every check passes. */

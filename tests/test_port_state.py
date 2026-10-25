@@ -145,5 +145,34 @@ class Fight(unittest.TestCase):
         self.assertEqual(state(a), state(b))
 
 
+@unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
+@unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
+class CheatUnlock(unittest.TestCase):
+    """T40 (docs/port/cheats.md): cheats.unlock_all, off by default, raises the game's own unlock flags in the save
+    block D_00439C60 (the step counter to the unlock table's last threshold, every theater character's clear bit,
+    the GALLERY / TEKKEN BOWL / THEATER bytes) and the game's Unlock_ApplyAll at boot rebuilds the selectable
+    characters from them: more characters than a fresh card has. It changes the game's state, so the hash differs;
+    with it off nothing is written."""
+
+    UNLOCKS = re.compile(r"ttt: unlocks: counter (\d+), clear bits 0x([0-9a-f]+), gallery (\d+), bowl (\d+), "
+                         r"theater (\d+), (\d+) selectable characters; cheat (on|off)")
+
+    def test_unlock_everything(self):
+        off = run_ttt(TTT_FRAMES="300", TTT_SEED="1")
+        on = run_ttt(TTT_FRAMES="300", TTT_SEED="1", TTT_CHEAT_UNLOCK="1")
+        for r in (off, on):
+            self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
+        a, b = self.UNLOCKS.search(off.stdout), self.UNLOCKS.search(on.stdout)
+        self.assertIsNotNone(a, off.stdout[-2000:])
+        self.assertIsNotNone(b, on.stdout[-2000:])
+        self.assertEqual(a.groups()[:5] + (a.group(7),), ("0", "0" * 16, "0", "0", "0", "off"))
+        self.assertGreater(int(b.group(1)), 0)
+        self.assertNotEqual(int(b.group(2), 16), 0)
+        self.assertEqual(b.groups()[2:5] + (b.group(7),), ("1", "1", "1", "on"))
+        self.assertGreater(int(b.group(6)), int(a.group(6)))
+        h = re.compile(r"hash (0x[0-9a-f]+)")
+        self.assertNotEqual(h.search(on.stdout).group(1), h.search(off.stdout).group(1))
+
+
 if __name__ == "__main__":
     unittest.main()

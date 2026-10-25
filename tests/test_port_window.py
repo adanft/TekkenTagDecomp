@@ -122,7 +122,7 @@ class Window(unittest.TestCase):
                 self.assertLess(mean, 4.0, name)
 
 
-OVERLAY = re.compile(r"ttt: overlay: (\d+) frames drawn \((gl|sw)\), pages (\d)/5, key capture (\d) "
+OVERLAY = re.compile(r"ttt: overlay: (\d+) frames drawn \((gl|sw)\), pages (\d)/6, key capture (\d) "
                      r"\(pad 1 square: (\w+)\)")
 WINDOW_TEST = "ttt: window: overlay test: F1 opens 1, presses blocked 1, Escape asks 1"
 
@@ -148,7 +148,7 @@ class Overlay(unittest.TestCase):
             self.assertIsNotNone(m, r.stdout[-2000:] + r.stderr[-2000:])
             self.assertEqual(m.group(2), renderer)
             self.assertGreater(int(m.group(1)), 40)
-            self.assertEqual((m.group(3), m.group(4), m.group(5)), ("5", "1", "Space"))
+            self.assertEqual((m.group(3), m.group(4), m.group(5)), ("6", "1", "Space"))
             self.assertIn(WINDOW_TEST, r.stdout)
             self.assertNotIn("ImGui check failed", r.stderr)
             self.assertIn("keys.p1.square = Space\n", cfg.read_text())
@@ -234,6 +234,38 @@ class Pacing(unittest.TestCase):
         self.assertLess(p95, 25.0, m.group(0))
         self.assertLessEqual(late, span // 10, m.group(0))
         self.assertRegex(r.stdout, r"ttt: gl: pacing: \d+ VBlank pictures, \d+ without a new game frame")
+
+
+@unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
+@unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
+@unittest.skipUnless(any(p.exists() for p in SDL32), "no 32-bit SDL3 (Arch: lib32-sdl3)")
+class GameSpeed(unittest.TestCase):
+    """T40 (docs/port/settings.md, Game speed): game.speed scales the real-time clock. The idle run's VBlanks 300-900
+    (the attract sequence, GL in a hidden window, TTT_TIME_FROM) take 600 / 59.94 = 10.0 s of wall time at 1x: at 2x
+    about 5 s (the same game frames, twice as many a wall second), at 0.5x about 20 s. The bounds allow the measuring
+    run's own costs and host stalls (a CPU quota's throttling). About 30 s."""
+
+    def wall_ms(self, speed):
+        r = run_ttt(timeout=300, TTT_FRAMES="900", TTT_TIME_FROM="300", TTT_HEADLESS="0", TTT_SEED="1", TTT_WINDOW="1",
+                    TTT_WINDOW_HIDDEN="1", TTT_RENDERER="gl", TTT_AUDIO="0", TTT_VSYNC="0", TTT_SPEED=speed,
+                    SDL_VIDEO_DRIVER="offscreen")
+        self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
+        if "OpenGL renderer" not in r.stdout:
+            self.skipTest("no OpenGL 3.3 context here: " + r.stdout[-500:])
+        self.assertIn(f"ttt: speed: {speed}% at the end", r.stdout)
+        frames = int(re.search(r"ttt: real time: 900 vblanks, (\d+) frames", r.stdout).group(1))
+        self.assertGreater(frames, 800, r.stdout[-2000:])  # one game frame a VBlank, as at 1x
+        return int(re.search(r"ttt: time: vblanks 300-900 in (\d+) ms", r.stdout).group(1))
+
+    def test_fast_forward(self):
+        ms = self.wall_ms("200")
+        self.assertGreaterEqual(ms, 4500)
+        self.assertLessEqual(ms, 6500)
+
+    def test_slow_motion(self):
+        ms = self.wall_ms("50")
+        self.assertGreaterEqual(ms, 19000)
+        self.assertLessEqual(ms, 23000)
 
 
 if __name__ == "__main__":

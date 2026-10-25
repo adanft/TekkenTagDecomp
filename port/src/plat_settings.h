@@ -15,6 +15,7 @@ enum {
 };
 #define SETTINGS_SC_OPEN 58u   /* F1: opens the settings; never a pad button */
 #define SETTINGS_SC_ESCAPE 41u /* Escape: the quit question; never a pad button */
+#define SETTINGS_SC_FAST 43u   /* Tab: held, the game runs at game.fast_forward (T40); never a pad button */
 
 /* Reads the file (TTT_CONFIG, else $XDG_CONFIG_HOME/ttt/settings.ini, else ~/.config/ttt/settings.ini). A setting
    that has an environment variable (video.renderer: TTT_RENDERER...) and is in the file becomes that variable's
@@ -47,7 +48,7 @@ void Settings_DefaultBindings(uint16_t b[2][SB_COUNT]);
 void Settings_Bindings(uint16_t b[2][SB_COUNT]);
 const char *Settings_ButtonName(int button); /* "up", "square"... */
 /* Binds `sc` to the pad's button: a key presses one button only, so a button that had `sc` gets this one's old key
-   (the two swap). F1 and Escape are refused, and so is 0 or a scancode past 511. 1 when done. */
+   (the two swap). F1, Escape and Tab are refused, and so is 0 or a scancode past 511. 1 when done. */
 int Settings_Rebind(uint16_t b[2][SB_COUNT], int pad, int button, uint32_t sc);
 int Settings_SaveBindings(const uint16_t b[2][SB_COUNT]); /* every keys.* line; 1 when written */
 

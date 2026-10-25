@@ -152,6 +152,22 @@ Output:
 - `SDL_AUDIO_DRIVER=dummy` or `disk` keep the speakers out of tests.
 - `TTT_SND_TRACE=1` prints every sound command with its VBlank and, for 0x7xxx, the struct sent.
 
+### 4.1 Volumes (T40)
+
+The settings `audio.volume` (master), `audio.music`, `audio.effects` (0-100, `TTT_VOLUME`, `TTT_MUSIC_VOLUME`,
+`TTT_EFFECTS_VOLUME`) and `audio.mute` scale the port's output, both the window's ring and `TTT_WAV`, after the
+model: the SPU2 state and everything the game reads back never see them, so the state hash is the same at any volume.
+
+- `Spu2_MixBus` mixes as `Spu2_Mix` (the voices advance identically) and also returns two buses per frame, before
+  the 16-bit clamp: the whole mix, and the part from core 0's voices 22-23 (`Port_BgmVoices`, `plat_bgm.c`: the BGM
+  and movie tracks) through the same core 0 master, core 1 AVOL and core 1 master volumes.
+- `plat_snd.c` makes each sample `((whole - music) * effects + music * music_volume) * master / 10000`, clamped.
+  At 100 / 100 / 100 the clamped whole mix is used unchanged, bit for bit as before T40. Mute is a master of 0.
+- The window sets the volumes when they change (`Port_SndSetVolumes`); headless runs read the settings at the first
+  VBlank. Before T40 the volume scaled only what the window played; now `TTT_WAV` follows it too.
+- While the game speed is not 1x ([settings.md](settings.md#game-speed)) nothing goes to the window's ring;
+  `TTT_WAV` gets every frame.
+
 ## 5. Effect on the game's timing
 
 Before T32 the stub never reported status bit 4. The attract cycle's loading mode starts track 1 with the hold flag
@@ -176,6 +192,8 @@ of the hashed `.sbss` differ:
   `TTT_WAV`, twice. It checks that the two WAVs are identical, that the boot is silent, that the title's effect
   sounds, and that the select screen's stereo BGM plays. The WAVs are written to a temporary directory and deleted.
   No audio from the game's data is ever committed.
+- `HostVolumes` (same file): the same run at master 50 % (every sample halved), music 0 (the select BGM gone, the
+  title's effect unchanged), effects 0 (the reverse) and both 0 (silence), all with the default run's state hash.
 
 ## 7. Open
 

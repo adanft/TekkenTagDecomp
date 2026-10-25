@@ -231,7 +231,8 @@ static uint32_t sGamepadId[2];
 static char sGamepadName[2][128];
 static int sInputBlocked; /* the overlay is open: the pads see nothing pressed (under sPadLock) */
 static int sPaused;       /* the overlay is open and game.pause: the game's clock waits (atomic) */
-static int sVolume = 100; /* audio.volume, 0 when muted (window thread) */
+static int sFastHeld;     /* Tab (SETTINGS_SC_FAST) is held: game.fast_forward instead of game.speed (window thread) */
+static void apply_speed(void);
 
 static void pad_set(uint16_t *b, uint16_t bit, int down) {
     *b = (uint16_t)(down ? *b | bit : *b & ~bit);
@@ -418,12 +419,6 @@ static void audio_pump(void) {
         return;
     }
     while ((n = Port_SndRingRead(buf, 1024)) > 0) {
-        if (sVolume < 100) { /* the overlay's volume: what the window plays, not what the game mixes */
-            int i;
-            for (i = 0; i < n * 2; i++) {
-                buf[i] = (int16_t)(buf[i] * sVolume / 100);
-            }
-        }
         if (sdl.GetAudioStreamQueued(sAudio) < AUDIO_MAX_QUEUED) {
             sdl.PutAudioStreamData(sAudio, buf, n * 4);
         }
@@ -483,6 +478,15 @@ static void handle_event(const uint8_t *ev) {
     uint32_t type, sc;
     memcpy(&type, ev, 4);
     memcpy(&sc, ev + SDL_SCANCODE_OFFSET, 4);
+    if ((type == SDL_EVENT_KEY_DOWN || type == SDL_EVENT_KEY_UP) && sc == SETTINGS_SC_FAST) {
+        /* hold to fast-forward (T40): never a pad button; pressed while the overlay is open it does nothing, a release
+           always counts */
+        if (type == SDL_EVENT_KEY_UP || !Overlay_Open()) {
+            sFastHeld = type == SDL_EVENT_KEY_DOWN && ev[SDL_KEY_DOWN_OFFSET] != 0;
+            apply_speed();
+        }
+        return;
+    }
     if (Overlay_Event(type, ev)) {
         return;
     }
@@ -573,6 +577,16 @@ static int win_margin(int gl) {
     return gl ? Gl_AspectMargin(a) : 0;
 }
 
+void Port_SetSpeed(int pct);                             /* plat_hw.c */
+int Port_Speed(void);
+void Port_SndSetVolumes(int master, int music, int effects); /* plat_snd.c */
+void Port_CheatSet(int unlockAll);                       /* plat_cheat.c */
+
+/* The game speed (T40): game.fast_forward while Tab is held, else game.speed (plat_hw.c scales the real-time clock). */
+static void apply_speed(void) {
+    Port_SetSpeed(Settings_GetInt(sFastHeld ? "game.fast_forward" : "game.speed"));
+}
+
 void Port_WindowApply(void) {
     int vsync = Settings_GetInt("video.vsync"), scale = Settings_GetInt("video.scale");
     int fs = Settings_GetInt("video.fullscreen"), marg = win_margin(sGlMode);
@@ -580,7 +594,10 @@ void Port_WindowApply(void) {
     sInputBlocked = Overlay_Open();
     pthread_mutex_unlock(&sPadLock);
     __atomic_store_n(&sPaused, Overlay_Open() && Settings_GetInt("game.pause") != 0, __ATOMIC_RELEASE);
-    sVolume = Settings_GetInt("audio.mute") ? 0 : Settings_GetInt("audio.volume");
+    Port_SndSetVolumes(Settings_GetInt("audio.mute") ? 0 : Settings_GetInt("audio.volume"), Settings_GetInt("audio.music"),
+                       Settings_GetInt("audio.effects"));
+    apply_speed();
+    Port_CheatSet(Settings_GetInt("cheats.unlock_all"));
     if (sWindow == NULL) {
         return;
     }
@@ -1049,6 +1066,21 @@ void Port_WindowSelfTest(void) {
         EXPECT(!quit_event(ty, ev), "Return does not end the program");
         EXPECT(quit_event(SDL_EVENT_WINDOW_CLOSE_REQUESTED, ev), "the close button ends the program");
         EXPECT(quit_event(SDL_EVENT_QUIT, ev), "SDL's quit ends the program");
+    }
+    { /* T40: Tab held is game.fast_forward (default 3x), released game.speed; never a pad button */
+        uint8_t ev[128] = {0};
+        uint32_t ty = SDL_EVENT_KEY_DOWN, sc = SETTINGS_SC_FAST;
+        memcpy(ev, &ty, 4);
+        memcpy(ev + SDL_SCANCODE_OFFSET, &sc, 4);
+        ev[SDL_KEY_DOWN_OFFSET] = 1;
+        handle_event(ev);
+        Port_WindowPads(b, a);
+        EXPECT(Port_Speed() == Settings_GetInt("game.fast_forward") && b[0] == 0 && b[1] == 0, "Tab held: fast-forward");
+        ty = SDL_EVENT_KEY_UP;
+        memcpy(ev, &ty, 4);
+        ev[SDL_KEY_DOWN_OFFSET] = 0;
+        handle_event(ev);
+        EXPECT(Port_Speed() == Settings_GetInt("game.speed"), "Tab released: the chosen speed");
     }
 #undef KEY
 #undef EXPECT

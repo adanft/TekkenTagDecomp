@@ -59,8 +59,13 @@ static const Def kDefs[] = {
     {"video.texture_dir", "TTT_TEXTURES", 0, 0, 0, "", 1},
     {"audio.volume", "TTT_VOLUME", 0, 100, 100, NULL, 0},
     {"audio.mute", "TTT_MUTE", 0, 1, 0, NULL, 0},
+    {"audio.music", "TTT_MUSIC_VOLUME", 0, 100, 100, NULL, 0},
+    {"audio.effects", "TTT_EFFECTS_VOLUME", 0, 100, 100, NULL, 0},
     {"game.movies", "TTT_MOVIES", 0, 1, 1, NULL, 1},
     {"game.pause", "TTT_PAUSE_IN_MENU", 0, 1, 1, NULL, 0},
+    {"game.speed", "TTT_SPEED", 25, 400, 100, NULL, 0},
+    {"game.fast_forward", "TTT_FAST_FORWARD", 100, 400, 300, NULL, 0},
+    {"cheats.unlock_all", "TTT_CHEAT_UNLOCK", 0, 1, 0, NULL, 0},
 };
 #define NDEFS ((int)(sizeof kDefs / sizeof kDefs[0]))
 
@@ -437,7 +442,7 @@ int Settings_Rebind(uint16_t b[2][SB_COUNT], int pad, int button, uint32_t sc) {
     int p, k;
     uint16_t old;
     if (pad < 0 || pad > 1 || button < 0 || button >= SB_COUNT || sc == 0 || sc >= 512 || sc == SETTINGS_SC_OPEN ||
-        sc == SETTINGS_SC_ESCAPE) {
+        sc == SETTINGS_SC_ESCAPE || sc == SETTINGS_SC_FAST) {
         return 0;
     }
     old = b[pad][button];
@@ -571,6 +576,7 @@ void Settings_SelfTest(void) {
     expect(Settings_Rebind(c, 0, SB_UP, 82) && c[0][SB_UP] == 82 && c[1][SB_UP] == 24, "a key of pad 2 swaps across pads");
     expect(!Settings_Rebind(c, 0, SB_START, SETTINGS_SC_OPEN) && c[0][SB_START] == 40, "F1 is refused");
     expect(!Settings_Rebind(c, 1, SB_START, SETTINGS_SC_ESCAPE), "Escape is refused");
+    expect(!Settings_Rebind(c, 1, SB_START, SETTINGS_SC_FAST), "Tab (fast-forward) is refused");
     expect(!Settings_Rebind(c, 2, SB_START, 30) && !Settings_Rebind(c, 0, SB_COUNT, 30), "no such pad or button");
     expect(Settings_Rebind(c, 1, SB_CROSS, c[1][SB_CROSS]), "the same key again is fine");
     {
@@ -604,6 +610,9 @@ void Settings_SelfTest(void) {
     setenv("TTT_CONFIG", "/nonexistent-dir-ttt/x/settings.ini", 1);
     Settings_Load();
     expect(Settings_GetInt("audio.volume") == 100 && Settings_LoadError()[0] == 0, "a missing file is the defaults");
+    expect(Settings_GetInt("game.speed") == 100 && Settings_GetInt("game.fast_forward") == 300 &&
+               Settings_GetInt("audio.music") == 100 && Settings_GetInt("audio.effects") == 100 &&
+               Settings_GetInt("cheats.unlock_all") == 0, "T40 defaults: 1x, 3x held, full volumes, no cheats");
     unsetenv("TTT_SCALE");
     printf(sFails ? "ttt: settings self-test FAILED (%d)\n" : "ttt: settings self-test OK\n", sFails);
     fflush(stdout);

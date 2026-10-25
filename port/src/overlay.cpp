@@ -486,16 +486,42 @@ static void page_video(void) {
 }
 
 static void page_audio(void) {
-    slider("Volume", "audio.volume", 0, 100, "%d%%");
+    slider("Master volume", "audio.volume", 0, 100, "%d%%");
+    slider("Music", "audio.music", 0, 100, "%d%%");
+    slider("Effects", "audio.effects", 0, 100, "%d%%");
     check("Mute", "audio.mute");
-    ImGui::TextDisabled("The volume scales what the window plays; the game's sound is mixed as before.");
+    ImGui::TextWrapped("The volumes scale the port's output (the window and TTT_WAV); the game's own sound state is "
+                       "mixed as before. Music: the BGM and movie voices; effects: every other voice. Nothing is played "
+                       "while the game speed is not 1x.");
+}
+
+/* T40: the game speed presets (percent), the real-time clock's rate (plat_hw.c). */
+static void speed_choice(const char *label, const char *key, int lo) {
+    static const int kSpeeds[] = {25, 50, 75, 100, 150, 200, 300, 400};
+    int v = Settings_GetInt(key);
+    ImGui::BeginDisabled(Settings_FromEnv(key) != 0);
+    ImGui::TextUnformatted(label);
+    for (int i = 0; i < (int)(sizeof kSpeeds / sizeof kSpeeds[0]); i++) {
+        if (kSpeeds[i] < lo) {
+            continue;
+        }
+        char name[16];
+        snprintf(name, sizeof name, "%g##%s", kSpeeds[i] / 100.0, key);
+        ImGui::SameLine();
+        if (ImGui::RadioButton(name, v == kSpeeds[i])) {
+            Settings_SetInt(key, kSpeeds[i]);
+            Port_WindowApply();
+        }
+    }
+    ImGui::EndDisabled();
+    setting_note(key);
 }
 
 static void page_controls(void) {
     uint16_t b[2][SB_COUNT];
     char name[32], id[32];
     Port_WindowGetBindings(b);
-    ImGui::TextWrapped("Click a key, then press the new key (Escape cancels). F1 and Escape are kept for the overlay.");
+    ImGui::TextWrapped("Click a key, then press the new key (Escape cancels). F1, Escape and Tab (fast-forward) are kept for the overlay.");
     if (ImGui::BeginTable("keys", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit)) {
         ImGui::TableSetupColumn("Button");
         ImGui::TableSetupColumn("Pad 1", ImGuiTableColumnFlags_WidthFixed, 160.0f);
@@ -534,6 +560,10 @@ static void page_controls(void) {
 static void page_game(void) {
     check("Movies", "game.movies");
     check("Pause the game while this window is open", "game.pause");
+    ImGui::SeparatorText("Game speed");
+    speed_choice("Speed (x)", "game.speed", 25);
+    speed_choice("Hold Tab (x)", "game.fast_forward", 100);
+    ImGui::TextDisabled("Real time only: the game runs the same frames faster or slower; no sound off 1x.");
     ImGui::SeparatorText("Data");
     const char *disc = Port_DiscName(), *dat = Port_DataPath();
     ImGui::TextWrapped("Disc: %s", disc != nullptr && *disc ? disc : "(not opened)");
@@ -547,6 +577,15 @@ static void page_game(void) {
     }
 }
 
+/* T40: cheats (plat_cheat.c, docs/port/cheats.md). They change the game's own state. */
+static void page_cheats(void) {
+    ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "These modify the game's state.");
+    ImGui::TextWrapped("Unlocking sets the game's own unlock flags: every character, TEKKEN BOWL, THEATER (every "
+                       "ending) and GALLERY. Your next memory card save keeps them, and turning this off does not lock "
+                       "them again. The character select picks the new set at the next game start.");
+    check("Unlock everything", "cheats.unlock_all");
+}
+
 static void page_about(void) {
     ImGui::Text("Tekken Tag Tournament, native PC port");
     ImGui::Text("Build %s", TTT_GIT);
@@ -555,7 +594,7 @@ static void page_about(void) {
     }
     ImGui::Text("Dear ImGui %s (MIT)", IMGUI_VERSION);
     ImGui::Separator();
-    ImGui::TextWrapped("F1: this window. Escape or the close button: quit (asks first). The game's data comes from your "
+    ImGui::TextWrapped("F1: this window. Hold Tab: fast-forward. Escape or the close button: quit (asks first). The game's data comes from your "
                        "own disc; nothing of the game is in this program.");
 }
 
@@ -596,7 +635,8 @@ static void ui(void) {
                 if (tab("Audio", 1)) { page_audio(); ImGui::EndTabItem(); }
                 if (tab("Controls", 2)) { page_controls(); ImGui::EndTabItem(); }
                 if (tab("Game", 3)) { page_game(); ImGui::EndTabItem(); }
-                if (tab("About", 4)) { page_about(); ImGui::EndTabItem(); }
+                if (tab("Cheats", 4)) { page_cheats(); ImGui::EndTabItem(); }
+                if (tab("About", 5)) { page_about(); ImGui::EndTabItem(); }
                 ImGui::EndTabBar();
             }
         }
@@ -660,7 +700,7 @@ extern "C" void Overlay_TestStep(void) {
         return;
     }
     int n = sTest++; /* the window's test (plat_window.c) opens the settings with F1 at its first frame */
-    sTestTab = n >= 2 && n < 27 ? (n - 2) / 5 : -1; /* each page for five frames */
+    sTestTab = n >= 2 && n < 32 ? (n - 2) / 5 : -1; /* each page for five frames */
     if (n == 28) { /* bind pad 1's square through the capture path: a made-up key event, as SDL would hand it */
         uint8_t ev[128] = {0};
         uint32_t type = EV_KEY_DOWN, sc = 44; /* Space */
@@ -679,7 +719,7 @@ extern "C" void Overlay_TestStep(void) {
 
 static int pages(void) {
     int n = 0;
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 6; i++) {
         n += sTestPages >> i & 1;
     }
     return n;
@@ -691,7 +731,7 @@ extern "C" void Overlay_Report(void) {
         char name[32];
         Port_WindowGetBindings(b);
         Settings_KeyName(b[0][SB_SQUARE], name, sizeof name);
-        printf("ttt: overlay: %d frames drawn (%s), pages %d/5, key capture %d (pad 1 square: %s)\n", sTestFrames,
+        printf("ttt: overlay: %d frames drawn (%s), pages %d/6, key capture %d (pad 1 square: %s)\n", sTestFrames,
                sMode == 1 ? "gl" : "sw", pages(), sTestCapture, name);
         fflush(stdout);
     }

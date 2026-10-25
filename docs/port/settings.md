@@ -15,11 +15,13 @@ configuration). Tests: `tests/test_port_settings.py`, `tests/test_port_window.py
 | Video | Renderer (OpenGL / software) | next start |
 | | V-sync, window scale (1x-6x of 640x448), fullscreen, frame-time meter (FPS, mean and worst frame time of the window) | at once |
 | | OpenGL only (T37, [video.md](video.md)): internal resolution 1x-8x, aspect 4:3 / 16:9 / 21:9, the game's flicker filter, smooth scaling, low input lag | at once |
-| Audio | Volume 0-100, mute (what the window plays; the game's own mix is unchanged) | at once |
-| Controls | The keyboard's keys for pads 1 and 2: click a key, press the new one (Escape cancels; F1 and Escape cannot be bound; a key presses one button only, so the button that had it gets the old key). "Default keys". The gamepads on pads 1 and 2 (read only) | at once |
+| Audio | Master, music and effects volumes 0-100, mute (T40: the port's output, window and `TTT_WAV`; the game's own sound state is unchanged, [sound.md](sound.md) section 4.1) | at once |
+| Controls | The keyboard's keys for pads 1 and 2: click a key, press the new one (Escape cancels; F1, Escape and Tab cannot be bound; a key presses one button only, so the button that had it gets the old key). "Default keys". The gamepads on pads 1 and 2 (read only) | at once |
 | Game | Movies on / off | next start |
 | | Pause the game while the overlay is open (default on) | at once |
+| | Game speed 0.25x-4x and the speed while Tab is held 1x-4x (T40, [Game speed](#game-speed)) | at once |
 | | The disc, the data file, verified or `[modified game data]`, the settings file and a write error if any (read only) | |
+| Cheats | Unlock everything (T40, off by default; it modifies the game's state, [cheats.md](cheats.md)) | at once |
 | About | The build (`git describe`), `[modified game data]` when set, Dear ImGui's version | |
 
 A setting whose environment variable is set shows `(set by TTT_...)` and cannot be changed there (the variable wins).
@@ -82,8 +84,13 @@ know are kept as they are, in place; a changed key's line is replaced, a new key
 | `video.texture_dir` | a folder (read at start; empty: `textures/` of the checkout or beside the program) | (empty) | `TTT_TEXTURES` |
 | `audio.volume` | 0-100 | 100 | `TTT_VOLUME` |
 | `audio.mute` | 0 / 1 | 0 | `TTT_MUTE` |
+| `audio.music` | 0-100 (the BGM and movie voices) | 100 | `TTT_MUSIC_VOLUME` |
+| `audio.effects` | 0-100 (every other voice) | 100 | `TTT_EFFECTS_VOLUME` |
 | `game.movies` | 0 / 1 | 1 | `TTT_MOVIES` |
 | `game.pause` | 0 / 1 | 1 | `TTT_PAUSE_IN_MENU` |
+| `game.speed` | 25-400 (percent; the overlay offers 25, 50, 75, 100, 150, 200, 300, 400) | 100 | `TTT_SPEED` |
+| `game.fast_forward` | 100-400 (percent, while Tab is held) | 300 | `TTT_FAST_FORWARD` |
+| `cheats.unlock_all` | 0 / 1 ([cheats.md](cheats.md)) | 0 | `TTT_CHEAT_UNLOCK` |
 | `keys.p1.up` ... `keys.p2.select` | a key name (`W`, `Up`, `Keypad 4`, `Left Shift`, `F5`, `Space`; any case) or `Scancode <n>` | the [Input](README.md#input) table | |
 
 The buttons of `keys.pN.<button>`: up, down, left, right, square, triangle, cross, circle, l1, r1, l2, r2, start,
@@ -102,6 +109,29 @@ audio.volume = 60
 keys.p1.square = Space
 ```
 
+## Game speed
+
+T40. `game.speed` runs the game faster or slower in real time; holding Tab runs it at `game.fast_forward` instead
+(Tab is reserved like F1 and Escape: never a pad button, and pressed while the overlay is open it does nothing).
+
+- **How.** The real-time clock (`plat_hw.c`, `rt_scale`) runs at the speed's percent of the host's monotonic clock.
+  The window sets the wanted speed; the game's thread takes it at its next poll and rebases the scaled clock there,
+  so the game's time stays continuous across a change (nothing is skipped or repeated). The game runs exactly the
+  same frames: only how many VBlanks a wall second holds changes. The overlay's pause and the "more than a VBlank
+  behind" drop work on the scaled clock.
+- **Limits.** Above 1x the game goes as fast as the host renders: when a frame's work takes longer than the scaled
+  VBlank the clock drops the lost time, as at 1x after a stall (4x measured about 3.2x on the attract sequence with GL in a hidden window, V-sync off).
+  With V-sync on, the window's present may hold fast-forward to the display's rate.
+- **Sound.** While the speed is not 1x the window plays nothing (no resampling: pitch-shifted or time-stretched game
+  sound is not worth its cost here); `TTT_WAV` still gets every frame at the game's pace, so a WAV is the same at any
+  speed. Back at 1x the window plays again.
+- **Headless runs** never read the speed (their clock is the VBlank count), and the state hash and the gameplay
+  fingerprint do not depend on it: the scaling code is out of line and only on the real-time path (the headless
+  path's host stack bytes reach the hashed scratchpad region, [determinism.md](determinism.md)).
+- **Netplay / synctest.** The simulation is unchanged, but peers advance by wall time: a rollback session (T45) must
+  run every peer at 1x (or agree on one speed) and ignore Tab; `TTT_SYNCTEST` is headless and unaffected.
+- Real-time runs without a window keep 1x (the window applies the setting).
+
 ## The quit question
 
 The window's close button, SDL's quit event or Escape (key code or place, not its key repeat) open "Quit Tekken Tag
@@ -114,9 +144,9 @@ GL context / renderer and the window, then `_exit(0)`). `TTT_NO_QUIT_CONFIRM=1` 
 |---|---|
 | `TTT_CONFIG=<file>` | The settings file. |
 | `TTT_NO_QUIT_CONFIRM=1` | Close / Escape quit without asking. |
-| `TTT_SCALE`, `TTT_FULLSCREEN`, `TTT_FPS_METER`, `TTT_VOLUME`, `TTT_MUTE`, `TTT_PAUSE_IN_MENU`, `TTT_RESOLUTION`, `TTT_ASPECT`, `TTT_DEFLICKER`, `TTT_SMOOTH`, `TTT_LOW_LATENCY`, `TTT_TEXTURE_REPLACE`, `TTT_TEXTURE_DUMP`, `TTT_TEXTURES` | The settings above, over the file. |
+| `TTT_SCALE`, `TTT_FULLSCREEN`, `TTT_FPS_METER`, `TTT_VOLUME`, `TTT_MUTE`, `TTT_MUSIC_VOLUME`, `TTT_EFFECTS_VOLUME`, `TTT_SPEED`, `TTT_FAST_FORWARD`, `TTT_CHEAT_UNLOCK`, `TTT_PAUSE_IN_MENU`, `TTT_RESOLUTION`, `TTT_ASPECT`, `TTT_DEFLICKER`, `TTT_SMOOTH`, `TTT_LOW_LATENCY`, `TTT_TEXTURE_REPLACE`, `TTT_TEXTURE_DUMP`, `TTT_TEXTURES` | The settings above, over the file. |
 | `TTT_OVERLAY_TEST=1` | Tests: with a window, the overlay is driven from inside (made-up key events through the window's own handling at fixed frames: F1, a key pressed while open, Escape; every page drawn; a key bound through the capture path) and the report adds `ttt: overlay: ...` and `ttt: window: overlay test: ...`. Nothing is sent to the desktop. |
-| `TTT_SELFTEST=settings` | The file's round trip (comments, sections and unknown keys kept, no temporary file left), the environment's precedence, clamping, key names both ways, rebinding (swaps, F1 / Escape refused). Needs `TTT_CONFIG` (it writes that file). |
+| `TTT_SELFTEST=settings` | The file's round trip (comments, sections and unknown keys kept, no temporary file left), the environment's precedence, clamping, key names both ways, rebinding (swaps, F1 / Escape / Tab refused), the T40 defaults. Needs `TTT_CONFIG` (it writes that file). |
 
 ## Dear ImGui
 
@@ -141,4 +171,6 @@ through the GOT: the program's PLT, and so every game function's address, is unc
   table); no text input (nothing needs it yet).
 - The software renderer's overlay switches SDL's logical presentation off while it draws; checked with SDL's dummy
   driver only (no picture comparison).
-- T37's video options are in [video.md](video.md); T40 adds game speed and the cheats page.
+- T37's video options are in [video.md](video.md).
+- Game speed: a Tab held while the window loses focus stays held until Tab is pressed and released again; no
+  resampled sound off 1x; the speed is not measured with V-sync on a real display (no visible windows in tests).

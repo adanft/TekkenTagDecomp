@@ -81,5 +81,45 @@ class WavDump(unittest.TestCase):
         self.assertGreater(sum(1 for f in select if f != (0, 0)), len(select) * 9 // 10)
 
 
+@unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
+@unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
+class HostVolumes(unittest.TestCase):
+    """T40 (docs/port/sound.md, Volumes): the master, music and effects volumes scale the port's output (TTT_WAV here,
+    the window's stream alike) and nothing the game sees: the run of WavDump at other volumes keeps its state hash,
+    master 50 % halves every sample, music 0 silences the select screen's BGM (voices 22-23 of core 0) and keeps the
+    title's effect, effects 0 does the opposite, both 0 is silence."""
+
+    FRAMES = WavDump.FRAMES
+
+    def dump(self, d, name, **env):
+        p = Path(d) / "in.txt"
+        p.write_text(stream(*TO_THE_FIGHT))
+        wav = Path(d) / name
+        r = run_ttt(TTT_FRAMES=str(self.FRAMES), TTT_SEED="1", TTT_INPUT_PLAY=str(p), TTT_WAV=str(wav), **env)
+        self.assertEqual(r.returncode, 0, r.stdout[-3000:] + r.stderr)
+        return list(wav_frames(wav.read_bytes())), re.search(r"ttt: state: .*", r.stdout).group(0)
+
+    def test_volumes_scale_the_output_only(self):
+        with tempfile.TemporaryDirectory() as d:
+            full, s0 = self.dump(d, "full.wav")
+            half, s1 = self.dump(d, "half.wav", TTT_VOLUME="50")
+            nomusic, s2 = self.dump(d, "nomusic.wav", TTT_MUSIC_VOLUME="0")
+            nofx, s3 = self.dump(d, "nofx.wav", TTT_EFFECTS_VOLUME="0")
+            none, s4 = self.dump(d, "none.wav", TTT_MUSIC_VOLUME="0", TTT_EFFECTS_VOLUME="0")
+        self.assertEqual({s1, s2, s3, s4}, {s0})
+        self.assertEqual(len(half), len(full))
+        bad = [(a, b) for fa, fb in zip(full, half) for a, b in zip(fa, fb) if abs(a) < 32767 and abs(int(a / 2) - b) > 1]
+        self.assertEqual(bad[:5], [])
+        self.assertTrue(any(f != (0, 0) for f in half))
+        title, select = slice(frames_for(174), frames_for(181)), slice(frames_for(250), frames_for(320))
+        self.assertTrue(any(f != (0, 0) for f in full[title]))
+        self.assertEqual(nomusic[title], full[title])  # the title's effect, before any music
+        self.assertEqual([f for f in nofx[title] if f != (0, 0)], [])
+        quiet = lambda fs: sum(1 for l, r in fs if abs(l) > 64 or abs(r) > 64)
+        self.assertGreater(quiet(nofx[select]), quiet(full[select]) * 9 // 10)  # the BGM stays
+        self.assertLess(quiet(nomusic[select]), quiet(full[select]) // 10)
+        self.assertEqual([f for f in none if f != (0, 0)], [])
+
+
 if __name__ == "__main__":
     unittest.main()

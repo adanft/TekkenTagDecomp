@@ -87,6 +87,30 @@ static __attribute__((noinline)) uint64_t cycles_to_ns(uint64_t c) {
     return c / BUSKHZ * 1000000ull + c % BUSKHZ * 1000000ull / BUSKHZ;
 }
 
+/* The game speed (T40, real time only): the real-time clock runs at sSpeed percent of the host's. The window sets the
+   wanted speed (Port_SetSpeed, its thread: the game.speed setting, or game.fast_forward while Tab is held); the game's
+   thread takes it at its next poll and rebases the scaled clock there, so game time stays continuous across a change.
+   The simulation is unchanged, only how many VBlanks a wall second holds: headless runs never read any of this. Out of
+   line, called from the real-time branches only (the headless path's host stack bytes reach the state hash). */
+static int sSpeedWant = 100;          /* written by the window's thread (atomic) */
+static int sSpeed = 100;              /* in use (the game's thread) */
+static uint64_t sSpeedHost, sSpeedVirt; /* the last rebase: host ns and scaled ns there */
+void Port_SetSpeed(int pct) {
+    __atomic_store_n(&sSpeedWant, pct < 10 ? 10 : pct > 1000 ? 1000 : pct, __ATOMIC_RELEASE);
+}
+int Port_Speed(void) {
+    return sHeadless == 1 ? 100 : __atomic_load_n(&sSpeedWant, __ATOMIC_ACQUIRE);
+}
+static __attribute__((noinline)) uint64_t rt_scale(uint64_t host) {
+    int want = __atomic_load_n(&sSpeedWant, __ATOMIC_ACQUIRE);
+    if (want != sSpeed) {
+        sSpeedVirt += (host - sSpeedHost) * (uint64_t)sSpeed / 100u;
+        sSpeedHost = host;
+        sSpeed = want;
+    }
+    return sSpeedVirt + (host - sSpeedHost) * (uint64_t)sSpeed / 100u;
+}
+
 int Port_Headless(void) {
     if (sHeadless < 0) {
         const char *h = getenv("TTT_HEADLESS"), *f = getenv("TTT_FRAMES");
@@ -94,6 +118,7 @@ int Port_Headless(void) {
         sTimeFrom = getenv("TTT_TIME_FROM") != NULL ? (uint32_t)strtoul(getenv("TTT_TIME_FROM"), NULL, 0) : 0;
         sHeadless = h != NULL ? atoi(h) != 0 : sFrameLimit != 0;
         sHostStart = host_ns();
+        sSpeedHost = sSpeedVirt = sHostStart; /* the scaled clock starts as the host's */
     }
     return sHeadless;
 }
@@ -457,12 +482,15 @@ void Port_PadVBlank(uint32_t n); /* plat_pad.c */
 void Port_PadReport(void);
 void Port_SndVBlank(uint32_t n); /* plat_snd.c */
 void Port_SndEnd(void);
+void Port_CheatVBlank(void); /* plat_cheat.c */
+void Port_CheatReport(void);
 
 static void vblank(void) {
     sVBlanks++;
     Port_PadVBlank((uint32_t)sVBlanks); /* the pads' state for this field: latched once, before the handler */
     Gs_VBlank((uint32_t)sVBlanks); /* the frame dump: the picture shown during the field that ends here */
     Port_SndVBlank((uint32_t)sVBlanks); /* the sound of that field */
+    Port_CheatVBlank(); /* T40: the opt-in unlocks, raised again at each VBlank (off by default: nothing written) */
     if (sTimeFrom != 0 && sVBlanks == sTimeFrom) {
         Gs_Finish();
         sTimeT0 = host_ns();
@@ -534,13 +562,13 @@ static __attribute__((noinline)) int rt_waiting(void) {
 int Port_WindowPaused(void);
 int Port_WindowClosed(void);
 static void pause_off(void *p) {
-    uint64_t t0 = host_ns();
+    uint64_t t0 = rt_scale(host_ns()); /* on the scaled clock: the speed may change while paused */
     (void)p;
     while (Port_WindowPaused() && !Port_WindowClosed()) {
         struct timespec ts = { 0, 5000000 };
         nanosleep(&ts, NULL);
     }
-    sHostStart += host_ns() - t0;
+    sHostStart += rt_scale(host_ns()) - t0;
 }
 
 void Port_HwPoll(void) {
@@ -555,7 +583,7 @@ void Port_HwPoll(void) {
     if (Port_Headless()) {
         to = sCycles + TICK_CYCLES;
     } else {
-        uint64_t now = host_ns() - sHostStart, next = vblank_cycle(sVBlanks + 1);
+        uint64_t now = rt_scale(host_ns()) - sHostStart, next = vblank_cycle(sVBlanks + 1);
         to = ns_to_cycles(now);
         if (to > vblank_cycle(sVBlanks + 2)) {
             /* more than a VBlank behind (the host stalled): the lost time is dropped, at most one VBlank per poll.
@@ -678,6 +706,10 @@ static void report_and_exit(void) {
     printf("ttt: state: seed 0x%x spin 0x%08x hash 0x%016llx cycles %llu\n", (unsigned)sSeed, (unsigned)gRngSpin,
            (unsigned long long)Port_StateHash(), (unsigned long long)sCycles);
     Port_StateReport();
+    Port_CheatReport();
+    if (!sHeadless) {
+        printf("ttt: speed: %d%% at the end\n", sSpeed);
+    }
     Gs_Report();
     if (sTimeT0 != 0) {
         uint64_t ms = (host_ns() - sTimeT0) / 1000000;

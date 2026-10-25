@@ -90,6 +90,9 @@ static void stream_voices(void) {
 }
 
 /* Command 0x2000 (after SpuInit): the stream voices keyed off and set up, no stream active. */
+/* The SPU2 voices of the music (core 0), for the host's music volume (plat_snd.c, T40): the BGM and movie tracks. */
+uint32_t Port_BgmVoices(void) { return 3u << BGM_L; }
+
 void Port_BgmInit(void) {
     Spu2_KeyOff(0, 3u << BGM_L);
     stream_voices();

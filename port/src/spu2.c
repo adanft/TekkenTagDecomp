@@ -193,17 +193,17 @@ static void next_block(Spu2Core *c, int i) {
     load_block(v);
 }
 
-void Spu2_Mix(int16_t *out, int n) {
+void Spu2_MixBus(int16_t *out, int32_t *bus, uint32_t musicVoices, int n) {
     int k, c, i;
     for (k = 0; k < n; k++) {
-        int32_t sum[2] = { 0, 0 };
+        int32_t sum[2] = { 0, 0 }, mus[2] = { 0, 0 };
         for (c = 0; c < 2; c++) { /* core 0, then core 1 with core 0's output at its AVOL */
             Spu2Core *core = &gSpu2[c];
-            int32_t l = 0, r = 0;
+            int32_t l = 0, r = 0, ml = 0, mr = 0;
             for (i = 0; i < SPU2_VOICES; i++) {
                 Spu2Voice *v = &core->v[i];
                 uint32_t idx, frac, pitch;
-                int32_t s;
+                int32_t s, sl, sr;
                 if (v->phase == SPU2_OFF) {
                     continue;
                 }
@@ -212,8 +212,14 @@ void Spu2_Mix(int16_t *out, int n) {
                 s = v->d[1 + idx] + (((v->d[2 + idx] - v->d[1 + idx]) * (int32_t)frac) >> 12);
                 envelope(v);
                 s = s * v->envx >> 15;
-                l += s * vol_factor(v->volL) >> 15;
-                r += s * vol_factor(v->volR) >> 15;
+                sl = s * vol_factor(v->volL) >> 15;
+                sr = s * vol_factor(v->volR) >> 15;
+                l += sl;
+                r += sr;
+                if (c == 0 && (musicVoices >> i & 1u)) {
+                    ml += sl;
+                    mr += sr;
+                }
                 pitch = v->pitch > 0x3FFF ? 0x3FFF : v->pitch;
                 v->counter += pitch;
                 while (v->phase != SPU2_OFF && v->counter >= (28u << 12)) {
@@ -224,16 +230,30 @@ void Spu2_Mix(int16_t *out, int n) {
             if (c == 1) {
                 l += (int32_t)((int64_t)sum[0] * core->avolL >> 15);
                 r += (int32_t)((int64_t)sum[1] * core->avolR >> 15);
+                ml = (int32_t)((int64_t)mus[0] * core->avolL >> 15);
+                mr = (int32_t)((int64_t)mus[1] * core->avolR >> 15);
             }
             sum[0] = (int32_t)((int64_t)l * vol_factor(core->mvolL) >> 15);
             sum[1] = (int32_t)((int64_t)r * vol_factor(core->mvolR) >> 15);
+            mus[0] = (int32_t)((int64_t)ml * vol_factor(core->mvolL) >> 15);
+            mus[1] = (int32_t)((int64_t)mr * vol_factor(core->mvolR) >> 15);
         }
         if (out != NULL) {
             for (c = 0; c < 2; c++) {
                 out[2 * k + c] = (int16_t)(sum[c] > 32767 ? 32767 : sum[c] < -32768 ? -32768 : sum[c]);
             }
         }
+        if (bus != NULL) {
+            bus[4 * k] = sum[0];
+            bus[4 * k + 1] = sum[1];
+            bus[4 * k + 2] = mus[0];
+            bus[4 * k + 3] = mus[1];
+        }
     }
+}
+
+void Spu2_Mix(int16_t *out, int n) {
+    Spu2_MixBus(out, NULL, 0, n);
 }
 
 /* ---- TTT_SELFTEST=spu ---- */
