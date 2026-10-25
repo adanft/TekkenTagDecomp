@@ -1166,7 +1166,7 @@ void Mode_Battle(void) {
             goto state14;
         }
         if (D_0043B7F8.unk0 == 8) {
-            r = func_003F0008();
+            r = PORT_DIFF(0x3F0008, func_003F0008, "i:i", 0); /* TTT_DIFF: a Tekken Bowl frame against the original code */
         } else {
             r = PORT_DIFF(0x36D860, Battle_UpdateFrame, "i:i", 0); /* TTT_DIFF: a fight frame against the original code */
         }

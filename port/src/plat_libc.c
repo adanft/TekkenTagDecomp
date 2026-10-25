@@ -93,3 +93,27 @@ void *__wrap_memset(void *d, int c, size_t n) {
     __asm__ volatile("rep stosb" : "+D"(dd), "+c"(n) : "a"(c) : "memory");
     return d;
 }
+
+/* acosf (0x407928), the one float maths wrapper of the executable that third_party/newlib_libm/wrappers.c lacks (only
+   the Tekken Bowl's func_003EEF00 calls it): newlib's wf_acos.c built without _IEEE_LIBM, the same code as asinf
+   there. Out of [-1, 1] (and not a NaN pattern, unless __fdlib_version is _IEEE_) errno becomes EDOM (33) in both
+   the POSIX and the SVID / X/Open cases (newlib's default matherr returns 0) and the result is 0. */
+extern int D_005F4848; /* __fdlib_version */
+float __ieee754_acosf(float x);
+
+float acosf(float x) {
+    float z = __ieee754_acosf(x), a;
+    uint32_t ix;
+
+    __builtin_memcpy(&ix, &x, 4);
+    if (D_005F4848 == -1 || (uint32_t)(0x7F800000 - (ix & 0x7FFFFFFF)) >> 31) {
+        return z;
+    }
+    ix &= 0x7FFFFFFF; /* fabsf */
+    __builtin_memcpy(&a, &ix, 4);
+    if (a > 1.0f) {
+        *(int32_t *)D_004F5A8C = 33;
+        return 0.0f;
+    }
+    return z;
+}

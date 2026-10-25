@@ -9,8 +9,8 @@ import re
 from toolchain import GEN, ROOT, YAML
 
 # Drafts the PC build leaves off: their C is an m2c draft around hand-written EE / VU0 assembly that names registers
-# the C does not hold, so it cannot run on a PC as it is. port/src/vu0_pc.c supplies these names instead (stubs that
-# report themselves until they are written by hand: docs/port/README.md, "Hand replacements").
+# the C does not hold, so it cannot run on a PC as it is. port/src/vu0_pc.c and tekken_bowl_pc.c supply these names
+# instead, written by hand from the asm (docs/port/README.md, "Hand replacements").
 REPLACED = {"func_003EA978", "func_003EAF78", "func_003EBC98", "func_003EC388", "func_003ECAD8", "func_003ED338",
             "func_003EEF00", "func_00349D70", "func_00349EE0", "func_0034A050", "func_0034A0D0"}
 

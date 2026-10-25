@@ -158,6 +158,7 @@ typedef struct {
     uint32_t f[32], acc;
     int fcc;
     uint32_t vf[32][4], vacc[4], q, vi_i;
+    uint32_t vstat; /* the VU0 status flag (vi16): Z, S of the last FMAC result and their sticky bits ZS, SS */
     uint16_t vi[16];
     uint32_t pc;
     uint64_t steps;
@@ -442,6 +443,20 @@ static void cop2(Ee *e, uint32_t op) {
             }
         }
     }
+    /* An FMAC result (not max / min) sets the status flag's Z / S from its fields and ORs them into ZS / SS
+       (sceVu0ClipAll reads ZS | SS); underflow, overflow and the MAC flag register are not modelled. */
+    if ((tofd || toacc) && !(fn < 0x3C && ((fn >= 0x10 && fn <= 0x17) || fn == 0x1D || fn == 0x1F || fn == 0x2B ||
+                                            fn == 0x2F))) {
+        uint32_t z = 0, sg = 0;
+
+        for (c = 0; c < 4; c++) {
+            if (D(c)) {
+                z |= (res[c] & 0x7FFFFFFFu) == 0;
+                sg |= res[c] >> 31;
+            }
+        }
+        e->vstat = (e->vstat & 0xFC0u) | z | sg << 1 | z << 6 | sg << 7;
+    }
     e->vf[0][0] = e->vf[0][1] = e->vf[0][2] = 0;
     e->vf[0][3] = 0x3F800000u;
 #undef D
@@ -460,6 +475,9 @@ static uint32_t cop2_ctrl_read(Ee *e, uint32_t r, uint32_t op) {
     if (r == 22) {
         return e->q;
     }
+    if (r == 16) {
+        return e->vstat;
+    }
     fail(e, "COP2 control register not modelled (flags)", op);
     return 0;
 }
@@ -477,6 +495,10 @@ static void cop2_ctrl_write(Ee *e, uint32_t r, uint32_t v, uint32_t op) {
     }
     if (r == 22) {
         e->q = v;
+        return;
+    }
+    if (r == 16) { /* only the sticky bits are written */
+        e->vstat = (e->vstat & 0x3Fu) | (v & 0xFC0u);
         return;
     }
     fail(e, "COP2 control register not modelled", op);

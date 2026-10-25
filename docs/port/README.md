@@ -860,8 +860,8 @@ port replacement. `port/src/ee_diff.c` compares such C with the original directl
   hand-written VU0 routines) on the vector unit's arithmetic. Calls are interpreted too: the whole call tree is the
   original's. Instructions and `.text` / `.rodata` / `.lit4` come from `build/SLUS_200.01`, else the disc's
   `SLUS_200.01` (`TTT_DIFF_ELF`), the data from the running program (the game's data sits at its PS2 addresses). Anything else (an
-  unknown instruction, a jump outside `.text`, a syscall, the VU0 flag registers) stops the check with a report. No
-  host float.
+  unknown instruction, a jump outside `.text`, a syscall, the VU0 MAC and clip flag registers; the status flag's
+  Z / S bits are modelled) stops the check with a report. No host float.
 - **The hook.** `PORT_DIFF(addr, fn, sig, args...)` (`port_compat.h`, under `#ifdef PORT` in the game sources) calls fn
   as before; with `TTT_DIFF` it snapshots EE RAM and the scratchpad, runs the C, restores the snapshot, runs the
   original from `addr` on its own stack, compares, and leaves the C's result in place. Only the port's stack frames
@@ -920,7 +920,9 @@ port replacement. `port/src/ee_diff.c` compares such C with the original directl
 
 Routines written in EE / VU0 assembly that the PC build cannot compile. They are guarded with `#ifndef PORT` in
 `src/` (matched C made of inline assembly) or left off by `portsrc.REPLACED` (drafts around that assembly), and
-`port/src/vu0_pc.c` supplies their names: two in C, the rest as placeholders that report themselves.
+`port/src/vu0_pc.c` supplies their names (the FPU part of the Tekken Bowl drafts is in `port/src/tekken_bowl_pc.c`,
+built with the game's float model so its `+ - * /` and `sqrtf` are the FPU's add.s ... sqrt.s; its VU0 steps go
+through `Port_Vu0Bowl*` in `vu0_pc.c`).
 
 | Function | File | What it is | PC version |
 |---|---|---|---|
@@ -928,7 +930,8 @@ Routines written in EE / VU0 assembly that the PC build cannot compile. They are
 | `func_003435C0`, `func_003436B8`, `func_003437B8`, `func_003438B8` | `dma_gif.c` | VU0 macro-mode skinning loops (`vcallms`, jumps into their own bodies) | C loop; the VU0 programs (`src/vu0/skin_*.vsm`) run on `vu0_micro.c` |
 | `func_003E8FA0` | `tekken_bowl.c` | VU0 sin / cos (result in vf8) | C on the VU0 registers |
 | `func_003E9038`, `func_003E9120`, `func_003E91D0`, `func_003E92C0` | `tekken_bowl.c` | VU0 matrix rotations around it (results left in vf4-vf7) | C on the VU0 registers |
-| `func_003EA978`, `func_003EAF78`, `func_003EBC98`, `func_003EC388`, `func_003ECAD8`, `func_003ED338`, `func_003EEF00` | `tekken_bowl.c` | m2c drafts around that VU0 code (register names the C does not hold, raw `sqrt.s` words) | placeholder |
+| `func_003EA978`, `func_003ECAD8` | `tekken_bowl.c` | VU0 macro code: the lane markers to 12.4 screen points (vdiv / vmulq / vftoi4), a body's corners through its matrix | C on the VU0 registers (`vu0_pc.c`) |
+| `func_003EAF78`, `func_003EBC98`, `func_003EC388`, `func_003ED338`, `func_003EEF00` | `tekken_bowl.c` | FPU code around that VU0 code (raw `sqrt.s` / `cvt.w.s` words in the drafts): the throw, the camera, a body's turn, a pin's step, the draw matrices | C from the asm (`tekken_bowl_pc.c`) |
 | `RotMtxXYZ` (inline helper of a draft) | `model_anim_b.c` | VU0 rotation x / y / z through `func_003E8FA0` | C `Port_Vu0RotMtxXYZ` |
 | `func_00349D70`, `func_00349EE0`, `func_0034A050`, `func_0034A0D0` | `geometry_b.c` | VU0 rotation builders on the sin / cos kernel `func_00349CF8` (rows 0-2 only) | C on the VU0 registers, instruction by instruction (gotcha 18) |
 | `func_0034A180` | `geometry_b.c` | entry one instruction before `func_0034A184` (its first instruction is the delay slot of `func_0034A148`'s return): d = a * k + b * (1 - k) | C; four arguments (gotcha 5) |
@@ -1131,6 +1134,17 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
     what is left is listed by the tool and harmless on i386 (extra trailing arguments, functions taken by address,
     unused results). `TTT_DIFF` hooks on modes 12-16 (`main.c`) compare the theater, music player and gallery with
     the original.
+30. **Draft pointer steps and register halves (T41 b1, TEKKEN BOWL).** The seven placeholders of the bowl's VU0 /
+    FPU routines are written from the asm ([Hand replacements](#hand-replacements)), with `acosf` (0x407928, `plat_libc.c`: the one libm wrapper
+    `third_party/newlib_libm` lacked). `PORT_DIFF` on `func_003F0008` (the bowl's frame, `battle_mode.c`) found the
+    drafts on the way: `func_003EFB00` and `func_003EA4C8` stepped `BowlBody *` by 0x180 elements (a crash after the
+    first ball), `func_003E9C58` stored the bits of 16.0f as the bowler's integer x, and `func_003F0008` read
+    `D_00415718` / `D_00415728` as bytes, used `lui $s7` (the player table's high half only) as the table and had
+    lost the help box's z and colour; all fixed from the asm. `ee_diff.c` now models the VU0 status flag's Z / S and
+    their sticky bits (vi16, read by `sceVu0ClipAll`). With one throw (`tests/test_port_input.py` `Bowl`): the seven
+    routines agree with the original on every call from VBlank 850 to 1399 (4,483 calls), the bowl frame and the
+    whole `Mode_Battle` frame too, except the draw objects' `ctx.m3` / `ctx.m4` (`func_003D1468` never writes them:
+    the game's own uninitialised local, garbage on both sides).
 
 ## EE float model
 
@@ -1168,9 +1182,8 @@ The fighters' heads and hair are clean since T29 batch 5 (gotcha 19). The draft 
 in one frame; hooks on the rest of the fight's path (the fighter draw from `func_00357640`, the stage, the effects,
 more frames, both fighters) are the systematic way on. More speed in fights: the VU1 thread and the game thread's VU0
 skinning are the limits now ([Speed](#speed)); T31's native replacements. libgraph
-(`plat_lib.c`): the DBuff buffer pairing and SwapDBuff's ids differ from the library with the same GS result. The
-seven Tekken Bowl m2c drafts around VU0 code (`portsrc.REPLACED`, still placeholders: not reached by the attract
-demo); the libm PCSX2 run; the other game types after the character select (VS, team, survival: the same step
+(`plat_lib.c`): the DBuff buffer pairing and SwapDBuff's ids differ from the library with the same GS result. TEKKEN
+BOWL past the first frame of balls (T41 b1 checked one throw and its roll); the libm PCSX2 run; the other game types after the character select (VS, team, survival: the same step
 function, not checked frame by frame) and the leftover-register calls of gotcha 23 off the fight's path; the multitap,
 vibration and gamepad rebinding; the open movie items of [movies.md](movies.md) (the attract and ending movies through the
 game's own paths, the driver's movie timing).

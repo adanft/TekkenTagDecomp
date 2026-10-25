@@ -184,6 +184,34 @@ class Theater(unittest.TestCase):
         self.assertEqual({d[1] for d in diffs}, {"same"}, [l for l in r.stdout.splitlines() if "DIFFERS" in l][:5])
 
 
+# With the cheat, up twice and Start open TEKKEN BOWL (its character select is mode 5, the lane mode 4); square,
+# right, square pick the bowler and the partner. On the lane cross three times: the aim, the spin and the power
+# (VBlanks 760-880); the ball rolls into the pins and the first frame's second ball is set up.
+TO_THE_BOWL = ((200, UP, 4), (240, UP, 4), (280, START, 6), (400, SQUARE, 4), (440, RIGHT, 4), (470, SQUARE, 4))
+A_THROW = ((760, CROSS, 4), (820, CROSS, 4), (880, CROSS, 4))
+
+
+@unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
+@unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
+class Bowl(unittest.TestCase):
+    """T41 b1: TEKKEN BOWL runs. Before, it stopped at VBlank 679 on the placeholder of func_003ECAD8 (the bowl's VU0
+    code, now port/src/vu0_pc.c and tekken_bowl_pc.c), and the drafts func_003EFB00 / func_003EA4C8 crashed after the
+    first ball (BowlBody pointers stepped by 0x180 elements). A throw and its roll, 1500 VBlanks; the lane (mode 4,
+    sub-state 8) at the end."""
+
+    def test_a_throw(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "in.txt"
+            p.write_text(stream(*TO_THE_BOWL, *A_THROW))
+            r = run_ttt(timeout=900, TTT_FRAMES="1500", TTT_SEED="1", TTT_INPUT_PLAY=str(p), TTT_CHEAT_UNLOCK="1",
+                        TTT_AUDIO="0", TTT_PEEK=MODE)
+        self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
+        self.assertNotIn("not implemented yet", r.stdout)
+        modes = re.search(r"ttt: modes: (.*)", r.stdout).group(1)
+        self.assertRegex(modes, r"\b3@\d+ 4@\d+ 5@\d+ 4@\d+$")
+        self.assertEqual(peek(r, MODE), [0x00080004])
+
+
 @unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
 @unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
 @unittest.skipUnless(os.environ.get("TTT_SLOW_TESTS") == "1", "slow (about three minutes): TTT_SLOW_TESTS=1")

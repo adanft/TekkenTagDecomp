@@ -1,14 +1,13 @@
 /*
  * PC versions of the game routines written in EE / VU0 assembly (guarded by `#ifndef PORT` in src/, or drafts the PC
- * build leaves off: port/tools/portsrc.py REPLACED). Two are plain C already; the others report themselves until
- * they are written by hand on the VU0 register file of plat_ee.c (list: docs/port/README.md, "Hand replacements").
+ * build leaves off: port/tools/portsrc.py REPLACED), written by hand on the VU0 register file of plat_ee.c (list:
+ * docs/port/README.md, "Hand replacements"); the FPU part of the Tekken Bowl drafts is in tekken_bowl_pc.c.
  */
 #include <stdint.h>
 #include <string.h>
 #include "softfloat_ps2_inl.h"
 #include "port_addr.h"
 
-extern void Port_Missing(const char *name); /* plat_stub.c */
 extern float gPortVu0Vf[32][4];             /* plat_ee.c */
 
 /* src/theater_c.c: m = identity / m = 0 (4 x 4 floats). */
@@ -18,9 +17,6 @@ void Mtx_Unit(float *m) {
 }
 
 void Mtx_Zero(float *m) { memset(m, 0, 64); }
-
-#define TODO(name) \
-    void name(void) { Port_Missing(#name); }
 
 /* src/geometry_b.c func_0034A180 (0x34A180, one instruction before func_0034A184, its first instruction `mfc1 $t0,
  * $f12` being the delay slot of func_0034A148's return): d = a * k + b * (1 - k) for the three rotation rows, VU0
@@ -142,6 +138,7 @@ extern uint32_t gPortVu0Acc[4]; /* vu0_micro.c */
 extern uint32_t gPortVu0Q;
 enum { MX = 8, MY = 4, MZ = 2, MW = 1 }; /* field masks, x first as in the instruction */
 #define ON(m, c) (((m) >> (3 - (c))) & 1)
+#define ALL (MX | MY | MZ | MW)
 
 /* fd.m = fs.m + ft.bc / - ft.bc / * ft.bc;  (sub = 1, 2: mul) */
 static void v_bc(int kind, int fd, int fs, int ft, int bc, unsigned m) {
@@ -316,14 +313,168 @@ void func_003E92C0(uint32_t *d, const uint32_t *a, const uint32_t *b, uint32_t t
     memcpy(d, VFW(15), 16);
 }
 
-/* src/tekken_bowl.c: m2c drafts around that VU0 code (portsrc.REPLACED). */
-TODO(func_003EA978)
-TODO(func_003EAF78)
-TODO(func_003EBC98)
-TODO(func_003EC388)
-TODO(func_003ECAD8)
-TODO(func_003ED338)
-TODO(func_003EEF00)
+/* ---- src/tekken_bowl.c: the drafts around that VU0 code (portsrc.REPLACED) ----
+ * The two that are VU0 code throughout are here; the other five are mostly FPU code (port/src/tekken_bowl_pc.c, built
+ * with the FPU's arithmetic) and reach the vector unit through the Port_Vu0Bowl* steps below. */
+
+/* ACC.m += fs.m * ft.bc (vmaddabc) */
+static void v_madda_bc(int fs, int ft, int bc, unsigned m) {
+    uint32_t b = VFW(ft)[bc];
+    int c;
+
+    for (c = 0; c < 4; c++) {
+        if (ON(m, c)) {
+            gPortVu0Acc[c] = sf_add_core(gPortVu0Acc[c], sf_mul_core(VFW(fs)[c], b, 0), 0);
+        }
+    }
+}
+/* vf13 = vf4..vf7 * vf12 (vmulax / vmadday / vmaddaz ACC; vmaddw vf13) */
+static void xform13(void) {
+    v_acc_bc(0, 4, 12, 0, ALL);
+    v_madda_bc(5, 12, 1, ALL);
+    v_madda_bc(6, 12, 2, ALL);
+    v_madd_bc(0, 13, 7, 12, 3, ALL);
+}
+/* fd = fs + ft / fs - ft (vadd.xyzw / vsub.xyzw) */
+static void v_add3(int sub, int fd, int fs, int ft) {
+    uint32_t r[4];
+    int c;
+
+    for (c = 0; c < 4; c++) {
+        r[c] = sf_add_core(VFW(fs)[c], sub ? VFW(ft)[c] ^ SF_SIGN : VFW(ft)[c], 0);
+    }
+    if (fd != 0) {
+        memcpy(VFW(fd), r, 16);
+    }
+}
+/* vftoiN of one field: cut toward zero after scaling by 2^frac; out of range saturates. */
+static uint32_t v_ftoi(uint32_t a, int frac) {
+    uint32_t m = SF_MANT(a), v;
+    int x = (int)SF_EXP(a) - 127 + frac;
+
+    if (SF_EXP(a) == 0 || x < 0) {
+        return 0;
+    }
+    if (x >= 31) {
+        return (a & SF_SIGN) ? 0x80000000u : 0x7FFFFFFFu;
+    }
+    v = x >= 23 ? m << (x - 23) : m >> (23 - x);
+    return (a & SF_SIGN) ? 0u - v : v;
+}
+
+/* The steps tekken_bowl_pc.c takes on the VU0 registers, each a run of the original's instructions. */
+void Port_Vu0BowlLoadMtx(const uint32_t *m) { load4(4, m); } /* lqc2 vf4..vf7, m */
+void Port_Vu0BowlRotX(void) { rot_x(); }
+void Port_Vu0BowlRotY(void) { rot_y(); }
+void Port_Vu0BowlRotZ(void) { rot_z(); }
+/* lqc2 vf12, v; vf13 = vf4..vf7 * vf12; sqc2 vf13, out */
+void Port_Vu0BowlXform(uint32_t *out, const uint32_t *v) {
+    memcpy(VFW(12), v, 16);
+    xform13();
+    memcpy(out, VFW(13), 16);
+}
+/* lqc2 vf14, b; vadd.xyzw vf15, vf13, vf14; sqc2 vf15, out */
+void Port_Vu0BowlAdd13(uint32_t *out, const uint32_t *b) {
+    memcpy(VFW(14), b, 16);
+    v_add3(0, 15, 13, 14);
+    memcpy(out, VFW(15), 16);
+}
+
+/* func_003EA978 (0x3EA978): the bowl's 7 x 3 marker points (D_0046BBB0[i] + D_0046BB80[j]) through the screen matrix
+ * D_004334C0, divided by w (vdiv / vmulq) and turned into 12.4 fixed point (vftoi4); a marker whose three points all
+ * fall inside (x <= 0xFFFF unsigned, 0 <= y <= 0xFFFF, 0 <= z <= 0xFFFFF) is added to the packet as D_0046BB70 and the
+ * three points. With any marker the packet gets its GIF tag and register words in front. */
+extern uint32_t D_004334C0[16];
+extern uint32_t D_0046BB70[4];
+extern uint32_t D_0046BB80[12];
+extern uint32_t D_0046BBB0[28];
+uint32_t func_003994C0(void); /* src/zsort.c */
+void func_00399580(uint32_t p);
+
+void func_003EA978(void) {
+    uint32_t t3 = func_003994C0();
+    uint32_t sp[3][4];
+    int t0 = 0, i, j, any, c;
+
+    load4(4, D_004334C0);
+    for (i = 0; i < 7; i++) {
+        any = 0;
+        for (j = 0; j < 3; j++) {
+            int32_t y, z;
+
+            memcpy(VFW(12), D_0046BBB0 + i * 4, 16);
+            memcpy(VFW(14), D_0046BB80 + j * 4, 16);
+            v_add3(0, 12, 12, 14);                               /* vadd.xyzw vf12, vf12, vf14 */
+            xform13();
+            gPortVu0Q = sf_div_core(VFW(0)[3], VFW(13)[3], 0);   /* vdiv Q, vf0w, vf13w; vwaitq */
+            for (c = 0; c < 3; c++) {                            /* vmulq.xyz vf18, vf13, Q */
+                VFW(18)[c] = sf_mul_core(VFW(13)[c], gPortVu0Q, 0);
+            }
+            v_bc(0, 18, 0, 0, 0, MW);                            /* vaddx.w vf18, vf0, vf0x */
+            for (c = 0; c < 4; c++) {                            /* vftoi4.xyzw vf20, vf18 */
+                VFW(20)[c] = v_ftoi(VFW(18)[c], 4);
+            }
+            memcpy(sp[j], VFW(20), 16);
+            y = (int32_t)sp[j][1];
+            z = (int32_t)sp[j][2];
+            any |= sp[j][0] > 0xFFFFu || y < 0 || y > 0xFFFF || z < 0 || z > 0xFFFFF;
+        }
+        if (!any) {
+            uint8_t *p = (uint8_t *)(uintptr_t)t3 + t0 * 64;
+
+            t0++;
+            memcpy(p + 0x40, D_0046BB70, 16);
+            memcpy(p + 0x50, sp, 48);
+        }
+    }
+    if (t0 == 0) {
+        func_00399580(t3);
+        return;
+    }
+    {
+        uint64_t *q = (uint64_t *)(uintptr_t)t3;
+
+        q[0] = 0x1000000000000002ull;
+        q[1] = 0xE;
+        q[2] = 0x50000;
+        q[3] = 0x48;
+        q[4] = 0x44;
+        q[5] = 0x43;
+        q[6] = (0x4141C000ull << 32) | (uint32_t)(t0 | 0x8000);
+        q[7] = 0x4441;
+    }
+    func_00399580(t3 + t0 * 64 + 0x40);
+}
+
+/* func_003ECAD8 (0x3ECAD8): the body's velocities (+0x30 = +0x00 - +0x20, +0x70 = +0x40 - +0x60), its matrix
+ * (func_003E9120 on D_01FC61A0, the folded angles of +0x40 and the position), then the four corners D_0046BC20 and
+ * the centre D_0046BC60 through it: +0x80.. / +0x140 the points, +0x100.. / +0x160 their moves from +0xC0.. / +0x150
+ * (the previous frame's). */
+extern uint32_t D_0046BC20[16];
+extern uint32_t D_0046BC60[4];
+extern uint32_t D_01FC61A0[16];
+void sceVu0SubVector(void *d, const void *a, const void *b); /* plat_vu0.c */
+void func_003EC320(void *out, const void *in);              /* src/tekken_bowl.c */
+
+void func_003ECAD8(uint8_t *b) {
+    uint32_t r[4] __attribute__((aligned(16)));
+    int i;
+
+    sceVu0SubVector(b + 0x30, b, b + 0x20);
+    sceVu0SubVector(b + 0x70, b + 0x40, b + 0x60);
+    func_003EC320(r, b + 0x40);
+    func_003E9120(D_01FC61A0, r, (const uint32_t *)b);
+    for (i = 0; i < 4; i++) {
+        Port_Vu0BowlXform((uint32_t *)(b + 0x80 + i * 16), D_0046BC20 + i * 4);
+        memcpy(VFW(14), b + 0xC0 + i * 16, 16);
+        v_add3(1, 15, 13, 14);                                   /* vsub.xyzw vf15, vf13, vf14 */
+        memcpy(b + 0x100 + i * 16, VFW(15), 16);
+    }
+    Port_Vu0BowlXform((uint32_t *)(b + 0x140), D_0046BC60);
+    memcpy(VFW(14), b + 0x150, 16);
+    v_add3(1, 15, 13, 14);
+    memcpy(b + 0x160, VFW(15), 16);
+}
 /* src/model_anim_b.c: the inlined VU0 rotation of the draft RotMtxXYZ: m rotated about x, y then z by r[0..2]. */
 void Port_Vu0RotMtxXYZ(uint32_t *m, const uint32_t *r) {
     load4(4, m);
@@ -341,8 +492,6 @@ void Port_Vu0RotMtxXYZ(uint32_t *m, const uint32_t *r) {
  * 0-2 only (func_00349D70 also m[3][3] = 1.0, func_0034A050 row 3 = vf0), and func_00347760 relies on it: the
  * local matrices of joints 7-0x1C keep their bone offsets in row 3. With the offsets cleared the fighters' heads
  * collapsed onto their necks (T29 b4). Each step below is one instruction of the original, in its order. */
-#define ALL (MX | MY | MZ | MW)
-
 /* The FPU's fold of the angle (c.lt.s; add.s / sub.s with pi/2 from .lit4) into vf3.x; returns a3 (t < 0). */
 static int fold_angle(uint32_t t) {
     const uint32_t h = 0x3FC90FDBu; /* D_005F57CC ... D_005F57E8 */

@@ -1223,13 +1223,15 @@ void func_003E9C58(Fighter *arg0, void *arg1) {
     arg0->unk1A = 0;
     arg0->unk1C = 0;
     arg0->unk520 = 0;
-    arg0->unk51C = 0x41800000;
-    arg0->unk4 = 0x41800000;
+    temp_f0 = temp_f0 * 8.0f * 16.0f; /* T41 b1: the draft stored the bits of 16.0f, the asm the integer */
+    arg0->unk51C = (s32)temp_f0;
+    arg0->unk4 = (s32)temp_f0;
     if (var_f20 > 400.0f) {
         var_f20 = ((var_f20 - 400.0f) * 0.3f) + 400.0f;
     }
     (*(s16 *)((u8 *)(arg1) + 0)) = 0;
-    (*(f32 *)((u8 *)(arg1) + 4)) = (f32) (2.0f * (((f32) (rand() & 0xFFFFFF) * 5.9604645e-8f) - 0.5f));
+    var_f0 = ((f32) (rand() & 0xFFFFFF) * 5.9604645e-8f) - 0.5f;
+    (*(f32 *)((u8 *)(arg1) + 4)) = var_f0 + var_f0;
     temp_a0 = arg0->unk28;
     if ((temp_a0 == 0x10) || (temp_a0 == 0x13)) {
         var_f0 = 0.048f;
@@ -1243,7 +1245,8 @@ void func_003E9C58(Fighter *arg0, void *arg1) {
     temp_a0_2 = D_00523618[var_s3];
     (*(f32 *)((u8 *)(arg1) + 0xC)) = 0.0f;
     (*(f32 *)((u8 *)(arg1) + 0x14)) = (f32) (*(s16 *)((u8 *)(temp_a0_2) + 0));
-    (*(f32 *)((u8 *)(arg1) + 0x10)) = (f32) ((2.0f * (var_f20 + 180.0f)) / 340.0f);
+    var_f0 = var_f20 + 180.0f;
+    (*(f32 *)((u8 *)(arg1) + 0x10)) = (var_f0 + var_f0) / 340.0f;
     if (arg0->unk2A != 0x21) {
         var_v0 = temp_a0_2[2];
     } else {
@@ -1492,187 +1495,112 @@ s32 Bowl_IsSplit(void) {
 }
 
 #if 0
-/* NON_MATCHING: 185 lines (231 instructions, draft 230): m2c draft, only made to compile (stack copies as struct copies, VU0 and unknown instructions as inline asm) */
+/* NON_MATCHING: written from the asm (T41 b1; the m2c draft stepped its BowlBody pointer by 0x180 elements, not
+   bytes, and returned nothing) */
+/* After a ball: the pins that fell are set back (and counted into D_005F70B4), the ball's result goes into the score
+ * sheet p (+0x0D pins, +0x27 mark: 1 / 2 gutter, 3 / 4 strike / spare, 5 foul, 6 split), the past balls shift, and the
+ * frame totals of a strike / spare waiting for this ball are completed (func_003EA378). Returns 1 when this was the
+ * first ball of a frame and all ten pins fell. */
 s32 func_003EA4C8(BowlPlayer *p) {
-    BowlBody *var_s0;
-    BowlBody *var_t0;
-    f32 *temp_v0_2;
-    s16 temp_s6;
-    s16 temp_v1;
-    s16 var_t3;
-    s32 temp_a2_2;
-    s32 temp_s2_3;
-    s32 temp_s4;
-    s32 temp_v0;
-    s32 temp_v1_2;
-    s32 var_a0;
-    s32 var_a0_2;
-    s32 var_a1;
-    s32 var_a2;
-    s32 var_a3;
-    s32 var_a3_2;
-    s32 var_s7;
-    s32 var_v0_3;
-    s8 *temp_a2;
-    s8 *var_v0_2;
-    s8 temp_s0;
-    s8 temp_s2;
-    s8 temp_s2_2;
-    s8 temp_s4_2;
-    s8 var_s6;
-    s8 var_v0;
-    u32 var_s3;
-    u32 var_t1;
-    u8 *temp_a0;
-    u8 *temp_a1;
-    u8 temp_a0_2;
-    u8 temp_v0_3;
-    void *var_v1;
+    BowlBody *b = D_01FC5260;
+    s32 n = p->unk0;
+    s32 early = n < 0x14;
+    s32 left;
+    s32 odd;
+    s32 i;
+    s32 k;
+    s32 m;
+    s32 m2;
+    s32 cur;
+    s32 a;
+    s32 c;
+    s16 cnt;
 
-    var_s0 = D_01FC5260;
-    temp_s2 = p->unk0;
     if (D_005F70C0 != 0) {
-        p->unk27[temp_s2] = 5;
-        var_s6 = 0;
-        var_s7 = temp_s2 < 0x14;
-        goto block_25;
-    }
-    temp_s6 = D_005F70B4;
-    var_t3 = 0;
-    D_005F70B4 = 0;
-    var_s3 = 0;
-    temp_s4 = temp_s2 & 1;
-    var_s7 = temp_s2 < 0x14;
-    do {
-        if (var_s0->unk170 != 0) {
-            Bowl_PinHomePos(var_s0->unk0.v, var_s3);
-            var_s0->unk40.v[0] = 0.0f;
-            var_s0->unk10.v[3] = 0.0f;
-            var_s0->unk10.v[2] = 0.0f;
-            var_s0->unk10.v[1] = 0.0f;
-            var_s0->unk10.v[0] = 0.0f;
-            var_s0->unk50.v[3] = 0.0f;
-            var_s0->unk50.v[2] = 0.0f;
-            var_s0->unk50.v[1] = 0.0f;
-            var_s0->unk50.v[0] = 0.0f;
-            var_s0->unk20.q = var_s0->unk0.q;
-            var_s0->unk60.q = var_s0->unk40.q;
-            func_003ECAD8(var_s0);
-            var_t1 = var_s3 + 1;
-            var_a2 = 0;
-            var_s0->unkC0.m[0].q = var_s0->unk80.m[0].q;
-            var_t0 = var_s0 + 0x180;
-            var_s0->unkC0.m[1].q = var_s0->unk80.m[1].q;
-            var_s0->unkC0.m[2].q = var_s0->unk80.m[2].q;
-            var_s0->unk150.q = var_s0->unk140.q;
-            var_a1 = 0 * 0x10;
-            do {
-                var_a0 = 0;
-                var_a2 += 1;
-loop_6:
-                temp_v0 = (var_a0 * 4) + var_a1;
-                var_a0 += 1;
-                *(f32 *)((u8 *)var_s0->unk100 + temp_v0) = 0;
-                if (var_a0 < 4) {
-                    goto loop_6;
+        p->unk27[n] = 5;
+        left = 0;
+    } else {
+        left = D_005F70B4;
+        cnt = 0;
+        D_005F70B4 = 0;
+        odd = n & 1;
+        for (i = 0; i < 10; i++, b++) {
+            if (b->unk170 != 0) {
+                Bowl_PinHomePos(b->unk0.v, i);
+                *(s32 *)&b->unk40.v[0] = 0;
+                b->unk10.v[3] = 0.0f;
+                b->unk10.v[2] = 0.0f;
+                b->unk10.v[1] = 0.0f;
+                b->unk10.v[0] = 0.0f;
+                b->unk50.v[3] = 0.0f;
+                b->unk50.v[2] = 0.0f;
+                b->unk50.v[1] = 0.0f;
+                b->unk50.v[0] = 0.0f;
+                b->unk20.q = b->unk0.q;
+                b->unk60.q = b->unk40.q;
+                func_003ECAD8(b);
+                b->unkC0.m[0].q = b->unk80.m[0].q;
+                b->unkC0.m[1].q = b->unk80.m[1].q;
+                b->unkC0.m[2].q = b->unk80.m[2].q;
+                b->unk150.q = b->unk140.q;
+                cnt = D_005F70B4;
+                for (k = 0; k < 4; k++) {
+                    for (m = 0; m < 4; m++) {
+                        *(s32 *)&b->unk100[k].v[m] = 0;
+                    }
                 }
-                var_a1 = var_a2 * 0x10;
-            } while (var_a2 < 4);
-            var_a0_2 = 0;
-            do {
-                temp_v0_2 = &var_s0->unk160.v[var_a0_2];
-                var_a0_2 += 1;
-                *temp_v0_2 = 0.0f;
-            } while (var_a0_2 < 4);
-            temp_v1 = (u16) D_005F70B4 + 1;
-            var_s0->unk178 = 1;
-            var_t3 = temp_v1;
-            D_005F70B4 = temp_v1;
-        } else {
-            var_s0->unk174 = 0;
-            var_t1 = var_s3 + 1;
-            var_t0 = var_s0 + 0x180;
+                for (m = 0; m < 4; m++) {
+                    *(s32 *)&b->unk160.v[m] = 0;
+                }
+                b->unk178 = 1;
+                cnt = cnt + 1;
+                D_005F70B4 = cnt;
+            } else {
+                b->unk174 = 0;
+            }
         }
-        var_s3 = var_t1;
-        var_s0 = var_t0;
-    } while ((s32) var_s3 < 0xA);
-    var_s6 = temp_s6 - var_t3;
-    if (var_t3 == 0) {
-        var_v1 = p + temp_s2;
-        if (temp_s4 != 0) {
-            var_v0 = 2;
-        } else {
-            var_v0 = 1;
+        left -= cnt;
+        if (cnt == 0) {
+            p->unk27[n] = odd ? 2 : 1;
+        } else if (left == 0) {
+            p->unk27[n] = odd ? 4 : 3;
+        } else if (!odd && Bowl_IsSplit() != 0) {
+            p->unk27[n] = 6;
         }
-        goto block_24;
     }
-    if (var_s6 == 0) {
-        var_v1 = p + temp_s2;
-        if (temp_s4 != 0) {
-            var_v0 = 4;
-        } else {
-            var_v0 = 3;
-        }
-        goto block_24;
-    }
-    var_v0_2 = &p->unkD[temp_s2];
-    if (temp_s4 == 0) {
-        var_v1 = p + temp_s2;
-        if (Bowl_IsSplit() != 0) {
-            var_v0 = 6;
-block_24:
-            (*(s8 *)((u8 *)(var_v1) + 0x27)) = var_v0;
-        }
-block_25:
-        var_v0_2 = p->unkD + temp_s2;
-    }
-    *var_v0_2 = var_s6;
-    if (var_s7 == 0) {
-        var_a3 = 0;
-        temp_a2 = p->unk58;
+    p->unkD[n] = left;
+    if (!early) {
+        k = 0;
         if (p->unk58[0] >= 0) {
             do {
-                var_a3 += 1;
-            } while (temp_a2[var_a3] >= 0);
+                k++;
+            } while (p->unk58[k] >= 0);
         }
-        temp_a2[var_a3] = (s8) *(p->unkD + temp_s2);
-        *(p->unk5B + var_a3) = *(p->unk27 + temp_s2);
+        p->unk58[k] = p->unkD[n];
+        p->unk5B[k] = p->unk27[n];
     }
-    var_a3_2 = 0xB;
-    do {
-        temp_v1_2 = var_a3_2 - 1;
-        temp_a1 = p->unk1 + var_a3_2;
-        temp_a0 = p->unk1 + temp_v1_2;
-        var_a3_2 = temp_v1_2;
-        *temp_a1 = *temp_a0;
-    } while (var_a3_2 > 0);
-    temp_v0_3 = (u8) p->unk1[2];
-    temp_a0_2 = (u8) p->unk0;
-    temp_s2_2 = p->unk1[1];
-    p->unk1[0] = (s8) temp_a0_2;
-    temp_s0 = *(p->unkD + temp_s2_2);
-    temp_s4_2 = *(p->unkD + (s8) temp_v0_3);
-    if (!((s8) temp_v0_3 & 1)) {
-        var_v0_3 = temp_s2_2 & 1;
-        if (temp_s4_2 == 0xA) {
-            func_003EA378((u16 *) p->unk42, (s32) (temp_v0_3 << 0x18) >> 0x19, temp_s0 + (var_s6 + 0xA));
-            goto block_38;
-        }
-    } else {
-block_38:
-        var_v0_3 = temp_s2_2 & 1;
+    for (k = 11; k > 0; k--) {
+        p->unk1[k] = p->unk1[k - 1];
     }
-    if ((var_v0_3 != 0) && ((temp_s4_2 + temp_s0) == 0xA)) {
-        func_003EA378((u16 *) p->unk42, temp_s2_2 >> 1, var_s6 + 0xA);
+    p->unk1[0] = p->unk0;
+    m2 = p->unk1[1];
+    m = p->unk1[2];
+    cur = p->unk0;
+    a = p->unkD[m2];
+    c = p->unkD[m];
+    if (!(m & 1) && c == 10) {
+        func_003EA378((u16 *)p->unk42, m >> 1, a + (left + 10));
     }
-    temp_s2_3 = (s8) temp_a0_2 & 1;
-    temp_a2_2 = temp_s0 + var_s6;
-    if ((temp_s2_3 != 0) && (temp_a2_2 < 0xA)) {
-        func_003EA378((u16 *) p->unk42, (s8) temp_a0_2 >> 1, temp_a2_2);
+    if ((m2 & 1) && c + a == 10) {
+        func_003EA378((u16 *)p->unk42, m2 >> 1, left + 10);
     }
-    if (temp_s2_3 == 0) {
-
+    if ((cur & 1) && a + left < 10) {
+        func_003EA378((u16 *)p->unk42, cur >> 1, a + left);
     }
+    if (cur & 1) {
+        return 0;
+    }
+    return left == 10;
 }
 #else
 INCLUDE_ASM("asm/nonmatchings/tekken_bowl", func_003EA4C8);
@@ -4154,153 +4082,92 @@ INCLUDE_ASM("asm/nonmatchings/tekken_bowl", func_003EF8B0);
 #endif
 
 #if 0
-/* NON_MATCHING: 279 lines (174 instructions, draft 178): m2c draft, only made to compile (stack copies as struct copies, VU0 and unknown instructions as inline asm) */
+/* NON_MATCHING: written from the asm (T41 b1; the m2c draft stepped its BowlBody pointers by 0x180 elements, not
+   bytes, and crashed on the first throw) */
+/* The end of a throw: 2 when the next ball is due, 3 while the pins still move or a message is shown, 5 / 8 when
+ * the frame (the pair of balls) is over (func_003EA4C8: 8 at the end of the game). */
 s32 func_003EFB00(s32 arg0) {
-    BowlBody *var_s0;
-    BowlBody *var_s0_2;
-    BowlBody *var_s0_3;
-    BowlBody *var_s0_4;
-    BowlBody *var_s0_5;
-    f32 var_f1;
-    s16 temp_v0;
-    s32 temp_v0_2;
-    s32 temp_v0_3;
-    s32 var_a1;
-    s32 var_s1;
-    s32 var_s1_2;
-    s32 var_s1_3;
-    s32 var_s1_4;
-    s32 var_s1_5;
-    s32 var_v0;
+    u8 *p;
+    s32 i;
+    s32 any;
+    s16 old;
+    s16 t;
 
-    temp_v0 = (u16) D_005F70AA + 1;
-    D_005F70AA = temp_v0;
-    if ((arg0 != 0) && (D_005F70BC != 0)) {
-        if (D_005F70C0 == 0) {
-            var_s1 = 0;
-            var_s0 = D_01FC5260;
-            do {
-                var_s0->unk170 = 0;
-                var_s1 += 1;
-                var_s0->unk178 = 0;
-                var_s0 += 0x180;
-            } while (var_s1 < 0xA);
-            goto block_46;
+    t = (u16)D_005F70AA + 1;
+    D_005F70AA = t;
+    if (arg0 != 0 && D_005F70BC != 0 && D_005F70C0 == 0) {
+        for (i = 0, p = (u8 *)D_01FC5260; i < 10; i++, p += 0x180) {
+            *(s32 *)(p + 0x170) = 0;
+            *(s32 *)(p + 0x178) = 0;
         }
-        goto block_7;
+        goto done;
     }
-block_7:
-    if ((D_005F70B6 != 0) && (D_005F70C2 == 0)) {
-        if (D_005F70BC == 0) {
-            var_a1 = 0;
-            if ((u16) D_005F70BA == 0) {
-                var_s1_2 = 0xA;
-                var_s0_2 = D_01FC5260;
-                do {
-                    temp_v0_2 = var_s0_2->unk178;
-                    var_s1_2 -= 1;
-                    var_s0_2 += 0x180;
-                    var_a1 |= temp_v0_2;
-                } while (var_s1_2 > 0);
-                if (var_a1 == 0) {
-                    D_005F70BA = temp_v0;
-                    goto block_15;
-                }
-                goto block_24;
+    if (D_005F70B6 != 0 && D_005F70C2 == 0) {
+        if (D_005F70BC != 0) {
+            if ((s16)D_005F70BA < t) {
+                return 2;
             }
-            var_s1_3 = 0xA;
-            var_s0_3 = D_01FC5260;
-            do {
-                temp_v0_3 = var_s0_3->unk170;
-                var_s1_3 -= 1;
-                var_s0_3 += 0x180;
-                var_a1 |= temp_v0_3;
-            } while (var_s1_3 > 0);
-            if (var_a1 == 0) {
-                if (D_005F70C0 != 0) {
-                    D_005F70B6 = 9;
-                    D_005F70BA = 0x3C;
-                    return 2;
+        } else {
+            old = D_005F70BA;
+            any = 0;
+            if ((u16)old == 0) {
+                for (i = 10, p = (u8 *)D_01FC5260; i > 0; i--, p += 0x180) {
+                    any |= *(s32 *)(p + 0x178);
                 }
-                D_005F70BA = (s16) ((s32) ((s16) (u16) D_005F70BA + temp_v0) >> 1);
-                if (temp_v0 >= 0x5B) {
-                    D_005F70C2 = 1;
-                    D_005F70B6 = 1;
-                    goto block_24;
-                }
-                goto block_37;
-            }
-            goto block_24;
-        }
-        var_v0 = 2;
-        if (D_005F70BA >= temp_v0) {
-            goto block_24;
-        }
-        /* Duplicate return node #47. Try simplifying control flow for better match */
-        return var_v0;
-    }
-block_24:
-    var_v0 = 3;
-    if (Bowl_DrawSpare() == 0) {
-        if (D_005F70AA < 0x3E8) {
-            if (D_005F70CE == 0) {
-                if (D_005F70C0 != 0) {
-                    var_f1 = 8000.0f;
-                } else {
-                    var_f1 = 12000.0f;
-                }
-                var_v0 = 3;
-                if (!(D_01FC51E0.unk8 < var_f1)) {
-                    var_s1_4 = 0xA;
-                    var_s0_4 = D_01FC5260;
-loop_32:
-                    var_s1_4 -= 1;
-                    if (func_003EF3A8(var_s0_4) == 0) {
-                        var_s0_4 += 0x180;
-                        if (var_s1_4 <= 0) {
-                            goto block_34;
-                        }
-                        goto loop_32;
-                    }
-block_15:
+                D_005F70BA = t;
+                if (any == 0) {
                     return 3;
                 }
-                /* Duplicate return node #47. Try simplifying control flow for better match */
-                return var_v0;
-            }
-            goto block_35;
-        }
-block_34:
-block_35:
-        if ((D_005F70C2 != 0) && (D_005F70B6 != 0)) {
-block_37:
-            return 2;
-        }
-        var_v0 = 3;
-        if (Bowl_DrawMissFoul() == 0) {
-            var_v0 = 3;
-            if (D_005F70AA >= 0x96) {
-                if (D_005F70BC != 0) {
-                    if (D_005F70C0 == 0) {
-                        var_s1_5 = 0;
-                        var_s0_5 = D_01FC5260;
-                        do {
-                            var_s0_5->unk170 = 0;
-                            var_s1_5 += 1;
-                            var_s0_5->unk178 = 0;
-                            var_s0_5 += 0x180;
-                        } while (var_s1_5 < 0xA);
-                    }
+            } else {
+                for (i = 10, p = (u8 *)D_01FC5260; i > 0; i--, p += 0x180) {
+                    any |= *(s32 *)(p + 0x170);
                 }
-block_46:
-                func_003EA4C8(&D_01FC61E0[D_005F70AC]);
-                var_v0 = (0 /* m2c: unknown value */ == 0) ? 8 : 5;
+                if (any == 0) {
+                    if (D_005F70C0 != 0) {
+                        D_005F70B6 = 9;
+                        D_005F70BA = 0x3C;
+                        return 2;
+                    }
+                    D_005F70BA = (old + t) >> 1;
+                    if (t < 0x5B) {
+                        return 2;
+                    }
+                    D_005F70C2 = 1;
+                    D_005F70B6 = 1;
+                }
             }
         }
-        /* Duplicate return node #47. Try simplifying control flow for better match */
-        return var_v0;
     }
-    return var_v0;
+    if (Bowl_DrawSpare() != 0) {
+        return 3;
+    }
+    if (D_005F70AA < 0x3E8 && D_005F70CE == 0) {
+        if (D_01FC51E0.unk8 < (D_005F70C0 != 0 ? 8000.0f : 12000.0f)) {
+            return 3;
+        }
+        for (i = 10, p = (u8 *)D_01FC5260; i > 0; i--, p += 0x180) {
+            if (func_003EF3A8((BowlBody *)p) != 0) {
+                return 3;
+            }
+        }
+    }
+    if (D_005F70C2 != 0 && D_005F70B6 != 0) {
+        return 2;
+    }
+    if (Bowl_DrawMissFoul() != 0) {
+        return 3;
+    }
+    if (D_005F70AA < 0x96) {
+        return 3;
+    }
+    if (D_005F70BC != 0 && D_005F70C0 == 0) {
+        for (i = 0, p = (u8 *)D_01FC5260; i < 10; i++, p += 0x180) {
+            *(s32 *)(p + 0x170) = 0;
+            *(s32 *)(p + 0x178) = 0;
+        }
+    }
+done:
+    return func_003EA4C8(&D_01FC61E0[(u16)D_005F70AC]) == 0 ? 8 : 5;
 }
 #else
 LIT4_WORD(D_005F5BA8, 0x463B8000);
@@ -4357,7 +4224,6 @@ s32 func_003EFED0(void) {
 void Bowl_DrawHud(void *f, void *o, void *pos, s16 pad, s16 arg4); /* menu_bg.c */
 s32 func_003F0008(void) {
     BowlPlayer *temp_v0_2;
-    BowlPlayer *var_s7;
     Fighter *temp_s2;
     Fighter *temp_s3;
     s16 temp_s4;
@@ -4392,12 +4258,11 @@ s32 func_003F0008(void) {
     }
     temp_s2 = &gFighters[var_a2];
     temp_s3 = &gFighters[var_a2 ^ 1];
-    temp_s4 = *((func_003AFFB8((s32) var_a2, (s32) temp_s2->unk0) * 4) + (u8 *)D_00415718);
-    temp_s5 = *((func_003AFFB8((s32) D_005F70AC, (s32) temp_s2->unk0) * 4) + (u8 *)D_00415728);
+    temp_s4 = *(s16 *)((u8 *)D_00415718 + func_003AFFB8((s32) var_a2, (s32) temp_s2->unk0) * 4); /* lh */
+    temp_s5 = *(s16 *)((u8 *)D_00415728 + func_003AFFB8((s32) D_005F70AC, (s32) temp_s2->unk0) * 4);
     if ((u32) D_005F70A8 < 0xBU) {
         switch (D_005F70A8) {                       /* switch 1 */
         case 0:                                     /* switch 1 */
-            var_s7 = D_01FC61E0;
             func_003E9C58(temp_s2, &D_01FC62A0);
             temp_s3->unk8 = 0;
             temp_s3->unkC = -0x3A98;
@@ -4454,7 +4319,7 @@ block_11:
             }
             Bowl_DrawHud(temp_s2, D_01FC5260, &D_01FC51E0, temp_s4, D_01FC61E0[D_005F70AC].unk0 & 1);
             if (func_003F1ED8() != 0) {
-                temp_v0_2 = &var_s7[D_005F70AC];
+                temp_v0_2 = &D_01FC61E0[D_005F70AC]; /* s7 holds %hi(D_01FC61E0) only (T41 b1) */
                 if (temp_v0_2->unk58[0] >= 0) {
                     var_s0 = (temp_v0_2->unk58[1] <= -1) ? 1 : 2;
                 } else {
@@ -4463,21 +4328,21 @@ block_11:
                 func_003DEB80(0);
                 switch (D_01FC62A0.unk0) {          /* switch 2; irregular */
                 case 1:                             /* switch 2 */
-                    func_003DBCF0(0, 0x185, 0x280, 0x30, 0 /* m2c: unknown value */, 0 /* m2c: unknown value */);
+                    func_003DBCF0(0, 0x185, 0x280, 0x30, 0xFFFE, 0x18181860);
                     var_a2_2 = (var_s0 * 4) + 0x5D;
 block_43:
                     Text_DrawId(0x1E, 0x186, var_a2_2, 0x60606080);
                     break;
                 case 2:                             /* switch 2 */
-                    func_003DBCF0(0, 0x185, 0x280, 0x30, 0 /* m2c: unknown value */, 0 /* m2c: unknown value */);
+                    func_003DBCF0(0, 0x185, 0x280, 0x30, 0xFFFE, 0x18181860);
                     var_a2_2 = (var_s0 * 4) + 0x5E;
                     goto block_43;
                 case 3:                             /* switch 2 */
-                    func_003DBCF0(0, 0x185, 0x280, 0x30, 0 /* m2c: unknown value */, 0 /* m2c: unknown value */);
+                    func_003DBCF0(0, 0x185, 0x280, 0x30, 0xFFFE, 0x18181860);
                     var_a2_2 = (var_s0 * 4) + 0x5F;
                     goto block_43;
                 case 4:                             /* switch 2 */
-                    func_003DBCF0(0, 0x185, 0x280, 0x30, 0 /* m2c: unknown value */, 0 /* m2c: unknown value */);
+                    func_003DBCF0(0, 0x185, 0x280, 0x30, 0xFFFE, 0x18181860);
                     Text_DrawId(0x1E, 0x186, (var_s0 * 4) | 0x60, 0x60606080);
                     break;
                 }
@@ -4495,7 +4360,6 @@ block_64:
             }
             break;
         case 1:                                     /* switch 1 */
-            var_s7 = (BowlPlayer *)0x01FC0000;
             goto block_11;
         case 2:                                     /* switch 1 */
             func_003465E0(temp_a0);
@@ -4602,7 +4466,7 @@ block_64:
             func_003EA978();
             func_003EF8B0(&D_01FC61E0[D_005F70AC]);
             if (temp_s0_2 == 0) {
-                if ((temp_s5 | *((func_003AFFB8((s32) D_005F70AC, (s32) temp_s3->unk0) * 4) + ((u8 *)D_00415728 + 0x5728))) & 0x800) {
+                if ((temp_s5 | *(s32 *)((u8 *)D_00415728 + func_003AFFB8((s32) D_005F70AC, (s32) temp_s3->unk0) * 4)) & 0x800) {
                     goto block_82;
                 }
             } else {
