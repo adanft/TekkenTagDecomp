@@ -35,12 +35,60 @@ def wav_frames(data):
 @unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
 class SpuSelfTest(unittest.TestCase):
     def test_spu(self):
-        """Synthetic ADPCM blocks: the decoder (filters 0-2, shifts, clamping, history), the voices' loop flags (end
+        """Synthetic ADPCM blocks: the decoder (filters 0-2, shifts, clamping, history), the Gaussian interpolation
+        (reference values, a voice against the decoded stream), SpuSt's two-half buffer, the voices' loop flags (end
         without repeat stops the voice with key status 3 and ENDX, end + repeat loops to the loop-start block), pitch,
         the ADSR phases and key off, and a deterministic, non-silent mix of both cores."""
         r = run_ttt(TTT_SELFTEST="spu")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("ttt: spu self-test OK", r.stdout)
+
+
+SPU2_C = Path(__file__).resolve().parent.parent / "port/src/spu2.c"
+# SHA-1 of the SPU's Gaussian interpolation table (512 little-endian int16) as published in nocash's psx-spx SPU
+# documentation ("4-Point Gaussian Interpolation"); DuckStation's spu.cpp carries the same values.
+GAUSS_SHA1 = "03cd36a66e9195873a45fdea621e1adb8b0d09ba"
+# The windows (oldest .. new) of the self-test's digest, in its order.
+GAUSS_WINDOWS = ((0, 32767, 0, 0), (0, 0, 32767, 0), (1000, -2000, 3000, -4000), (32767, 32767, 32767, 32767),
+                 (-32768, 12345, -777, 30000), (100, 200, 300, 400))
+
+
+def gauss_table():
+    """The model's kGauss table, read from port/src/spu2.c."""
+    src = SPU2_C.read_text()
+    body = src[src.index("kGauss[512] = {"):]
+    body = body[body.index("{") + 1: body.index("};")]
+    return [int(v, 16) for v in re.findall(r"-?0x[0-9A-Fa-f]+", body)]
+
+
+def gauss(table, w, i):
+    """The 4-point interpolation as psx-spx describes it: each tap (weight * sample) >> 15, summed."""
+    return sum((table[k] * s) >> 15 for k, s in zip((0xFF - i, 0x1FF - i, 0x100 + i, i), w))
+
+
+class GaussTable(unittest.TestCase):
+    def test_table_is_the_published_one(self):
+        """The table is the hardware's (checked by digest), and each phase's four weights sum to 0x7F7F-0x7F81, so an
+        interpolated sample stays within 16 bits (psx-spx)."""
+        t = gauss_table()
+        self.assertEqual(len(t), 512)
+        self.assertEqual(hashlib.sha1(struct.pack("<512h", *t)).hexdigest(), GAUSS_SHA1)
+        sums = {t[0xFF - i] + t[0x1FF - i] + t[0x100 + i] + t[i] for i in range(256)}
+        self.assertEqual((min(sums), max(sums)), (0x7F7F, 0x7F81))
+
+
+@unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
+class GaussSelfTest(unittest.TestCase):
+    def test_interpolation_digest(self):
+        """TTT_SELFTEST=spu prints a digest of the model's interpolation over all 256 phases of six windows; this
+        recomputes it here from the table, independently of the C code."""
+        r = run_ttt(TTT_SELFTEST="spu")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        t, h = gauss_table(), 2166136261
+        for w in GAUSS_WINDOWS:
+            for i in range(256):
+                h = ((h ^ (gauss(t, w, i) & 0xFFFFFFFF)) * 16777619) & 0xFFFFFFFF
+        self.assertIn(f"ttt: spu gauss digest 0x{h:08x}", r.stdout)
 
 
 @unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")

@@ -1,5 +1,5 @@
-/* The SPU2 model (port/src/spu2.c): 2 MB of sound RAM, two cores of 24 voices, PS-ADPCM with loop flags, pitch,
-   ADSR, fixed volumes, 48 kHz stereo output. Integer arithmetic only; the state advances only through Spu2_Mix, so it
+/* The SPU2 model (port/src/spu2.c): 2 MB of sound RAM, two cores of 24 voices, PS-ADPCM with loop flags, pitch with
+   the 4-point Gaussian interpolation, ADSR, fixed volumes, 48 kHz stereo output. Integer arithmetic only; the state advances only through Spu2_Mix, so it
    is a function of the commands and of the number of samples mixed (docs/port/sound.md). */
 #ifndef SPU2_H
 #define SPU2_H
@@ -51,6 +51,8 @@ void Spu2_Mix(int16_t *out, int n);
 void Spu2_MixBus(int16_t *out, int32_t *bus, uint32_t musicVoices, int n);
 /* Decodes one 16-byte PS-ADPCM block into 28 samples with the predictor history; returns the block's flags byte. */
 int Spu2_DecodeBlock(const uint8_t *blk, int16_t *out, int16_t *h1, int16_t *h2);
+/* The 4-point Gaussian interpolation of w[0..3] (oldest .. new) at index i (0-255: bits 4-11 of the pitch counter). */
+int32_t Spu2_Gauss(const int16_t *w, uint32_t i);
 /* TTT_SELFTEST=spu: synthetic ADPCM blocks through the decoder and the voices; 0 when every check passes. */
 int Spu2_SelfTest(void);
 

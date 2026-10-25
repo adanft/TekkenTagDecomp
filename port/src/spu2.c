@@ -6,8 +6,12 @@
  *    Flags: bit 2 loop start (the loop address takes the block's address unless it was written), bit 0 end (ENDX is
  *    set and the voice goes on at the loop address), bit 1 repeat (without it an end block silences the voice:
  *    envelope 0, the voice off; libspu2 then reports key status 3).
- *  - Pitch: 0x1000 = one sample per output sample (48 kHz), at most 0x3FFF; linear interpolation between the last two
- *    decoded samples (the hardware interpolates 4 samples with a Gaussian table: a difference in tone only).
+ *  - Pitch: 0x1000 = one sample per output sample (48 kHz), at most 0x3FFF. The output sample is the hardware's 4-point
+ *    Gaussian interpolation of the 4 most recent decoded samples (oldest, older, old, new; new = the sample the pitch
+ *    counter is on), bits 4-11 of the counter as the index i into the 512-entry table:
+ *    (g[0xFF - i] * oldest >> 15) + (g[0x1FF - i] * older >> 15) + (g[0x100 + i] * old >> 15) + (g[i] * new >> 15).
+ *    Each phase's four weights sum to 0x7F7F-0x7F81, so the result stays within 16 bits. The samples before a key on
+ *    count as 0.
  *  - ADSR as on the PS1/PS2 SPU: ADSR1 = attack mode:1 rate:7 | decay shift:4 | sustain level:4, ADSR2 = sustain
  *    mode:1 direction:1 0 rate:7 | release mode:1 shift:5; the envelope steps by (7 - (rate & 3)) << (11 - shift) or
  *    (-8 + (rate & 3)) << ..., every 1 << (shift - 11) samples, x4 slower above 0x6000 in exponential attack, scaled
@@ -26,12 +30,88 @@
 
 Spu2Core gSpu2[2];
 static uint8_t sRam[SPU2_RAM_SIZE];
+/* The previous block's samples 25 and 26 (d[27], d[28] before the next block's decode), per voice: with d[1] (its
+   sample 27) they are the three samples the interpolation reaches back to at the start of a block. They
+   change only what is heard, never anything the game reads back, so they are saved with the state (rollback) and
+   left out of its hash (docs/port/sound.md). */
+static int16_t sTail[2][SPU2_VOICES][2];
 
 uint8_t *Spu2_Ram(void) { return sRam; }
 
 void Spu2_Reset(void) {
     memset(gSpu2, 0, sizeof gSpu2);
+    memset(sTail, 0, sizeof sTail);
 }
+
+/* The SPU's Gaussian interpolation table: hardware behaviour, the values as published in Martin Korth's "psx-spx"
+   (nocash) SPU documentation, also used by PCSX2's SPU2 and DuckStation (the PS2's SPU2 cores keep the PS1 SPU's
+   voice pipeline). tests/test_port_sound.py checks the table against the published one's SHA-1. */
+static const int16_t kGauss[512] = {
+    -0x001, -0x001, -0x001, -0x001, -0x001, -0x001, -0x001, -0x001,
+    -0x001, -0x001, -0x001, -0x001, -0x001, -0x001, -0x001, -0x001,
+    0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0001,
+    0x0001, 0x0001, 0x0001, 0x0002, 0x0002, 0x0002, 0x0003, 0x0003,
+    0x0003, 0x0004, 0x0004, 0x0005, 0x0005, 0x0006, 0x0007, 0x0007,
+    0x0008, 0x0009, 0x0009, 0x000A, 0x000B, 0x000C, 0x000D, 0x000E,
+    0x000F, 0x0010, 0x0011, 0x0012, 0x0013, 0x0015, 0x0016, 0x0018,
+    0x0019, 0x001B, 0x001C, 0x001E, 0x0020, 0x0021, 0x0023, 0x0025,
+    0x0027, 0x0029, 0x002C, 0x002E, 0x0030, 0x0033, 0x0035, 0x0038,
+    0x003A, 0x003D, 0x0040, 0x0043, 0x0046, 0x0049, 0x004D, 0x0050,
+    0x0054, 0x0057, 0x005B, 0x005F, 0x0063, 0x0067, 0x006B, 0x006F,
+    0x0074, 0x0078, 0x007D, 0x0082, 0x0087, 0x008C, 0x0091, 0x0096,
+    0x009C, 0x00A1, 0x00A7, 0x00AD, 0x00B3, 0x00BA, 0x00C0, 0x00C7,
+    0x00CD, 0x00D4, 0x00DB, 0x00E3, 0x00EA, 0x00F2, 0x00FA, 0x0101,
+    0x010A, 0x0112, 0x011B, 0x0123, 0x012C, 0x0135, 0x013F, 0x0148,
+    0x0152, 0x015C, 0x0166, 0x0171, 0x017B, 0x0186, 0x0191, 0x019C,
+    0x01A8, 0x01B4, 0x01C0, 0x01CC, 0x01D9, 0x01E5, 0x01F2, 0x0200,
+    0x020D, 0x021B, 0x0229, 0x0237, 0x0246, 0x0255, 0x0264, 0x0273,
+    0x0283, 0x0293, 0x02A3, 0x02B4, 0x02C4, 0x02D6, 0x02E7, 0x02F9,
+    0x030B, 0x031D, 0x0330, 0x0343, 0x0356, 0x036A, 0x037E, 0x0392,
+    0x03A7, 0x03BC, 0x03D1, 0x03E7, 0x03FC, 0x0413, 0x042A, 0x0441,
+    0x0458, 0x0470, 0x0488, 0x04A0, 0x04B9, 0x04D2, 0x04EC, 0x0506,
+    0x0520, 0x053B, 0x0556, 0x0572, 0x058E, 0x05AA, 0x05C7, 0x05E4,
+    0x0601, 0x061F, 0x063E, 0x065C, 0x067C, 0x069B, 0x06BB, 0x06DC,
+    0x06FD, 0x071E, 0x0740, 0x0762, 0x0784, 0x07A7, 0x07CB, 0x07EF,
+    0x0813, 0x0838, 0x085D, 0x0883, 0x08A9, 0x08D0, 0x08F7, 0x091E,
+    0x0946, 0x096F, 0x0998, 0x09C1, 0x09EB, 0x0A16, 0x0A40, 0x0A6C,
+    0x0A98, 0x0AC4, 0x0AF1, 0x0B1E, 0x0B4C, 0x0B7A, 0x0BA9, 0x0BD8,
+    0x0C07, 0x0C38, 0x0C68, 0x0C99, 0x0CCB, 0x0CFD, 0x0D30, 0x0D63,
+    0x0D97, 0x0DCB, 0x0E00, 0x0E35, 0x0E6B, 0x0EA1, 0x0ED7, 0x0F0F,
+    0x0F46, 0x0F7F, 0x0FB7, 0x0FF1, 0x102A, 0x1065, 0x109F, 0x10DB,
+    0x1116, 0x1153, 0x118F, 0x11CD, 0x120B, 0x1249, 0x1288, 0x12C7,
+    0x1307, 0x1347, 0x1388, 0x13C9, 0x140B, 0x144D, 0x1490, 0x14D4,
+    0x1517, 0x155C, 0x15A0, 0x15E6, 0x162C, 0x1672, 0x16B9, 0x1700,
+    0x1747, 0x1790, 0x17D8, 0x1821, 0x186B, 0x18B5, 0x1900, 0x194B,
+    0x1996, 0x19E2, 0x1A2E, 0x1A7B, 0x1AC8, 0x1B16, 0x1B64, 0x1BB3,
+    0x1C02, 0x1C51, 0x1CA1, 0x1CF1, 0x1D42, 0x1D93, 0x1DE5, 0x1E37,
+    0x1E89, 0x1EDC, 0x1F2F, 0x1F82, 0x1FD6, 0x202A, 0x207F, 0x20D4,
+    0x2129, 0x217F, 0x21D5, 0x222C, 0x2282, 0x22DA, 0x2331, 0x2389,
+    0x23E1, 0x2439, 0x2492, 0x24EB, 0x2545, 0x259E, 0x25F8, 0x2653,
+    0x26AD, 0x2708, 0x2763, 0x27BE, 0x281A, 0x2876, 0x28D2, 0x292E,
+    0x298B, 0x29E7, 0x2A44, 0x2AA1, 0x2AFF, 0x2B5C, 0x2BBA, 0x2C18,
+    0x2C76, 0x2CD4, 0x2D33, 0x2D91, 0x2DF0, 0x2E4F, 0x2EAE, 0x2F0D,
+    0x2F6C, 0x2FCC, 0x302B, 0x308B, 0x30EA, 0x314A, 0x31AA, 0x3209,
+    0x3269, 0x32C9, 0x3329, 0x3389, 0x33E9, 0x3449, 0x34A9, 0x3509,
+    0x3569, 0x35C9, 0x3629, 0x3689, 0x36E8, 0x3748, 0x37A8, 0x3807,
+    0x3867, 0x38C6, 0x3926, 0x3985, 0x39E4, 0x3A43, 0x3AA2, 0x3B00,
+    0x3B5F, 0x3BBD, 0x3C1B, 0x3C79, 0x3CD7, 0x3D35, 0x3D92, 0x3DEF,
+    0x3E4C, 0x3EA9, 0x3F05, 0x3F62, 0x3FBD, 0x4019, 0x4074, 0x40D0,
+    0x412A, 0x4185, 0x41DF, 0x4239, 0x4292, 0x42EB, 0x4344, 0x439C,
+    0x43F4, 0x444C, 0x44A3, 0x44FA, 0x4550, 0x45A6, 0x45FC, 0x4651,
+    0x46A6, 0x46FA, 0x474E, 0x47A1, 0x47F4, 0x4846, 0x4898, 0x48E9,
+    0x493A, 0x498A, 0x49D9, 0x4A29, 0x4A77, 0x4AC5, 0x4B13, 0x4B5F,
+    0x4BAC, 0x4BF7, 0x4C42, 0x4C8D, 0x4CD7, 0x4D20, 0x4D68, 0x4DB0,
+    0x4DF7, 0x4E3E, 0x4E84, 0x4EC9, 0x4F0E, 0x4F52, 0x4F95, 0x4FD7,
+    0x5019, 0x505A, 0x509A, 0x50DA, 0x5118, 0x5156, 0x5194, 0x51D0,
+    0x520C, 0x5247, 0x5281, 0x52BA, 0x52F3, 0x532A, 0x5361, 0x5397,
+    0x53CC, 0x5401, 0x5434, 0x5467, 0x5499, 0x54CA, 0x54FA, 0x5529,
+    0x5558, 0x5585, 0x55B2, 0x55DE, 0x5609, 0x5632, 0x565B, 0x5684,
+    0x56AB, 0x56D1, 0x56F6, 0x571B, 0x573E, 0x5761, 0x5782, 0x57A3,
+    0x57C3, 0x57E2, 0x57FF, 0x581C, 0x5838, 0x5853, 0x586D, 0x5886,
+    0x589E, 0x58B5, 0x58CB, 0x58E0, 0x58F4, 0x5907, 0x5919, 0x592A,
+    0x593A, 0x5949, 0x5958, 0x5965, 0x5971, 0x597C, 0x5986, 0x598F,
+    0x5997, 0x599E, 0x59A4, 0x59A9, 0x59AD, 0x59B0, 0x59B2, 0x59B3,
+};
 
 static const int8_t kF0[5] = { 0, 60, 115, 98, 122 };
 static const int8_t kF1[5] = { 0, 0, -52, -55, -60 };
@@ -65,11 +145,19 @@ int Spu2_DecodeBlock(const uint8_t *blk, int16_t *out, int16_t *h1, int16_t *h2)
     return blk[1];
 }
 
-/* Decodes the block at the voice's current address; the previous block's last sample stays in d[1]. */
+static int16_t *tail_of(const Spu2Voice *v) {
+    int c = v >= gSpu2[1].v && v < gSpu2[1].v + SPU2_VOICES;
+    return sTail[c][v - gSpu2[c].v];
+}
+
+/* Decodes the block at the voice's current address; the previous block's last three samples stay in the tail and d[1]. */
 static void load_block(Spu2Voice *v) {
     const uint8_t *b;
+    int16_t *t = tail_of(v);
     v->nax &= (SPU2_RAM_SIZE - 1) & ~15u;
     b = sRam + v->nax;
+    t[0] = v->d[27];
+    t[1] = v->d[28];
     v->d[1] = v->d[29];
     v->flags = (uint8_t)Spu2_DecodeBlock(b, v->d + 2, &v->hist1, &v->hist2);
     if ((v->flags & 4) && !v->lsaSet) {
@@ -93,6 +181,7 @@ void Spu2_KeyOn(int core, uint32_t mask) {
         v->hist1 = v->hist2 = 0;
         v->d[29] = 0;
         load_block(v);
+        tail_of(v)[0] = tail_of(v)[1] = 0; /* nothing before the key on */
         gSpu2[core].endx &= ~(1u << i);
     }
 }
@@ -176,6 +265,25 @@ static int32_t vol_factor(uint16_t r) {
     return (int32_t)(int16_t)(uint16_t)(r << 1);
 }
 
+/* The 4-point Gaussian interpolation of four consecutive samples, oldest first, at index i (bits 4-11 of the pitch
+   counter). */
+static int32_t gauss4(int32_t oldest, int32_t older, int32_t old, int32_t cur, uint32_t i) {
+    return (kGauss[0xFF - i] * oldest >> 15) + (kGauss[0x1FF - i] * older >> 15) + (kGauss[0x100 + i] * old >> 15) +
+           (kGauss[i] * cur >> 15);
+}
+
+int32_t Spu2_Gauss(const int16_t *w, uint32_t i) {
+    return gauss4(w[0], w[1], w[2], w[3], i & 0xFF);
+}
+
+/* The voice's output sample before its envelope: the current sample d[2 + idx] (new) and the three before it, from
+   the tail at the start of a block. */
+static int32_t voice_sample(const Spu2Voice *v, const int16_t *tail) {
+    uint32_t idx = v->counter >> 12, i = (v->counter >> 4) & 0xFF;
+    int32_t oldest = idx >= 2 ? v->d[idx - 1] : tail[idx], older = idx >= 1 ? v->d[idx] : tail[1];
+    return gauss4(oldest, older, v->d[idx + 1], v->d[idx + 2], i);
+}
+
 /* The next block, at the end of the current one (its flags decide). */
 static void next_block(Spu2Core *c, int i) {
     Spu2Voice *v = &c->v[i];
@@ -202,14 +310,12 @@ void Spu2_MixBus(int16_t *out, int32_t *bus, uint32_t musicVoices, int n) {
             int32_t l = 0, r = 0, ml = 0, mr = 0;
             for (i = 0; i < SPU2_VOICES; i++) {
                 Spu2Voice *v = &core->v[i];
-                uint32_t idx, frac, pitch;
+                uint32_t pitch;
                 int32_t s, sl, sr;
                 if (v->phase == SPU2_OFF) {
                     continue;
                 }
-                idx = v->counter >> 12;
-                frac = v->counter & 0xFFF;
-                s = v->d[1 + idx] + (((v->d[2 + idx] - v->d[1 + idx]) * (int32_t)frac) >> 12);
+                s = voice_sample(v, sTail[c][i]);
                 envelope(v);
                 s = s * v->envx >> 15;
                 sl = s * vol_factor(v->volL) >> 15;
@@ -293,6 +399,11 @@ int Spu2_SelfTest(void) {
     int16_t out[28], h1 = 0, h2 = 0, pcm[2 * 200];
     uint32_t hash[2];
     int i, run;
+    static const int16_t kWin[6][4] = { { 0, 32767, 0, 0 }, { 0, 0, 32767, 0 }, { 1000, -2000, 3000, -4000 },
+                                        { 32767, 32767, 32767, 32767 }, { -32768, 12345, -777, 30000 },
+                                        { 100, 200, 300, 400 } };
+    static const uint32_t kPhase[6] = { 0x00, 0x00, 0x80, 0xFF, 0x3C, 0xA5 };
+    static const int32_t kWant[6] = { 22962, 4870, 452, 32637, 5890, 262 }; /* worked out apart from this code */
 
     /* decoder: filter 0, shift 12: a sample is its nibble, sign-extended */
     make_block(b, 12, 0, 0x3, 5);
@@ -361,6 +472,61 @@ int Spu2_SelfTest(void) {
     expect(Spu2_KeyStatus(1, 1) == 2 && gSpu2[1].v[1].envx == 0x3FFF, "release steps of 0x4000");
     Spu2_Mix(NULL, 1);
     expect(Spu2_KeyStatus(1, 1) == 0, "release finished: status 0");
+    /* Gaussian interpolation: reference values, and a digest of all 256 phases of those windows (printed for
+       tests/test_port_sound.py, which recomputes it from the published table) */
+    {
+        uint32_t h = 2166136261u, ph;
+        for (i = 0; i < 6; i++) {
+            expect(Spu2_Gauss(kWin[i], kPhase[i]) == kWant[i], "Gaussian interpolation: reference values");
+            for (ph = 0; ph < 256; ph++) {
+                h = (h ^ (uint32_t)Spu2_Gauss(kWin[i], ph)) * 16777619u;
+            }
+        }
+        printf("ttt: spu gauss digest 0x%08x\n", h);
+    }
+    /* a voice's output follows the decoded stream through the interpolation, across block boundaries (the tail), with
+       zeros before the key on: three blocks at pitch 0x0C35, envelope held at the top */
+    {
+        int16_t st[3 + 84], hh1 = 0, hh2 = 0, frame[2];
+        int k, bad = 0;
+        Spu2_Reset();
+        make_block(Spu2_Ram() + 0x40000, 2, 1, 0x4, 4);
+        make_block(Spu2_Ram() + 0x40010, 3, 3, 0x0, 13);
+        make_block(Spu2_Ram() + 0x40020, 1, 2, 0x1, 7);
+        memset(st, 0, sizeof st);
+        for (i = 0; i < 3; i++) {
+            Spu2_DecodeBlock(Spu2_Ram() + 0x40000 + 16 * i, st + 3 + 28 * i, &hh1, &hh2);
+        }
+        voice_setup(1, 7, 0x40000, 0x0C35);
+        gSpu2[1].v[7].adsr2 = 0x1FC0; /* sustain: linear increase, rate 0x7F (stays) */
+        Spu2_KeyOn(1, 1u << 7);
+        gSpu2[1].v[7].phase = SPU2_SUSTAIN;
+        gSpu2[1].v[7].envx = 0x7FFF;
+        for (k = 0; (uint32_t)k * 0x0C35 >> 12 < 84; k++) {
+            uint32_t p = (uint32_t)k * 0x0C35, n = p >> 12;
+            int32_t g = Spu2_Gauss(st + n, (p >> 4) & 0xFF);
+            int32_t want = (int32_t)((int64_t)((g * 0x7FFF >> 15) * 0x7FFE >> 15) * 0x7FFE >> 15);
+            Spu2_Mix(frame, 1);
+            bad += frame[0] != want || frame[1] != want;
+        }
+        expect(bad == 0, "the voice's samples are the Gaussian interpolation of the decoded stream");
+        expect(Spu2_KeyStatus(1, 7) == 3, "the three blocks played, then the end");
+    }
+    /* SpuSt's stream buffer (plat_bgm.c): two halves, flags 6 2 .. 2 then 2 2 .. 3: the voice goes back to the
+       buffer's start after the second half, ENDX set, still playing */
+    Spu2_Reset();
+    for (i = 0; i < 8; i++) {
+        static const uint8_t kStFlags[8] = { 6, 2, 0, 2, 2, 2, 0, 3 };
+        make_block(Spu2_Ram() + 0x40100 + 16 * i, 12, 0, kStFlags[i], i);
+    }
+    voice_setup(0, 22, 0x40100, 0x1000);
+    Spu2_KeyOn(0, 1u << 22);
+    Spu2_Mix(NULL, 8 * 28);
+    expect(gSpu2[0].v[22].nax == 0x40100 && gSpu2[0].v[22].lsa == 0x40100 && (gSpu2[0].endx >> 22 & 1) &&
+               Spu2_KeyStatus(0, 22) == 1, "stream buffer: back to the start after the second half");
+    Spu2_Mix(NULL, 2 * 28);
+    expect(gSpu2[0].v[22].nax == 0x40120, "stream buffer: plays on from the start");
+
     /* exponential decay to the sustain level */
     Spu2_Reset();
     make_block(Spu2_Ram() + 0x6000, 12, 0, 0x6, 2);
@@ -401,4 +567,5 @@ int Spu2_SelfTest(void) {
 __attribute__((constructor(101))) static void spu2_state(void) {
     Port_StateAdd("spu2.cores", gSpu2, sizeof gSpu2, PS_HASH);
     Port_StateAdd("spu2.ram", sRam, sizeof sRam, PS_HASH);
+    Port_StateAdd("spu2.tail", sTail, sizeof sTail, 0); /* what is heard only: saved, not hashed */
 }
