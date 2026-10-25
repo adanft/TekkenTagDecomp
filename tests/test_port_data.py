@@ -18,8 +18,10 @@ from test_port_platform import EXE, ROOT, disc, run_ttt
 LAYOUT = ROOT / "port/tools/data_layout.txt"
 # The idle run (TTT_FRAMES=2551 TTT_SEED=1, a dump every 150 VBlanks) as it was with the data linked into the
 # program before T25: its state hash and the SHA-1 of its 17 pictures (names and bytes in order). The run on the data
-# loaded from the disc must give the same.
-IDLE_HASH = "0xd36c82e9a145875a"
+# loaded from the disc must give the same. Before T42 b1 the hash was 0xd36c82e9a145875a: two values the game takes
+# from uninitialised stack bytes (dma_spr.c func_0035D790's DMA tag, Light_StartFlash's fourth float) are now fixed
+# under PORT, so gcc and clang builds end alike (tests/test_port_clang.py); the pictures did not change.
+IDLE_HASH = "0x8ba37caeb2bacfa8"
 IDLE_PICTURES = "d9e628faa2fc1641224b77af0ad0f13da8a0f6f1"
 
 

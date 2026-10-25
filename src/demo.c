@@ -1500,7 +1500,11 @@ end:
 #ifdef PORT
 /* i386 cdecl: the variadic arguments are 4-byte stack slots right after fmt. */
 #define DFA_ARG() (ap += 4, *(s32 *)(ap - 4))
+#ifdef __clang__ /* no __builtin_next_arg; an i386 va_list is the address of the first variadic slot */
+#define DFA_START(fmt) ({ __builtin_va_list v_; __builtin_va_start(v_, fmt); (u8 *)v_; })
+#else
 #define DFA_START(fmt) ((u8 *)__builtin_next_arg(fmt))
+#endif
 #else
 #define DFA_ARG() (ap += 8, *(s32 *)(ap - 8))
 #define DFA_START(fmt) ((u8 *)__builtin_next_arg(fmt) - 7 * 8) /* fake: the EABI register save area */

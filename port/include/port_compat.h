@@ -47,5 +47,9 @@ int Port_MoviePlayable(void);  /* 0 until the movie player exists: func_0039C878
    ":f" to compare an integer / float result too. Returns fn's result (as its bits). */
 unsigned Port_DiffCall(const char *name, unsigned addr, void *fn, const char *sig, ...);
 #define PORT_DIFF(addr, fn, sig, ...) Port_DiffCall(#fn, addr, (void *)fn, sig, __VA_ARGS__)
+/* One quadword of EE RAM at a fixed address, for game code that DMAs a stack local whose bytes and address would follow
+   the compiler's frame layout (dma_spr.c func_0035D790): above the top of the EE stack (port/src/plat_main.c starts
+   it at 0x01FFFF00), so neither the game nor the port's frames reach it. */
+#define PORT_EE_SPARE_QW ((u128 *)0x01FFFFF0)
 
 #endif

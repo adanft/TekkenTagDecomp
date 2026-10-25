@@ -396,7 +396,13 @@ void Fade_Draw(void) {
         s->spr.alpha.f.b = 2;
         s->spr.alpha.f.c = 2;
         s->spr.alpha.f.d = 1;
+#ifdef PORT
+        /* PC build: through u32, as gcc converts it into the 8-bit field (__fixunssfsi); clang's 32-bit software
+         * float cannot convert a float to a 64-bit integer (an internal error) */
+        s->spr.alpha.f.fix = (u32)D_005F6D00;
+#else
         s->spr.alpha.f.fix = D_005F6D00;
+#endif
         a = 128.0f;
         break;
     case 2:
@@ -405,7 +411,11 @@ void Fade_Draw(void) {
         s->spr.alpha.f.b = 0;
         s->spr.alpha.f.c = 2;
         s->spr.alpha.f.d = 1;
+#ifdef PORT
+        s->spr.alpha.f.fix = (u32)D_005F6D00; /* as above */
+#else
         s->spr.alpha.f.fix = D_005F6D00;
+#endif
         a = 128.0f;
         break;
     }
@@ -556,7 +566,13 @@ s32 func_003A6978(s32 bank, s32 x, s32 y, s32 w, s32 h, f32 alpha) {
     s->spr.alpha.f.c = 2;
     s->spr.alpha.f.d = 1;
     s->z = 0xFFFE;
+#ifdef PORT
+    /* PC build: through u32, as gcc converts it into the 8-bit field (__fixunssfsi); clang's 32-bit software
+     * float cannot convert a float to a 64-bit integer (an internal error) */
+    s->spr.alpha.f.fix = (u32)((1.0f - alpha) * 128.0f);
+#else
     s->spr.alpha.f.fix = (1.0f - alpha) * 128.0f;
+#endif
     s->spr.rgbaq0.r = 0x80;
     s->spr.rgbaq0.g = 0x80;
     s->spr.rgbaq0.b = 0x80;

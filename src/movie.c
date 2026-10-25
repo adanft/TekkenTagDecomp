@@ -530,6 +530,8 @@ static void Port_MoviePlay(s32 movie) {
 
 /* NON_MATCHING: 11 lines: register allocation and scheduling of the buffer address stores and the state clears */
 #if 0
+void func_0039D578(void *disp);
+
 s32 func_0039C878(void) {
     s32 base;
     s32 white;

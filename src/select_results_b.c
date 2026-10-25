@@ -2042,7 +2042,11 @@ extern s32 D_005F6E78;
 #ifdef PORT
 /* i386 cdecl: the variadic arguments are 4-byte stack slots right after fmt. */
 #define TP_ARG() (ap += 4, *(s32 *)(ap - 4))
+#ifdef __clang__ /* no __builtin_next_arg; an i386 va_list is the address of the first variadic slot */
+#define TP_START(fmt) ({ __builtin_va_list v_; __builtin_va_start(v_, fmt); (char *)v_; })
+#else
 #define TP_START(fmt) ((char *)__builtin_next_arg(fmt))
+#endif
 #else
 #define TP_ARG() (ap += 8, *(s32 *)(ap - 8))
 #define TP_START(fmt) ((char *)__builtin_next_arg(fmt) - 7 * 8) /* fake: the EABI register save area */

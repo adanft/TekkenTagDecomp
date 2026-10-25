@@ -590,6 +590,8 @@ void *memset(void *p, s32 c, s32 n);
 extern s32 D_0042F060[]; /* joint of each body sphere [I] */
 s32 func_0037BC00(s32 kind);
 
+void func_0035C400(s32 x, s32 y, s32 z);
+
 /* Adds a hit marker when the other fighter `o` was hit (unk12F): at the attacker's attack volume end for moves below
  * kind 0x18, else at the joint of the body sphere that was hit; its kind from func_0037BC00 (5: none), 64 frames, and
  * its screen position [V code; I meaning]. */
@@ -5950,6 +5952,8 @@ s32 func_0038AEA0(Fighter *f);
  * count picked, or -1 / 0. */
 /* NON_MATCHING: m2c's control flow with fixed types (about 750 lines differ); a starting point only. */
 #if 0
+void func_0038A690(s32 n);
+
 s32 func_003865A0(s32 wait) {
     CpuState *cpu;
     CpuState *temp_a1;

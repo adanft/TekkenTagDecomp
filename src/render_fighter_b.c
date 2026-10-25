@@ -211,8 +211,17 @@ void Model_Render(VifModel *m, Vu0Matrix *a, ModelRef *o, u32 kind) {
 
 void func_00341F68(Vu0Matrix a, Vu0Matrix b) {
     Vu0Matrix m0;
+#ifdef PORT
+    /* m1 goes to Model_Render as the object, whose two matrices func_00342E78 sends: the second is the 64 bytes after
+     * m1, m2 in the EE frame (sp+64, sp+128). One array keeps that order whatever the compiler's frame layout (clang
+     * put rot there) */
+    Vu0Matrix m12[2];
+#define m1 m12[0]
+#define m2 m12[1]
+#else
     Vu0Matrix m1;
     Vu0Matrix m2;
+#endif
     Vu0Matrix light[2];
     Vu0Matrix m3;
     Vu0Matrix rot;
@@ -236,4 +245,8 @@ void func_00341F68(Vu0Matrix a, Vu0Matrix b) {
     sceVu0RotMatrixY(rot, rot, -ang);
     sceVu0ApplyMatrix(m2[3], rot, m2[3]);
     Model_Render(func_00367898(), light, (ModelRef *)m1, 0);
+#ifdef PORT
+#undef m1
+#undef m2
+#endif
 }

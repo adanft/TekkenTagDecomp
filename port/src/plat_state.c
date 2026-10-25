@@ -742,6 +742,18 @@ void Port_StateReport(void) {
     if (getenv("TTT_HASH_REGIONS") != NULL) {
         hash_regions_print();
     }
+    if (getenv("TTT_HASH_DUMP_SPR") != NULL) { /* the scratchpad, then the EE hardware registers, as hashed */
+        FILE *f = fopen(getenv("TTT_HASH_DUMP_SPR"), "wb");
+        const uint32_t *s = Port_Ptr(PORT_SPR_ADDR), *hw = Port_Ptr(0x10000000u);
+        uint32_t i, v;
+        for (i = 0; f != NULL && i < (PORT_SPR_SIZE + 0x10000u) / 4; i++) {
+            v = norm_word(i < PORT_SPR_SIZE / 4 ? s[i] : hw[i - PORT_SPR_SIZE / 4]);
+            fwrite(&v, 4, 1, f);
+        }
+        if (f != NULL) {
+            fclose(f);
+        }
+    }
     if (getenv("TTT_HASH_DUMP") != NULL) { /* EE RAM as the hash sees it, to compare two builds word by word */
         FILE *f = fopen(getenv("TTT_HASH_DUMP"), "wb");
         const uint32_t *w = Port_Ptr(0x20000000u);

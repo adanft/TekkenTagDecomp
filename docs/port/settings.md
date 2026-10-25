@@ -42,7 +42,7 @@ Escape / close quit at once, as before T36.
   both at the VBlank boundary: the pads' state (latched once per VBlank as before) and the pause flag (an atomic
   read). The settings the window applies (vsync, window size, fullscreen, volume, bindings) act on the window, the
   audio device and the keyboard mapping, all on the window thread. The idle run's 17 frames and hash
-  (`0xd36c82e9a145875a`) are unchanged, and `tests/test_port_window.py` checks that a run with the overlay driven
+  (`0xd36c82e9a145875a` then, `0x8ba37caeb2bacfa8` since T42 b1) are unchanged, and `tests/test_port_window.py` checks that a run with the overlay driven
   through all its pages ends in the state of a run without a window.
 
 ### Host floating point

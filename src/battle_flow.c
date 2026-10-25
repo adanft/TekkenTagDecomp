@@ -3325,6 +3325,8 @@ void func_00373380(Fighter *f);
  * D_0043B7F8[0xB] (0x870, 0xB04, 0x10A4, 0x1608, 0x1B30), the round flags, then the reset of both fighters
  * (func_0036E138, func_00373038) and of the systems around them. */
 #if 0
+void func_0036E138(void);
+
 /* NON_MATCHING: the original rebuilds the two fighter addresses after func_00395400 and keeps their %hi parts in
  * s3 / s4 (a 0x60 frame) */
 void func_0036D5D0(void) {
@@ -4377,6 +4379,8 @@ extern u16 D_005F5C70;
  * D_0043B7F8[5] a draw at match point decides the match, else a side reaching D_005F5C70 wins it and the other loses
  * its extra point; the match result goes to func_0036F860 when the match is over [V code; I meanings]. */
 extern u8 D_0043B7FD[]; /* D_0043B7FD[0], read by its own symbol */
+
+void func_0036F860(Fighter *a, Fighter *b);
 
 void func_0036F6B8(Fighter *a, Fighter *b) {
     Fighter *x;
