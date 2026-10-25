@@ -345,6 +345,8 @@ Switches:
 | `TTT_SELFTEST=hw / rpc / mem` | Check the DMA, timers, VBlank and interrupts / the SIF, RPC and disc reads / the memory map, and exit (`tests/test_port_platform.py`, `tests/test_port_mem.py`). |
 | `TTT_DUMP=<dir>` | Write the displayed picture as `<dir>/frame_<vblank>.png` (8-bit RGB) every `TTT_DUMP_EVERY` VBlanks. Put it under `build/` (ignored by git): the pictures are the game's. |
 | `TTT_DUMP_EVERY=<n>` | The dump's period in VBlanks (default 60). |
+| `TTT_DUMP_FROM=<n>` | No dump before VBlank n (default 0). |
+| `TTT_DISP_TRACE=1` | Print the display registers (CSR, PMODE, SMODE2, DISPFB1 / 2, DISPLAY1 / 2) at each VBlank: `disp <vblank> ...`. |
 | `TTT_SELFTEST=gs` | GS memory layout of every format, the upload paths, a GIF PACKED packet on the GIF channel (flat, CLUT-textured, blended, depth-tested, scissored sprites, a triangle), VIF1 UNPACK modes / STCYCL / masks / double buffer / MPG, DIRECT and FINISH (`tests/test_port_gs.py`). |
 | `TTT_SELFTEST=float` | The EE float model against PCSX2 data, EE rules, exact libm cases, newlib `rand`, the fields libvu0's helpers write (`tests/test_port_float.py`). `TTT_FLOATDATA` overrides the data directory (`port/tests/ps2float`). |
 | `TTT_SELFTEST=vu1` | Hand-assembled VU1 programs sent through VIF1: pairing, delay slots, E bit, Q / P latency, flag delays, integer / EFU instructions, XTOP / XITOP, XGKICK; then 9000 random programs on the predecoded and the reference interpreter, and the SSE arithmetic against the integer model on 3.2 million operations (`ttt: vu fast: ...`, `tests/test_port_gs.py`). |

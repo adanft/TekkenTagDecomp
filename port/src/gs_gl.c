@@ -2122,6 +2122,7 @@ static void put(const Vtx *v, uint32_t z, uint32_t rgba, uint32_t s, uint32_t t,
 }
 
 static void early_present(int t);
+static GsField sField; /* the field of the flicker filter's last copy, in order with the drawing (early presents) */
 
 static void prim(const Cmd *c) {
     const Draw *d = &c->u.prim.d;
@@ -2140,6 +2141,9 @@ static void prim(const Cmd *c) {
         fpsm = 0x00; /* the formats inside a 32-bit pixel: drawn as 32 bits */
     }
     sCause = 4;
+    if (c->type == CMD_SPRITE) {
+        Gs_FieldSprite(&sField, d, v);
+    }
     rt = rt_get(0, d->fbp, d->fbw, fpsm, rows);
     if (zneed) {
         zrt = rt_get(1, d->zbp, d->fbw, d->zpsm, rows);
@@ -2644,6 +2648,9 @@ static void display(const DispRegs *regs, int *pw, int *ph) {
             gl.ActiveTexture(GL_TEXTURE0 + U_DSP0 + (GLenum)k);
             gl.BindTexture(GL_TEXTURE_2D, tex);
         }
+        if (ut[k * 4 + 3] == z) { /* an odd field's buffer: one raster line lower (gs_core.c, Gs_FieldSprite) */
+            cb[k * 4 + 1] += (GLint)Gs_FieldShift(regs, &ci[k]);
+        }
     }
     gl.ActiveTexture(GL_TEXTURE0 + U_VRAM);
     W = (w + 2 * sMarg) * sScale;
@@ -2713,6 +2720,7 @@ static void apply_settings(void) {
    present it now instead of at the next VBlank (the display registers of the last one). */
 static void early_present(int t) {
     Circuit c0;
+    DispRegs r;
     int w, h;
     if (!sLastRegsValid || gGsGlSkip) {
         return;
@@ -2721,7 +2729,9 @@ static void early_present(int t) {
     if (disp_rt(&c0) != t) {
         return;
     }
-    display(&sLastRegs, &w, &h);
+    r = sLastRegs;
+    Gs_FieldRegs(&sField, &r, 0); /* the field of the frame just copied, not the last VBlank's */
+    display(&r, &w, &h);
     sShownW = w;
     sShownH = h;
     sEarlyShown = 2;
@@ -2734,6 +2744,7 @@ static void show(const Cmd *c) {
     const DispRegs *regs = &c->u.show.regs;
     int w, h;
 
+    sField.fresh = 1; /* the next copy's field starts afresh, as the front end's at each VBlank */
     if (c->u.show.window) {
         apply_settings();
         if (sPaceFrom == 0) {
@@ -2749,7 +2760,7 @@ static void show(const Cmd *c) {
             sPaceLastFrame = f;
             sPaceShows++;
         }
-        if (sEarlyShown && sLastRegsValid && memcmp(regs, &sLastRegs, sizeof *regs) == 0) {
+        if (sEarlyShown && sLastRegsValid && memcmp(regs, &sLastRegs, offsetof(DispRegs, fieldFbp)) == 0) {
             /* low latency: this picture went out when the game copied it */
             sEarlyShown = 0;
             sPres.skipped++;

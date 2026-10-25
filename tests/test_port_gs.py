@@ -153,5 +153,85 @@ class RasterThreads(unittest.TestCase):
         self.assertEqual(runs[0][1], runs[1][1])
 
 
+def row_profile(path):
+    """The mean of each row of a dumped picture, averaged over two rows (the doubled lines of interlaced frame mode)."""
+    w, h, rows = read_png(path)
+    r = [sum(row) / len(row) for row in rows]
+    return [(r[y] + r[y + 1]) / 2 for y in range(h - 1)]
+
+
+def vertical_shift(a, b, most=2.0, step=0.125):
+    """The vertical shift s (in rows, a multiple of step within +-most) for which b(y + s), linearly interpolated, is
+    closest to a(y) on average: how far the content of picture b moved from picture a."""
+    best = None
+    for i in range(int(2 * most / step) + 1):
+        s, err = -most + i * step, 0.0
+        for y in range(16, len(a) - 16):
+            k, f = int(y + s), y + s - int(y + s)
+            err += abs(a[y] - (b[k] * (1 - f) + b[k + 1] * f))
+        if best is None or err < best[1]:
+            best = (s, err)
+    return best[0]
+
+
+@unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
+@unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
+class FieldPlacement(unittest.TestCase):
+    """docs/port/video.md, Field placement: the game's flicker filter makes each field's 224-line picture from the even
+    or the odd lines of its frame, and the odd field is shown one raster line lower, as a TV does. Consecutive VBlank
+    pictures of the main menu (the scripted run of test_port_input.py, VBlanks 290-330) stay in place: before the fix
+    the picture moved 0.75-1.25 rows up and down at every VBlank (the content of the odd lines one line higher), now
+    at most 0.5 (what remains is the filter's own difference between the fields, about 0.25). The pictures are written
+    to a temporary directory and removed. Software renderer about 15 s, the GL one in a hidden window about 10 s."""
+
+    FROM, TO = 290, 330
+
+    def shifts(self, out):
+        prev, shifts = None, []
+        for v in range(self.FROM, self.TO + 1):
+            p = row_profile(Path(out) / f"frame_{v:05d}.png")
+            if prev is not None:
+                shifts.append(vertical_shift(prev, p))
+            prev = p
+        return shifts
+
+    def run_menu(self, d, **env):
+        from test_port_input import TO_THE_FIGHT, stream
+        p = Path(d) / "in.txt"
+        p.write_text(stream(*TO_THE_FIGHT))
+        out = Path(d) / "dump"
+        out.mkdir()
+        r = run_ttt(timeout=600, TTT_FRAMES=str(self.TO), TTT_SEED="1", TTT_INPUT_PLAY=str(p), TTT_DUMP=str(out),
+                    TTT_DUMP_EVERY="1", TTT_DUMP_FROM=str(self.FROM), **env)
+        self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
+        return r, out
+
+    def check(self, shifts):
+        self.assertEqual(len(shifts), self.TO - self.FROM)
+        self.assertLessEqual(max(abs(s) for s in shifts), 0.5, shifts)
+
+    def test_software(self):
+        with tempfile.TemporaryDirectory(prefix="ttt-field-") as d:
+            _, out = self.run_menu(d)
+            self.check(self.shifts(out))
+
+    def test_gl_with_and_without_the_flicker_filter(self):
+        """Without the filter (video.deflicker 0) the frame itself is shown, the same in both fields: no shift."""
+        from test_port_window import SDL32
+        if not any(p.exists() for p in SDL32):
+            self.skipTest("no 32-bit SDL3 (Arch: lib32-sdl3)")
+        gl = dict(TTT_WINDOW="1", TTT_WINDOW_HIDDEN="1", TTT_RENDERER="gl", TTT_AUDIO="0", TTT_VSYNC="0",
+                  SDL_VIDEO_DRIVER="offscreen")
+        for deflicker in ("1", "0"):
+            with tempfile.TemporaryDirectory(prefix="ttt-field-") as d:
+                r, out = self.run_menu(d, TTT_DEFLICKER=deflicker, **gl)
+                if "OpenGL renderer" not in r.stdout:
+                    self.skipTest("no OpenGL 3.3 context here: " + r.stdout[-500:])
+                shifts = self.shifts(out)
+                self.check(shifts)
+                if deflicker == "0":
+                    self.assertEqual(set(shifts), {0.0}, shifts)
+
+
 if __name__ == "__main__":
     unittest.main()

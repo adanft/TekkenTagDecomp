@@ -18,9 +18,10 @@ from test_port_platform import EXE, ROOT, disc, run_ttt
 LAYOUT = ROOT / "port/tools/data_layout.txt"
 # The idle run (TTT_FRAMES=2551 TTT_SEED=1, a dump every 150 VBlanks) as it was with the data linked into the
 # program before T25: its state hash and the SHA-1 of its 17 pictures (names and bytes in order). The run on the data
-# loaded from the disc must give the same.
+# loaded from the disc must give the same. The pictures changed with the field placement (docs/port/video.md: an odd
+# field's picture one raster line lower; the state hash did not): d9e628faa2fc1641224b77af0ad0f13da8a0f6f1 before.
 IDLE_HASH = "0xd36c82e9a145875a"
-IDLE_PICTURES = "d9e628faa2fc1641224b77af0ad0f13da8a0f6f1"
+IDLE_PICTURES = "ad85b47ca328ddc43b05d2a1f1158219aee67b6e"
 
 
 def layout(kind):

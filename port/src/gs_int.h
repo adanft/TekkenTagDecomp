@@ -44,9 +44,11 @@ typedef struct Draw {
 
 enum { CMD_POINT, CMD_LINE, CMD_TRIANGLE, CMD_SPRITE, CMD_UPLOAD, CMD_COPY, CMD_CLUT, CMD_SHOW, CMD_BARRIER };
 
-/* The display registers at a VBlank (the picture the dump and the window show). */
+/* The display registers at a VBlank (the picture the dump and the window show), and the field the game's flicker
+   filter last made a display buffer for (GsField below): fieldOdd 1 when that copy took the frame's odd lines. */
 typedef struct DispRegs {
     uint64_t pmode, smode2, bgcolor, dispfb[2], display[2];
+    uint32_t fieldFbp, fieldOdd;
 } DispRegs;
 
 typedef struct Cmd {
@@ -81,6 +83,15 @@ void Gs_CpuCopy(const Cmd *c);                                   /* a CMD_COPY i
 void Gs_ClutFill(uint16_t clut[512], uint64_t t0, uint64_t texclut);
 void Gs_Palette(const uint16_t clut[512], const Draw *d, uint32_t out[256]); /* the CLUT expanded through TEXA */
 void Gs_Circuit(const DispRegs *regs, int k, Circuit *c);
+/* The field placement (docs/port/video.md, Field placement): the game's flicker filter copies its 448-line frame into
+   a 224-line display buffer from the even lines in one field and the odd lines in the other, and a TV shows the odd
+   field half a line lower. Gs_FieldSprite watches the copy's sprites (in drawing order), Gs_FieldRegs puts the last
+   copy's field into a VBlank's registers (reset: the next copy starts afresh), Gs_FieldShift is 1 when circuit c of r
+   is to be shown one raster line lower. */
+typedef struct GsField { uint32_t fbp; int32_t phase; int fresh; } GsField;
+void Gs_FieldSprite(GsField *f, const Draw *d, const Vtx *v);
+void Gs_FieldRegs(GsField *f, DispRegs *r, int reset);
+uint32_t Gs_FieldShift(const DispRegs *r, const Circuit *c);
 int Gs_WritePng(const char *path, uint32_t w, uint32_t h, const uint8_t *rgb);
 const char *Gs_DumpDir(void);
 /* The GL back end's consumer (the window thread): carries out the commands queued so far, waiting up to `ms`

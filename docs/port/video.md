@@ -100,6 +100,43 @@ filter above), and the display reads it with lines doubled, the picture shows th
 line: the frame as drawn, 448 lines, without the blur. It is the same frame at the same VBlank (the snapshot the copy
 read). Other screens show as before.
 
+## Field placement (the picture shaking up and down)
+
+Both renderers, all options. Reported as the whole picture trembling up and down in normal play and standing still
+with the F1 overlay open (the game paused, one picture shown again).
+
+- **Cause.** The display registers never change (`TTT_DISP_TRACE=1` over the scripted fight: `SMODE2` 3, interlaced
+  frame mode; `DISPFB1` / `DISPFB2` 0x948C, the 640 x 224 buffer at 0x1180; `DISPLAY` 0x1BF9FF0183227C, DY 50 and 448
+  raster lines; only `CSR.FIELD` toggles). The game's flicker filter changes with the field instead: its copy (above)
+  samples the frame at V = 2 Y and 2 Y - 1 (the half-alpha pass, from the strip's second line) in one field, at
+  V = 2 Y + 1 and 2 Y in the other (traced: VBlank 191 `uv 8,0` then `8,16` at `xy 0,16`; VBlank 192 `uv 8,16` then
+  `8,0`, both at `xy 0,0`). The second field's picture is made of the frame's odd lines: its content sits one frame
+  line higher in the buffer, and a TV shows that field half a field line (one frame line) lower, so on a TV both
+  fields land in place. The port showed both fields' 224 lines doubled at the same place: the picture moved about one
+  raster line (of 448) up and down at every VBlank, 30 times a second; in a fight the motion hides it, paused there is
+  one picture.
+- **Fix.** `Gs_FieldSprite` (`gs_core.c`) watches the UV sprites that take two lines into one (TME, FST, V span twice
+  the Y span within one texel, a texture other than the target) and keeps the largest V - 2 Y of the copy (0 in the
+  first field, one texel in the second); the front end puts it into each VBlank's `DispRegs` (`fieldFbp`, `fieldOdd`),
+  in order with the drawing. A circuit that shows that buffer in interlaced frame mode is then shown one raster line
+  lower in the odd field (its DISPLAY.DY + 1: the line above is the background, the buffer's last line falls off the
+  bottom), as a TV does. The GL back end does the same in its display pass; its early presents (low latency) use its
+  own copy of the tracking, in order with the commands it carries out, since the front end runs ahead. Without the
+  filter (`video.deflicker 0`) the frame itself is shown, the same in both fields: nothing to place. The game's state
+  is untouched (presentation only).
+- **Measured** (`tests/test_port_gs.py`, `FieldPlacement`: the vertical shift between consecutive VBlank pictures,
+  rows of 448, row means matched at 1/8 row; main menu VBlanks 290-330 and fight VBlanks 1100-1160):
+
+  | | before | after |
+  |---|---|---|
+  | software, menu | +-0.75 .. 1.25, alternating | +-0.125 .. 0.25 |
+  | GL, menu | +-0.75 .. 1.25 | +-0.125 .. 0.25 |
+  | GL, fight | +-0.625 .. 1.25 | +-0.125 .. 0.375 |
+  | GL, `video.deflicker 0` | (not measured: the same path) | 0 |
+
+  What remains is the filter's own difference between the fields (the two blends do not weigh the lines the same),
+  as on a TV.
+
 ## Smooth scaling
 
 The picture is scaled into the window with `GL_LINEAR` (default) or `GL_NEAREST` (sharp pixels at whole window

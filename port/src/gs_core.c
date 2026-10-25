@@ -1635,6 +1635,8 @@ static void submit_serial(Cmd *c) {
     submit(c);
 }
 
+static GsField sField; /* the front end's: the field of the last flicker-filter copy (Gs_FieldSprite) */
+
 static void submit_prim(int type, int ctx, const Vtx *a, const Vtx *b, const Vtx *c3) {
     Cmd c;
 
@@ -1648,6 +1650,9 @@ static void submit_prim(int type, int ctx, const Vtx *a, const Vtx *b, const Vtx
     }
     if (c3 != NULL) {
         c.u.prim.v[2] = *c3;
+    }
+    if (type == CMD_SPRITE) {
+        Gs_FieldSprite(&sField, &c.u.prim.d, c.u.prim.v);
     }
     classify(&c);
     submit(&c);
@@ -2193,6 +2198,37 @@ static void circuit(const DispRegs *regs, int k, Circuit *c) {
     if (c->lines > 1024) { c->lines = 1024; }
 }
 
+/* The field placement (gs_int.h). The game's flicker filter (docs/port/video.md) draws, per 8-line strip, a UV sprite
+   that takes two frame lines into one, and the same at half alpha half a line lower: V = 2 Y + phase with phase 0 and
+   -1 line in one field, +1 and 0 in the other (the odd lines: the picture of a field that sits half a line lower on a
+   TV). The largest phase of a copy tells its field. Interlaced frame mode shows both fields' 224 lines doubled at
+   the same place, so without this the picture moves one raster line up and down at each VBlank. */
+void Gs_FieldSprite(GsField *f, const Draw *d, const Vtx *v) {
+    const Vtx *t = v[0].y <= v[1].y ? &v[0] : &v[1], *o = t == &v[0] ? &v[1] : &v[0];
+    int32_t dy = o->y - t->y, dv = o->v - t->v, p = t->v - 2 * t->y;
+
+    if (!d->tex || !d->fst || d->tbp == d->fbp || dy <= 0 || dv - 2 * dy > 16 || 2 * dy - dv > 16) {
+        return;
+    }
+    if (f->fresh || f->fbp != d->fbp) {
+        f->fbp = d->fbp;
+        f->phase = p;
+        f->fresh = 0;
+    } else if (p > f->phase) {
+        f->phase = p;
+    }
+}
+
+void Gs_FieldRegs(GsField *f, DispRegs *r, int reset) {
+    r->fieldFbp = f->fbp;
+    r->fieldOdd = f->phase >= 8;
+    f->fresh |= reset;
+}
+
+uint32_t Gs_FieldShift(const DispRegs *r, const Circuit *c) {
+    return (r->smode2 & 3) == 3 && r->fieldOdd && c->fbp == r->fieldFbp;
+}
+
 /* Circuit c's pixel at output column x, raster line r (dbl raster lines per buffer line) as 0xAABBGGRR; *in = 0 when
    its DISPLAY area does not cover that point. */
 static uint32_t circuit_pixel(const Circuit *c, int32_t x, int32_t r, uint32_t dbl, int *in) {
@@ -2224,7 +2260,7 @@ static uint32_t circuit_pixel(const Circuit *c, int32_t x, int32_t r, uint32_t d
 static void display_into(const DispRegs *regs, uint8_t *rgb, uint32_t *w, uint32_t *h, const Raster *rs) {
     uint64_t pmode = regs->pmode, smode2 = regs->smode2, bg = regs->bgcolor;
     int en1 = (int)(pmode & 1), en2 = (int)(pmode >> 1) & 1, mmod = (int)(pmode >> 5) & 1, slbg = (int)(pmode >> 7) & 1;
-    uint32_t alp = (uint32_t)(pmode >> 8) & 0xFF, dbl = (smode2 & 3) == 3 ? 2 : 1, x, r;
+    uint32_t alp = (uint32_t)(pmode >> 8) & 0xFF, dbl = (smode2 & 3) == 3 ? 2 : 1, x, r, ox, oy;
     Circuit c[2];
     const Circuit *main;
 
@@ -2233,12 +2269,16 @@ static void display_into(const DispRegs *regs, uint8_t *rgb, uint32_t *w, uint32
     main = !en1 && en2 ? &c[1] : &c[0];
     *w = main->width;
     *h = main->lines;
+    ox = main->x0;
+    oy = main->y0;
+    c[0].y0 += Gs_FieldShift(regs, &c[0]); /* an odd field's buffer: one raster line lower (Gs_FieldSprite) */
+    c[1].y0 += Gs_FieldShift(regs, &c[1]);
     for (r = 0; rgb != NULL && r < main->lines; r++) {
         if (rs != NULL && !row_mine(rs, (int)r)) {
             continue;
         }
         for (x = 0; x < main->width; x++) {
-            int32_t ax = (int32_t)(x + main->x0), ar = (int32_t)(r + main->y0);
+            int32_t ax = (int32_t)(x + ox), ar = (int32_t)(r + oy);
             uint32_t base = (uint32_t)bg & 0xFFFFFF, out, k;
             int in;
 
@@ -2286,10 +2326,12 @@ static void disp_regs(DispRegs *r) {
     r->dispfb[1] = PRIV(GS_DISPFB2);
     r->display[0] = PRIV(GS_DISPLAY1);
     r->display[1] = PRIV(GS_DISPLAY2);
+    r->fieldFbp = 0; /* Gs_VBlankRun: in order with the drawing */
+    r->fieldOdd = 0;
 }
 
 static const char *sDumpDir;
-static uint32_t sDumpEvery;
+static uint32_t sDumpEvery, sDumpFrom;
 
 /* The picture of a VBlank, in order with the drawing: the dump's PNG. */
 static void exec_show(const Cmd *c) {
@@ -2404,13 +2446,30 @@ void Gs_VBlank(uint32_t vblank) {
         gGsFrameAtVb[vblank & 255] = gFrameCount; /* the frame-pacing report: the game's frames finished by now */
     }
     disp_regs(&regs);
+    {
+        static int trace = -1;
+        if (trace < 0) {
+            const char *t = getenv("TTT_DISP_TRACE");
+            trace = t != NULL && *t != 0 && *t != '0';
+        }
+        if (trace) {
+            printf("disp %u csr %llX pmode %llX smode2 %llX dispfb %llX %llX display %llX %llX\n", (unsigned)vblank,
+                   (unsigned long long)PRIV(GS_CSR), (unsigned long long)regs.pmode, (unsigned long long)regs.smode2,
+                   (unsigned long long)regs.dispfb[0], (unsigned long long)regs.dispfb[1],
+                   (unsigned long long)regs.display[0], (unsigned long long)regs.display[1]);
+        }
+    }
     if (!Gs_AsyncVBlank(vblank, &regs)) {
         Gs_VBlankRun(vblank, &regs);
     }
 }
 
-void Gs_VBlankRun(uint32_t vblank, const DispRegs *regs) {
+void Gs_VBlankRun(uint32_t vblank, const DispRegs *vbRegs) {
     static int init;
+    DispRegs field = *vbRegs;
+    const DispRegs *regs = &field;
+
+    Gs_FieldRegs(&sField, &field, 1);
 
     if (!init) {
         const char *e = getenv("TTT_DUMP_EVERY");
@@ -2420,6 +2479,8 @@ void Gs_VBlankRun(uint32_t vblank, const DispRegs *regs) {
         if (sDumpEvery == 0) {
             sDumpEvery = 60;
         }
+        e = getenv("TTT_DUMP_FROM");
+        sDumpFrom = e != NULL ? (uint32_t)strtoul(e, NULL, 0) : 0;
     }
     sCurVb = vblank + 1;
     if (sTrace < 0) {
@@ -2496,7 +2557,7 @@ void Gs_VBlankRun(uint32_t vblank, const DispRegs *regs) {
     if (Port_WindowOpen()) {
         window_frames(regs, vblank);
     }
-    if (sDumpDir == NULL || *sDumpDir == 0 || vblank % sDumpEvery != 0) {
+    if (sDumpDir == NULL || *sDumpDir == 0 || vblank % sDumpEvery != 0 || vblank < sDumpFrom) {
         return;
     }
     tables_init();
