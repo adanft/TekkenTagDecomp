@@ -9,7 +9,7 @@ import re
 import subprocess
 import sys
 
-from toolchain import BUILD, EXE, GEN, ROOT
+from toolchain import BUILD, EXE, GEN, GOT_THUNK, ROOT, cc, got_thunk_source
 from undefined import symbol_addresses
 
 # No host libm: the game is software float (its float results come back in eax), the host's sinf / cosf / sqrtf
@@ -147,14 +147,14 @@ def link(objs, extra):
     # --wrap=main: plat_main.c runs the game's main on a stack in EE RAM, as on the PS2.
     # -z now and --wrap=printf / sprintf / memcpy / memset: nothing of the C library (lazy binding, its internal calls)
     # runs on the EE stack, whose stale words a state holds and the game reads in places (port/src/plat_libc.c, T27).
-    cmd = (["gcc", "-m32", "-no-pie", "-w", "-Wl,--wrap=main", "-Wl,-z,now"] +
+    cmd = ([cc(), "-m32", "-no-pie", "-w", "-Wl,--wrap=main", "-Wl,-z,now"] +
            [f"-Wl,--wrap={f}" for f in ("printf", "sprintf", "memcpy", "memset")] + ["-o", str(EXE)] + extra + objs + LIBS +
            [f"-Wl,-Map={EXE}.map"])
     return subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
 
 
 def compile_c(src, obj, *flags):
-    c = subprocess.run(["gcc", "-m32", "-c", "-w", "-fno-builtin", *flags, str(src), "-o", str(obj)],
+    c = subprocess.run([cc(), "-m32", "-c", "-w", "-fno-builtin", *flags, str(src), "-o", str(obj)],
                        capture_output=True, text=True)
     if c.returncode:
         sys.exit(f"link: {src.name} does not compile: {c.stderr[:400]}")
@@ -165,6 +165,7 @@ def main():
     if not listing.exists():
         sys.exit("link: run port/tools/undefined.py first")
     objs = [l for l in listing.read_text().splitlines() if l]
+    objs += got_thunks(objs)
     layout = read_layout()
     GEN.mkdir(parents=True, exist_ok=True)
     image = GEN / "image.ld"
@@ -197,6 +198,21 @@ def main():
     if r.returncode:
         sys.exit(1)
     write_symbols(addr)
+
+
+def got_thunks(objs):
+    """[object] of the GOT thunks the objects call (toolchain.got_thunk_source; none in the gcc build), linked after
+    every object."""
+    out = subprocess.run(["nm", "-u"] + objs, capture_output=True, text=True, check=True).stdout
+    names = sorted({l.split()[-1][len(GOT_THUNK):] for l in out.splitlines() if l.split()[-1:] and
+                    l.split()[-1].startswith(GOT_THUNK)})
+    if not names:
+        return []
+    src, obj = GEN / "got_thunks.s", BUILD / "got_thunks.o"
+    GEN.mkdir(parents=True, exist_ok=True)
+    src.write_text(got_thunk_source(names))
+    compile_c(src, obj)
+    return [str(obj)]
 
 
 def symbol_table(nm_out, addr):

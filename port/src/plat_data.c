@@ -47,7 +47,7 @@
 #include "port_host.h"
 
 /* the C library calls added with the background check, through the GOT (port_host.h: the PLT stays as it was) */
-__typeof__(statx) statx __attribute__((noplt));
+PORT_NOPLT(statx);
 
 /* port/tools/link.py: build/port/gen/data_table.c */
 extern const uint32_t gPortDataRanges[][2], gPortDataRangeN, gPortDataFix[][2], gPortDataFixN, gPortDataSize;

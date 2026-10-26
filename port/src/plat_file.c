@@ -31,8 +31,8 @@
 #include "plat_state.h"
 
 /* C library calls the T43 disc formats added, through the GOT (port_host.h: the PLT stays as it was) */
-__typeof__(stat) stat __attribute__((noplt));
-__typeof__(strchr) strchr __attribute__((noplt));
+PORT_NOPLT(stat);
+PORT_NOPLT(strchr);
 
 int Port_SndCommand(int cmd, const uint32_t *a); /* plat_snd.c */
 void Port_SndGet(int cmd, uint8_t *out);
