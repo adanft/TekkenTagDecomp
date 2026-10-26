@@ -131,6 +131,48 @@ class Vu1Check(unittest.TestCase):
 
 @unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
 @unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
+class Vu0Native(unittest.TestCase):
+    FRAMES = 900  # the scripted way to the fight (tests/test_port_input.py): its fighters are skinned from about 830
+
+    def test_programs_in_c_agree_with_the_interpreter_on_random_states(self):
+        """TTT_SELFTEST=vu0 (T31): the game's two VIF0 packets from the game data, each program recognised in micro
+        memory (and skin_specular not after one changed word); then each C program and the interpreter run from the
+        same random states (edge operands, one to four bones, every branch, results in flight in the pipeline) and
+        leave the same bytes."""
+        r = run_ttt(TTT_SELFTEST="vu0")
+        self.assertEqual(r.returncode, 0, r.stdout[-3000:] + r.stderr[-3000:])
+        self.assertIn("ttt: vu0 self-test OK", r.stdout)
+        m = re.search(r"ttt: vu0 native: (\d+) random runs, (\d+) with exponent-255 operands, (\d+) differ", r.stdout)
+        self.assertTrue(m, r.stdout[-2000:])
+        self.assertGreaterEqual(int(m.group(1)), 100000)
+        self.assertGreater(int(m.group(2)), 0)
+        self.assertEqual(m.group(3), "0")
+
+    def test_game_runs_the_same_with_and_without_the_programs_in_c(self):
+        """TTT_VU0_CHECK=1 runs every VU0 program the game starts in C and on the interpreter (from a copy of the
+        unit): the same registers, data memory and pipeline, byte for byte; and the game's state equals the run with
+        TTT_VU0_NATIVE=0 (the interpreter only)."""
+        from test_port_input import TO_THE_FIGHT, stream
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "in.txt"
+            p.write_text(stream(*TO_THE_FIGHT))
+            env = dict(TTT_FRAMES=str(self.FRAMES), TTT_SEED="1", TTT_INPUT_PLAY=str(p), TTT_AUDIO="0")
+            r = run_ttt(timeout=600, TTT_VU0_CHECK="1", **env)
+            off = run_ttt(timeout=600, TTT_VU0_NATIVE="0", **env)
+        self.assertEqual(r.returncode, 0, r.stdout[-3000:] + r.stderr[-3000:])
+        m = re.search(r"ttt: vu0 check: (\d+) runs, (\d+) differ", r.stdout)
+        self.assertTrue(m, r.stdout[-2000:])
+        self.assertGreater(int(m.group(1)), 100000)
+        self.assertEqual(m.group(2), "0")
+        self.assertRegex(r.stdout, r"ttt: vu0: \d+ program runs, \d+ in C \(on\)")
+        self.assertRegex(off.stdout, r"ttt: vu0: \d+ program runs, 0 in C \(off\)")
+        state = [re.search(r"ttt: state: .*", x.stdout) for x in (r, off)]
+        self.assertTrue(all(state), off.stdout[-2000:])
+        self.assertEqual(state[0].group(0), state[1].group(0))
+
+
+@unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
+@unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
 class RasterThreads(unittest.TestCase):
     FRAMES = 420
     EVERY = 30

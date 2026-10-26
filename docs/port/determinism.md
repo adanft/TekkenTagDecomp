@@ -150,12 +150,24 @@ again). Each write to a protected page costs a fault in the kernel (about 1.5 us
 
 Budget: per VBlank, a rollback of n costs n frames of the game plus n + 1 saves and a load. The states now cost about
 1 ms per VBlank for n = 1 and about 3 ms for n = 8 undrawn (whole copies: about 7 and 33 ms). What does not fit is the
-game itself: a fight VBlank run again undrawn takes about 8.5-10 ms of the game thread's CPU (74 % of its samples in
-the VU0 skinning programs' micro-mode interpreter, `vu_fast.c` `run_fast`), so on the measuring machine (`TTT_ROLLBACK=8
-TTT_ROLLBACK_DRAW=0`, GL) a rollback of 8 takes about 100 ms and the VBlank 120 ms: not even one VBlank of rollback
-fits in 16.68 ms next to the real frame. Drawn, the window thread would also have to draw n + 1 frames per VBlank
-(it draws about 60-70 a second): the frames run again must stay undrawn. Making 8 frames of rollback fit needs the
-game's frame about 8 times cheaper, mostly native skinning instead of the VU0 interpreter (T31's direction).
+game itself. Until T31 a fight VBlank run again undrawn took about 8.5-10 ms of the game thread's CPU (74 % of its
+samples in the VU0 skinning programs' micro-mode interpreter, `vu_fast.c` `run_fast`), so a rollback of 8
+(`TTT_ROLLBACK=8 TTT_ROLLBACK_DRAW=0`) took about 100 ms. T31 runs those programs as C (README, "Hand replacements"):
+
+| Scripted fight, headless, software rasteriser, pinned to the P cores, 3 runs each (another build ran beside them) | before (0f522e0) | T31 |
+|---|---|---|
+| Rollback of 8 undrawn from VBlank 1150: the game thread's CPU per rollback | 72-87 ms | 31-38 ms |
+| The same per frame run again | 9.0-10.8 ms | 3.9-4.7 ms (about 27 ms per rollback when the machine is idle) |
+| The rollback itself (wall time) per VBlank | 87-176 ms | 41-44 ms |
+| A drawn fight VBlank (VBlanks 1101-1451): the game thread's CPU | 11.1-14.1 ms | 6.3-7.9 ms |
+| One skinned vertex (`TTT_SELFTEST=vu0`, skin_diffuse, two bones) | about 1500 cycles | about 300 cycles |
+
+The game thread can now run about 250 undrawn fight frames a second (about 100 before), so a rollback of 3 to 4
+frames fits next to the real frame; 8 still does not (about 30 ms). What is left of a frame run again: the C
+skinning programs about 40 % of the game thread's samples, the EE side's vector-unit float model (`Port_VuMul`,
+`Port_VuAdd`, `sf_add_core`, from libvu0's matrix code such as `sceVu0ApplyMatrix`) about 15 %, DMA (`dma_block`)
+about 5 %, `memcpy` on the EE stack about 4 %. Drawn, the window thread would also have to draw n + 1 frames per
+VBlank (it draws about 60-70 a second): the frames run again must stay undrawn.
 
 ## The gameplay hash
 
@@ -235,10 +247,11 @@ continues with the same pictures, modes and state as the run that saved it.
 ## Open
 
 - **The game's frame for rollback.** States cost well under a millisecond per save now (page tracking, the GS's side
-  left out), but a fight frame run again costs 8.5-10 ms of the game thread, three quarters of it the VU0 skinning
-  interpreter: rollback of more than a VBlank needs native skinning (T31) or a faster interpreter first. Rollback's
-  frames run again must stay undrawn (`gPortNoGs`); T45 decides what a GL save does there (no GPU read back is needed
-  when the GS's side is left out).
+  left out); a fight frame run again costs about 4 ms of the game thread since T31 (C skinning programs), so about 3-4
+  frames of rollback fit per VBlank, not 8 (see Budget). Next: the C programs themselves (about 40 %, bound by their
+  instruction count: the MAC flags' queue, the loads and the 32-bit build's eight vector registers) and the EE side's
+  vector-unit float model (about 15 %). Rollback's frames run again must stay undrawn (`gPortNoGs`); T45 decides what
+  a GL save does there (no GPU read back is needed when the GS's side is left out).
 - **GL with video options.** The GL checks run at 1x without widescreen, with the flicker filter and without low
   latency; the snapshots those options keep between frames are dropped at a save but are not proved equal after it.
 - **Older kernels.** Page tracking needs Linux 6.7 (asynchronous userfaultfd write protection and `PAGEMAP_SCAN`);

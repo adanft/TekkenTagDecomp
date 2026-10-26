@@ -573,3 +573,156 @@ __attribute__((noinline, force_align_arg_pointer)) static int run_fast(VuCore *u
 int Vu_Run(VuCore *u, uint32_t start) {
     return u->ops != NULL ? run_fast(u, start) : Vu_RunRef(u, start);
 }
+
+/* ------------------------------------------------------------------------------------- VU0 programs in C (T31) */
+
+#include "vu0_native_inl.h"
+
+/* Whether the CPU has the denormals-are-zero bit: FXSAVE's MXCSR_MASK (0: the default mask, without it). */
+static int n0_has_daz(void) {
+    uint8_t area[512 + 16];
+    uint8_t *p = (uint8_t *)(((uintptr_t)area + 15) & ~(uintptr_t)15);
+    uint32_t mask;
+
+    __builtin_memset(p, 0, 512);
+    __asm__ volatile("fxsave %0" : "=m"(*(uint8_t(*)[512])p));
+    memcpy(&mask, p + 28, 4);
+    return mask != 0 && (mask & N0_DAZ) != 0;
+}
+
+uint32_t gVu0NativeExact; /* runs that met an operand of exponent 255 (the exact arithmetic from there on) */
+
+/* The float mode of the C programs (V4_MXCSR, and DAZ where the CPU has it). LDMXCSR waits for the instructions before
+   it (about a third of a program's time when done twice per vertex), so the skinning loop sets the mode once around
+   its vertices (Vu0_NativeEnter / Vu0_NativeLeave) and Vu0_RunNative then finds it set. */
+static uint32_t n0_csr(void) {
+    if (n0_daz < 0) {
+        n0_daz = n0_has_daz();
+    }
+    return V4_MXCSR | (n0_daz ? N0_DAZ : 0);
+}
+uint32_t Vu0_NativeEnter(void) {
+    const uint32_t csr = _mm_getcsr();
+    _mm_setcsr(n0_csr());
+    return csr;
+}
+void Vu0_NativeLeave(uint32_t csr) { _mm_setcsr(csr); }
+
+/* The skinning loop of vu0_pc.c (func_003435C0 ...: its comment there describes the records), here so that the float
+   mode is set once around its vertices and the registers are copied as quadwords (the port's C, built without SSE,
+   copies one as four words, which a program's 16-byte read right after cannot be forwarded from). run: Port_Vu0CallMs,
+   which starts the program at `prog` (a byte address). */
+uint32_t *Vu0_Skin(uint32_t (*vf)[4], uint16_t *vi, uint32_t **dst, uint32_t *src, int32_t n, uint32_t prog, int envmap,
+                   void (*run)(uint32_t addr)) {
+    const uint32_t mode = Vu0_NativeEnter();
+    uint32_t *out = *dst;
+    uint32_t *p = src;
+
+    do {
+        uint32_t t0 = p[4], t1 = p[5], t2 = p[6], t3 = p[7];
+        uint32_t *next = p + 16;
+        V4 first;
+
+        if (t1 != 0) {
+            if (t2 != 0) {
+                if (t3 != 0) {
+                    V4_STORE(vf[5], V4_LOAD(p + 32));
+                    V4_STORE(vf[29], V4_LOAD(p + 36));
+                    next += 8;
+                }
+                vi[5] = (uint16_t)t3;
+                V4_STORE(vf[4], V4_LOAD(p + 24));
+                V4_STORE(vf[28], V4_LOAD(p + 28));
+                next += 8;
+            }
+            vi[4] = (uint16_t)t2;
+            V4_STORE(vf[3], V4_LOAD(p + 16));
+            V4_STORE(vf[27], V4_LOAD(p + 20));
+            next += 8;
+        }
+        vi[3] = (uint16_t)t1;
+        vi[2] = (uint16_t)t0;
+        V4_STORE(vf[7], V4_LOAD(p));
+        V4_STORE(vf[2], V4_LOAD(p + 8));
+        V4_STORE(vf[26], V4_LOAD(p + 12));
+        run(prog);
+        first = V4_LOAD(p);
+        p = next;
+        out += 12;
+        V4_STORE(out - 12, envmap ? V4_LOAD(vf[24]) : first);
+        V4_STORE(out - 8, V4_LOAD(vf[20]));
+        V4_STORE(out - 4, V4_LOAD(vf[22]));
+    } while (--n != 0);
+    Vu0_NativeLeave(mode);
+    *dst = out;
+    return p;
+}
+
+/* Program `prog` of vu0_native_inl.h (0 skin_diffuse, 1 skin_specular, 2 skin_gloss, 3 skin_envmap, 4 skin_hide) on
+   the unit, as Vu_Run(u, slot) runs the game's words for it at micro-memory slot `slot`. Returns 0 (the programs always
+   end). A unit whose vf0 or vi0 is not what the interpreter keeps there (macro-mode code could write them) runs on the
+   interpreter. */
+__attribute__((noinline, force_align_arg_pointer)) int Vu0_RunNative(VuCore *u, int prog, uint32_t slot) {
+    const uint32_t csr = _mm_getcsr(), want = n0_csr(), start = u->cycle;
+    const int set = (csr & ~0x3Fu) != want; /* (the low six bits: exception flags the arithmetic sets) */
+    uint32_t end;
+    N0 st, *s = &st;
+
+    if (u->vi[0] != 0 || u->vf[0][0] != 0 || u->vf[0][1] != 0 || u->vf[0][2] != 0 || u->vf[0][3] != 0x3F800000u) {
+        return run_fast(u, slot);
+    }
+    st.u = u;
+#define N0_IN(k) st.v[k] = V4_LOAD(u->vf[k]);
+    N0_IN(0) N0_IN(1) N0_IN(2) N0_IN(3) N0_IN(4) N0_IN(5) N0_IN(6) N0_IN(7) N0_IN(8) N0_IN(9) N0_IN(10) N0_IN(11)
+    N0_IN(12) N0_IN(13) N0_IN(14) N0_IN(15) N0_IN(16) N0_IN(17) N0_IN(18) N0_IN(19) N0_IN(20) N0_IN(21) N0_IN(22)
+    N0_IN(23) N0_IN(24) N0_IN(25) N0_IN(26) N0_IN(27) N0_IN(28) N0_IN(29) N0_IN(30) N0_IN(31)
+#undef N0_IN
+    st.acc = V4_LOAD(u->acc);
+    st.cycle = start;
+    st.mc = u->macCount;
+    st.mt = (uint32_t)(u->macHead + u->macCount) & 7;
+    st.np = 0;
+    st.slow = !n0_daz;
+    if (!st.slow) { /* the registers the programs read before writing them (some lanes only: vf24), and Q */
+        V4 b = _mm_setzero_si128();
+#define N0_BAD(k) b = _mm_or_si128(b, _mm_cmpeq_epi32(_mm_and_si128(st.v[k], N0_EXP), N0_EXP));
+        N0_BAD(2) N0_BAD(3) N0_BAD(4) N0_BAD(5) N0_BAD(6) N0_BAD(7) N0_BAD(8) N0_BAD(9) N0_BAD(10) N0_BAD(11)
+        N0_BAD(24) N0_BAD(26) N0_BAD(27) N0_BAD(28) N0_BAD(29)
+#undef N0_BAD
+        st.slow = _mm_movemask_epi8(b) | ((*u->q & 0x7F800000u) == 0x7F800000u) |
+                  (u->qReady != 0 && (u->qPending & 0x7F800000u) == 0x7F800000u);
+    }
+    if (set) {
+        _mm_setcsr(want);
+    }
+    switch (prog) {
+    case 0: end = n0_diffuse(s); break;
+    case 1: end = n0_specular(s); break;
+    case 2: end = n0_gloss(s); break;
+    case 3: end = n0_envmap(s); break;
+    default: end = n0_hide(s); break;
+    }
+    if (set) {
+        _mm_setcsr(csr);
+    }
+    gVu0NativeExact += st.slow != 0 && n0_daz;
+    /* the registers the programs write */
+#define N0_OUT(k) V4_STORE(u->vf[k], st.v[k]);
+    N0_OUT(1) N0_OUT(2) N0_OUT(3) N0_OUT(7) N0_OUT(12) N0_OUT(13) N0_OUT(14) N0_OUT(15) N0_OUT(16) N0_OUT(17)
+    N0_OUT(18) N0_OUT(19) N0_OUT(20) N0_OUT(21) N0_OUT(22) N0_OUT(23) N0_OUT(24) N0_OUT(25) N0_OUT(26) N0_OUT(31)
+#undef N0_OUT
+    V4_STORE(u->acc, st.acc);
+    u->macCount = st.mc;
+    u->macHead = (int)((st.mt - (uint32_t)st.mc) & 7);
+    u->pc = (slot + end) & u->microMask;
+    u->cycle = st.cycle;
+    u->instr += st.cycle - start;
+    q_now(u, st.cycle);
+    p_now(u, st.cycle);
+    clip_now(u, st.cycle);
+    n0_macq_now(u, st.cycle);
+    if (u->settle) {
+        settle(u);
+    }
+    return 0;
+}

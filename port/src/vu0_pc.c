@@ -60,48 +60,13 @@ void func_0034A180(float d[4][4], float a[4][4], float b[4][4], float k) {
  * an argument and is taken as zero) and vi6. */
 void Port_Vu0CallMs(uint32_t addr);   /* vu0_micro.c */
 extern uint16_t gPortVu0Vi[16];       /* vu0_micro.c */
+/* vu_fast.c: the loop below (with the C programs' float mode set around it, 16-byte register copies) */
+uint32_t *Vu0_Skin(uint32_t (*vf)[4], uint16_t *vi, uint32_t **dst, uint32_t *src, int32_t n, uint32_t prog, int envmap,
+                   void (*run)(uint32_t addr));
 #define VFW(r) ((uint32_t *)gPortVu0Vf[(r)])
 
 static uint32_t *skin(uint32_t **dst, uint32_t *src, int32_t n, uint32_t prog, int envmap) {
-    uint32_t *out = *dst;
-    uint32_t *p = src;
-
-    do {
-        uint32_t t0 = p[4], t1 = p[5], t2 = p[6], t3 = p[7], first[4];
-        uint32_t *next = p + 16;
-
-        if (t1 != 0) {
-            if (t2 != 0) {
-                if (t3 != 0) {
-                    memcpy(VFW(5), p + 32, 16);
-                    memcpy(VFW(29), p + 36, 16);
-                    next += 8;
-                }
-                gPortVu0Vi[5] = (uint16_t)t3;
-                memcpy(VFW(4), p + 24, 16);
-                memcpy(VFW(28), p + 28, 16);
-                next += 8;
-            }
-            gPortVu0Vi[4] = (uint16_t)t2;
-            memcpy(VFW(3), p + 16, 16);
-            memcpy(VFW(27), p + 20, 16);
-            next += 8;
-        }
-        gPortVu0Vi[3] = (uint16_t)t1;
-        gPortVu0Vi[2] = (uint16_t)t0;
-        memcpy(VFW(7), p, 16);
-        memcpy(VFW(2), p + 8, 16);
-        memcpy(VFW(26), p + 12, 16);
-        Port_Vu0CallMs(prog);
-        memcpy(first, p, 16);
-        p = next;
-        out += 12;
-        memcpy(out - 12, envmap ? VFW(24) : first, 16);
-        memcpy(out - 8, VFW(20), 16);
-        memcpy(out - 4, VFW(22), 16);
-    } while (--n != 0);
-    *dst = out;
-    return p;
+    return Vu0_Skin((uint32_t (*)[4])gPortVu0Vf, gPortVu0Vi, dst, src, n, prog, envmap, Port_Vu0CallMs);
 }
 
 static void set_vf6(int64_t a) {

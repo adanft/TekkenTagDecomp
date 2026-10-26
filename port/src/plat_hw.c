@@ -1041,4 +1041,12 @@ __attribute__((constructor(102))) static void Port_HwSelfTestEntry(void) {
         printf(fails ? "ttt: vu1 self-test FAILED (%d)\n" : "ttt: vu1 self-test OK\n", fails);
         exit(fails != 0);
     }
+    if (t != NULL && strcmp(t, "vu0") == 0) {
+        int Port_Vu0SelfTest(void); /* vu0_micro.c */
+        int fails;
+        sHeadless = 1;
+        fails = Port_Vu0SelfTest();
+        printf(fails ? "ttt: vu0 self-test FAILED (%d)\n" : "ttt: vu0 self-test OK\n", fails);
+        exit(fails != 0);
+    }
 }

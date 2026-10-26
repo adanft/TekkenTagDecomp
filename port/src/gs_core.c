@@ -2577,6 +2577,8 @@ void Gs_Finish(void) {
     gs_sync();
 }
 
+void Port_Vu0Report(void); /* vu0_micro.c */
+
 void Gs_Report(void) {
     Gs_AsyncDrain();
     gs_sync();
@@ -2593,6 +2595,7 @@ void Gs_Report(void) {
            "%u readbacks (not modelled)\n",
            sStat.tags, sStat.regs, sStat.prims, sStat.pixels, sStat.imageQw, sStat.localCopies, sStat.readbacks);
     Gs_Vu1Report();
+    Port_Vu0Report();
     Gl_Report();
     Port_WindowReport();
 }

@@ -275,6 +275,7 @@ wait loops drive the hardware.
 | `gs_vu1.c` | VU1: registers, the program runs, XGKICK on PATH1, `TTT_SELFTEST=vu1` |
 | `vu_micro.c` | The reference micro-mode interpreter shared by VU0 and VU1 (`Vu_RunRef`, one step per instruction in integer arithmetic), `Vu_SameState` |
 | `vu_fast.c` | The predecoded interpreter the game runs on (`Vu_Run` with a `VuOp` cache) ([VU1](#vu1), [Speed](#speed)) |
+| `vu0_native_inl.h` | The VU0 skinning programs in C (T31), included by `vu_fast.c` only (its SSE exception): `Vu0_RunNative` ([Hand replacements](#hand-replacements)) |
 | `vu_micro_inl.h` / `vu_simd_inl.h` | Their shared arithmetic and pipeline helpers / the vector unit's arithmetic on the SSE unit (four lanes, exact) |
 | `vu_fasttest.c` | `TTT_SELFTEST=vu1`'s second part: random programs on both interpreters, the SSE arithmetic against the model |
 | `plat_pkt.c` | libpkt: VIF1 and GIF packet builders |
@@ -297,7 +298,7 @@ wait loops drive the hardware.
 | `TTT_DUMP_EVERY=<n>` | The dump's period in VBlanks (default 60). |
 | `TTT_SELFTEST=gs` | GS memory layout of every format, the upload paths, a GIF PACKED packet on the GIF channel (flat, CLUT-textured, blended, depth-tested, scissored sprites, a triangle), the read circuits' merge (ALP / circuit 1 alpha, SLBG, DISPLAY position), VIF1 UNPACK modes / STCYCL / masks / double buffer / MPG, DIRECT and FINISH (`tests/test_port_gs.py`). |
 | `TTT_SELFTEST=float` |
-| `vu0_micro.c` | VIF0 (MPG uploads) and the VU0 program start (vcallms) on `vu_fast.c` |
+| `vu0_micro.c` | VIF0 (MPG uploads) and the VU0 program start (vcallms): the skinning programs in C where micro memory holds them, else `vu_fast.c`; `TTT_VU0_NATIVE`, `TTT_VU0_CHECK`, `TTT_SELFTEST=vu0` |
 | `ee_diff.c` | The draft divergence check: an EE interpreter for the executable's code, `PORT_DIFF`, `TTT_DIFF`, `TTT_SELFTEST=ee` |
 
 - **Polling.** `EE_HW_POLL()` (`include/ee_asm.h`, nothing in the matching build) sits in every game loop that waits
@@ -362,6 +363,9 @@ Switches:
 | `TTT_SELFTEST=vu1` | Hand-assembled VU1 programs sent through VIF1: pairing, delay slots, E bit, Q / P latency, flag delays, integer / EFU instructions, XTOP / XITOP, XGKICK; then 9000 random programs on the predecoded and the reference interpreter, and the SSE arithmetic against the integer model on 3.2 million operations (`ttt: vu fast: ...`, `tests/test_port_gs.py`). |
 | `TTT_VU_CHECK=1` | Every VU1 program also runs on the reference interpreter, from a copy of the unit; the report adds `ttt: vu1 check: N runs, M differ` (the 2551-VBlank run: 1294286 runs, 0 differ). Twice as slow; the game's state is the same. |
 | `TTT_VU1_CALLS=1` | With `TTT_FRAMES`: the report also lists the VU1 runs per entry address. |
+| `TTT_SELFTEST=vu0` | The VU0 skinning programs in C against the interpreter (T31): the game's two VIF0 packets from the game data (each program recognised, none after a changed word), then 110000 runs from random states (edge operands, one to four bones, every branch, results in flight in the pipeline), byte for byte; also the time per run of each (`ttt: vu0 native: ...`, `tests/test_port_gs.py`). Needs the game data. |
+| `TTT_VU0_CHECK=1` | Every VU0 program that runs in C also runs on the interpreter, from a copy of the unit, and the two must leave the same bytes (registers, data memory, the whole pipeline); the report adds `ttt: vu0 check: N runs, M differ` (the scripted fight: 18504440 runs, 0 differ). The game's state is the same. |
+| `TTT_VU0_NATIVE=0` | The VU0 programs on the interpreter only (as before T31); the same state, about five times slower in the skinning. |
 | `TTT_GS_TRACE=1` | Per VBlank: pixels written per frame buffer (FBP) with the last FRAME / TEX0 / TEST / ALPHA, each GIF path's tag count and tag state, DISPFB1 / 2, PMODE, DISPLAY1 / 2 and BGCOLOR, every transfer (BITBLTBUF / TRXPOS / TRXREG / TRXDIR), and the first GIF tags with reserved bits set (`bad tag`, with the DMA block they came in). |
 | `TTT_GS_TRACE_PRIMS=<vblank>` | Every vertex kick drawn before that VBlank (type, context, coordinates, UV / STQ, colour, TEX0 / TEX1 / CLAMP / FRAME / TEST / ALPHA). Vertices that only queue (XYZ3 / ADC) print as `gs-adc`. With `TTT_GS_TRACE_PIXEL=<x>,<y>`: every write to that pixel then, with its source and result, and every rejected one (`gs-reject`: scissor, alpha, destination alpha or depth test). |
 | `TTT_SELFTEST=ee` | The EE interpreter of the draft divergence check against port code known to agree with the executable (libvu0, matched C, libm, the VU0 rotation builders) on fixed and 4000 generated inputs (`tests/test_port_ee.py`). Needs `build/SLUS_200.01`. |
@@ -567,6 +571,10 @@ throttles the whole slice when hot, so wall times move by 10-20% between runs; C
 - **Left:** the VU1 thread (the predecoded interpreter, 2 million VU1 instructions per fight VBlank) and the game
   thread (VU0 skinning about two thirds) are now the limits, with the window thread about half busy; the preparing
   thread for the GL batches was not needed for 60. Times vary by 10-20% with the thermal governor.
+- **VU0 skinning in C (T31).** The game thread's VU0 programs run as C ([Hand replacements](#hand-replacements)): a
+  skinned vertex costs about 300 cycles instead of 1500, a drawn fight VBlank 6.3-7.9 ms of the game thread instead of
+  11-14 ms (headless, software rasteriser), a fight frame run again undrawn about 4 ms instead of 9-11
+  ([determinism.md](determinism.md), the rollback budget). The same state hashes.
 - **Real time (T38 b0).** The numbers above use the headless clock. On the real-time clock (59.94 VBlanks a second of
   wall time) the scripted fight made only about 400 game frames in 1451 VBlanks, with either renderer, from the
   character select on (about one frame in five VBlanks), although the machine runs it at 84 VBlanks/s headless.
@@ -959,6 +967,7 @@ through `Port_Vu0Bowl*` in `vu0_pc.c`).
 |---|---|---|---|
 | `Mtx_Unit`, `Mtx_Zero` | `theater_c.c` | identity / zero 4x4 matrix (`sq $0`) | C |
 | `func_003435C0`, `func_003436B8`, `func_003437B8`, `func_003438B8` | `dma_gif.c` | VU0 macro-mode skinning loops (`vcallms`, jumps into their own bodies) | C loop; the VU0 programs (`src/vu0/skin_*.vsm`) run on `vu0_micro.c` |
+| VU0 programs 0x000, 0x04A, 0x0EA, 0x186 (micro mode) | `src/vu0/skin_*.vsm` (`vu0_full.vsm`, `vu0_small.vsm`) | the skinning programs the loops above start once per vertex: bone blend, lighting, highlight, environment map, guard band | C instruction by instruction (`vu0_native_inl.h`, T31; below) |
 | `func_003E8FA0` | `tekken_bowl.c` | VU0 sin / cos (result in vf8) | C on the VU0 registers |
 | `func_003E9038`, `func_003E9120`, `func_003E91D0`, `func_003E92C0` | `tekken_bowl.c` | VU0 matrix rotations around it (results left in vf4-vf7) | C on the VU0 registers |
 | `func_003EA978`, `func_003ECAD8` | `tekken_bowl.c` | VU0 macro code: the lane markers to 12.4 screen points (vdiv / vmulq / vftoi4), a body's corners through its matrix | C on the VU0 registers (`vu0_pc.c`) |
@@ -966,6 +975,23 @@ through `Port_Vu0Bowl*` in `vu0_pc.c`).
 | `RotMtxXYZ` (inline helper of a draft) | `model_anim_b.c` | VU0 rotation x / y / z through `func_003E8FA0` | C `Port_Vu0RotMtxXYZ` |
 | `func_00349D70`, `func_00349EE0`, `func_0034A050`, `func_0034A0D0` | `geometry_b.c` | VU0 rotation builders on the sin / cos kernel `func_00349CF8` (rows 0-2 only) | C on the VU0 registers, instruction by instruction (gotcha 18) |
 | `func_0034A180` | `geometry_b.c` | entry one instruction before `func_0034A184` (its first instruction is the delay slot of `func_0034A148`'s return): d = a * k + b * (1 - k) | C; four arguments (gotcha 5) |
+
+**The VU0 skinning programs in C (T31).** They were three quarters of the game thread's time in a fight on the
+micro-mode interpreter. `port/src/vu0_native_inl.h` writes the six programs of the two VIF0 packets (skin_diffuse,
+skin_specular, skin_gloss, skin_envmap; the character select's skin_diffuse_world, the same words as skin_diffuse at
+0x04A, and skin_hide) out as C, one line per instruction in `run_fast`'s order: step count, I bit, upper result with
+its MAC or clipping flags queued, lower half, upper result written. Q, the clipping and the MAC flags are brought up to
+date exactly where the interpreter does it, so their timing needs no reasoning and a pipeline with results in flight
+at the start (skin_envmap leaves one) comes out the same; the state hash, which covers the whole pipeline, does not
+change. What goes away is the decoding, the dispatch and the operand mapping of add / multiply: with
+denormals-are-zero added to the round-toward-zero / flush-to-zero mode the SSE unit reads exponent-0 operands as the
+model does, and an exponent-255 operand (which only the registers and memory the program reads can hold) switches the
+rest of the run to the exact `v4_add` / `v4_mul`. The code is compiled inside `vu_fast.c` (the files allowed host float,
+`toolchain.SIMD_FILES`). `vu0_micro.c` runs a program in C only while micro memory holds the game's words for it (an
+FNV-1a hash of its slots, checked again after any MPG word or state load), else on the interpreter; the skinning loop
+sets the float mode once around its vertices (`Vu0_NativeEnter`: LDMXCSR waits for the instructions before it).
+`TTT_VU0_NATIVE=0` turns it off, `TTT_VU0_CHECK=1` compares every run with the interpreter's byte for byte,
+`TTT_SELFTEST=vu0` does so on random states. A vertex costs about 300 cycles instead of 1500.
 
 Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
 
