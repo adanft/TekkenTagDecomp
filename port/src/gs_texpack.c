@@ -37,7 +37,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include "port_host.h"
-#include "plat_os.h"
 #include "gs_int.h"
 #include "plat_settings.h"
 #include "plat_mods.h"
@@ -71,6 +70,7 @@ PORT_NOPLT(rename);
 PORT_NOPLT(readlink);
 PORT_NOPLT(getpid);
 PORT_NOPLT(clock_gettime);
+#include "plat_os.h" /* (after the declarations above: clang's asm labels must precede its inline calls) */
 
 #define XXH_INLINE_ALL
 #define XXH_NO_STDLIB

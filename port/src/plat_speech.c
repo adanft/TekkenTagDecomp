@@ -24,11 +24,9 @@
 #include "plat_settings.h"
 #include "plat_speech.h"
 
-#define PORT_NOPLT(f) __typeof__(f) f __attribute__((noplt))
 PORT_NOPLT(fputs);
 PORT_NOPLT(fopen);
 PORT_NOPLT(fflush);
-#undef PORT_NOPLT
 
 #define QUEUE 16
 #define TEXT 512

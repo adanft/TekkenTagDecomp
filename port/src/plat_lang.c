@@ -27,12 +27,10 @@
 #include "plat_settings.h"
 
 /* C library calls through the GOT: no new PLT entry (port_host.h) */
-#define PORT_NOPLT(f) __typeof__(f) f __attribute__((noplt))
 PORT_NOPLT(strchr);
 PORT_NOPLT(calloc);
 PORT_NOPLT(realloc);
 PORT_NOPLT(fread);
-#undef PORT_NOPLT
 
 const char *Port_ExeDir(void); /* plat_paths.c */
 int Port_Checkout(void);

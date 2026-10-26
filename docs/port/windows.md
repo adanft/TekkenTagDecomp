@@ -36,12 +36,12 @@ each side's file is switched off on the other system.
 | `/proc/self/exe` read as ELF | `plat_state.c`, `ee_diff.c` | `PlatOs_SelfImage` | The PE sections of `GetModuleHandleW(NULL)`. Symbols are still to do: the COFF symbol table in the file |
 | `/proc/self/cmdline` | `plat_data.c` (runs before `main`) | `PlatOs_HasArg` | `CommandLineToArgvW(GetCommandLineW())` |
 | `statx` | `plat_data.c` | `PlatOs_FileKey` | `GetFileInformationByHandle` (volume serial number, file index, size, last write time) |
-| `stat` | `plat_mc.c`, `plat_setup.c`, `plat_file.c`, `gs_texpack.c` | `PlatOs_Stat`, `PlatOsStat` | `_wstat64` |
+| `stat` | `plat_mc.c`, `plat_setup.c`, `plat_file.c`, `gs_texpack.c`, `plat_mods.c` | `PlatOs_Stat`, `PlatOsStat` | `_wstat64` |
 | `mkdir(path, mode)` | 7 files | `PlatOs_MkDir` | `CreateDirectoryW` (no mode) |
 | `rename` over an existing file | `plat_data.c`, `plat_mc.c`, `plat_settings.c`, `gs_texpack.c` | `PlatOs_Replace` | `MoveFileExW(MOVEFILE_REPLACE_EXISTING \| MOVEFILE_WRITE_THROUGH)` |
 | `fsync(fileno(f))`, a folder's `fsync` | same | `PlatOs_SyncFile`, `PlatOs_SyncDir` | `_commit`; nothing for a folder |
 | `access(F_OK)` | `plat_paths.c`, `plat_settings.c`, `gs_texpack.c` | `PlatOs_Exists` | `_access` |
-| `opendir` / `readdir` / `closedir` | `plat_mc.c`, `plat_setup.c`, `plat_lang.c`, `gs_texpack.c` | `PlatOs_Dir*` | `FindFirstFileW` / `FindNextFileW` |
+| `opendir` / `readdir` / `closedir` | `plat_mc.c`, `plat_setup.c`, `plat_lang.c`, `gs_texpack.c`, `plat_mods.c` | `PlatOs_Dir*` | `FindFirstFileW` / `FindNextFileW` |
 | `realpath` | `plat_setup.c` | `PlatOs_RealPath` | `GetFullPathNameW` |
 | `mkdtemp` | `plat_mc.c` (self-test) | `PlatOs_TempDir` | `_mktemp_s` + `_mkdir` |
 | `setenv` / `unsetenv` | `plat_settings.c`, `plat_mc.c`, `plat_net.c` | `PlatOs_SetEnv`, `PlatOs_UnsetEnv` | `_putenv_s` |

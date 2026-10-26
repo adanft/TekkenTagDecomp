@@ -1409,6 +1409,16 @@ Performance (`scripts/cool.sh`, the scripted fight, median of 3; headless rates 
 | real time, GL: game frames of 1401 | 1220-1374 | 1330-1400 |
 | rollback (`TTT_ROLLBACK=4`, VBlanks 700-800): mean per VBlank | 58.5-59.0 ms | 46.7-50.6 ms |
 
+Features merged after b4 (T46 matchmaking, T49 mods) follow the same rules on x86-64. Their C (`plat_net.c`,
+`plat_mods.c`) is integer only, like the rest of the port's C, and hands the game no host pointer: the netplay pads
+reach the game as button states, the mods only replace what the host plays and draws, and `plat_mods.c` reads the
+game's stage table through `Port_Ptr`. Floating point stays in `port/src/*.cpp` (the overlay and `mods_vorbis.cpp`,
+stb_vorbis): every `.cpp` there is built with the overlay's flags (`-msse2`, `-fno-plt`; `-m64` on x86-64) and is on
+the host float allow-list (`toolchain.host_float_objects`). New C library calls are declared with `port_host.h`'s
+`PORT_NOPLT`, never a local copy of the macro: on 32-bit clang only its asm label keeps them out of the PLT, and it
+must come before `plat_os.h`'s inline functions first call them. The matchmaking server (`port/server`,
+`build_server.py`) is an ordinary separate program.
+
 So the 64-bit program became the default (T42 b5). Left: Windows (b6, the operating system layer, is done:
 [windows.md](windows.md); b7, the mingw-w64 build); m2c drafts elsewhere that treat
 neighbouring scalar locals as one array (`menu_bg.c` `func_003E1C68` / `func_003E38F0`: their pictures depend on the
