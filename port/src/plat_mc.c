@@ -30,34 +30,21 @@
  *
  * TTT_SELFTEST=mc checks this layer on a temporary directory.
  */
-#include <dirent.h>
-#include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <unistd.h>
 #include <stddef.h>
 #include "plat_state.h"
 #include "port_host.h"
+#include "plat_os.h"
 
 /* new host calls go through the GOT (port_host.h explains why the PLT must not grow) */
-PORT_NOPLT(mkdir);
 PORT_NOPLT(rename);
 PORT_NOPLT(unlink);
 PORT_NOPLT(rmdir);
-PORT_NOPLT(opendir);
-PORT_NOPLT(readdir);
-PORT_NOPLT(closedir);
-PORT_NOPLT(stat);
 PORT_NOPLT(fsync);
 PORT_NOPLT(fileno);
-PORT_NOPLT(open);
-PORT_NOPLT(close);
-PORT_NOPLT(mkdtemp);
-PORT_NOPLT(setenv);
-PORT_NOPLT(unsetenv);
 PORT_NOPLT(strncmp);
 PORT_NOPLT(realloc);
 
@@ -112,13 +99,13 @@ static struct { /* sceMcGetDir's position for its mode 1 (continue) */
 /* ---- the host side ---- */
 
 static int is_dir(const char *p) {
-    struct stat st;
-    return stat(p, &st) == 0 && S_ISDIR(st.st_mode);
+    PlatOsStat st;
+    return PlatOs_Stat(p, &st) == 0 && st.dir;
 }
 
 static int exists(const char *p) {
-    struct stat st;
-    return stat(p, &st) == 0;
+    PlatOsStat st;
+    return PlatOs_Stat(p, &st) == 0;
 }
 
 void Port_UserFolder(const char *leaf, char *out, int n); /* plat_paths.c */
@@ -194,11 +181,11 @@ static int make_root(const Card *c) {
     for (i = 1; p[i]; i++) {
         if (p[i] == '/') {
             p[i] = 0;
-            mkdir(p, 0777);
+            PlatOs_MkDir(p, 0777);
             p[i] = '/';
         }
     }
-    mkdir(p, 0777);
+    PlatOs_MkDir(p, 0777);
     return is_dir(p);
 }
 
@@ -263,22 +250,21 @@ static int clusters(int bytes) { return (bytes + 1023) / 1024; }
 
 /* the card names of a host directory, sorted (the listing order of a run does not depend on the host) */
 static int list_names(const char *dir, char names[][MC_NAME], int max) {
-    DIR *d = opendir(dir);
-    struct dirent *e;
+    PlatOsDir *d = PlatOs_DirOpen(dir);
+    const char *e;
     int n = 0, i, j;
     if (d == NULL) {
         return -1;
     }
-    while ((e = readdir(d)) != NULL) {
-        if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0 || reserved(e->d_name) ||
-            strlen(e->d_name) >= MC_NAME) {
+    while ((e = PlatOs_DirNext(d)) != NULL) {
+        if (strcmp(e, ".") == 0 || strcmp(e, "..") == 0 || reserved(e) || strlen(e) >= MC_NAME) {
             continue;
         }
         if (n < max) {
-            snprintf(names[n++], MC_NAME, "%s", e->d_name);
+            snprintf(names[n++], MC_NAME, "%s", e);
         }
     }
-    closedir(d);
+    PlatOs_DirClose(d);
     for (i = 1; i < n; i++) { /* insertion sort */
         char t[MC_NAME];
         memcpy(t, names[i], MC_NAME);
@@ -311,15 +297,15 @@ static int used_clusters(const char *dir, int isRoot, int level) {
     }
     for (i = 0; i < n; i++) {
         char p[1400];
-        struct stat st;
+        PlatOsStat st;
         snprintf(p, sizeof p, "%s/%s", dir, names[i]);
-        if (stat(p, &st) != 0) {
+        if (PlatOs_Stat(p, &st) != 0) {
             continue;
         }
-        if (S_ISDIR(st.st_mode)) {
+        if (st.dir) {
             used += used_clusters(p, 0, level + 1);
         } else {
-            used += clusters((int)st.st_size);
+            used += clusters((int)st.size);
         }
     }
     free(names);
@@ -374,7 +360,7 @@ static int do_open(int port, const char *name, int mode) {
     char comp[MC_DEPTH][MC_NAME];
     int depth, r, i;
     McFile *f = NULL;
-    struct stat st;
+    PlatOsStat st;
     if ((r = ready(port, &c)) != MCR_OK || (r = resolve(c, name, comp, &depth)) != MCR_OK) {
         return r;
     }
@@ -396,17 +382,17 @@ static int do_open(int port, const char *name, int mode) {
         return MCR_NOENT;
     }
     host_path(c, comp, depth, f->host, sizeof f->host);
-    if (stat(f->host, &st) == 0) {
+    if (PlatOs_Stat(f->host, &st) == 0) {
         FILE *h;
-        if (S_ISDIR(st.st_mode)) {
+        if (st.dir) {
             return MCR_DENIED;
         }
-        if (st.st_size > MC_MAX_FILE) {
+        if (st.size > MC_MAX_FILE) {
             return MCR_DENIED;
         }
-        f->oldClusters = clusters((int)st.st_size);
+        f->oldClusters = clusters((int)st.size);
         if (!(mode & O_MC_TRUNC)) {
-            f->size = (int)st.st_size;
+            f->size = (int)st.size;
             f->data = malloc(f->size ? (size_t)f->size : 1);
             h = fopen(f->host, "rb");
             if (f->data == NULL || h == NULL || fread(f->data, 1, (size_t)f->size, h) != (size_t)f->size) {
@@ -498,18 +484,13 @@ static int do_write(int fd, const unsigned char *buf, int size) {
 static void sync_dir(const char *path) {
     char d[1100];
     char *slash;
-    int h;
     snprintf(d, sizeof d, "%s", path);
     slash = strrchr(d, '/');
     if (slash == NULL) {
         return;
     }
     *slash = 0;
-    h = open(d, O_RDONLY | O_DIRECTORY);
-    if (h >= 0) {
-        fsync(h);
-        close(h);
-    }
+    PlatOs_SyncDir(d);
 }
 
 /* temporary file beside the target, flushed, then renamed over it: the old file or the new one, never half of one */
@@ -526,9 +507,9 @@ static int write_atomic(const char *path, const unsigned char *data, int size) {
     }
     ok = (size == 0 || fwrite(data, 1, (size_t)size, h) == (size_t)size);
     ok = fflush(h) == 0 && ok;
-    ok = fsync(fileno(h)) == 0 && ok;
+    ok = PlatOs_SyncFile(h) == 0 && ok;
     ok = fclose(h) == 0 && ok;
-    if (!ok || rename(tmp, path) != 0) {
+    if (!ok || PlatOs_Replace(tmp, path) != 0) {
         unlink(tmp);
         return 0;
     }
@@ -577,7 +558,7 @@ static int do_mkdir(int port, const char *name) {
     if (free_clusters(c) < 1) {
         return MCR_FULL;
     }
-    if (!make_root(c) || mkdir(p, 0777) != 0) {
+    if (!make_root(c) || PlatOs_MkDir(p, 0777) != 0) {
         return MCR_FULL;
     }
     sync_dir(p);
@@ -617,7 +598,7 @@ static int do_delete(int port, const char *name) {
     Card *c;
     char comp[MC_DEPTH][MC_NAME];
     char p[1100];
-    struct stat st;
+    PlatOsStat st;
     int depth, r, i;
     if ((r = ready(port, &c)) != MCR_OK || (r = resolve(c, name, comp, &depth)) != MCR_OK) {
         return r;
@@ -626,7 +607,7 @@ static int do_delete(int port, const char *name) {
         return MCR_DENIED;
     }
     host_path(c, comp, depth, p, sizeof p);
-    if (stat(p, &st) != 0) {
+    if (PlatOs_Stat(p, &st) != 0) {
         return MCR_NOENT;
     }
     for (i = 0; i < MC_FILES; i++) {
@@ -634,7 +615,7 @@ static int do_delete(int port, const char *name) {
             return MCR_DENIED; /* open */
         }
     }
-    if (S_ISDIR(st.st_mode)) {
+    if (st.dir) {
         char one[1][MC_NAME];
         if (list_names(p, one, 1) > 0) {
             return MCR_NOTEMPTY;
@@ -715,7 +696,7 @@ static int do_getdir(int port, const char *name, int mode, int maxent, unsigned 
     char comp[MC_DEPTH][MC_NAME];
     char (*names)[MC_NAME];
     int depth, r, n, i, idx, count = 0;
-    struct stat st;
+    PlatOsStat st;
     if ((r = ready(port, &c)) != MCR_OK) {
         return r;
     }
@@ -766,11 +747,11 @@ static int do_getdir(int port, const char *name, int mode, int maxent, unsigned 
         } else {
             snprintf(p, sizeof p, "%s/%s", sList.dir, names[i]);
         }
-        if (stat(p, &st) != 0) {
+        if (PlatOs_Stat(p, &st) != 0) {
             continue;
         }
-        isDir = S_ISDIR(st.st_mode);
-        size = (int)st.st_size;
+        isDir = st.dir;
+        size = (int)st.size;
         if (isDir) { /* a directory's size is its number of entries */
             char (*sub)[MC_NAME] = malloc(sizeof(*sub) * MC_LIST);
             int k = sub != NULL ? list_names(p, sub, MC_LIST) : 0;
@@ -778,7 +759,7 @@ static int do_getdir(int port, const char *name, int mode, int maxent, unsigned 
             size = (k < 0 ? 0 : k) + 2;
         }
         if (table != NULL) {
-            put_entry(table + count * 64, names[i], isDir, size, (long long)st.st_mtime);
+            put_entry(table + count * 64, names[i], isDir, size, st.mtime);
         }
         count++;
     }
@@ -937,29 +918,29 @@ static int wait_result(int called, int expectCmd) {
 }
 
 static void rm_tree(const char *dir) {
-    DIR *d = opendir(dir);
-    struct dirent *e;
+    PlatOsDir *d = PlatOs_DirOpen(dir);
+    const char *e;
     if (d != NULL) {
-        while ((e = readdir(d)) != NULL) {
+        while ((e = PlatOs_DirNext(d)) != NULL) {
             char p[1400];
-            if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0) {
+            if (strcmp(e, ".") == 0 || strcmp(e, "..") == 0) {
                 continue;
             }
-            snprintf(p, sizeof p, "%s/%s", dir, e->d_name);
+            snprintf(p, sizeof p, "%s/%s", dir, e);
             if (is_dir(p)) {
                 rm_tree(p);
             } else {
                 unlink(p);
             }
         }
-        closedir(d);
+        PlatOs_DirClose(d);
     }
     rmdir(dir);
 }
 
 static int host_size(const char *p) {
-    struct stat st;
-    return stat(p, &st) == 0 ? (int)st.st_size : -1;
+    PlatOsStat st;
+    return PlatOs_Stat(p, &st) == 0 ? (int)st.size : -1;
 }
 
 static void mc_reset(const char *saves, const char *mc0) {
@@ -971,12 +952,12 @@ static void mc_reset(const char *saves, const char *mc0) {
     memset(&sReq, 0, sizeof sReq);
     snprintf(sSaves, sizeof sSaves, "%s", saves);
     if (mc0 != NULL) {
-        setenv("TTT_MC0", mc0, 1);
+        PlatOs_SetEnv("TTT_MC0", mc0, 1);
     } else {
-        unsetenv("TTT_MC0");
+        PlatOs_UnsetEnv("TTT_MC0");
     }
-    unsetenv("TTT_MC1");
-    unsetenv("TTT_MC_POLLS");
+    PlatOs_UnsetEnv("TTT_MC1");
+    PlatOs_UnsetEnv("TTT_MC_POLLS");
     sBusyPolls = MC_BUSY_POLLS;
     sInit = 0;
     mc_setup();
@@ -994,7 +975,7 @@ static int mc_selftest(void) {
     } else {
         snprintf(base, sizeof base, "%s", tmpl);
     }
-    if (mkdtemp(base) == NULL) {
+    if (PlatOs_TempDir(base) == NULL) {
         printf("ttt: mc self-test: no temporary directory\n");
         return 1;
     }
@@ -1143,7 +1124,7 @@ static int mc_selftest(void) {
 
     /* an unformatted card (no directory yet): -2, file calls -2, format creates it, unformat for the session */
     rm_tree(base);
-    mkdir(base, 0777);
+    PlatOs_MkDir(base, 0777);
     mc_reset(base, "unformatted");
     CHECK(wait_result(func_00406D08(0, 0, &type, &freeC, &format), CMD_GETINFO) == -2);
     CHECK(type == 2 && format == 0 && freeC == 0);

@@ -1130,8 +1130,8 @@ static void exec_cmd(Raster *r, const Cmd *c) {
 
 /* ---- GS threads: TTT_GS_THREADS=n raster workers (0: none, the calling thread draws) ---- */
 
-#include <unistd.h>
 #include "port_host.h"
+#include "plat_os.h"
 
 #define RING 8192u /* commands; a power of two */
 #define GL_RING 65536u /* with the GL back end: more than a fight's VBlank, so the front end runs on while the window
@@ -1262,7 +1262,7 @@ static void threads_start(void) {
     if (e != NULL) {
         n = atoi(e);
     } else { /* default: one per processor but the one the game runs on, up to 8 */
-        long cpus = sysconf(_SC_NPROCESSORS_ONLN);
+        long cpus = PlatOs_CpuCount();
         n = cpus > 9 ? 8 : cpus > 1 ? (int)cpus - 1 : 0;
     }
     if (getenv("TTT_GS_TRACE") || getenv("TTT_GS_TRACE_PRIMS")) {

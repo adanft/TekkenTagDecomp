@@ -5,7 +5,8 @@
  * (<user dir>: the settings file's directory, plat_settings.c; without one, the working directory) and print its path
  * on stderr; then the signal takes its default course (the handler is reset first), so the exit status and any core
  * dump are as without the handler. The handler runs on a stack of its own (sigaltstack, mapped at start): the game
- * thread runs on the EE stack in EE RAM (plat_main.c), which may be the one that failed.
+ * thread runs on the EE stack in EE RAM (plat_main.c), which may be the one that failed. The handlers, the registers
+ * and the stack reads are plat_os.h's (PlatOs_CrashHooks, PlatOs_ReadMemory; plat_os_posix.c).
  *
  * In the handler only async-signal-safe calls (open, write, read, close, mkdir, clock_gettime, getpid, raise,
  * process_vm_readv for a thread's host stack) and plain memory reads: what needs the C library is written
@@ -21,7 +22,6 @@
  * pointer: only an alternate stack can take it), ill, fpe, bus, abrt, thread (a segv on a thread of its own: a host
  * stack), at that VBlank (default 30).
  */
-#define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
@@ -30,13 +30,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <sys/syscall.h>
-#include <sys/uio.h>
 #include <time.h>
-#include <ucontext.h>
-#include <unistd.h>
+#include "plat_os.h"
 #include "plat_settings.h"
 
 #ifndef TTT_GIT
@@ -52,30 +47,9 @@ extern uint8_t gPortOffStack[], gPortCtxStack[]; /* plat_state.c: the port's own
 extern uint32_t gPortOffEeEsp;                   /* plat_state.c: the EE stack pointer Port_OffEe left */
 extern char __executable_start[], etext[];
 
-/* The registers of the report: the 32-bit build's, or on x86-64 (TTT_CC=clang64) the 64-bit ones, r8-r15 too, written
-   in full. The program, the game's memory and the EE stack lie below 4 GB there, so code addresses stay 4 bytes; the
-   host stacks lie above 4 GB (read through process_vm_readv as in the 32-bit build, scan_stack). */
-#if defined(__x86_64__)
-#define R_PC REG_RIP
-#define R_SP REG_RSP
-#define R_FP REG_RBP
-#define R_A REG_RAX
-#define R_B REG_RBX
-#define R_C REG_RCX
-#define R_D REG_RDX
-#define R_SI REG_RSI
-#define R_DI REG_RDI
-#else
-#define R_PC REG_EIP
-#define R_SP REG_ESP
-#define R_FP REG_EBP
-#define R_A REG_EAX
-#define R_B REG_EBX
-#define R_C REG_ECX
-#define R_D REG_EDX
-#define R_SI REG_ESI
-#define R_DI REG_EDI
-#endif
+/* The registers of the report (PlatOsFault): the 32-bit build's, or on x86-64 (TTT_CC=clang64) the 64-bit ones, r8-r15
+   too, written in full. The program, the game's memory and the EE stack lie below 4 GB there, so code addresses stay
+   4 bytes; the host stacks lie above 4 GB (read through PlatOs_ReadMemory as in the 32-bit build, scan_stack). */
 
 #define ALT_STACK (64 * 1024)
 #define REPORT_MAX 16384
@@ -192,7 +166,7 @@ static void sym_line(const char *l, int n) {
 /* The nearest symbol at or below each of sAddr, in one pass over ttt.syms (read and close: signal-safe). */
 static void resolve_names(void) {
     static char buf[4096 + 256];
-    int fd = sSyms[0] ? open(sSyms, O_RDONLY) : -1, have = 0, i;
+    int fd = sSyms[0] ? open(sSyms, O_RDONLY | PLAT_O_BINARY) : -1, have = 0, i;
     ssize_t n;
     for (i = 0; i < sAddrN; i++) {
         sSymAt[i] = 0;
@@ -262,8 +236,8 @@ static void take_code(const uint8_t *p, uintptr_t n, int *found) {
 
 /* Code addresses among the words above the stack pointer (the first 4 KB), when the stack is one the program knows to
    be mapped: the EE stack (EE RAM), the port's service stacks, the main thread's host stack. Any other stack (the
-   window, GS and audio threads', above 4 GB on x86-64) is copied through process_vm_readv, a system call that reports
-   an unmapped page instead of faulting, up to the first page it cannot read. */
+   window, GS and audio threads', above 4 GB on x86-64) is copied through PlatOs_ReadMemory (process_vm_readv, a
+   system call that reports an unmapped page instead of faulting), up to the first page it cannot read. */
 static void scan_stack(uintptr_t sp) {
     uintptr_t hi = 0, off = (uintptr_t)gPortOffStack, ctx = (uintptr_t)gPortCtxStack, main = sMainStack;
     int found = 0;
@@ -287,8 +261,7 @@ static void scan_stack(uintptr_t sp) {
         /* page by page: stop at the first page that cannot be read */
         while (sp != 0 && sp + sizeof copy > sp && at < sp + sizeof copy) {
             uintptr_t next = (at | 4095u) + 1 < sp + sizeof copy ? (at | 4095u) + 1 : sp + sizeof copy;
-            struct iovec local = {copy + (at - sp), next - at}, remote = {(void *)at, next - at};
-            if (syscall(SYS_process_vm_readv, getpid(), &local, 1UL, &remote, 1UL, 0UL) != (long)(next - at)) {
+            if (!PlatOs_ReadMemory(copy + (at - sp), at, next - at)) {
                 break;
             }
             at = next;
@@ -346,13 +319,12 @@ static void write_all(int fd, const char *p, size_t n) {
     }
 }
 
-static void handler(int sig, siginfo_t *si, void *ctx) {
+/* The report (on the alternate stack; plat_os_posix.c's handler keeps errno and raises a raised signal again). */
+static void handler(const PlatOsFault *f) {
     static const char *const kData[] = {"USA release (verified)", "[modified game data]", "being checked",
                                         "not checked"};
-    ucontext_t *uc = ctx;
-    const greg_t *g = uc->uc_mcontext.gregs;
     char when[20], path[1300];
-    int saved = errno, fd, i, state, nHere;
+    int sig = f->sig, fd, i, state, nHere;
     uintptr_t fault, esp;
     const char *name = "?";
 
@@ -362,16 +334,16 @@ static void handler(int sig, siginfo_t *si, void *ctx) {
         }
     }
     sAddrN = 0;
-    sAddr[sAddrN++] = (uint32_t)g[R_PC];
-    fault = (uintptr_t)si->si_addr;
-    esp = (uintptr_t)g[R_SP];
-    if (!(sig == SIGSEGV && si->si_code > 0 && fault + 65536u >= esp && fault < esp + 4096u)) {
+    sAddr[sAddrN++] = (uint32_t)f->pc;
+    fault = f->addr;
+    esp = f->sp;
+    if (!(sig == SIGSEGV && f->code > 0 && fault + 65536u >= esp && fault < esp + 4096u)) {
         scan_stack(esp); /* not when the stack itself is what failed (an overflow into its guard page) */
     }
     nHere = sAddrN;
     /* off the EE stack on the game's thread (Port_OffEe, the port's VBlank and library work): the game's frames are
        above the EE stack pointer it left */
-    if (!is_ee_stack(esp) && is_ee_stack(gPortOffEeEsp) && syscall(SYS_gettid) == getpid()) {
+    if (!is_ee_stack(esp) && is_ee_stack(gPortOffEeEsp) && PlatOs_OnMainThread()) {
         scan_stack(gPortOffEeEsp);
     }
     resolve_names();
@@ -397,57 +369,57 @@ static void handler(int sig, siginfo_t *si, void *ctx) {
     put(" (");
     put_dec((uint64_t)sig, 1);
     put("), code ");
-    if (si->si_code < 0) {
+    if (f->code < 0) {
         put("-");
     }
-    put_dec((uint64_t)(si->si_code < 0 ? -si->si_code : si->si_code), 1);
+    put_dec((uint64_t)(f->code < 0 ? -f->code : f->code), 1);
     put("\nfault address: ");
-    if (si->si_code > 0) {
-        put_word((uintptr_t)si->si_addr);
+    if (f->code > 0) {
+        put_word(f->addr);
     } else {
         put("(none: the signal was raised, not a fault)");
     }
     put("\nthread: ");
-    put(syscall(SYS_gettid) == getpid() ? "main (the game)" : "other (window, GS or audio)");
+    put(PlatOs_OnMainThread() ? "main (the game)" : "other (window, GS or audio)");
 #if defined(__x86_64__)
     {
-        static const struct { const char *name; int reg; } kRegs[] = {
-            {"\nregisters: rip ", REG_RIP}, {" rsp ", REG_RSP}, {" rbp ", REG_RBP}, {" eflags ", REG_EFL},
-            {"\n           rax ", REG_RAX}, {" rbx ", REG_RBX}, {" rcx ", REG_RCX}, {" rdx ", REG_RDX},
-            {"\n           rsi ", REG_RSI}, {" rdi ", REG_RDI}, {" r8 ", REG_R8}, {" r9 ", REG_R9},
-            {"\n           r10 ", REG_R10}, {" r11 ", REG_R11}, {" r12 ", REG_R12}, {" r13 ", REG_R13},
-            {"\n           r14 ", REG_R14}, {" r15 ", REG_R15},
+        static const char *const kNames[] = {
+            "\nregisters: rip ", " rsp ", " rbp ", " eflags ", "\n           rax ", " rbx ", " rcx ", " rdx ",
+            "\n           rsi ", " rdi ", " r8 ", " r9 ", "\n           r10 ", " r11 ", " r12 ", " r13 ",
+            "\n           r14 ", " r15 ",
         };
-        for (i = 0; i < (int)(sizeof kRegs / sizeof kRegs[0]); i++) {
-            put(kRegs[i].name);
-            if (kRegs[i].reg == REG_EFL) {
-                put_hex((uint32_t)g[REG_EFL]);
+        const uintptr_t v[] = {f->pc, f->sp, f->fp, f->flags, f->ax, f->bx, f->cx, f->dx, f->si,
+                               f->di, f->r[0], f->r[1], f->r[2], f->r[3], f->r[4], f->r[5], f->r[6], f->r[7]};
+        for (i = 0; i < (int)(sizeof kNames / sizeof kNames[0]); i++) {
+            put(kNames[i]);
+            if (i == 3) { /* eflags */
+                put_hex((uint32_t)v[i]);
             } else {
-                put_word((uintptr_t)g[kRegs[i].reg]);
+                put_word(v[i]);
             }
         }
     }
 #else
     put("\nregisters: eip ");
-    put_hex((uint32_t)g[R_PC]);
+    put_hex((uint32_t)f->pc);
     put(" esp ");
-    put_hex((uint32_t)g[R_SP]);
+    put_hex((uint32_t)f->sp);
     put(" ebp ");
-    put_hex((uint32_t)g[R_FP]);
+    put_hex((uint32_t)f->fp);
     put(" eflags ");
-    put_hex((uint32_t)g[REG_EFL]);
+    put_hex((uint32_t)f->flags);
     put("\n           eax ");
-    put_hex((uint32_t)g[R_A]);
+    put_hex((uint32_t)f->ax);
     put(" ebx ");
-    put_hex((uint32_t)g[R_B]);
+    put_hex((uint32_t)f->bx);
     put(" ecx ");
-    put_hex((uint32_t)g[R_C]);
+    put_hex((uint32_t)f->cx);
     put(" edx ");
-    put_hex((uint32_t)g[R_D]);
+    put_hex((uint32_t)f->dx);
     put(" esi ");
-    put_hex((uint32_t)g[R_SI]);
+    put_hex((uint32_t)f->si);
     put(" edi ");
-    put_hex((uint32_t)g[R_DI]);
+    put_hex((uint32_t)f->di);
 #endif
     put("\nstack: ");
     put(is_ee_stack(esp) ? "EE stack (EE RAM)" : "host");
@@ -481,9 +453,9 @@ static void handler(int sig, siginfo_t *si, void *ctx) {
     }
     put("\n");
 
-    mkdir(sParent, 0755);
-    mkdir(sDir, 0755);
-    fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0644);
+    PlatOs_MkDir(sParent, 0755);
+    PlatOs_MkDir(sDir, 0755);
+    fd = open(path, O_WRONLY | O_CREAT | O_EXCL | PLAT_O_BINARY, 0644);
     if (fd >= 0) {
         write_all(fd, sReport, (size_t)sLen);
         close(fd);
@@ -495,12 +467,6 @@ static void handler(int sig, siginfo_t *si, void *ctx) {
     put(path);
     put(fd >= 0 ? "\n" : ")\n");
     write_all(2, sReport, (size_t)sLen);
-    errno = saved;
-    /* SA_RESETHAND gave the signal back its default action: a fault happens again on return, a raised signal is
-       raised again here (delivered when the handler returns) */
-    if (si->si_code <= 0) {
-        raise(sig);
-    }
 }
 
 /* ---------------------------------------------------------------------------------------------- set-up */
@@ -540,14 +506,13 @@ static void test_switch(void) {
 
 /* Called by __wrap_main (plat_main.c) after the settings and the window, before the game: on the host stack. */
 void Port_CrashInstall(void) {
-    struct sigaction sa;
-    stack_t ss;
+    int sigs[NSIGNALS];
     const char *cfg = Settings_Path();
     char exe[1024];
-    ssize_t k;
+    long k;
     int i;
 
-    sMainStack = (uintptr_t)&ss;
+    sMainStack = (uintptr_t)&sigs[NSIGNALS];
     if (*cfg) {
         const char *slash = strrchr(cfg, '/');
         snprintf(sParent, sizeof sParent, "%.*s", slash != NULL ? (int)(slash - cfg) : 1, slash != NULL ? cfg : ".");
@@ -558,7 +523,7 @@ void Port_CrashInstall(void) {
         snprintf(sParent, sizeof sParent, ".");
     }
     snprintf(sDir, sizeof sDir, "%s/crash", sParent);
-    k = readlink("/proc/self/exe", exe, sizeof exe - 1);
+    k = PlatOs_ExePath(exe, sizeof exe - 1);
     if (k > 0) {
         exe[k] = 0;
         snprintf(sSyms, sizeof sSyms, "%s.syms", exe);
@@ -573,18 +538,11 @@ void Port_CrashInstall(void) {
     sInstalled = 1;
     Port_CrashRefresh();
 
-    ss.ss_sp = mmap(NULL, ALT_STACK, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    ss.ss_size = ALT_STACK;
-    ss.ss_flags = 0;
-    if (ss.ss_sp == MAP_FAILED || sigaltstack(&ss, NULL) != 0) {
-        fprintf(stderr, "ttt: crash reports: no alternate signal stack\n");
-    }
-    memset(&sa, 0, sizeof sa);
-    sa.sa_sigaction = handler;
-    sa.sa_flags = SA_SIGINFO | SA_ONSTACK | SA_RESETHAND;
-    sigemptyset(&sa.sa_mask);
     for (i = 0; i < NSIGNALS; i++) {
-        sigaction(kSignals[i].sig, &sa, NULL);
+        sigs[i] = kSignals[i].sig;
+    }
+    if (PlatOs_CrashHooks(sigs, NSIGNALS, handler, ALT_STACK) != 0) {
+        fprintf(stderr, "ttt: crash reports: no alternate signal stack\n");
     }
     test_switch();
 }
@@ -606,7 +564,7 @@ void Port_CrashVBlank(uint32_t n) {
         return;
     }
     fflush(stdout);
-    page = mmap(NULL, 4096, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    page = PlatOs_MapPages(4096, 0);
     switch (sTestKind) {
     case 1: /* segv: a write to a page with no access */
         *(volatile int *)page = 1;

@@ -45,16 +45,12 @@
  * EE stack): nothing of it reaches the game's memory but the pads' states. None of its own state is saved: the input
  * rings and the saves outlive every load.
  */
-#include <netdb.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <poll.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
 #include <time.h>
+#include "plat_os.h" /* BSD sockets (Winsock 2 on Windows) */
 #include "plat_settings.h"
 #include "plat_state.h"
 
@@ -287,7 +283,7 @@ void Port_NetPads(uint32_t n, uint16_t buttons[2], uint8_t analog[2][4]) {
 
 /* ---------------------------------------------------------------------------------------------- the socket */
 
-static int sSock = -1;
+static PlatOsSock sSock = PLAT_SOCK_NONE;
 static struct sockaddr_storage sPeer;
 static socklen_t sPeerLen;
 static uint32_t sSession;
@@ -312,7 +308,7 @@ static uint32_t rng(void) {
 }
 
 static void raw_send(const uint8_t *p, uint32_t n) {
-    if (sendto(sSock, p, n, MSG_DONTWAIT, sPeerLen ? (const struct sockaddr *)&sPeer : NULL, sPeerLen) < 0) {
+    if (sendto(sSock, p, n, PLAT_MSG_DONTWAIT, sPeerLen ? (const struct sockaddr *)&sPeer : NULL, sPeerLen) < 0) {
         sSendFail++;
     }
 }
@@ -764,20 +760,16 @@ static uint8_t sWelcome[HDR + TERMS]; /* the host's answer, again for each HELLO
 
 /* Everything that has arrived (and TTT_NET_SIM's packets that fell due); waits up to `ms` for the first. */
 static void pump(int ms) {
-    struct pollfd pf;
     uint8_t p[PKT_MAX + 64];
     sim_flush();
-    pf.fd = sSock;
-    pf.events = POLLIN;
-    pf.revents = 0;
     if (ms > 0 && sSimN != 0 && ms > 1) {
         ms = 1; /* (held packets fall due meanwhile) */
     }
-    poll(&pf, 1, ms);
+    PlatOs_SockWait(sSock, ms);
     for (;;) {
         struct sockaddr_storage from;
         socklen_t fl = sizeof from;
-        long n = (long)recvfrom(sSock, p, sizeof p, MSG_DONTWAIT, (struct sockaddr *)&from, &fl);
+        long n = (long)recvfrom(sSock, p, sizeof p, PLAT_MSG_DONTWAIT, (struct sockaddr *)&from, &fl);
         if (n < 0) {
             break;
         }
@@ -889,8 +881,8 @@ static void open_socket(void) {
         fatal(2, sJoin ? "TTT_NET_JOIN: cannot resolve the address (<addr>:<port>)" :
                          "TTT_NET_HOST: cannot resolve the address ([<addr>:]<port>)");
     }
-    sSock = socket(a.ss_family, SOCK_DGRAM, 0);
-    if (sSock < 0) {
+    sSock = PlatOs_NetInit() == 0 ? socket(a.ss_family, SOCK_DGRAM, 0) : PLAT_SOCK_NONE;
+    if (sSock == PLAT_SOCK_NONE) {
         FATAL(2, "cannot make a UDP socket");
     }
     if (sJoin) {
@@ -916,17 +908,13 @@ static void host_wait(const Terms *mine) {
     uint64_t end = ns_now() + (uint64_t)sWaitS * 1000000000ull;
     uint8_t p[PKT_MAX];
     while (ns_now() < end) {
-        struct pollfd pf;
         struct sockaddr_storage from;
         socklen_t fl = sizeof from;
         long n;
         Terms theirs;
         const char *why;
-        pf.fd = sSock;
-        pf.events = POLLIN;
-        pf.revents = 0;
-        poll(&pf, 1, 100);
-        n = (long)recvfrom(sSock, p, sizeof p, MSG_DONTWAIT, (struct sockaddr *)&from, &fl);
+        PlatOs_SockWait(sSock, 100);
+        n = (long)recvfrom(sSock, p, sizeof p, PLAT_MSG_DONTWAIT, (struct sockaddr *)&from, &fl);
         if (n < HDR + TERMS || get32(p) != MAGIC || p[4] != P_HELLO) {
             continue;
         }
@@ -965,16 +953,12 @@ static void join_wait(const Terms *mine) {
     sSession = (uint32_t)ns_now() ^ (uint32_t)(ns_now() >> 32) * 2654435761u;
     sSession |= 1;
     while (ns_now() < end) {
-        struct pollfd pf;
         long n;
         header(p, P_HELLO);
         put_terms(p + HDR, mine);
         raw_send(p, HDR + TERMS);
-        pf.fd = sSock;
-        pf.events = POLLIN;
-        pf.revents = 0;
-        poll(&pf, 1, 100);
-        while ((n = (long)recvfrom(sSock, p, sizeof p, MSG_DONTWAIT, NULL, NULL)) >= 0) {
+        PlatOs_SockWait(sSock, 100);
+        while ((n = (long)recvfrom(sSock, p, sizeof p, PLAT_MSG_DONTWAIT, NULL, NULL)) >= 0) {
             if (n < HDR + 1 || get32(p) != MAGIC || get32(p + 8) != sSession) {
                 continue;
             }

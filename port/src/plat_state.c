@@ -34,16 +34,11 @@
  *   TTT_SYNCTEST_FROM=<vblank>  ... from that VBlank on (default: from the first)
  *   TTT_SELFTEST=state          the hash's host-address rule and an in-process save / load
  */
-#include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/ioctl.h>
-#include <sys/mman.h>
-#include <sys/syscall.h>
 #include <time.h>
-#include <unistd.h>
 #define memcpy __builtin_memcpy
 #define XXH_INLINE_ALL
 #define XXH_NO_STDLIB
@@ -52,6 +47,7 @@
 #include "plat_state.h"
 #include "port_addr.h"
 #include "port_host.h"
+#include "plat_os.h"
 #include "gs.h"
 
 uint32_t Port_VBlankCount(void); /* plat_hw.c */
@@ -120,16 +116,12 @@ __attribute__((constructor(101))) static void state_memory(void) {
 
 /* ---------------------------------------------------------------------------------------------- the program's symbols */
 
-/* The host image (the program's loaded segments) and the game's data labels (to name a difference), from
-   /proc/self/exe. */
+/* The host image (the program's loaded segments) and the game's data labels (to name a difference), from the
+   program's own file (PlatOs_SelfImage: /proc/self/exe). */
 static uint32_t sImgLo, sImgHi;
 static uint32_t *sDataAddr, sDataN;
 static const char **sDataName;
-static uint8_t *sElf;
 static int sSymsDone;
-
-static uint32_t rd32(const uint8_t *p) { return p[0] | p[1] << 8 | p[2] << 16 | (uint32_t)p[3] << 24; }
-static uint32_t rd16(const uint8_t *p) { return p[0] | p[1] << 8; }
 
 /* Sorts the labels by address: Shell's sort (the host qsort is not in the program's PLT). */
 static void sort_labels(void) {
@@ -150,72 +142,41 @@ static void sort_labels(void) {
     }
 }
 
+/* PT_LOAD segments above the PS2's map: the host image (not the heap guard, link.py BRK_GUARD) */
+static void img_seg(void *ctx, uint32_t va, uint32_t memsz) {
+    uint32_t *lo = ctx;
+    if (va >= 0x02000000u && va < 0x40000000u) {
+        *lo = va < *lo ? va : *lo;
+        sImgHi = va + memsz > sImgHi ? va + memsz : sImgHi;
+    }
+}
+
+static void img_sym(void *ctx, const char *name, uint32_t v, int type) {
+    static uint32_t cap;
+    (void)ctx;
+    if ((type == PLAT_SYM_NOTYPE || type == PLAT_SYM_OBJECT) && v >= 0x10000u && v < PORT_EE_RAM_SIZE && name[0] != 0 &&
+        name[0] != '.' && name[0] != '$') {
+        if (sDataN == cap) {
+            cap = cap ? cap * 2 : 8192;
+            sDataAddr = realloc(sDataAddr, cap * 4);
+            sDataName = realloc(sDataName, cap * sizeof *sDataName);
+        }
+        sDataAddr[sDataN] = v;
+        sDataName[sDataN++] = name;
+    }
+}
+
 static void syms_init(void) {
-    FILE *f;
-    long n;
-    uint32_t phoff, shoff, k, cap = 0;
-    uint16_t phnum, phentsize, shnum, shentsize;
-    int e64;
+    uint32_t lo = 0xFFFFFFFFu;
 
     if (sSymsDone) {
         return;
     }
     sSymsDone = 1;
-    f = fopen("/proc/self/exe", "rb");
-    if (f == NULL) {
+    if (PlatOs_SelfImage(img_seg, img_sym, &lo) != 0) {
         return;
     }
-    fseek(f, 0, SEEK_END);
-    n = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    sElf = malloc((size_t)n);
-    if (sElf == NULL || fread(sElf, 1, (size_t)n, f) != (size_t)n || memcmp(sElf, "\177ELF", 4) != 0 ||
-        sElf[5] != 1 || (sElf[4] != 1 && sElf[4] != 2)) {
-        fclose(f);
-        return;
-    }
-    fclose(f);
-    /* ELF32, or ELF64 for the x86-64 build (TTT_CC=clang64): the same fields at other offsets and widths. Every
-       address and offset used here is below 4 GB, so the low word of a 64-bit field is the value (little-endian). */
-    e64 = sElf[4] == 2;
-    phoff = rd32(sElf + (e64 ? 32 : 28));
-    phentsize = rd16(sElf + (e64 ? 54 : 42));
-    phnum = rd16(sElf + (e64 ? 56 : 44));
-    shoff = rd32(sElf + (e64 ? 40 : 32));
-    shentsize = rd16(sElf + (e64 ? 58 : 46));
-    shnum = rd16(sElf + (e64 ? 60 : 48));
-    sImgLo = 0xFFFFFFFFu;
-    for (k = 0; k < phnum; k++) { /* PT_LOAD segments above the PS2's map: the host image */
-        const uint8_t *ph = sElf + phoff + k * phentsize;
-        uint32_t va = rd32(ph + (e64 ? 16 : 8)), memsz = rd32(ph + (e64 ? 40 : 20));
-        if (rd32(ph) == 1 && va >= 0x02000000u && va < 0x40000000u) { /* (not the heap guard, link.py BRK_GUARD) */
-            sImgLo = va < sImgLo ? va : sImgLo;
-            sImgHi = va + memsz > sImgHi ? va + memsz : sImgHi;
-        }
-    }
-    for (k = 0; k < shnum; k++) {
-        const uint8_t *sh = sElf + shoff + k * shentsize;
-        if (rd32(sh + 4) == 2) { /* SHT_SYMTAB */
-            uint32_t link = rd32(sh + (e64 ? 40 : 24)), symsize = e64 ? 24 : 16;
-            const char *str = (const char *)sElf + rd32(sElf + shoff + link * shentsize + (e64 ? 24 : 16));
-            uint32_t off = rd32(sh + (e64 ? 24 : 16)), size = rd32(sh + (e64 ? 32 : 20)), j;
-            for (j = 0; j + symsize <= size; j += symsize) {
-                const uint8_t *sym = sElf + off + j;
-                uint32_t v = rd32(sym + (e64 ? 8 : 4)), type = sym[e64 ? 4 : 12] & 15;
-                const char *name = str + rd32(sym);
-                if ((type == 0 || type == 1) && v >= 0x10000u && v < PORT_EE_RAM_SIZE && name[0] != 0 && name[0] != '.' &&
-                    name[0] != '$') {
-                    if (sDataN == cap) {
-                        cap = cap ? cap * 2 : 8192;
-                        sDataAddr = realloc(sDataAddr, cap * 4);
-                        sDataName = realloc(sDataName, cap * sizeof *sDataName);
-                    }
-                    sDataAddr[sDataN] = v;
-                    sDataName[sDataN++] = name;
-                }
-            }
-        }
-    }
+    sImgLo = lo;
     sort_labels();
 }
 
@@ -538,101 +499,52 @@ static int prepare(void) {
 
 /* A save copies 40 MB, most of it EE RAM, GS memory and sound RAM, of which a VBlank writes a small part. With tracking
    on, the kernel write-protects the whole pages of every region of TRK_MIN bytes or more (EE RAM through all three of
-   its views): userfaultfd in asynchronous write-protect mode, where a write to a protected page is let through by the
-   kernel itself (no signal, nothing on any stack, writes by the kernel and by other threads included), and
-   PAGEMAP_SCAN, which lists the pages written since the last scan and protects them again in one call. Each scan is
+   its views): PlatOs_DirtyOpen (Linux: userfaultfd in asynchronous write-protect mode, where a write to a protected
+   page is let through by the kernel itself, no signal, nothing on any stack, writes by the kernel and by other threads
+   included; and PAGEMAP_SCAN, which lists the pages written since the last scan and protects them again in one call,
+   plat_os_posix.c). Each scan is
    an epoch; every tracked page keeps the epoch it was last seen written in. A buffer saved by this tracking session
    carries its epoch: compared with the memory now, only pages written in a later epoch can differ (a load's own
    copies are writes too), so a save into it copies those and a load from it copies those back. The parts of regions
    outside whole pages and the small regions are copied every time. */
-#ifndef UFFD_USER_MODE_ONLY
-#define UFFD_USER_MODE_ONLY 1
-#endif
-#define TRK_FEATURES ((1ull << 12) | (1ull << 13) | (1ull << 15)) /* UFFD_FEATURE_WP_HUGETLBFS_SHMEM, _UNPOPULATED, _ASYNC */
-#define TRK_UFFDIO_API 0xC018AA3Fu      /* _IOWR(0xAA, 0x3F, struct uffdio_api) */
-#define TRK_UFFDIO_REGISTER 0xC020AA00u /* _IOWR(0xAA, 0x00, struct uffdio_register) */
-#define TRK_PAGEMAP_SCAN 0xC0606610u    /* _IOWR('f', 16, struct pm_scan_arg) */
 #define TRK_PAGE 4096u
 #define TRK_MIN 65536u
-typedef struct { uint64_t api, features, ioctls; } TrkApi;
-typedef struct { uint64_t start, len, mode, ioctls; } TrkReg;
-typedef struct {
-    uint64_t size, flags, start, end, walk_end, vec, vec_len, max_pages, category_inverted, category_mask,
-        category_anyof_mask, return_mask;
-} TrkScan;
-typedef struct { uint64_t start, end, categories; } TrkRange;
-/* through the GOT (port_host.h: gcc's noplt, the GOT thunks of clang's 32-bit variant) */
-PORT_NOPLT(syscall);
-PORT_NOPLT(ioctl);
-PORT_NOPLT(open);
-PORT_NOPLT(close);
-PORT_NOPLT(madvise);
-
 static int sTrack;                    /* 1 on, 0 off, -1 not offered by the kernel */
-static int sUffd = -1, sPagemap = -1;
 static uint32_t sTrkOff[MAX_REGIONS], sTrkEnd[MAX_REGIONS]; /* a region's whole pages, bytes [off, end) (end 0: none) */
 static uint32_t sTrkBase[MAX_REGIONS]; /* index of its first page in sPageEp */
 static uint32_t *sPageEp, sTrkPages;  /* per tracked page: the epoch it was last seen written in */
 static uint32_t sEpoch;
 static uint64_t sToken;
-static TrkRange sVec[256];
 static uint64_t sTrkScans, sTrkScanNs, sTrkWritten, sTrkPagesSaved, sTrkPagesLoaded, sTrkIncSaves, sTrkIncLoads;
 static uint64_t sAllSaves, sAllLoads;
 static const char *sTrkWhy = "off";
 static uint64_t ns_now(void);
 
-static int trk_register(uintptr_t a, uint32_t n) {
-    TrkReg r;
-    memset(&r, 0, sizeof r);
-    r.start = a;
-    r.len = n;
-    r.mode = 2; /* UFFDIO_REGISTER_MODE_WP */
-    return ioctl(sUffd, TRK_UFFDIO_REGISTER, &r);
+static int trk_register(uintptr_t a, uint32_t n) { return PlatOs_DirtyAdd(a, n); }
+
+/* A run of written pages [start, end) of view `base` (TrkView): their epoch is now. */
+typedef struct { int r; uintptr_t base; } TrkView;
+static void trk_written(void *ctx, uint64_t start, uint64_t end) {
+    const TrkView *v = ctx;
+    uint32_t p = (uint32_t)((start - v->base - sTrkOff[v->r]) / TRK_PAGE);
+    uint32_t q = (uint32_t)((end - v->base - sTrkOff[v->r]) / TRK_PAGE);
+    sTrkWritten += q - p;
+    for (; p < q; p++) {
+        sPageEp[sTrkBase[v->r] + p] = sEpoch;
+    }
 }
 
 /* The written pages of view `base` (region r's byte i at base + i) in [off, end): their epoch is now, and they are
    protected again. */
 static int trk_scan_view(int r, uintptr_t base, uint32_t off, uint32_t end) {
-    uint64_t at = base + off, stop = base + end;
-    while (at < stop) {
-        TrkScan a;
-        int n, i;
-        memset(&a, 0, sizeof a);
-        a.size = sizeof a;
-        a.flags = 1 | 2; /* PM_SCAN_WP_MATCHING | PM_SCAN_CHECK_WPASYNC */
-        a.start = at;
-        a.end = stop;
-        a.vec = (uintptr_t)sVec;
-        a.vec_len = sizeof sVec / sizeof sVec[0];
-        a.category_mask = a.return_mask = 2; /* PAGE_IS_WRITTEN */
-        n = ioctl(sPagemap, TRK_PAGEMAP_SCAN, &a);
-        if (n < 0) {
-            return -1;
-        }
-        for (i = 0; i < n; i++) {
-            uint32_t p = (uint32_t)((sVec[i].start - base - sTrkOff[r]) / TRK_PAGE);
-            uint32_t q = (uint32_t)((sVec[i].end - base - sTrkOff[r]) / TRK_PAGE);
-            sTrkWritten += q - p;
-            for (; p < q; p++) {
-                sPageEp[sTrkBase[r] + p] = sEpoch;
-            }
-        }
-        if (a.walk_end <= at) {
-            return -1;
-        }
-        at = a.walk_end;
-    }
-    return 0;
+    TrkView v;
+    v.r = r;
+    v.base = base;
+    return PlatOs_DirtyScan(base + off, base + end, trk_written, &v);
 }
 
 static void trk_off(const char *why) {
-    if (sUffd >= 0) {
-        close(sUffd); /* (unregisters every range: the pages are writable again) */
-    }
-    if (sPagemap >= 0) {
-        close(sPagemap);
-    }
-    sUffd = sPagemap = -1;
+    PlatOs_DirtyClose(); /* (unregisters every range: the pages are writable again) */
     sTrack = why != NULL ? -1 : 0;
     sTrkWhy = why != NULL ? why : "off";
     sToken = 0; /* the buffers saved so far are whole copies like any other */
@@ -658,23 +570,14 @@ static void trk_scan(void) {
 }
 
 static int trk_on(void) {
-    TrkApi api;
     uint32_t pages = 0;
+    const char *why;
     int r;
     if (sTrack != 0) {
         return sTrack > 0;
     }
-    sUffd = (int)syscall(SYS_userfaultfd, O_CLOEXEC | O_NONBLOCK | UFFD_USER_MODE_ONLY);
-    if (sUffd < 0) {
-        trk_off("no userfaultfd");
-        return 0;
-    }
-    memset(&api, 0, sizeof api);
-    api.api = 0xAA; /* UFFD_API */
-    api.features = TRK_FEATURES;
-    sPagemap = open("/proc/self/pagemap", O_RDONLY | O_CLOEXEC);
-    if (ioctl(sUffd, TRK_UFFDIO_API, &api) != 0 || (api.features & TRK_FEATURES) != TRK_FEATURES || sPagemap < 0) {
-        trk_off("the kernel has no asynchronous write protection (Linux 6.7)");
+    if ((why = PlatOs_DirtyOpen()) != NULL) {
+        trk_off(why);
         return 0;
     }
     for (r = 0; r < sRegN; r++) {
@@ -689,7 +592,7 @@ static int trk_on(void) {
         sTrkBase[r] = pages;
         pages += (uint32_t)(hi - lo) / TRK_PAGE;
         if (!(sReg[r].flags & PS_EERAM)) {
-            madvise((void *)lo, hi - lo, MADV_NOHUGEPAGE); /* (pages of the program's bss: 4 KB, not 2 MB, at a time) */
+            PlatOs_DirtyNoHuge((void *)lo, hi - lo); /* (pages of the program's bss: 4 KB, not 2 MB, at a time) */
         }
         if (trk_register(lo, (uint32_t)(hi - lo)) != 0 ||
             ((sReg[r].flags & PS_EERAM) && (trk_register(0x00010000u, (uint32_t)(hi - lo) - 0x10000u) != 0 ||
@@ -709,7 +612,7 @@ static int trk_on(void) {
     }
     sTrack = 1;
     sTrkWhy = "on";
-    sToken = (ns_now() << 16) ^ (uint64_t)syscall(SYS_getpid) ^ 0x7474740000000000ull;
+    sToken = (ns_now() << 16) ^ (uint64_t)getpid() ^ 0x7474740000000000ull;
     sToken += sToken == 0;
     trk_scan(); /* every page counts as written once: no buffer holds anything of this session yet */
     return sTrack > 0;
@@ -1557,7 +1460,7 @@ static void track_test(void) {
     *(volatile uint32_t *)Port_Ptr(0x00100000u) = 0x5A5A0001u;
     *(volatile uint32_t *)Port_Ptr(0x20200004u) = 0x5A5A0002u;
     *(volatile uint32_t *)Port_Ptr(0x30300008u) = 0x5A5A0003u;
-    syscall(SYS_clock_gettime, 1, Port_Ptr(0x00180000u)); /* written by the kernel */
+    PlatOs_KernelWrite(Port_Ptr(0x00180000u)); /* written by the kernel */
     if (vram != NULL && snd != NULL) {
         *vram ^= 0x55;
         *snd ^= 0x55;

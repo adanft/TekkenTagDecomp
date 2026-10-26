@@ -25,8 +25,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include "softfloat_ps2_inl.h"
+#include "plat_os.h"
 
 typedef uint32_t w32; /* a float's bits; every float function below is soft-float: bits in, bits out */
 
@@ -60,7 +60,7 @@ static int sFailed;
 static void data_dir(char *out, size_t n) {
     const char *e = getenv("TTT_FLOATDATA");
     char exe[1024];
-    ssize_t k;
+    long k;
     char *slash;
 
     if (e != NULL) {
@@ -68,7 +68,7 @@ static void data_dir(char *out, size_t n) {
         return;
     }
     out[0] = 0;
-    k = readlink("/proc/self/exe", exe, sizeof exe - 1);
+    k = PlatOs_ExePath(exe, sizeof exe - 1);
     if (k <= 0) {
         return;
     }

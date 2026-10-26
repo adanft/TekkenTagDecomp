@@ -23,15 +23,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <unistd.h>
 #include "port_addr.h"
 #include "port_host.h"
+#include "plat_os.h"
 #include "spu2.h"
 #include "plat_state.h"
 
 /* C library calls the T43 disc formats added, through the GOT (port_host.h: the PLT stays as it was) */
-PORT_NOPLT(stat);
 PORT_NOPLT(strchr);
 
 int Port_SndCommand(int cmd, const uint32_t *a); /* plat_snd.c */
@@ -249,13 +247,13 @@ static int try_disc(const char *name) {
 
 /* Opens the disc once; 0 when there is none. TTT_DISC (game.disc, which the setup writes: plat_setup.c), else the
    repository's iso/ (build/port/ttt -> ../../iso), then iso/ beside the program, then iso/ in the working directory.
-   The program's own directory comes from /proc/self/exe (symbolic links resolved), so a copy of the program elsewhere
+   The program's own directory comes from PlatOs_ExePath (symbolic links resolved), so a copy of the program elsewhere
    finds only the last two. */
 int Port_DiscOpen(void) {
     static const char *const kNear[] = { "/../../iso", "/iso" };
     const char *d;
     char exe[1024];
-    ssize_t k;
+    long k;
     unsigned i;
     if (sDiscTried) {
         return sImg.f != NULL;
@@ -266,7 +264,7 @@ int Port_DiscOpen(void) {
         snprintf(sDiscName, sizeof sDiscName, "%s", d);
         return try_disc(sDiscName);
     }
-    k = readlink("/proc/self/exe", exe, sizeof exe - 1);
+    k = PlatOs_ExePath(exe, sizeof exe - 1);
     if (k > 0) {
         char *slash;
         exe[k] = 0;
@@ -363,9 +361,9 @@ int Port_DiscBootName(const char *name, char *out, int n) {
     char cnf[512], bin[1100], *p, *e;
     Img im = {NULL, SECTOR, 0};
     long k;
-    struct stat st;
+    PlatOsStat st;
     out[0] = 0;
-    if (stat(name, &st) == 0 && S_ISDIR(st.st_mode)) {
+    if (PlatOs_Stat(name, &st) == 0 && st.dir) {
         k = read_file(&im, 1, name, NULL, "SYSTEM.CNF", cnf, sizeof cnf - 1);
     } else {
         snprintf(bin, sizeof bin, "%s", name);

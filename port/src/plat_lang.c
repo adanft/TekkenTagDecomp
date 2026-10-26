@@ -16,21 +16,18 @@
  * stay valid), and the language in use is one pointer, so the window thread, the setup's thread and the screen reader
  * may look texts up while the picker switches. Nothing here is game state. The host stack only.
  */
-#include <dirent.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "port_host.h"
+#include "plat_os.h"
 #include "plat_lang.h"
 #include "plat_settings.h"
 
 /* C library calls through the GOT: no new PLT entry (port_host.h) */
 #define PORT_NOPLT(f) __typeof__(f) f __attribute__((noplt))
-PORT_NOPLT(opendir);
-PORT_NOPLT(readdir);
-PORT_NOPLT(closedir);
 PORT_NOPLT(strchr);
 PORT_NOPLT(calloc);
 PORT_NOPLT(realloc);
@@ -615,21 +612,21 @@ int Lang_List(LangInfo *out, int max) {
     n = 1;
     nd = lang_dirs(dirs);
     for (i = 0; i < nd && n < max; i++) {
-        DIR *d = opendir(dirs[i]);
-        struct dirent *e;
+        PlatOsDir *d = PlatOs_DirOpen(dirs[i]);
+        const char *e;
         if (d == NULL) {
             continue;
         }
-        while (n < max && (e = readdir(d)) != NULL) {
+        while (n < max && (e = PlatOs_DirNext(d)) != NULL) {
             char code[16];
-            size_t len = strlen(e->d_name);
+            size_t len = strlen(e);
             const Catalog *c;
             const char *name;
             int k, dup = 0;
-            if (len < 6 || len - 5 >= sizeof code || strcmp(e->d_name + len - 5, ".json") != 0) {
+            if (len < 6 || len - 5 >= sizeof code || strcmp(e + len - 5, ".json") != 0) {
                 continue;
             }
-            memcpy(code, e->d_name, len - 5);
+            memcpy(code, e, len - 5);
             code[len - 5] = 0;
             for (k = 0; k < n; k++) {
                 dup |= strcmp(out[k].code, code) == 0;
@@ -648,7 +645,7 @@ int Lang_List(LangInfo *out, int max) {
             snprintf(out[n].name, sizeof out[n].name, "%s", name != NULL && *name ? name : code);
             n++;
         }
-        closedir(d);
+        PlatOs_DirClose(d);
     }
     for (i = 2; i < n; i++) { /* by code, English first */
         int k;

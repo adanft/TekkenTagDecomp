@@ -21,20 +21,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <unistd.h>
 #include "port_host.h"
+#include "plat_os.h"
 #include "plat_settings.h"
 #include "plat_lang.h"
 
-/* C library calls through the GOT: no new PLT entry (port_host.h) */
-PORT_NOPLT(setenv);
-PORT_NOPLT(unsetenv);
-PORT_NOPLT(mkdir);
+/* C library calls through the GOT: no new PLT entry (port_host.h; the file is -fno-plt too, toolchain.py) */
 PORT_NOPLT(strncmp);
 PORT_NOPLT(strchr);
 PORT_NOPLT(strerror);
-PORT_NOPLT(access);
 
 typedef struct {
     const char *key, *env;
@@ -178,18 +173,15 @@ static int file_set(const char *key, const char *val) {
 
 int Port_Portable(void);        /* plat_paths.c: portable.txt beside the program */
 const char *Port_ExeDir(void);
+int Port_UserDir(int kind, const char *leaf, char *out, int n);
 
 static void resolve_path(void) {
-    const char *e = getenv("TTT_CONFIG"), *x = getenv("XDG_CONFIG_HOME"), *h = getenv("HOME");
+    const char *e = getenv("TTT_CONFIG");
     if (e != NULL && *e != 0) {
         snprintf(sPath, sizeof sPath, "%s", e);
     } else if (Port_Portable()) {
         snprintf(sPath, sizeof sPath, "%s/settings.ini", Port_ExeDir());
-    } else if (x != NULL && *x == '/') {
-        snprintf(sPath, sizeof sPath, "%s/ttt/settings.ini", x);
-    } else if (h != NULL && *h != 0) {
-        snprintf(sPath, sizeof sPath, "%s/.config/ttt/settings.ini", h);
-    } else {
+    } else if (!Port_UserDir(1, "ttt/settings.ini", sPath, sizeof sPath)) {
         sPath[0] = 0;
     }
 }
@@ -202,7 +194,7 @@ void Settings_Load(void) {
     pthread_mutex_lock(&sLock);
     for (i = 0; i < NDEFS; i++) { /* a second load (the self-test) starts from the environment it found */
         if (sSetByUs[i]) {
-            unsetenv(kDefs[i].env);
+            PlatOs_UnsetEnv(kDefs[i].env);
             sSetByUs[i] = 0;
         }
     }
@@ -234,7 +226,7 @@ void Settings_Load(void) {
         sEnvSet[i] = e != NULL;
         snprintf(sEnvVal[i], sizeof sEnvVal[i], "%s", e != NULL ? e : "");
         if (e == NULL && file_get(kDefs[i].key, v, sizeof v)) {
-            setenv(kDefs[i].env, v, 0);
+            PlatOs_SetEnv(kDefs[i].env, v, 0);
             sSetByUs[i] = 1;
         }
     }
@@ -301,7 +293,7 @@ static void make_dirs(const char *path) {
     for (p = d + 1; *p != 0; p++) {
         if (*p == '/') {
             *p = 0;
-            mkdir(d, 0755);
+            PlatOs_MkDir(d, 0755);
             *p = '/';
         }
     }
@@ -329,9 +321,9 @@ static int save_locked(void) {
         ok &= fprintf(f, "%s\n", sLines[i]) >= 0;
     }
     ok &= fflush(f) == 0;
-    ok &= fsync(fileno(f)) == 0;
+    ok &= PlatOs_SyncFile(f) == 0;
     ok &= fclose(f) == 0;
-    if (!ok || rename(tmp, sPath) != 0) {
+    if (!ok || PlatOs_Replace(tmp, sPath) != 0) {
         snprintf(sSaveErr, sizeof sSaveErr, "%s: %s", sPath, strerror(errno));
         unlink(tmp);
         return 0;
@@ -629,9 +621,9 @@ void Settings_SelfTest(void) {
         exit(1);
     }
     for (k = 0; k < NDEFS; k++) { /* the test's own environment: only TTT_SCALE set */
-        unsetenv(kDefs[k].env);
+        PlatOs_UnsetEnv(kDefs[k].env);
     }
-    setenv("TTT_SCALE", "4", 1);
+    PlatOs_SetEnv("TTT_SCALE", "4", 1);
     f = fopen(cfg, "w");
     expect(f != NULL, "the test file can be written");
     if (f == NULL) {
@@ -656,7 +648,7 @@ void Settings_SelfTest(void) {
 
     expect(Settings_SetInt("audio.volume", 40), "a change is written");
     snprintf(tmp, sizeof tmp, "%s.tmp", cfg);
-    expect(access(tmp, F_OK) != 0, "no temporary file is left");
+    expect(!PlatOs_Exists(tmp), "no temporary file is left");
     expect(file_text(cfg, text, sizeof text) > 0, "the file is there");
     expect(strstr(text, "# my settings\n[video]\n") == text, "comments and sections are kept, in place");
     expect(strstr(text, "future.option = keep me\n") != NULL, "unknown keys are kept");
@@ -773,7 +765,7 @@ void Settings_SelfTest(void) {
     expect(Settings_KeyFromName("1") == 30 && Settings_KeyFromName("123") == 123, "digits are keys, numbers scancodes");
     expect(Settings_KeyFromName("nonsense") == 0 && Settings_KeyFromName("") == 0, "unknown names");
 
-    setenv("TTT_CONFIG", "/nonexistent-dir-ttt/x/settings.ini", 1);
+    PlatOs_SetEnv("TTT_CONFIG", "/nonexistent-dir-ttt/x/settings.ini", 1);
     Settings_Load();
     expect(Settings_GetInt("audio.volume") == 100 && Settings_LoadError()[0] == 0, "a missing file is the defaults");
     expect(Settings_GetInt("game.speed") == 100 && Settings_GetInt("game.fast_forward") == 300 &&
@@ -784,7 +776,7 @@ void Settings_SelfTest(void) {
            "T47 / T48 defaults: 100 % scale, the usual colours, no screen reader");
 
     /* T47: the language's round trip through the file, the environment and the catalogs (port/lang) */
-    setenv("TTT_CONFIG", cfg, 1);
+    PlatOs_SetEnv("TTT_CONFIG", cfg, 1);
     Settings_Load();
     sFails += Lang_SelfTest();
     expect(Settings_SetStr("ui.language", "es") && Settings_SetInt("ui.scale", 400), "ui.language written");
@@ -807,11 +799,11 @@ void Settings_SelfTest(void) {
     expect(strstr(text, "ui.language = en\n") != NULL, "ui.language in the file");
     expect(Lang_Set("es_AR") && strcmp(Lang_Current(), "es") == 0, "es_AR falls back to es");
     expect(!Lang_Set("xx") && strcmp(Lang_Current(), "en") == 0, "an unknown language is English");
-    setenv("LANGUAGE", "", 1);
-    setenv("LC_ALL", "", 1);
-    setenv("LC_MESSAGES", "es_MX.UTF-8", 1);
+    PlatOs_SetEnv("LANGUAGE", "", 1);
+    PlatOs_SetEnv("LC_ALL", "", 1);
+    PlatOs_SetEnv("LC_MESSAGES", "es_MX.UTF-8", 1);
     expect(Lang_Set("auto") && strcmp(Lang_Current(), "es") == 0, "auto: LC_MESSAGES=es_MX.UTF-8 is Spanish");
-    setenv("LC_ALL", "C", 1);
+    PlatOs_SetEnv("LC_ALL", "C", 1);
     expect(strcmp(Lang_Detect(), "en") == 0, "auto: LC_ALL=C is English");
     Lang_Set("en");
     {
@@ -822,7 +814,7 @@ void Settings_SelfTest(void) {
         }
         expect(n >= 2 && strcmp(li[0].code, "en") == 0 && es, "the picker's list: English, then Spanish by its name");
     }
-    unsetenv("TTT_SCALE");
+    PlatOs_UnsetEnv("TTT_SCALE");
     printf(sFails ? "ttt: settings self-test FAILED (%d)\n" : "ttt: settings self-test OK\n", sFails);
     fflush(stdout);
     exit(sFails != 0);

@@ -29,8 +29,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <unistd.h>
 #include "softfloat_ps2_inl.h"
+#include "plat_os.h"
 
 uint32_t Port_VBlankCount(void);
 void Port_Di(void), Port_Ei(void);
@@ -82,7 +82,7 @@ static int load_elf(void) {
     sImgState = -1;
     if (path == NULL) { /* build/SLUS_200.01, next to build/port/ttt */
         static char buf[1100];
-        ssize_t k = readlink("/proc/self/exe", buf, 1000);
+        long k = PlatOs_ExePath(buf, 1000);
         char *slash;
         buf[k > 0 ? k : 0] = 0;
         slash = strrchr(buf, '/');
@@ -1006,7 +1006,7 @@ static const char *sPs2Names[MAX_FNS];
 static uint32_t sPs2Addrs[MAX_FNS], sPs2N;
 
 /* Calls fn(name, value) for every function symbol of a 32-bit little-endian ELF file, or a 64-bit one with values below
-   4 GB (the x86-64 build's own symbols); the names stay valid (the file is kept in memory). */
+   4 GB; the names stay valid (the file is kept in memory). The program's own: PlatOs_SelfImage. */
 static void elf_funcs(const char *path, void (*fn)(const char *, uint32_t)) {
     FILE *f = fopen(path, "rb");
     uint8_t *d;
@@ -1074,12 +1074,19 @@ static void add_host(const char *name, uint32_t a) {
     }
 }
 
+static void add_host_sym(void *ctx, const char *name, uint32_t a, int type) {
+    (void)ctx;
+    if (type == PLAT_SYM_FUNC) {
+        add_host(name, a);
+    }
+}
+
 static uint32_t host_to_ps2(uint32_t a) {
     uint32_t k;
 
     if (sHostFnState == 0) {
         static char buf[1100];
-        ssize_t n = readlink("/proc/self/exe", buf, 1000);
+        long n = PlatOs_ExePath(buf, 1000);
         char *slash;
         sHostFnState = 1;
         buf[n > 0 ? n : 0] = 0;
@@ -1088,7 +1095,7 @@ static uint32_t host_to_ps2(uint32_t a) {
             strcpy(slash + 1, "../SLUS_200.01.elf");
             elf_funcs(buf, add_ps2);
         }
-        elf_funcs("/proc/self/exe", add_host);
+        PlatOs_SelfImage(NULL, add_host_sym, NULL); /* the program's own functions */
     }
     for (k = 0; k < sHostFnN; k++) {
         if (sHostFns[k].host == a) {
