@@ -93,6 +93,15 @@ Controls page has the keyboard table (pads 1 and 2), the gamepad table of the ch
 press the gamepad's button or pull a trigger; guide or any key cancels), "Default buttons" for that pad, the four
 gamepads' names, and the options: stick dead zone, left stick as d-pad, vibration, multitap (next start).
 
+## Netplay
+
+In a netplay session ([netplay.md](netplay.md)) the game sees two pads, no multitap: the local player's is the
+window's first pad (the keyboard's player 1 keys, or the first gamepad), sampled once per VBlank and given to the game
+`TTT_NET_DELAY` VBlanks later, as pad 1 on the host and pad 2 on the joining side; the other pad is the peer's.
+`TTT_INPUT_PLAY` plays this side's pad from its column of a recording, and `TTT_INPUT_RECORD` writes both pads' final
+states, a recording that replays the session offline (with `TTT_MC0=none`). Only the local pad vibrates, on the
+window's first gamepad, and only from the first pass through a VBlank (not from the VBlanks a rollback runs again).
+
 ## Tests without the desktop
 
 `TTT_SELFTEST=pad` drives the window's own input path with made-up SDL events built in the process: SDL is not

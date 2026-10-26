@@ -133,6 +133,8 @@ static void saves_dir(void) {
     Port_UserFolder("saves", sSaves, sizeof sSaves);
 }
 
+extern int gPortNet; /* plat_net.c (set before main) */
+
 static int card_kind(const char *env, int dflt) {
     const char *e = getenv(env);
     if (e == NULL || !*e) {
@@ -163,6 +165,9 @@ static void mc_setup(void) {
     for (i = 0; i < 2; i++) {
         memset(&sCard[i], 0, sizeof sCard[i]);
         sCard[i].kind = card_kind(i == 0 ? "TTT_MC0" : "TTT_MC1", i == 0 ? CARD_FORMATTED : CARD_NONE);
+        if (gPortNet) { /* netplay (T45): no card on either side, so both boot the same and nothing is written */
+            sCard[i].kind = CARD_NONE;
+        }
         snprintf(sCard[i].root, sizeof sCard[i].root, "%s/mc%d", sSaves, i);
     }
 }

@@ -56,7 +56,10 @@ class HostCalls(unittest.TestCase):
                    # the crash reports and the background check of TEKKEN.BIN (T41, plat_crash.c, plat_data.c)
                    "sigaction", "sigaltstack", "syscall", "raise", "abort", "open", "read", "write", "close", "statx",
                    # the setup (T43, plat_setup.c, plat_file.c, plat_paths.c)
-                   "realpath"}
+                   "realpath",
+                   # netplay's UDP socket (T45, plat_net.c)
+                   "socket", "bind", "connect", "sendto", "recvfrom", "getsockname", "poll", "getaddrinfo",
+                   "freeaddrinfo", "inet_ntop"}
         self.assertEqual(sorted(set(plt) & overlay), [])
         self.assertEqual([n for n in plt if n.startswith(("_Z", "__cxa", "__gxx"))], [])
 

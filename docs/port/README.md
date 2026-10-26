@@ -106,6 +106,11 @@ Players: [install.md](install.md) (the setup screen, `ttt --setup <disc>`, where
   `TTT_LOADSTATE`, `Port_StateSave` / `Port_StateLoad`), and `TTT_SYNCTEST` runs every few VBlanks twice from a
   loaded state and compares. It found the fight's state depending on the GS threads' timing (stale stack words the
   game reads, left by the port's waits) and the C library's addresses on the EE stack; both fixed.
+- Rollback netplay (T45, [netplay.md](netplay.md)): `TTT_NET_HOST=[<addr>:]<port>` / `TTT_NET_JOIN=<addr>:<port>`,
+  two copies over UDP from boot, each player's pad from its own window; input delay (2), rollback over the state's
+  saves (up to 6 VBlanks, undrawn and unheard), time sync, a state fingerprint every 60 VBlanks (a desync stops the
+  session with the VBlank and the region). Both sides on the deterministic clock at 1x, no memory card, no movies;
+  the handshake refuses another build, other game data or other cheat / seed settings.
 - Floats are the EE's: every float operation of the game and of `port/src` goes through the EE float model
   (`port/src/softfloat_ps2.c`), the maths library is the PS2's newlib (`third_party/newlib_libm`), `rand` / `srand`
   are newlib's on the game's own state word. No host float code is linked ([EE float model](#ee-float-model)).
@@ -285,6 +290,7 @@ wait loops drive the hardware.
 | `plat_settings.c` | The settings file (`key = value`, unknown lines kept, atomic writes), the environment's precedence, key names, the keyboard's bindings ([settings.md](settings.md)) |
 | `overlay.cpp` / `overlay.h` / `imconfig_ttt.h` | The F1 overlay and the quit question: Dear ImGui (`third_party/imgui`) on the window thread, its SDL glue, its software-renderer path, its maths ([settings.md](settings.md)) |
 | `plat_cheat.c` | Cheats (T40): "unlock everything" through the game's own save-block unlock flags, opt-in, the `ttt: unlocks:` report line ([cheats.md](cheats.md)) |
+| `plat_net.c` | Rollback netplay (T45): the UDP session (handshake, inputs with redundancy, acknowledgements), prediction and rollback over `plat_state.c`'s saves, pacing and time sync, the fingerprint checks, `TTT_NET_SIM` ([netplay.md](netplay.md)) |
 | `plat_state.c` | The state: the regions the modules register, the gameplay hash, save / load at the VBlank boundary (a stack switch), page tracking (userfaultfd, `PAGEMAP_SCAN`), `Port_OffEe`, the synctest and the rollback test ([determinism.md](determinism.md)) |
 | `plat_window.c` | The SDL3 window: SDL loaded at run time, its own thread, the GL context ([Window](#window)), the audio stream, F1 / the quit question / the live settings, `TTT_SELFTEST=window` |
 | `gs_gl.c` | The GS's OpenGL 3.3 back end on the window thread ([GL back end](#gl-back-end)) |

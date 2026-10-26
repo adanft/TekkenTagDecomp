@@ -55,6 +55,9 @@
 
 uint32_t Port_VBlankCount(void); /* plat_hw.c */
 int Port_Headless(void);
+extern int gPortNet;                 /* plat_net.c: a netplay session (T45) */
+void Port_NetBoundary(uint32_t vb);
+void Port_NetReport(void);
 
 int gPortStateWant;
 int gPortResim;
@@ -304,6 +307,35 @@ uint64_t Port_StateHash(void) {
     return XXH3_64bits(h, (size_t)n * sizeof h[0]);
 }
 
+/* Netplay's desync check (plat_net.c): each hashed region's hash into `each` (at most `max`), the total (Port_StateHash)
+   into `total`; returns how many. Port_StateRegionName names the i-th hashed region. */
+int Port_StateHashEach(uint64_t *each, int max, uint64_t *total) {
+    uint64_t h[MAX_REGIONS];
+    int r, n = 0;
+    syms_init();
+    for (r = 0; r < sRegN; r++) {
+        if (sReg[r].flags & PS_HASH) {
+            h[n] = region_hash(r);
+            if (n < max) {
+                each[n] = h[n];
+            }
+            n++;
+        }
+    }
+    *total = XXH3_64bits(h, (size_t)n * sizeof h[0]);
+    return n < max ? n : max;
+}
+
+const char *Port_StateRegionName(int hashed) {
+    int r;
+    for (r = 0; r < sRegN; r++) {
+        if ((sReg[r].flags & PS_HASH) && hashed-- == 0) {
+            return sReg[r].name;
+        }
+    }
+    return "?";
+}
+
 /* TTT_HASH_REGIONS=1: each hashed region's own hash after the total (to find where two runs part). */
 static void hash_regions_print(void) {
     int r;
@@ -410,6 +442,9 @@ static uint64_t build_id(void) {
     }
     return sBuild;
 }
+
+/* The build id (netplay's handshake: both sides must run the same program). */
+uint64_t Port_StateBuildId(void) { return build_id(); }
 
 static uint64_t ns_now(void);
 static uint64_t sPrepNs; /* the last save's or load's preparation (the GS drain, mostly) */
@@ -687,6 +722,97 @@ static void trk_check(const uint8_t *buf, const char *what) {
     sTrkCheckBad += bad;
 }
 
+/* Netplay's desync check (plat_net.c): a fingerprint of the hashed regions that costs about the pages written since the
+   last one. A region of 64 KB or more is hashed as the XXH3 of its whole pages' own hashes (with the bytes before and
+   after them), each page's hash kept until page tracking sees it written; the others as in Port_StateHash. The value
+   depends only on the state (without tracking every page is hashed every time). EE RAM counts as in the hash: without
+   the ELF header's page and the EE stack. Each hashed region's value goes to `each` (at most `max`), the total to
+   `total`; returns how many. */
+static uint64_t *sFpPage;   /* per page of the regions below: its hash */
+static uint32_t sFpPages, sFpEpoch, sFpBase[MAX_REGIONS];
+static int sFpValid;
+
+static uint64_t fp_page(int r, uint32_t off) {
+    uint32_t lo = off, hi = off + TRK_PAGE;
+    XXH3_64bits_reset(&sXxh);
+    if (sReg[r].flags & PS_EERAM) { /* [0, ELFHDR_LO) and [ELFHDR_HI, STACK_LO) */
+        if (lo < ELFHDR_LO) {
+            hash_bytes(&sXxh, sReg[r].p + lo, (hi < ELFHDR_LO ? hi : ELFHDR_LO) - lo, sReg[r].flags);
+        }
+        lo = lo > ELFHDR_HI ? lo : ELFHDR_HI;
+        hi = hi < STACK_LO ? hi : STACK_LO;
+        if (lo < hi) {
+            hash_bytes(&sXxh, sReg[r].p + lo, hi - lo, sReg[r].flags);
+        }
+    } else {
+        hash_bytes(&sXxh, sReg[r].p + lo, TRK_PAGE, sReg[r].flags);
+    }
+    return XXH3_64bits_digest(&sXxh);
+}
+
+int Port_StateFingerprint(uint64_t *each, int max, uint64_t *total) {
+    uint64_t h[MAX_REGIONS];
+    int r, n = 0, inc;
+    if (sFpPage == NULL) { /* the layout: every hashed region's whole pages */
+        uint32_t pages = 0;
+        for (r = 0; r < sRegN; r++) {
+            uintptr_t a = (uintptr_t)sReg[r].p, lo = (a + TRK_PAGE - 1) & ~(uintptr_t)(TRK_PAGE - 1);
+            uintptr_t hi = (a + sReg[r].size) & ~(uintptr_t)(TRK_PAGE - 1);
+            sFpBase[r] = pages;
+            if ((sReg[r].flags & PS_HASH) && !(sReg[r].flags & PS_HASHONLY) && sReg[r].size >= TRK_MIN && hi > lo) {
+                pages += (uint32_t)(hi - lo) / TRK_PAGE;
+            }
+        }
+        sFpPages = pages;
+        sFpPage = malloc(pages * sizeof *sFpPage);
+        if (sFpPage == NULL) {
+            fprintf(stderr, "ttt: state: no memory for the fingerprint\n");
+            exit(2);
+        }
+    }
+    syms_init();
+    /* only the pages written since the last fingerprint, when page tracking covers the same pages */
+    inc = sFpValid && sTrack > 0;
+    if (sTrack > 0) {
+        trk_scan();
+    }
+    for (r = 0; r < sRegN; r++) {
+        uintptr_t a = (uintptr_t)sReg[r].p, lo = (a + TRK_PAGE - 1) & ~(uintptr_t)(TRK_PAGE - 1);
+        uintptr_t hi = (a + sReg[r].size) & ~(uintptr_t)(TRK_PAGE - 1);
+        uint32_t off = (uint32_t)(lo - a), end = (uint32_t)(hi - a), k, np;
+        if (!(sReg[r].flags & PS_HASH)) {
+            continue;
+        }
+        if ((sReg[r].flags & PS_HASHONLY) || sReg[r].size < TRK_MIN || hi <= lo) {
+            h[n++] = region_hash(r);
+            continue;
+        }
+        np = (end - off) / TRK_PAGE;
+        for (k = 0; k < np; k++) {
+            uint64_t *slot = &sFpPage[sFpBase[r] + k];
+            if (!inc || sTrkEnd[r] != end || sTrkOff[r] != off || sPageEp[sTrkBase[r] + k] > sFpEpoch) {
+                *slot = fp_page(r, off + k * TRK_PAGE);
+            }
+        }
+        XXH3_64bits_reset(&sXxh);
+        if (!(sReg[r].flags & PS_EERAM)) {
+            hash_bytes(&sXxh, sReg[r].p, off, sReg[r].flags);
+        }
+        XXH3_64bits_update(&sXxh, &sFpPage[sFpBase[r]], np * sizeof *sFpPage);
+        if (!(sReg[r].flags & PS_EERAM)) {
+            hash_bytes(&sXxh, sReg[r].p + end, sReg[r].size - end, sReg[r].flags);
+        }
+        h[n++] = XXH3_64bits_digest(&sXxh);
+    }
+    sFpValid = 1;
+    sFpEpoch = sEpoch;
+    for (r = 0; r < n && r < max; r++) {
+        each[r] = h[r];
+    }
+    *total = XXH3_64bits(h, (size_t)n * sizeof h[0]);
+    return n < max ? n : max;
+}
+
 static int sLoading;
 int Port_StateLoading(void) { return sLoading; }
 
@@ -873,11 +999,19 @@ static void init(void) {
             memset(sRbCheck, 0, sizeof(StateHeader));
         }
     }
-    sOn = sHashEvery || sSaveAt || sLoadFile || sSyncN || sRbN;
-    /* page tracking: on for the synctest and the rollback test unless TTT_STATE_TRACK=0, on for anything with 1 */
+    if (gPortNet && (sSyncN != 0 || sRbN != 0)) {
+        fprintf(stderr, "ttt: netplay (T45) runs neither TTT_SYNCTEST nor TTT_ROLLBACK\n");
+        exit(2);
+    }
+    if (gPortNet) {
+        gPortStateNoGs = 1; /* (netplay's frames run again are never drawn: the GS's side never goes back) */
+    }
+    sOn = sHashEvery || sSaveAt || sLoadFile || sSyncN || sRbN || gPortNet;
+    /* page tracking: on for the synctest, the rollback test and netplay unless TTT_STATE_TRACK=0, on for anything
+       with 1 */
     e = getenv("TTT_STATE_TRACK");
     sTrkCheck = getenv("TTT_STATE_TRACK_CHECK") != NULL;
-    if (e != NULL && *e ? strcmp(e, "0") != 0 : sSyncN != 0 || sRbN != 0) {
+    if (e != NULL && *e ? strcmp(e, "0") != 0 : sSyncN != 0 || sRbN != 0 || gPortNet) {
         Port_StateTrack(1);
     }
 }
@@ -1144,6 +1278,9 @@ void port_boundary_body(void) {
     if (sRbN != 0) {
         rollback_step(vb);
     }
+    if (gPortNet) {
+        Port_NetBoundary(vb);
+    }
     sInBoundary = 0;
 }
 
@@ -1205,6 +1342,7 @@ void Port_StateReport(void) {
                (unsigned)(sSaves ? sSaveNs / sSaves / 1000 : 0), (unsigned)(sLoads ? sLoadNs / sLoads / 1000 : 0),
                (unsigned)(sSaves + sLoads ? sDrainNs / (sSaves + sLoads) / 1000 : 0));
     }
+    Port_NetReport();
     if (sTrack != 0 || sTrkScans != 0) {
         printf("ttt: state-track: %s; %u pages tracked, %llu scans (mean %u us, %u pages written), %llu of %llu saves and "
                "%llu of %llu loads by page (mean %u / %u pages copied); %llu checked, %llu wrong\n",

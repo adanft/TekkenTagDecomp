@@ -49,6 +49,7 @@
 #include "plat_settings.h"
 
 int Port_Headless(void); /* plat_hw.c */
+int Port_NetWindow(void); /* plat_net.c: a netplay session shows a window (on the netplay clock) */
 
 /* SDL3's ABI as used here (values from SDL3's headers). */
 #define SDL_INIT_VIDEO 0x20u
@@ -1031,7 +1032,7 @@ int Port_WindowOpen(void) {
         return sState == 2;
     }
     e = getenv("TTT_WINDOW");
-    if (e != NULL ? atoi(e) == 0 : Port_Headless() || getenv("TTT_SELFTEST") != NULL) {
+    if (e != NULL ? atoi(e) == 0 : (Port_Headless() && !Port_NetWindow()) || getenv("TTT_SELFTEST") != NULL) {
         sState = -1;
         return 0;
     }

@@ -43,9 +43,11 @@ static struct {
     int frames;
 } sM;
 
+extern int gPortNet; /* plat_net.c (set before main) */
+/* No movies in netplay (T45): the decoder is host memory, which no state saves (no rollback while one plays). */
 int Port_MoviesOn(void) {
     const char *e = getenv("TTT_MOVIES");
-    return e == NULL || strcmp(e, "0") != 0;
+    return !gPortNet && (e == NULL || strcmp(e, "0") != 0);
 }
 
 /* movie.c func_0039C878 asks before the movie: with TTT_MOVIES=0 it is skipped as before T33. */

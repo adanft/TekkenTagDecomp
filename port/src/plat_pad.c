@@ -43,6 +43,9 @@ uint32_t Port_VBlankCount(void);                            /* plat_hw.c */
 int Port_WindowOpen(void);                                  /* plat_window.c */
 void Port_WindowPads(uint16_t buttons[4], uint8_t analog[4][4]); /* plat_window.c */
 void Port_WindowRumble(int pad, int small, int large);           /* plat_window.c */
+extern int gPortNet;                                             /* plat_net.c: netplay (T45) */
+int Port_NetSide(void);
+void Port_NetPads(uint32_t n, uint16_t buttons[2], uint8_t analog[2][4]);
 
 #define PAD_MAX 2 /* the pads of pad.now, the hashed state (its layout since T34 b1) */
 #define PAD_ALL 4 /* with the multitap */
@@ -228,6 +231,10 @@ static void setup(void) {
         int n = atoi(pads), max = sMultitap ? PAD_ALL : PAD_MAX;
         sPads = n < 0 ? 0 : n > max ? max : n;
     }
+    if (gPortNet) { /* netplay: two pads, one per side, no multitap */
+        sMultitap = 0;
+        sPads = PAD_MAX;
+    }
     if (rec != NULL && *rec != 0) {
         sRecord = fopen(rec, "w");
         if (sRecord == NULL) {
@@ -278,6 +285,21 @@ void Port_PadVBlank(uint32_t n) {
         return;
     }
     now_get(&now);
+    if (gPortNet) {
+        uint16_t b[PAD_MAX];
+        uint8_t a[PAD_MAX][4];
+        Port_NetPads(n, b, a); /* ours and the peer's (plat_net.c) */
+        centre(&now);
+        for (p = 0; p < PAD_MAX; p++) {
+            now.buttons[p] = b[p];
+            memcpy(now.analog[p], a[p], 4);
+            any |= b[p];
+        }
+        now.vblank = n;
+        now_put(&now);
+        sPressedVBlanks += any != 0;
+        return; /* (TTT_INPUT_RECORD: plat_net.c writes each VBlank once both sides' states are final) */
+    }
     if (sPlaying) {
         while (sPlayNext < sPlayCount && sPlay[sPlayNext].vblank <= n) {
             now = sPlay[sPlayNext++];
@@ -300,6 +322,52 @@ void Port_PadVBlank(uint32_t n) {
     if (sRecord != NULL && !gPortResim) {
         record(&now);
     }
+}
+
+/* Netplay (plat_net.c): the local pad's state for VBlank `frame`, from TTT_INPUT_PLAY (the recording's column of pad
+   `pad`: a script for each side) or the window's first pad, sampled now. Asked once per VBlank, in order. */
+void Port_PadLocal(uint32_t frame, int pad, uint16_t *buttons, uint8_t analog[4]) {
+    static PadInput cur;
+    static uint32_t next;
+    static int init;
+    if (!init) {
+        init = 1;
+        centre(&cur);
+    }
+    pads();
+    if (sPlaying) {
+        while (next < sPlayCount && sPlay[next].vblank <= frame) {
+            cur = sPlay[next++];
+        }
+        *buttons = cur.buttons[pad];
+        memcpy(analog, cur.analog[pad], 4);
+    } else if (Port_WindowOpen()) {
+        PadInput w;
+        centre(&w);
+        Port_WindowPads(w.buttons, w.analog);
+        *buttons = w.buttons[0];
+        memcpy(analog, w.analog[0], 4);
+    } else {
+        *buttons = 0;
+        memset(analog, 0x80, 4);
+    }
+}
+
+/* Netplay: VBlank `frame`'s final states of both pads, for TTT_INPUT_RECORD (in order, each once): the recording
+   replays the session offline. */
+void Port_PadRecordNet(uint32_t frame, const uint16_t buttons[2], uint8_t analog[2][4]) {
+    PadInput f;
+    int p;
+    if (sRecord == NULL) {
+        return;
+    }
+    centre(&f);
+    f.vblank = frame;
+    for (p = 0; p < PAD_MAX; p++) {
+        f.buttons[p] = buttons[p];
+        memcpy(f.analog[p], analog[p], 4);
+    }
+    record(&f);
 }
 
 /* The TTT_FRAMES report line (only with pads). */
@@ -424,8 +492,10 @@ int scePadSetActDirect(int port, int slot, const uint8_t *data) {
             large = data[i];
         }
     }
-    if (!gPortResim && !sPlaying) { /* a replay's motors are not the gamepads' to play */
+    if (!gPortResim && !sPlaying && !gPortNet) { /* a replay's motors are not the gamepads' to play */
         Port_WindowRumble(p, small, large);
+    } else if (!gPortResim && !sPlaying && p == Port_NetSide()) { /* netplay: our pad's, on the window's first */
+        Port_WindowRumble(0, small, large);
     }
     return 1;
 }

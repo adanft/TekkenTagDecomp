@@ -111,12 +111,14 @@ static __attribute__((noinline)) uint64_t rt_scale(uint64_t host) {
     return sSpeedVirt + (host - sSpeedHost) * (uint64_t)sSpeed / 100u;
 }
 
+int Port_NetOn(void); /* plat_net.c */
 int Port_Headless(void) {
     if (sHeadless < 0) {
         const char *h = getenv("TTT_HEADLESS"), *f = getenv("TTT_FRAMES");
         sFrameLimit = f != NULL ? (uint32_t)strtoul(f, NULL, 0) : 0;
         sTimeFrom = getenv("TTT_TIME_FROM") != NULL ? (uint32_t)strtoul(getenv("TTT_TIME_FROM"), NULL, 0) : 0;
-        sHeadless = h != NULL ? atoi(h) != 0 : sFrameLimit != 0;
+        /* netplay (T45) runs on this clock, the same on both sides, paced by plat_net.c */
+        sHeadless = Port_NetOn() ? 1 : h != NULL ? atoi(h) != 0 : sFrameLimit != 0;
         sHostStart = host_ns();
         sSpeedHost = sSpeedVirt = sHostStart; /* the scaled clock starts as the host's */
     }

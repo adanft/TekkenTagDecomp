@@ -169,6 +169,14 @@ skinning programs about 40 % of the game thread's samples, the EE side's vector-
 about 5 %, `memcpy` on the EE stack about 4 %. Drawn, the window thread would also have to draw n + 1 frames per
 VBlank (it draws about 60-70 a second): the frames run again must stay undrawn.
 
+## Netplay (T45)
+
+[netplay.md](netplay.md) uses all of the above: a ring of saves with page tracking and the GS's side left out
+(`gPortStateNoGs`), rollbacks run undrawn and unheard, the build id and the state hash at the first boundary in the
+handshake. Its desync check uses `Port_StateFingerprint`: the hashed regions, those of 64 KB or more as the XXH3 of
+their pages' own hashes, each page's hash kept until page tracking sees it written (1-2 ms instead of 11-21 ms);
+another value than `Port_StateHash`, also a function of the state alone.
+
 ## The gameplay hash
 
 XXH3-64 (`third_party/xxhash`, BSD-2, scalar code, no new PLT entry) over every region marked hashed above, each region
@@ -259,5 +267,5 @@ continues with the same pictures, modes and state as the run that saved it.
 - **Uninitialised reads.** Stale stack words are now the same in every run of a build, but they can still hold
   build-dependent values (a frame layout, a code address): the cross-build check (a padding build, `TTT_HASH_DUMP`)
   found the two above; other paths of the game (menus, other modes) are not checked yet.
-- **Real time.** The real-time clock is moved to the loaded cycle count after a load; rollback with live input (the
-  window's pads) is T45.
+- **Real time.** The real-time clock is moved to the loaded cycle count after a load. Rollback with live input is
+  T45 ([netplay.md](netplay.md)): it runs on the deterministic clock, paced, not on the real-time one.
