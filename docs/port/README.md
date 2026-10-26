@@ -111,10 +111,11 @@ Players: [install.md](install.md) (the setup screen, `ttt --setup <disc>`, where
   are newlib's on the game's own state word. No host float code is linked ([EE float model](#ee-float-model)).
 - Last clean build: 76 objects (59 game, 17 port), 1270 data objects, 22 names placed by address, 43 stubs (none
   reached on the path above).
-- `TTT_CC=clang` (T42 b1): the game code through clang 23 builds (every object) into its own tree,
-  `build/port-clang/ttt`, and ends the idle run and the scripted fight (GL too) with the gcc build's hashes; the
-  default build is unchanged but for two stale-stack reads now fixed under `PORT`, which gave new reference hashes
-  (gotcha 32, `tests/test_port_clang.py`).
+- `TTT_CC=clang` (T42 b1, b2): the whole program through clang 23 (the game, `port/src`, newlib's libm, the MPEG-2
+  decoder, the generated table and stubs; the overlay and Dear ImGui through clang++; clang drives the link) builds
+  into its own tree, `build/port-clang/ttt`, with the gcc build's PLT, passes the self-tests and ends the idle run and
+  the scripted fight (GL too) with the gcc build's hashes; the default build is unchanged but for two stale-stack
+  reads now fixed under `PORT`, which gave new reference hashes (gotcha 32, `tests/test_port_clang.py`).
 
 ## Build
 
@@ -122,7 +123,7 @@ Players: [install.md](install.md) (the setup screen, `ttt --setup <disc>`, where
 python3 port/tools/build.py                   # -> build/port/ttt (no game file needed)
 build/port/ttt                                # real time, in a window (needs the 32-bit SDL3, see Window)
 TTT_FRAMES=600 build/port/ttt                 # headless, 600 VBlanks, then a report
-TTT_CC=clang python3 port/tools/build.py      # the game code through clang -> build/port-clang/ttt (gotcha 32)
+TTT_CC=clang python3 port/tools/build.py      # everything through clang -> build/port-clang/ttt (gotcha 32)
 ```
 
 `build.py` runs the two steps below in order and fails if any of them fails. Each can also be run on its own
@@ -290,7 +291,7 @@ wait loops drive the hardware.
 | `gs_texpack.c` | Texture packs for the GL back end: PCSX2's texture names (XXH3), PNG dumps and replacements on a worker thread, `third_party/stb` ([textures.md](textures.md)) |
 | `gs_async.c` | The GS threads: VIF1 and VU1, then the GIF and the GS front end, beside the game ([Speed](#speed)) |
 | `gs_int.h` | The GS commands and helpers both back ends share |
-| `port_host.h` | Host library calls added since T30, declared `noplt` (gotcha 20) |
+| `port_host.h` | Host library calls added since T30, declared `noplt` (gotcha 20); `PORT_NOPLT`, which other files use for theirs (GOT thunks with clang, gotcha 32) |
 | `softfloat_ps2.c` | The EE float model: `__addsf3`... for the FPU, `Port_Vu*` for the vector unit |
 | `plat_libc.c` | newlib's `rand` / `srand` (the executable's 0x40FBD0 / 0x40FBC0) on `_impure_ptr->_rand_next` |
 | `plat_floattest.c` | `TTT_DUMP=<dir>` | Write the displayed picture as `<dir>/frame_<vblank>.png` (8-bit RGB) every `TTT_DUMP_EVERY` VBlanks. Put it under `build/` (ignored by git): the pictures are the game's. |
@@ -1089,7 +1090,8 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
     `TTT_FRAMES` state hash covers that memory. A port change that adds a host library function to the PLT (T30: the
     first `pthread_create`) moves every game function by 16 bytes per entry and changes the hash of an unchanged run.
     Host functions new since T30 are declared `noplt` in `port/src/port_host.h` (called through the GOT); the PLT
-    stays the one of T29 and `tests/test_port_window.py` checks it. Changes to the port's own code do not move game
+    stays the one of T29 and `tests/test_port_window.py` checks it (the clang build reaches the same PLT through GOT
+    thunks, gotcha 32). Changes to the port's own code do not move game
     code (the game's objects are linked first), with one exception: gcc puts constructors (`.text.startup`) and the
     cold parts of functions (`.cold`, `.text.unlikely`) in sections the linker places before every `.text`, so a new
     `__attribute__((constructor))` in `port/src` moved the game (T34: the pad self-test runs from `__wrap_main`
@@ -1216,8 +1218,40 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
       (software and GL) and the idle run with `TTT_CHEAT_UNLOCK=1` `0x700be073c8bac18e`, every region hash equal
       ([determinism.md](determinism.md) Values). A 64-bit build will lay its frames out differently again, so reads like
       these have to be found and fixed the same way.
-    `tests/test_port_clang.py` (clang installed, `TTT_SLOW_TESTS=1`) builds the variant, runs its self-tests and the
-    idle run on both builds, and requires the same state line and region hashes.
+    - T42 b2: the rest of the program through clang too, under the same switch (`toolchain.cc()` / `cxx()`): `port/src`
+      and the MPEG-2 decoder with `PORT_CFLAGS`, newlib's libm with `NEWLIB_CFLAGS`, each plus `CLANG_CFLAGS` (so
+      `-mno-x87`: the port's and libm's float operations call the EE float model's helpers and never touch x87; the
+      SIMD files keep their SSE), the overlay and Dear ImGui with `OVERLAY_CXXFLAGS` through clang++, the generated
+      data table and stubs, and the link driver. Every object's `.comment` says clang 23.1.3 (the GOT thunks are
+      assembly, so none). clang compiles the port's C and libm as they are.
+    - `noplt` has no clang equivalent on 32-bit x86: clang does not know the attribute (it warns and ignores it), and
+      its `-fno-plt` makes no difference there (calls stay `R_386_PLT32`; LLVM honours `nonlazybind` on x86-64 only),
+      so the new C library calls added PLT entries. The variant sends them through local thunks instead,
+      `__ttt_got_<f>: jmp *<f>@GOT` (non-PIC: the GOT entry's absolute address, an `R_386_GOT32` with no base
+      register, which GNU ld resolves; `-z now` fills the entry at start, as for gcc's `call *<f>@GOT`). Names declared
+      with `PORT_NOPLT` (now one macro in `port_host.h`, used by every file that declares host calls) get the thunk's
+      name by an asm label under clang; in the objects of `NOPLT_FILES` and of the overlay (`-fno-plt`), every call of
+      a function libc.so.6 exports is renamed after compiling (`objcopy --redefine-sym`, `toolchain.noplt_redefine_args`).
+      `link.py` writes one thunk per name the objects call (`gen/got_thunks.s`, 86 today) and links it after every
+      object, so a new one never moves the game's code. `--wrap` still applies (the thunk's `memcpy@GOT` holds
+      `__wrap_memcpy`). The PLT is the gcc build's entry for entry: 48 names, the same `.plt` / `.plt.got` split and
+      sizes, so the game's functions start at the same offset after it.
+    - Found: the order of the state's regions is the order of the hash's terms, and clang evaluated `plat_state.c`'s
+      constructor `state_memory` at compile time (everything it calls is in that file: GlobalOpt turned its six
+      `Port_StateAdd` calls into initialised data), so `ee.ram`, `ee.spr`, `ee.hw`, `vu0.mem`, `gs.priv` came first
+      instead of after `snd_state`'s regions. Every region hash was equal and the total was not (idle
+      `0x52bf57becc76171d`, fight `0x2d0f9420ee4976bd`). An empty `__asm__ volatile("")` keeps the constructor;
+      gcc's code is the same. Now every object clang's gives the idle run `0x8ba37caeb2bacfa8` (the same 17
+      pictures) and the scripted fight `0xcce5eb554fa51395`, with every self-test passing.
+    - For x86-64 (b3): there clang's `-fno-plt` works (`call *f@GOTPCREL(%rip)`), so the thunks and the renames are
+      not needed (`toolchain.clang_noplt_renames()` is the switch); `PORT_NOPLT` should then expand to nothing for
+      clang and the files that declare host calls be built with `-fno-plt`. The GOT thunks assume non-PIC 32-bit code.
+      Constructor order matters for the hash on every target, and so does any constructor clang can evaluate.
+    `tests/test_port_clang.py` (clang installed, `TTT_SLOW_TESTS=1`) builds the variant and checks that every object is
+    clang's, the PLT is the gcc build's, no host float code is linked outside the overlay and the SIMD files
+    (`tests/test_port_float.py`'s rules), the self-tests pass, a crash report is written, and the idle run and the
+    scripted fight give the same state line, the reference hashes, the same region hashes and the same pictures on
+    both builds.
 
 ## Crash reports
 

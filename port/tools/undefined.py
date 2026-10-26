@@ -15,9 +15,9 @@ import re
 import subprocess
 import sys
 
-from toolchain import (BUILD, HOT_CFLAGS, HOT_FILES, IMGUI, IMGUI_OBJCOPY, IMGUI_SOURCES, MPEG2, NEWLIB,
-                       NEWLIB_CFLAGS, NOPLT_FILES, OBJ, OVERLAY_CXXFLAGS, PORT_CFLAGS, ROOT, SIMD_CFLAGS, SIMD_FILES,
-                       VU_FILES, cc, game_cflags, vu_redefine_args)
+from toolchain import (BUILD, HOT_CFLAGS, HOT_FILES, IMGUI, IMGUI_OBJCOPY, IMGUI_SOURCES, MPEG2, NEWLIB, NOPLT_FILES,
+                       OBJ, OVERLAY_CXXFLAGS, ROOT, SIMD_CFLAGS, SIMD_FILES, VU_FILES, cc, clang_noplt_renames, cxx,
+                       game_cflags, newlib_cflags, noplt_redefine_args, port_cflags, vu_redefine_args)
 import portsrc
 
 TEXT_START, TEXT_END = 0x340000, 0x415700  # .text of SLUS_200.01; .data and the rest follow
@@ -63,12 +63,18 @@ def classify(sym, addr):
 
 
 def compile_one(job):
+    """Compiles one job (compiler, source, object, flags[, objcopy arguments]); an object built with -fno-plt has its
+    C library calls renamed to the GOT thunks where the compiler cannot do it (toolchain.noplt_redefine_args)."""
     compiler, src, obj, flags = job[:4]
-    redefine = job[4] if len(job) > 4 else []
+    redefine = list(job[4]) if len(job) > 4 else []
     r = subprocess.run([compiler, "-c"] + flags + [str(src), "-o", str(obj)],
                        cwd=ROOT, capture_output=True, text=True)
     if r.returncode == 0 and src.parent == ROOT / "port/src" and src.name in VU_FILES:
         redefine = vu_redefine_args()
+    if r.returncode == 0 and "-fno-plt" in flags and clang_noplt_renames():
+        und = subprocess.run(["nm", "-u", str(obj)], capture_output=True, text=True, check=True).stdout.split()
+        redefine += noplt_redefine_args([n for n in und if n != "U"],
+                                        keep=[a.split("=")[1] for a in redefine if a.startswith("--redefine-sym=")])
     if r.returncode == 0 and redefine:
         r = subprocess.run(["objcopy"] + redefine + [str(obj)], cwd=ROOT, capture_output=True, text=True)
     return src, obj, r.returncode, r.stderr
@@ -89,18 +95,18 @@ def jobs():
             missing[f.name] = miss
         out.append((cc(), src, OBJ / f"{f.stem}.o", game_cflags() + [f"-I{ROOT / 'src'}"]))
     for f in sorted((ROOT / "port/src").glob("*.c")):
-        out.append(("gcc", f, OBJ / f"pc_{f.stem}.o", PORT_CFLAGS + (HOT_CFLAGS if f.name in HOT_FILES else [])
+        out.append((cc(), f, OBJ / f"pc_{f.stem}.o", port_cflags() + (HOT_CFLAGS if f.name in HOT_FILES else [])
                     + (SIMD_CFLAGS if f.name in SIMD_FILES else []) + (["-fno-plt"] if f.name in NOPLT_FILES else [])
                     + ([f'-DTTT_GIT="{git_id()}"'] if f.name == "plat_crash.c" else [])))  # the crash report's build id
     for f in sorted((ROOT / "port/src").glob("*.cpp")):  # the settings overlay (T36), with the build's id for its About
-        out.append(("g++", f, OBJ / f"pc_{f.stem}.o", OVERLAY_CXXFLAGS + [f'-DTTT_GIT="{git_id()}"']))
+        out.append((cxx(), f, OBJ / f"pc_{f.stem}.o", OVERLAY_CXXFLAGS + [f'-DTTT_GIT="{git_id()}"']))
     for n in IMGUI_SOURCES:  # Dear ImGui
-        out.append(("g++", IMGUI / n, OBJ / f"im_{pathlib.Path(n).stem}.o", OVERLAY_CXXFLAGS,
+        out.append((cxx(), IMGUI / n, OBJ / f"im_{pathlib.Path(n).stem}.o", OVERLAY_CXXFLAGS,
                     IMGUI_OBJCOPY.get(n, [])))
     for f in sorted(NEWLIB.glob("*.c")):  # the PS2's maths library, on the EE float model
-        out.append(("gcc", f, OBJ / f"nl_{f.stem}.o", NEWLIB_CFLAGS))
+        out.append((cc(), f, OBJ / f"nl_{f.stem}.o", newlib_cflags()))
     for f in sorted(MPEG2.glob("*.c")):  # the MPEG-2 video decoder of the movies (integer only), -O3 like the hot paths
-        out.append(("gcc", f, OBJ / f"tp_{f.stem}.o", PORT_CFLAGS + HOT_CFLAGS))
+        out.append((cc(), f, OBJ / f"tp_{f.stem}.o", port_cflags() + HOT_CFLAGS))
     return out, missing
 
 

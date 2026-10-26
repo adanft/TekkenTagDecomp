@@ -74,7 +74,10 @@ tracking of what changed, as the reference project does) and the GL back end's s
 ## The gameplay hash
 
 XXH3-64 (`third_party/xxhash`, BSD-2, scalar code, no new PLT entry) over every region marked hashed above, each region
-hashed alone and the region hashes hashed together.
+hashed alone and the region hashes hashed together, in the order the regions were registered: the order the port's
+constructors run in (priority, then link order). A compiler that runs one of them at another place changes every
+hash with the same memory (T42 b2: clang evaluated `plat_state.c`'s `state_memory` at compile time, so EE RAM came
+first; `TTT_HASH_REGIONS` lists the regions in that order).
 
 **Host addresses (F04).** The game keeps host code addresses in its memory: callbacks in its tables and object pools
 (`.sbss` 0x5F6FD0 / 0x5F6FD4 = `func_003D9588` / `func_003DA138`, the effect pools at 0x76D518...) and values derived
@@ -98,7 +101,8 @@ Values (sw, `TTT_SEED=1 TTT_MOVIES=0`, empty card): the 2551-VBlank idle run end
 `0xcce5eb554fa51395`. Before T42 b1 they were `0xd36c82e9a145875a` and `0x3c2cd520128fc04d` (`0xaeed4a40f6029792` for
 1450 VBlanks at T27): two values the game reads from uninitialised stack bytes (`dma_spr.c` `func_0035D790`'s DMA
 tag and its stack address, `Light_StartFlash`'s fourth float) followed the compiler's frame layout; they are fixed
-under `PORT` now, and the gcc and clang builds give the same hashes ([README.md](README.md) gotcha 32).
+under `PORT` now, and the gcc and clang builds give the same hashes ([README.md](README.md) gotcha 32; since T42 b2
+with every object of the clang build clang's).
 
 ## Nondeterminism found and fixed
 

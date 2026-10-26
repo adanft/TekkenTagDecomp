@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include "plat_state.h"
+#include "port_host.h"
 
 extern uint8_t *D_004F5A8C; /* _impure_ptr */
 
@@ -25,8 +26,8 @@ int rand(void) {
 /* printf / sprintf / memcpy / memset (the game's and the port's, port/tools/link.py: --wrap) off the EE stack: the C
    library's frames would leave addresses of this process there (a state holds the EE stack; the game reads stale stack
    words in places, docs/port/determinism.md). vprintf / vsprintf through the GOT: no new PLT entry (port_host.h). */
-__typeof__(vprintf) vprintf __attribute__((noplt));
-__typeof__(vsprintf) vsprintf __attribute__((noplt));
+PORT_NOPLT(vprintf);
+PORT_NOPLT(vsprintf);
 
 typedef struct {
     char *buf;

@@ -93,8 +93,12 @@ extern char __ttt_data_start[];
 #define ELFHDR_LO ((uint32_t)(uintptr_t)__ttt_data_start & ~0xFFFu)
 #define ELFHDR_HI ((uint32_t)(uintptr_t)__ttt_data_start)
 
-/* The PS2's memory, first of all (constructor 101, as the modules' registrations). */
+/* The PS2's memory, first of all (constructor 101, as the modules' registrations). The order of the regions is the
+   order of the hash's terms, so this runs at its place among the constructors: the empty asm keeps clang from
+   evaluating it at compile time (everything it calls is in this file), which put these regions first in its build and
+   gave every run another hash (T42 b2, docs/port/README.md gotcha 32). */
 __attribute__((constructor(101))) static void state_memory(void) {
+    __asm__ volatile("");
     Port_StateAdd("ee.ram", Port_Ptr(0x20000000u), PORT_EE_RAM_SIZE, PS_HASH | PS_EERAM); /* the uncached view: all 32 MB */
     Port_StateAdd("ee.spr", Port_Ptr(PORT_SPR_ADDR), PORT_SPR_SIZE, PS_HASH);
     Port_StateAdd("ee.hw", Port_Ptr(0x10000000u), 0x10000u, PS_HASH);

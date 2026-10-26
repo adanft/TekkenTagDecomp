@@ -35,7 +35,6 @@
 #include "plat_settings.h"
 
 /* C library calls the setup added, through the GOT (port_host.h: the PLT stays as it was) */
-#define PORT_NOPLT(f) __typeof__(f) f __attribute__((noplt))
 PORT_NOPLT(opendir);
 PORT_NOPLT(readdir);
 PORT_NOPLT(closedir);
@@ -43,7 +42,6 @@ PORT_NOPLT(stat);
 PORT_NOPLT(qsort);
 PORT_NOPLT(realpath);
 PORT_NOPLT(strncmp);
-#undef PORT_NOPLT
 
 /* plat_data.c, plat_hw.c, plat_window.c */
 int Port_DataPending(void);
