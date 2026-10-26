@@ -72,8 +72,13 @@ void *__real_memcpy(void *d, const void *s, size_t n);
 void *__real_memset(void *d, int c, size_t n);
 
 static inline int on_ee_stack(void) {
+#if defined(__x86_64__)
+    uintptr_t sp; /* (x86-64: the host stacks lie above 4 GB, whose low half could look like EE RAM) */
+    __asm__("movq %%rsp, %0" : "=r"(sp));
+#else
     uint32_t sp;
     __asm__("movl %%esp, %0" : "=r"(sp));
+#endif
     return sp < 0x02000000u;
 }
 

@@ -62,7 +62,8 @@ void Port_Vu0CallMs(uint32_t addr);   /* vu0_micro.c */
 extern uint16_t gPortVu0Vi[16];       /* vu0_micro.c */
 #define VFW(r) ((uint32_t *)gPortVu0Vf[(r)])
 
-static uint32_t *skin(uint32_t **dst, uint32_t *src, int32_t n, uint32_t prog, int envmap) {
+/* dst: the game's output pointer, a 4-byte variable in the 64-bit build too (port_addr.h PORT_GPTR) */
+static uint32_t *skin(uint32_t *PORT_GPTR *dst, uint32_t *src, int32_t n, uint32_t prog, int envmap) {
     uint32_t *out = *dst;
     uint32_t *p = src;
 
@@ -113,22 +114,22 @@ static void set_vf6(int64_t a) {
     gPortVu0Vi[6] = (uint16_t)a;
 }
 
-uint32_t *func_003435C0(uint32_t **dst, uint32_t *src, int32_t n, void *hdr) {
+uint32_t *func_003435C0(uint32_t *PORT_GPTR *dst, uint32_t *src, int32_t n, void *hdr) {
     (void)hdr;
     return skin(dst, src, n, 0x000, 0);
 }
 
-uint32_t *func_003436B8(uint32_t **dst, uint32_t *src, int32_t n, int64_t a) {
+uint32_t *func_003436B8(uint32_t *PORT_GPTR *dst, uint32_t *src, int32_t n, int64_t a) {
     set_vf6(a);
     return skin(dst, src, n, 0x250, 0);
 }
 
-uint32_t *func_003437B8(uint32_t **dst, uint32_t *src, int32_t n, int64_t a) {
+uint32_t *func_003437B8(uint32_t *PORT_GPTR *dst, uint32_t *src, int32_t n, int64_t a) {
     set_vf6(a);
     return skin(dst, src, n, 0x750, 0);
 }
 
-uint32_t *func_003438B8(uint32_t **dst, uint32_t *src, int32_t n, void *hdr) {
+uint32_t *func_003438B8(uint32_t *PORT_GPTR *dst, uint32_t *src, int32_t n, void *hdr) {
     (void)hdr;
     return skin(dst, src, n, 0xC30, 1);
 }

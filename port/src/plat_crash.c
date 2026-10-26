@@ -48,6 +48,33 @@ extern uint8_t gPortOffStack[], gPortCtxStack[]; /* plat_state.c: the port's own
 extern uint32_t gPortOffEeEsp;                   /* plat_state.c: the EE stack pointer Port_OffEe left */
 extern char __executable_start[], etext[];
 
+/* The registers of the report: the 32-bit build's, or on x86-64 (TTT_CC=clang64) their 64-bit counterparts, written
+   as their low 32 bits (the program, the game's memory and the EE stack lie below 4 GB there; a host stack above 4 GB
+   is not walked). */
+#if defined(__x86_64__)
+#define R_PC REG_RIP
+#define R_SP REG_RSP
+#define R_FP REG_RBP
+#define R_A REG_RAX
+#define R_B REG_RBX
+#define R_C REG_RCX
+#define R_D REG_RDX
+#define R_SI REG_RSI
+#define R_DI REG_RDI
+#else
+#define R_PC REG_EIP
+#define R_SP REG_ESP
+#define R_FP REG_EBP
+#define R_A REG_EAX
+#define R_B REG_EBX
+#define R_C REG_ECX
+#define R_D REG_EDX
+#define R_SI REG_ESI
+#define R_DI REG_EDI
+#endif
+/* The stack pointer as a 4-byte address, or 0 for a stack above 4 GB (x86-64's host stacks: not walked). */
+#define LOW_SP(g) ((uint64_t)(uintptr_t)(g)[R_SP] >> 32 ? 0u : (uint32_t)(g)[R_SP])
+
 #define ALT_STACK (64 * 1024)
 #define REPORT_MAX 16384
 #define STACK_ADDR 8                     /* code addresses taken from a stack */
@@ -282,16 +309,16 @@ static void handler(int sig, siginfo_t *si, void *ctx) {
         }
     }
     sAddrN = 0;
-    sAddr[sAddrN++] = (uint32_t)g[REG_EIP];
+    sAddr[sAddrN++] = (uint32_t)g[R_PC];
     fault = (uint32_t)(uintptr_t)si->si_addr;
-    esp = (uint32_t)g[REG_ESP];
+    esp = LOW_SP(g);
     if (!(sig == SIGSEGV && si->si_code > 0 && fault + 65536u >= esp && fault < esp + 4096u)) {
         scan_stack(esp); /* not when the stack itself is what failed (an overflow into its guard page) */
     }
     nHere = sAddrN;
     /* off the EE stack on the game's thread (Port_OffEe, the port's VBlank and library work): the game's frames are
        above the EE stack pointer it left */
-    if (!is_ee_stack((uint32_t)g[REG_ESP]) && is_ee_stack(gPortOffEeEsp) && syscall(SYS_gettid) == getpid()) {
+    if (!is_ee_stack(LOW_SP(g)) && is_ee_stack(gPortOffEeEsp) && syscall(SYS_gettid) == getpid()) {
         scan_stack(gPortOffEeEsp);
     }
     resolve_names();
@@ -330,25 +357,25 @@ static void handler(int sig, siginfo_t *si, void *ctx) {
     put("\nthread: ");
     put(syscall(SYS_gettid) == getpid() ? "main (the game)" : "other (window, GS or audio)");
     put("\nregisters: eip ");
-    put_hex((uint32_t)g[REG_EIP]);
+    put_hex((uint32_t)g[R_PC]);
     put(" esp ");
-    put_hex((uint32_t)g[REG_ESP]);
+    put_hex((uint32_t)g[R_SP]);
     put(" ebp ");
-    put_hex((uint32_t)g[REG_EBP]);
+    put_hex((uint32_t)g[R_FP]);
     put(" eflags ");
     put_hex((uint32_t)g[REG_EFL]);
     put("\n           eax ");
-    put_hex((uint32_t)g[REG_EAX]);
+    put_hex((uint32_t)g[R_A]);
     put(" ebx ");
-    put_hex((uint32_t)g[REG_EBX]);
+    put_hex((uint32_t)g[R_B]);
     put(" ecx ");
-    put_hex((uint32_t)g[REG_ECX]);
+    put_hex((uint32_t)g[R_C]);
     put(" edx ");
-    put_hex((uint32_t)g[REG_EDX]);
+    put_hex((uint32_t)g[R_D]);
     put(" esi ");
-    put_hex((uint32_t)g[REG_ESI]);
+    put_hex((uint32_t)g[R_SI]);
     put(" edi ");
-    put_hex((uint32_t)g[REG_EDI]);
+    put_hex((uint32_t)g[R_DI]);
     put("\nstack: ");
     put(is_ee_stack(esp) ? "EE stack (EE RAM)" : "host");
     put("\nfunction: ");
@@ -447,7 +474,7 @@ void Port_CrashInstall(void) {
     ssize_t k;
     int i;
 
-    sMainStack = (uint32_t)(uintptr_t)&ss;
+    sMainStack = (uint64_t)(uintptr_t)&ss >> 32 ? 0u : (uint32_t)(uintptr_t)&ss; /* (x86-64: above 4 GB, not walked) */
     if (*cfg) {
         const char *slash = strrchr(cfg, '/');
         snprintf(sParent, sizeof sParent, "%.*s", slash != NULL ? (int)(slash - cfg) : 1, slash != NULL ? cfg : ".");
@@ -502,7 +529,11 @@ void Port_CrashVBlank(uint32_t n) {
         *(volatile int *)page = 1;
         break;
     case 2: /* stack: the stack pointer itself on that page */
+#if defined(__x86_64__)
+        __asm__ volatile("movq %0, %%rsp\n\tpushq $0" : : "r"((char *)page + 2048) : "memory");
+#else
         __asm__ volatile("movl %0, %%esp\n\tpushl $0" : : "r"((char *)page + 2048) : "memory");
+#endif
         break;
     case 3:
         __asm__ volatile("ud2");

@@ -5,12 +5,18 @@ executable). The first target is 32-bit x86 Linux with the host gcc: the game ke
 TTT_CC=clang compiles the game code with clang instead (same flags) into its own tree, build/port-clang/ (program
 build/port-clang/ttt), so the default build/port/ttt is never replaced. In that variant every C file of the program
 is clang's (the game, port/src, newlib's libm, the MPEG-2 decoder, the generated tables and stubs), the C++ overlay
-clang++'s, and clang drives the link (docs/port/README.md gotcha 32)."""
+clang++'s, and clang drives the link (docs/port/README.md gotcha 32).
+TTT_CC=clang64 (T42 b3, docs/port/README.md "64-bit") is the same through clang as an x86-64 program
+(build/port-clang64/ttt): the game's pointers stay 4 bytes wide (ptr32.py rewrites its preprocessed text, irfix.py
+repairs the LLVM IR, llc makes the objects), the port's own code has ordinary 64-bit pointers, and the program is
+linked at 0x08000000 so that its code, the game's memory and the PS2's fixed addresses all lie below 4 GB."""
 import os
 import pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 VARIANT = os.environ.get("TTT_CC", "gcc")
+CLANG = VARIANT in ("clang", "clang64")   # every C file through clang, the C++ through clang++
+BITS64 = VARIANT == "clang64"            # an x86-64 program with 4-byte game pointers
 BUILD = ROOT / ("build/port" if VARIANT == "gcc" else "build/port-" + VARIANT)
 GEN = BUILD / "gen"                       # generated sources: game C with the drafts switched on, data, stubs
 OBJ = BUILD / "obj"
@@ -102,29 +108,55 @@ CLANG_CFLAGS = ["-mno-x87", "-Wno-error=int-conversion", "-Wno-error=incompatibl
                 "-Wno-error=incompatible-function-pointer-types", "-Wno-error=implicit-int"]
 
 
+# The 64-bit variant: -m64 for -m32, and no -malign-double (x86-64 aligns 64-bit members to 8 already, as the PS2
+# does). The game's code gets -fms-extensions for `__ptr32 __uptr` (ptr32.py). The program image starts at 0x08000000:
+# the state hash's window for host code addresses (plat_state.c HOST_LO) and below the EE views (0x20000000), above
+# EE RAM (x86-64's default, 0x400000, lies inside it). The port's code gets it too, for the game structures it
+# declares with 4-byte pointer fields (port_addr.h PORT_GPTR).
+GAME64_CFLAGS = ["-fms-extensions"]
+TEXT64 = 0x08000000
+
+
+def bits(flags):
+    """`flags` for this variant's word size: unchanged for 32-bit, -m64 and no -malign-double for clang64."""
+    if not BITS64:
+        return list(flags)
+    return ["-m64" if a == "-m32" else a for a in flags if a != "-malign-double"]
+
+
+def march():
+    """The word-size flag of this variant (-m32 or -m64)."""
+    return "-m64" if BITS64 else "-m32"
+
+
 def cc():
     """The C compiler of this variant: every C file of the program (game, port, newlib, MPEG-2, tables, stubs)."""
-    return "clang" if VARIANT == "clang" else "gcc"
+    return "clang" if CLANG else "gcc"
 
 
 def cxx():
     """The C++ compiler of the settings overlay and Dear ImGui for this variant."""
-    return "clang++" if VARIANT == "clang" else "g++"
+    return "clang++" if CLANG else "g++"
 
 
 def game_cflags():
     """GAME_CFLAGS for this variant."""
-    return GAME_CFLAGS + CLANG_CFLAGS if VARIANT == "clang" else GAME_CFLAGS
+    return bits(GAME_CFLAGS + CLANG_CFLAGS + (GAME64_CFLAGS if BITS64 else [])) if CLANG else GAME_CFLAGS
 
 
 def port_cflags():
     """PORT_CFLAGS for this variant (port/src and the MPEG-2 decoder)."""
-    return PORT_CFLAGS + CLANG_CFLAGS if VARIANT == "clang" else PORT_CFLAGS
+    return bits(PORT_CFLAGS + CLANG_CFLAGS + (GAME64_CFLAGS if BITS64 else [])) if CLANG else PORT_CFLAGS
 
 
 def newlib_cflags():
     """NEWLIB_CFLAGS for this variant."""
-    return NEWLIB_CFLAGS + CLANG_CFLAGS if VARIANT == "clang" else NEWLIB_CFLAGS
+    return bits(NEWLIB_CFLAGS + CLANG_CFLAGS) if CLANG else NEWLIB_CFLAGS
+
+
+def overlay_cxxflags():
+    """OVERLAY_CXXFLAGS for this variant."""
+    return bits(OVERLAY_CXXFLAGS)
 
 
 # No PLT entry for a C library call (gcc: `noplt`, -fno-plt). On 32-bit x86 clang has neither: it does not know the
@@ -138,7 +170,7 @@ GOT_THUNK = "__ttt_got_"
 
 def clang_noplt_renames():
     """True when -fno-plt objects need their C library calls renamed to GOT thunks (clang on 32-bit x86)."""
-    return VARIANT == "clang"
+    return VARIANT == "clang"  # (x86-64: clang's -fno-plt works, `call *f@GOTPCREL(%rip)`)
 
 
 _HOST_FUNCTIONS = None
@@ -149,7 +181,7 @@ def host_functions():
     global _HOST_FUNCTIONS
     if _HOST_FUNCTIONS is None:
         import subprocess
-        lib = subprocess.run([cc(), "-m32", "-print-file-name=libc.so.6"], capture_output=True, text=True,
+        lib = subprocess.run([cc(), march(), "-print-file-name=libc.so.6"], capture_output=True, text=True,
                              check=True).stdout.strip()
         out = subprocess.run(["nm", "-D", "--defined-only", lib], capture_output=True, text=True, check=True).stdout
         _HOST_FUNCTIONS = frozenset(f[2].split("@")[0] for f in map(str.split, out.splitlines())

@@ -46,6 +46,10 @@ void Port_StateBoundary(void);
 /* Runs fn(arg) off the EE stack when called on it (the game's thread): for port code whose path or locals depend on
    the host's timing (waits on the GS threads), so that what it leaves on the EE stack does not. */
 void Port_OffEe(void (*fn)(void *), void *arg);
+/* Runs fn() on a stack below 4 GB when called on one above (x86-64, TTT_CC=clang64: the host's stacks are up there, and
+   the game's memory keeps addresses in 4 bytes); elsewhere, and in the 32-bit build, it just calls fn. For the
+   self-tests, which run from constructors on the host stack and hand addresses of their locals to game interfaces. */
+void Port_OnLowStack(void (*fn)(void));
 extern int gPortStateWant;
 /* 1 while frames are being run a second time (TTT_SYNCTEST's second pass): no sound out, no recording. */
 extern int gPortResim;

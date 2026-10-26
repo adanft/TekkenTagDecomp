@@ -124,6 +124,7 @@ python3 port/tools/build.py                   # -> build/port/ttt (no game file 
 build/port/ttt                                # real time, in a window (needs the 32-bit SDL3, see Window)
 TTT_FRAMES=600 build/port/ttt                 # headless, 600 VBlanks, then a report
 TTT_CC=clang python3 port/tools/build.py      # everything through clang -> build/port-clang/ttt (gotcha 32)
+TTT_CC=clang64 python3 port/tools/build.py    # x86-64 program -> build/port-clang64/ttt (see 64-bit)
 ```
 
 `build.py` runs the two steps below in order and fails if any of them fails. Each can also be run on its own
@@ -1243,15 +1244,66 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
       `0x52bf57becc76171d`, fight `0x2d0f9420ee4976bd`). An empty `__asm__ volatile("")` keeps the constructor;
       gcc's code is the same. Now every object clang's gives the idle run `0x8ba37caeb2bacfa8` (the same 17
       pictures) and the scripted fight `0xcce5eb554fa51395`, with every self-test passing.
-    - For x86-64 (b3): there clang's `-fno-plt` works (`call *f@GOTPCREL(%rip)`), so the thunks and the renames are
-      not needed (`toolchain.clang_noplt_renames()` is the switch); `PORT_NOPLT` should then expand to nothing for
-      clang and the files that declare host calls be built with `-fno-plt`. The GOT thunks assume non-PIC 32-bit code.
-      Constructor order matters for the hash on every target, and so does any constructor clang can evaluate.
+    - For x86-64 (b3, [64-bit](#64-bit)): the thunks and the renames are off there (`toolchain.clang_noplt_renames()`
+      is the switch; `PORT_NOPLT` gives them only on i386). The 64-bit program's PLT does not need to match the 32-bit
+      one: the hash maps every word of the program's window to one constant. Constructor order matters for the hash
+      on every target, and so does any constructor clang can evaluate.
     `tests/test_port_clang.py` (clang installed, `TTT_SLOW_TESTS=1`) builds the variant and checks that every object is
     clang's, the PLT is the gcc build's, no host float code is linked outside the overlay and the SIMD files
     (`tests/test_port_float.py`'s rules), the self-tests pass, a crash report is written, and the idle run and the
     scripted fight give the same state line, the reference hashes, the same region hashes and the same pictures on
     both builds.
+
+## 64-bit
+
+`TTT_CC=clang64 python3 port/tools/build.py` (T42 b3) builds an x86-64 program, `build/port-clang64/ttt`; the 32-bit gcc
+build stays the default and is not touched. It runs the 2551-VBlank idle run and the scripted fight into exactly the
+gcc build's state (`0x8ba37caeb2bacfa8` / `0xcce5eb554fa51395`, every region hash and every picture alike), passes all
+fifteen self-tests, the TTT_DIFF skeleton check (all nine hooks `same`) and writes crash reports. Not checked yet: the
+window, GL, sound, movies and memory cards in real play (b4 / b5), Windows (b6 / b7).
+
+How (the approach of the Tenkaichi 3 decompilation's port, whose `ptr32.py` and `irfix.py` are adapted here):
+
+- **The game keeps 4-byte pointers.** `port/tools/ptr32.py` rewrites the preprocessed text of each game file with
+  libclang (only the text of `src/`, `include/` and the prepared copies under `gen/src`; not `port_compat.h` nor
+  system headers): every `*` of a declarator or type name becomes `* __ptr32 __uptr` (clang, `-fms-extensions`:
+  LLVM address space 271, zero-extended when read), so every structure, global and local keeps its PS2 size and
+  layout; the outermost pointer of a parameter and of a return type stays an ordinary 64-bit pointer, so calls between
+  the game and the port pass full registers; calls through function pointers get a cast to an ordinary one; pointers
+  passed to variadic functions are widened; call arguments with side effects are evaluated right to left as on the
+  EE. About 4,600 pointers rewritten in 59 files.
+- **The IR is repaired** between `clang -S -emit-llvm` and `llc -relocation-model=static` by `port/tools/irfix.py`
+  (memory intrinsics and calls on 4-byte pointers, bitcasts between the two kinds, static data addresses as
+  `i32 ptrtoint`; 183 fixes). TTT needed one more case: clang's switch tables of offset addresses (`getelementptr` on a
+  cast address inside a constant), written as `ptrtoint (getelementptr (ptr @X ...))` (`irfix.gep_line`).
+- **Everything the game addresses lies below 4 GB.** The program is linked at 0x08000000 (`-Ttext-segment`, non-PIE),
+  the state hash's window for host code ([determinism.md](determinism.md)); x86-64's default 0x400000 is inside EE
+  RAM. The kernel starts a 64-bit program's heap up to 1 GB above its image, which met the hardware registers and the
+  EE views one run in ten ("cannot map the uncached view"); `link.py` adds one page at 0x7FFFF000 in a segment of its
+  own (`BRK_GUARD`), so the heap starts above 0x80000000 (still below 4 GB), and `plat_state.c` leaves that page out of
+  the image. The game's stack is the EE stack, as in the 32-bit build.
+- **Flags:** `toolchain.bits()` swaps `-m32` for `-m64` and drops `-malign-double` (x86-64 aligns 64-bit members to 8
+  as the PS2 does); `-mno-sse -mno-mmx -mno-x87 -msoft-float` keep every float operation a call of the EE float model,
+  with floats in integer registers. The game's data table (`gen/data_table.c`) writes its rewrite list as assembly:
+  clang refuses a truncated `symbol + addend` as a 64-bit C initializer.
+- **The port's side:** its code is ordinary 64-bit code with `-fms-extensions`; a game structure the port declares
+  gives its pointer fields the game's width with `port_addr.h`'s `PORT_GPTR` (`__ptr32 __uptr` on x86-64, nothing on
+  i386): libpkt's `Packet` (`plat_pkt.c`), the skinning routines' output pointer (`vu0_pc.c`). The three stack
+  switches (`Port_StateBoundary`, `Port_OffEe`, `port_call_on_ee`) and `__wrap_main` have SysV x86-64 versions
+  (rbx, rbp, r12-r15); `gPortCtxEsp` is 8 bytes there (the self-tests cross a boundary on the host stack). The ELF
+  readers (`plat_state.c`'s symbols and image, `ee_diff.c`'s function names) read ELF64; the crash report takes its
+  registers from `REG_RIP` and the rest (low 32 bits written; a host stack above 4 GB is not walked); `ee_diff.c`'s
+  native calls pass zero-extended 64-bit arguments (`FnArg`). The two variadic readers of the game (`Text_Printf`,
+  `func_003DFA00`) use a real `va_list` there: SysV passes variadic arguments in registers first. Port state the hash
+  covers holds game addresses as `uint32_t` in every build (the interrupt handler tables, the threads' parameters, the
+  SIF command handlers), or its layout and hash would follow the pointer width. The self-tests that hand addresses of
+  their locals to game interfaces run on a stack below 4 GB (`Port_OnLowStack`).
+- **Requirements:** clang and llc (LLVM 23 here), and libclang's Python bindings (`clang.cindex`); `undefined.py`
+  runs `ptr32.py` with the system's `python3` when the current interpreter has no bindings. The intermediate files stay
+  beside the objects (`<name>.i`, `<name>.p32.i`, `<name>.ll`).
+- `tests/test_port_clang64.py`: the helpers (always), and with clang, llc and `TTT_SLOW_TESTS=1` the build, ELF64
+  objects, the image's place, no host float code, the self-tests, the crash report and the idle run against the gcc
+  build (state line, region hashes, pictures).
 
 ## Crash reports
 
