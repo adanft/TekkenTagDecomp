@@ -45,6 +45,7 @@
 #include <unistd.h>
 #include "port_addr.h"
 #include "port_host.h"
+#include "plat_lang.h"
 
 /* the C library calls added with the background check, through the GOT (port_host.h: the PLT stays as it was) */
 __typeof__(statx) statx __attribute__((noplt));
@@ -226,11 +227,36 @@ const char *Port_DataPath(void) { return sDatPath; }
 /* Why the game cannot start yet (T43): a missing or refused disc. The setup screen shows it (plat_setup.c), a run
    without one prints it with "ttt: " in front and exits with sPending's code. */
 static char sErr[700];
+/* The same reason for the setup screen in the player's language (T47): its catalog key, English text and arguments
+   ({0}..), formatted when shown (the first reason is found before the language is known). */
+static const char *sErrKey, *sErrEn;
+static char sErrArg[4][300];
 static int sPending; /* 0, 2 no disc (or none readable), 4 a refused disc; -1 the setup was asked for */
 
 /* The setup's progress, for its screen (any thread): per mille and what is being done. */
 static int sProgress;
 static const char *volatile sStage = "";
+/* The reason: English into sErr (stderr, `ttt --setup`), the key and the arguments kept for the screen. */
+static void set_err(const char *key, const char *en, const char *a0, const char *a1, const char *a2, const char *a3) {
+    const char *a[4] = {a0, a1, a2, a3};
+    int i;
+    for (i = 0; i < 4; i++) {
+        snprintf(sErrArg[i], sizeof sErrArg[i], "%s", a[i] != NULL ? a[i] : "");
+    }
+    sErrKey = key;
+    sErrEn = en;
+    Lang_FormatEn(sErr, sizeof sErr, en, sErrArg[0], sErrArg[1], sErrArg[2], sErrArg[3], NULL);
+}
+
+/* The reason in the interface's language ("" none). */
+void Port_DataErrorText(char *out, int n) {
+    if (sErr[0] == 0 || sErrKey == NULL) {
+        snprintf(out, (size_t)n, "%s", sErr);
+        return;
+    }
+    Lang_Format(out, n, sErrKey, sErrEn, sErrArg[0], sErrArg[1], sErrArg[2], sErrArg[3], NULL);
+}
+
 static void progress(int permille, const char *stage) {
     sStage = stage;
     __atomic_store_n(&sProgress, permille, __ATOMIC_RELEASE);
@@ -242,9 +268,9 @@ void Port_DataProgress(int *permille, const char **stage) {
 }
 
 static int no_disc(void) {
-    snprintf(sErr, sizeof sErr, "no disc: run `ttt --setup <disc>` with your disc's folder or image (.iso, .bin, .cue), "
-                                "or set TTT_DISC to it (or put iso/ beside the program; last tried %s); the game's data "
-                                "comes from your own disc", Port_DiscName());
+    set_err("data.err.no_disc", "no disc: run `ttt --setup <disc>` with your disc's folder or image (.iso, .bin, "
+            ".cue), or set TTT_DISC to it (or put iso/ beside the program; last tried {0}); the game's data comes from "
+            "your own disc", Port_DiscName(), NULL, NULL, NULL);
     return 2;
 }
 
@@ -266,13 +292,15 @@ static int modified(const char *what, const uint8_t got[20], const uint8_t want[
         sState = DATA_MODIFIED;
         return 0;
     }
-    k = snprintf(sErr, sizeof sErr, "unknown or modified disc (%s): %s", Port_DiscName(), what);
-    if (got != NULL && k > 0 && k < (int)sizeof sErr) {
-        k += snprintf(sErr + k, sizeof sErr - (size_t)k, " has SHA-1 %s, expected %s", g, w);
-    }
-    if (k > 0 && k < (int)sizeof sErr) {
-        snprintf(sErr + k, sizeof sErr - (size_t)k, ". Only the unmodified USA release of Tekken Tag Tournament "
-                 "(SLUS-20001) is supported; TTT_ALLOW_MODIFIED=1 runs it anyway, marked [modified game data]");
+    (void)k;
+    if (got != NULL) {
+        set_err("data.err.modified_sha1", "unknown or modified disc ({0}): {1} has SHA-1 {2}, expected {3}. Only the "
+                "unmodified USA release of Tekken Tag Tournament (SLUS-20001) is supported; TTT_ALLOW_MODIFIED=1 runs "
+                "it anyway, marked [modified game data]", Port_DiscName(), what, g, w);
+    } else {
+        set_err("data.err.modified", "unknown or modified disc ({0}): {1}. Only the unmodified USA release of Tekken "
+                "Tag Tournament (SLUS-20001) is supported; TTT_ALLOW_MODIFIED=1 runs it anyway, marked [modified game "
+                "data]", Port_DiscName(), what, NULL, NULL);
     }
     return 4;
 }
@@ -306,7 +334,7 @@ static int check_disc(int full) {
         sha1_init(&s);
         for (off = 0; off < (uint32_t)ARCHIVE_SIZE; off += IRX_MAX) {
             uint32_t k = (uint32_t)ARCHIVE_SIZE - off < IRX_MAX ? (uint32_t)ARCHIVE_SIZE - off : IRX_MAX;
-            progress(50 + (int)((long long)off * 900 / ARCHIVE_SIZE), "Checking TEKKEN.BIN");
+            progress(50 + (int)((long long)off * 900 / ARCHIVE_SIZE), Tr("data.stage.archive", "Checking TEKKEN.BIN"));
             if (!Port_DiscRead(ARCHIVE_SECTOR0, off, buf, k)) {
                 free(buf);
                 return modified("TEKKEN.BIN cannot be read", NULL, NULL);
@@ -577,7 +605,7 @@ static int extract(uint8_t *payload, uint8_t elfSha1[20]) {
         fprintf(stderr, "ttt: out of memory reading the disc\n");
         exit(2);
     }
-    progress(10, "Reading SLUS_200.01");
+    progress(10, Tr("data.stage.elf", "Reading SLUS_200.01"));
     if (!Port_DiscOpen()) {
         free(elf);
         return no_disc();
@@ -585,11 +613,12 @@ static int extract(uint8_t *payload, uint8_t elfSha1[20]) {
     n = Port_DiscReadFile(NULL, "SLUS_200.01", elf, ELF_MAX);
     if (n < 0) {
         if (Port_DiscBootName(Port_DiscName(), boot, sizeof boot) && strcmp(boot, "SLUS_200.01") != 0) {
-            snprintf(sErr, sizeof sErr, "%s boots %s: it is not the USA release of Tekken Tag Tournament "
-                     "(SLUS-20001), the only one supported (another region, or another game)", Port_DiscName(), boot);
+            set_err("data.err.other_boot", "{0} boots {1}: it is not the USA release of Tekken Tag Tournament "
+                    "(SLUS-20001), the only one supported (another region, or another game)", Port_DiscName(), boot,
+                    NULL, NULL);
         } else {
-            snprintf(sErr, sizeof sErr, "%s has no SLUS_200.01: not the disc of Tekken Tag Tournament (USA, SLUS-20001)",
-                     Port_DiscName());
+            set_err("data.err.no_elf", "{0} has no SLUS_200.01: not the disc of Tekken Tag Tournament (USA, "
+                    "SLUS-20001)", Port_DiscName(), NULL, NULL, NULL);
         }
         free(elf);
         return 4;
@@ -599,7 +628,7 @@ static int extract(uint8_t *payload, uint8_t elfSha1[20]) {
         code = modified("SLUS_200.01", elfSha1, gPortElfSha1);
     }
     if (code == 0 && (n < 52 || memcmp(elf, "\177ELF\001\001", 6) != 0)) {
-        snprintf(sErr, sizeof sErr, "%s: SLUS_200.01 is not a PS2 executable", Port_DiscName());
+        set_err("data.err.not_elf", "{0}: SLUS_200.01 is not a PS2 executable", Port_DiscName(), NULL, NULL, NULL);
         code = 4;
     }
     if (code == 0) {
@@ -618,8 +647,10 @@ static int extract(uint8_t *payload, uint8_t elfSha1[20]) {
             }
         }
         if (k == phnum || phoff + k * 32 + 32 > (uint32_t)n) {
-            snprintf(sErr, sizeof sErr, "SLUS_200.01 has no data at 0x%08X: not the executable this program was built "
-                     "for", a);
+            char at8[16];
+            snprintf(at8, sizeof at8, "%08X", a);
+            set_err("data.err.no_range", "SLUS_200.01 has no data at 0x{0}: not the executable this program was built "
+                    "for", at8, NULL, NULL, NULL);
             code = 4;
         }
         at += size;
@@ -631,7 +662,8 @@ static int extract(uint8_t *payload, uint8_t elfSha1[20]) {
     sha1(payload, gPortDataSize, h);
     if (memcmp(h, gPortDataSha1, 20) != 0 && !gPortModifiedData) {
         /* the right executable but other bytes: the layout does not belong to it (a build error, not the disc) */
-        snprintf(sErr, sizeof sErr, "the data taken from SLUS_200.01 does not match port/tools/data_layout.txt");
+        set_err("data.err.layout", "the data taken from SLUS_200.01 does not match port/tools/data_layout.txt", NULL,
+                NULL, NULL, NULL);
         return 4;
     }
     return 0;
@@ -758,27 +790,27 @@ int Port_DataInstall(const char *disc) {
     sState = DATA_VERIFIED;
     sWhy[0] = 0;
     dat_path();
-    progress(0, "Opening the disc");
+    progress(0, Tr("data.stage.open", "Opening the disc"));
     if (!Port_DiscUse(disc)) {
         if (Port_DiscBootName(disc, boot, sizeof boot)) {
-            snprintf(sErr, sizeof sErr, "%s boots %s and has no TEKKEN.BIN: it is not Tekken Tag Tournament (USA, "
-                     "SLUS-20001)", disc, boot);
+            set_err("data.err.no_archive", "{0} boots {1} and has no TEKKEN.BIN: it is not Tekken Tag Tournament (USA, "
+                    "SLUS-20001)", disc, boot, NULL, NULL);
             code = 4;
         } else {
-            snprintf(sErr, sizeof sErr, "no Tekken Tag Tournament disc at %s: give the disc's folder (a mounted disc, "
-                     "or its files copied) or an image of it (.iso, .bin, .cue)", disc);
+            set_err("data.err.no_disc_at", "no Tekken Tag Tournament disc at {0}: give the disc's folder (a mounted "
+                    "disc, or its files copied) or an image of it (.iso, .bin, .cue)", disc, NULL, NULL, NULL);
             code = 2;
         }
     } else if ((code = extract(payload, elfSha1)) == 0) {
-        progress(960, "Writing the data file");
+        progress(960, Tr("data.stage.write", "Writing the data file"));
         if (!save_dat(sDatPath, payload, elfSha1)) {
-            snprintf(sErr, sizeof sErr, "cannot write %s (set TTT_DATA to a data file in a folder you can write)",
-                     sDatPath);
+            set_err("data.err.cannot_write", "cannot write {0} (set TTT_DATA to a data file in a folder you can "
+                    "write)", sDatPath, NULL, NULL, NULL);
             code = 2;
         } else {
             fill(payload);
             sPending = 0;
-            progress(1000, "Done");
+            progress(1000, Tr("data.stage.done", "Done"));
         }
     }
     free(payload);

@@ -25,6 +25,7 @@
 #include <unistd.h>
 #include "port_host.h"
 #include "plat_settings.h"
+#include "plat_lang.h"
 
 /* C library calls through the GOT: no new PLT entry (port_host.h) */
 #define PORT_NOPLT(f) __typeof__(f) f __attribute__((noplt))
@@ -72,6 +73,12 @@ static const Def kDefs[] = {
     {"input.deadzone", "TTT_DEADZONE", 0, 90, 20, NULL, 0},
     {"input.stick_dpad", "TTT_STICK_DPAD", 0, 1, 1, NULL, 0},
     {"input.multitap", "TTT_MULTITAP", 0, 1, 0, NULL, 1},
+    /* T47 / T48: the port's own interface (plat_lang.c, plat_speech.c, plat_a11y.c; docs/port/accessibility.md) */
+    {"ui.language", "TTT_LANG", 0, 0, 0, "", 0}, /* "" / "auto": from LANGUAGE, LC_ALL, LC_MESSAGES, LANG */
+    {"ui.scale", "TTT_UI_SCALE", 50, 300, 100, NULL, 0}, /* the overlay's size, percent */
+    {"ui.high_contrast", "TTT_HIGH_CONTRAST", 0, 1, 0, NULL, 0},
+    {"ui.screen_reader", "TTT_SCREEN_READER", 0, 1, 0, NULL, 0},
+    {"ui.announce_game", "TTT_ANNOUNCE_GAME", 0, 1, 0, NULL, 0}, /* the game's menus and fights, read only */
 };
 #define NDEFS ((int)(sizeof kDefs / sizeof kDefs[0]))
 
@@ -774,6 +781,49 @@ void Settings_SelfTest(void) {
     expect(Settings_GetInt("game.speed") == 100 && Settings_GetInt("game.fast_forward") == 300 &&
                Settings_GetInt("audio.music") == 100 && Settings_GetInt("audio.effects") == 100 &&
                Settings_GetInt("cheats.unlock_all") == 0, "T40 defaults: 1x, 3x held, full volumes, no cheats");
+    expect(Settings_GetInt("ui.scale") == 100 && Settings_GetInt("ui.high_contrast") == 0 &&
+               Settings_GetInt("ui.screen_reader") == 0 && Settings_GetInt("ui.announce_game") == 0,
+           "T47 / T48 defaults: 100 % scale, the usual colours, no screen reader");
+
+    /* T47: the language's round trip through the file, the environment and the catalogs (port/lang) */
+    setenv("TTT_CONFIG", cfg, 1);
+    Settings_Load();
+    sFails += Lang_SelfTest();
+    expect(Settings_SetStr("ui.language", "es") && Settings_SetInt("ui.scale", 400), "ui.language written");
+    Settings_Load();
+    Lang_Init();
+    expect(getenv("TTT_LANG") != NULL && strcmp(getenv("TTT_LANG"), "es") == 0, "ui.language becomes TTT_LANG");
+    expect(strcmp(Lang_Current(), "es") == 0, "the Spanish catalog is used (port/lang/es.json)");
+    expect(strcmp(Tr("overlay.quit.yes", "Yes, quit"), "S\xC3\xAD, salir") == 0, "a Spanish text");
+    {
+        const char *none = "no.such.key"; /* not a catalog key (tests/test_port_lang.py reads literal keys only) */
+        expect(strcmp(Tr(none, "Fallback"), "Fallback") == 0, "a missing key is English");
+    }
+    expect(Settings_GetInt("ui.scale") == 300, "ui.scale clamped to 300");
+    expect(Settings_SetStr("ui.language", "en"), "back to English");
+    Settings_Load();
+    Lang_Init();
+    expect(strcmp(Lang_Current(), "en") == 0 && strcmp(Tr("overlay.quit.yes", "Yes, quit"), "Yes, quit") == 0,
+           "English again");
+    file_text(cfg, text, sizeof text);
+    expect(strstr(text, "ui.language = en\n") != NULL, "ui.language in the file");
+    expect(Lang_Set("es_AR") && strcmp(Lang_Current(), "es") == 0, "es_AR falls back to es");
+    expect(!Lang_Set("xx") && strcmp(Lang_Current(), "en") == 0, "an unknown language is English");
+    setenv("LANGUAGE", "", 1);
+    setenv("LC_ALL", "", 1);
+    setenv("LC_MESSAGES", "es_MX.UTF-8", 1);
+    expect(Lang_Set("auto") && strcmp(Lang_Current(), "es") == 0, "auto: LC_MESSAGES=es_MX.UTF-8 is Spanish");
+    setenv("LC_ALL", "C", 1);
+    expect(strcmp(Lang_Detect(), "en") == 0, "auto: LC_ALL=C is English");
+    Lang_Set("en");
+    {
+        LangInfo li[8];
+        int n = Lang_List(li, 8), q, es = 0;
+        for (q = 0; q < n; q++) {
+            es |= strcmp(li[q].code, "es") == 0 && strcmp(li[q].name, "Espa\xC3\xB1ol") == 0;
+        }
+        expect(n >= 2 && strcmp(li[0].code, "en") == 0 && es, "the picker's list: English, then Spanish by its name");
+    }
     unsetenv("TTT_SCALE");
     printf(sFails ? "ttt: settings self-test FAILED (%d)\n" : "ttt: settings self-test OK\n", sFails);
     fflush(stdout);

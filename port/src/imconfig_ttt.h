@@ -15,6 +15,9 @@
 #define IMGUI_DISABLE_DEFAULT_SHELL_FUNCTIONS
 #define IMGUI_DISABLE_DEMO_WINDOWS
 #define IMGUI_DISABLE_DEBUG_TOOLS
+/* T48: ImGui's test engine hooks hand every widget's label and state to overlay.cpp, which tells the screen reader
+   what has the focus (only while ui.screen_reader is on: GImGui->TestEngineHookItems). No test engine is linked. */
+#define IMGUI_ENABLE_TEST_ENGINE
 #define IMGUI_DISABLE_DEFAULT_MATH_FUNCTIONS
 #define IMGUI_IMPL_OPENGL_LOADER_IMGL3W /* functions from SDL_GL_GetProcAddress (imgl3wInit2), no libGL linked */
 

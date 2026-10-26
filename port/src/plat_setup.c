@@ -48,6 +48,7 @@ PORT_NOPLT(strncmp);
 /* plat_data.c, plat_hw.c, plat_window.c */
 int Port_DataPending(void);
 const char *Port_DataError(void);
+void Port_DataErrorText(char *out, int n); /* the same in the interface's language */
 int Port_DataInstall(const char *disc);
 void Port_DataProgress(int *permille, const char **stage);
 const char *Port_DataPath(void);
@@ -125,7 +126,11 @@ void Port_SetupView(PortSetupView *v) {
     const char *stage;
     pthread_mutex_lock(&sLock);
     v->busy = sBusy;
-    snprintf(v->error, sizeof v->error, "%s", sError);
+    if (sError[0] != 0) { /* the data's reason, in the interface's language (T47) */
+        Port_DataErrorText(v->error, sizeof v->error);
+    } else {
+        v->error[0] = 0;
+    }
     snprintf(v->path, sizeof v->path, "%s", sPath);
     pthread_mutex_unlock(&sLock);
     Port_DataProgress(&v->permille, &stage);

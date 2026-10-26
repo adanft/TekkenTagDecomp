@@ -22,10 +22,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include "imgui.h"
+#include "imgui_internal.h" /* the focused item for the screen reader (ImGui's test engine hooks) */
 #include "backends/imgui_impl_opengl3.h"
 #include "backends/imgui_impl_opengl3_loader.h"
 #include "overlay.h"
 #include "plat_settings.h"
+#include "plat_lang.h"
+#include "plat_speech.h"
 
 #ifndef TTT_GIT
 #define TTT_GIT "unknown"
@@ -72,6 +75,7 @@ static unsigned sShownN;
 static int sTest = -1, sTestFrames, sTestPages, sTestCapture, sTestGpCapture; /* TTT_OVERLAY_TEST */
 static int sTestTab = -1;
 static unsigned sDrawn;
+static int sStyleScale = -1, sStyleContrast = -1; /* the ui.scale and ui.high_contrast the style has (T48) */
 static unsigned sMarkDrawn; /* frames the settings window showed the [modified game data] mark (TTT_OVERLAY_TEST) */
 static void (*sBindFramebuffer)(GLenum target, GLuint fb); /* the setup screen clears the window (GL) */
 
@@ -98,12 +102,7 @@ static void init_common(void) {
     ImGuiPlatformIO &pio = ImGui::GetPlatformIO(); /* the clipboard: a path pasted into the setup screen */
     pio.Platform_GetClipboardTextFn = [](ImGuiContext *) -> const char * { return Port_WindowClipboard(); };
     pio.Platform_SetClipboardTextFn = [](ImGuiContext *, const char *t) { Port_WindowSetClipboard(t); };
-    ImGui::StyleColorsDark();
-    ImGuiStyle &st = ImGui::GetStyle();
-    st.FontSizeBase = 18.0f;
-    st.WindowRounding = 6.0f;
-    st.FrameRounding = 4.0f;
-    st.ScaleAllSizes(1.25f);
+    sStyleScale = sStyleContrast = -1; /* the style: apply_style, before each frame */
     const char *e = getenv("TTT_OVERLAY_TEST");
     sTest = e != nullptr && *e != 0 && *e != '0' ? 0 : -1;
 }
@@ -491,22 +490,189 @@ extern "C" void Overlay_FrameShown(int64_t now_ns) {
     sShown[sShownN++ % 64] = now_ns;
 }
 
+/* ---- the look (T48): the overlay's size (ui.scale) and the high-contrast colours (ui.high_contrast) ---- */
+static float sUi = 1.0f; /* ui.scale / 100 */
+
+static float S(float v) { return v * sUi; } /* a size in the overlay's units */
+
+static void high_contrast(ImGuiStyle &st) {
+    ImVec4 *c = st.Colors;
+    const ImVec4 black(0.0f, 0.0f, 0.0f, 1.0f), white(1.0f, 1.0f, 1.0f, 1.0f), yellow(1.0f, 0.9f, 0.0f, 1.0f),
+        dark(0.12f, 0.12f, 0.12f, 1.0f), grey(0.8f, 0.8f, 0.8f, 1.0f);
+    ImGui::StyleColorsDark(&st);
+    c[ImGuiCol_Text] = white;
+    c[ImGuiCol_TextDisabled] = grey;
+    c[ImGuiCol_WindowBg] = black;
+    c[ImGuiCol_ChildBg] = black;
+    c[ImGuiCol_PopupBg] = black;
+    c[ImGuiCol_Border] = white;
+    c[ImGuiCol_FrameBg] = dark;
+    c[ImGuiCol_FrameBgHovered] = ImVec4(0.3f, 0.3f, 0.0f, 1.0f);
+    c[ImGuiCol_FrameBgActive] = ImVec4(0.45f, 0.4f, 0.0f, 1.0f);
+    c[ImGuiCol_TitleBg] = black;
+    c[ImGuiCol_TitleBgActive] = ImVec4(0.0f, 0.0f, 0.45f, 1.0f);
+    c[ImGuiCol_CheckMark] = yellow;
+    c[ImGuiCol_SliderGrab] = yellow;
+    c[ImGuiCol_SliderGrabActive] = white;
+    c[ImGuiCol_Button] = dark;
+    c[ImGuiCol_ButtonHovered] = ImVec4(0.3f, 0.3f, 0.0f, 1.0f);
+    c[ImGuiCol_ButtonActive] = ImVec4(0.45f, 0.4f, 0.0f, 1.0f);
+    c[ImGuiCol_Header] = ImVec4(0.0f, 0.0f, 0.45f, 1.0f);
+    c[ImGuiCol_HeaderHovered] = ImVec4(0.3f, 0.3f, 0.0f, 1.0f);
+    c[ImGuiCol_HeaderActive] = ImVec4(0.45f, 0.4f, 0.0f, 1.0f);
+    c[ImGuiCol_Separator] = white;
+    c[ImGuiCol_Tab] = dark;
+    c[ImGuiCol_TabHovered] = ImVec4(0.3f, 0.3f, 0.0f, 1.0f);
+    c[ImGuiCol_TabSelected] = ImVec4(0.0f, 0.0f, 0.45f, 1.0f);
+    c[ImGuiCol_TabSelectedOverline] = yellow;
+    c[ImGuiCol_TableBorderStrong] = white;
+    c[ImGuiCol_TableBorderLight] = grey;
+    c[ImGuiCol_TableRowBg] = black;
+    c[ImGuiCol_TableRowBgAlt] = dark;
+    c[ImGuiCol_NavCursor] = yellow;
+    st.FrameBorderSize = 1.0f;
+    st.WindowBorderSize = 2.0f;
+    st.TabBorderSize = 1.0f;
+}
+
+/* The style again when ui.scale or ui.high_contrast changed (before a frame). */
+static void apply_style(void) {
+    int sc = Settings_GetInt("ui.scale"), hc = Settings_GetInt("ui.high_contrast");
+    if (sc == sStyleScale && hc == sStyleContrast) {
+        return;
+    }
+    sStyleScale = sc;
+    sStyleContrast = hc;
+    sUi = (float)sc / 100.0f;
+    ImGuiStyle &st = ImGui::GetStyle();
+    st = ImGuiStyle();
+    if (hc) {
+        high_contrast(st);
+    } else {
+        ImGui::StyleColorsDark(&st);
+    }
+    st.FontSizeBase = 18.0f * sUi;
+    st.WindowRounding = 6.0f;
+    st.FrameRounding = 4.0f;
+    st.ScaleAllSizes(1.25f * sUi);
+}
+
+/* A label with a fixed ImGui id: the text may change with the language, the item stays the same one. */
+static const char *L(const char *text, const char *id) {
+    static char buf[8][320];
+    static int k;
+    k = (k + 1) & 7;
+    snprintf(buf[k], sizeof buf[k], "%s###%s", text, id);
+    return buf[k];
+}
+
+/* ---- the screen reader (T48): the item with the keyboard / gamepad focus, said when it changes ---- */
+static bool sSr;                   /* ui.screen_reader */
+static ImGuiID sSrId, sSrSaidId;   /* the focused item this frame, the one said last */
+static char sSrLabel[320], sSrSaid[400], sSrValue[96], sSrHint[160], sSrWindow[160];
+static ImGuiItemStatusFlags sSrFlags;
+static unsigned sSrCount;          /* texts said (TTT_OVERLAY_TEST) */
+
+static void sr_say(const char *text, int interrupt) {
+    if (sSr && text != nullptr && *text) {
+        Speech_Say(text, interrupt);
+        sSrCount++;
+    }
+}
+
+/* A label as said: up to its "##" id part. */
+static void sr_text(char *out, size_t n, const char *label) {
+    const char *h = strstr(label, "##");
+    size_t k = h != nullptr ? (size_t)(h - label) : strlen(label);
+    k = k < n - 1 ? k : n - 1;
+    memcpy(out, label, k);
+    out[k] = 0;
+}
+
+/* What an item says instead of its label (a button in a table: "Pad 1, up: W"); for the next item only. */
+static void sr_hint(const char *text) { snprintf(sSrHint, sizeof sSrHint, "%s", text); }
+
+/* The value an item shows (a slider's), when it has the focus. */
+static void sr_value(const char *text) {
+    if (sSr && ImGui::GetItemID() == GImGui->NavId) {
+        snprintf(sSrValue, sizeof sSrValue, "%s", text);
+    }
+}
+
+void ImGuiTestEngineHook_ItemAdd(ImGuiContext *, ImGuiID, const ImRect &, const ImGuiLastItemData *) {}
+void ImGuiTestEngineHook_Log(ImGuiContext *, const char *, ...) {}
+const char *ImGuiTestEngine_FindItemDebugLabel(ImGuiContext *, ImGuiID) { return nullptr; }
+void ImGuiTestEngineHook_ItemInfo(ImGuiContext *ctx, ImGuiID id, const char *label, ImGuiItemStatusFlags flags) {
+    if (id != 0 && id == ctx->NavId && label != nullptr && (ctx->CurrentWindow == nullptr || id != ctx->CurrentWindow->ID)) {
+        sSrId = id;
+        sSrFlags = flags;
+        if (sSrHint[0]) {
+            snprintf(sSrLabel, sizeof sSrLabel, "%s", sSrHint);
+        } else {
+            sr_text(sSrLabel, sizeof sSrLabel, label);
+        }
+    }
+    sSrHint[0] = 0;
+}
+
+static void sr_frame_begin(void) {
+    sSr = Settings_GetInt("ui.screen_reader") != 0;
+    if (sSr != (Speech_Enabled() != 0)) {
+        Speech_SetEnabled(sSr);
+    }
+    A11y_SetGame(sSr && Settings_GetInt("ui.announce_game"));
+    GImGui->TestEngineHookItems = sSr;
+    sSrId = 0;
+    sSrValue[0] = sSrHint[0] = 0;
+}
+
+/* After the frame: the window that has the focus, then the item, when either changed (or the item's state). */
+static void sr_frame_end(void) {
+    char w[160], t[400];
+    int interrupt = 1;
+    if (!sSr) {
+        sSrSaidId = 0;
+        sSrWindow[0] = sSrSaid[0] = 0;
+        return;
+    }
+    ImGuiWindow *nw = GImGui->NavWindow;
+    sr_text(w, sizeof w, nw != nullptr ? nw->Name : "");
+    if (strcmp(w, sSrWindow) != 0) {
+        snprintf(sSrWindow, sizeof sSrWindow, "%s", w);
+        sr_say(w, 1);
+        interrupt = 0;
+    }
+    if (sSrId == 0) {
+        return;
+    }
+    const char *state = "";
+    if (sSrFlags & ImGuiItemStatusFlags_Checkable) {
+        state = sSrFlags & ImGuiItemStatusFlags_Checked ? Tr("sr.checked", "checked") : Tr("sr.not_checked", "not checked");
+    }
+    snprintf(t, sizeof t, "%s%s%s%s%s", sSrLabel, *state ? ", " : "", state, sSrValue[0] ? ", " : "", sSrValue);
+    if (sSrId != sSrSaidId || strcmp(t, sSrSaid) != 0) {
+        sr_say(t, interrupt);
+        sSrSaidId = sSrId;
+        snprintf(sSrSaid, sizeof sSrSaid, "%s", t);
+    }
+}
+
 /* ---- the windows ---- */
 static void setting_note(const char *key) {
     const char *env = Settings_Env(key);
     if (Settings_FromEnv(key) && env != nullptr) {
         ImGui::SameLine();
-        ImGui::TextDisabled("(set by %s)", env);
+        ImGui::TextDisabled(TrFmt("overlay.set_by_env", "(set by %s)"), env);
     } else if (Settings_NeedsRestart(key)) {
         ImGui::SameLine();
-        ImGui::TextDisabled("(on the next start)");
+        ImGui::TextDisabled("%s", Tr("overlay.next_start", "(on the next start)"));
     }
 }
 
 static void check(const char *label, const char *key) {
     bool v = Settings_GetInt(key) != 0;
     ImGui::BeginDisabled(Settings_FromEnv(key) != 0);
-    if (ImGui::Checkbox(label, &v)) {
+    if (ImGui::Checkbox(L(label, key), &v)) {
         Settings_SetInt(key, v ? 1 : 0);
         Port_WindowApply();
     }
@@ -516,54 +682,59 @@ static void check(const char *label, const char *key) {
 
 static void slider(const char *label, const char *key, int lo, int hi, const char *fmt) {
     int v = Settings_GetInt(key);
+    char val[96];
     ImGui::BeginDisabled(Settings_FromEnv(key) != 0);
-    ImGui::SetNextItemWidth(220.0f);
-    if (ImGui::SliderInt(label, &v, lo, hi, fmt)) {
+    ImGui::SetNextItemWidth(S(220.0f));
+    if (ImGui::SliderInt(L(label, key), &v, lo, hi, fmt)) {
         Settings_SetInt(key, v);
         Port_WindowApply();
     }
+    snprintf(val, sizeof val, fmt, v);
+    sr_value(val);
     ImGui::EndDisabled();
     setting_note(key);
 }
 
-static bool tab(const char *name, int index) {
+static bool tab(const char *name, const char *id, int index) {
     ImGuiTabItemFlags f = sTestTab == index ? ImGuiTabItemFlags_SetSelected : 0;
-    bool open = ImGui::BeginTabItem(name, nullptr, f);
+    bool open = ImGui::BeginTabItem(L(name, id), nullptr, f);
     if (open && sTestTab == index) {
         sTestPages |= 1 << index;
     }
     return open;
 }
 
+static const char *data_mark(void) { return Tr("data.mark", "[modified game data]"); }
+
 static void page_video(void) {
     char r[16];
     Settings_GetStr("video.renderer", r, sizeof r);
     int gl = strcmp(r, "sw") != 0;
-    ImGui::Text("Renderer now: %s", Port_WindowRendererName());
+    ImGui::Text(TrFmt("overlay.video.renderer_now", "Renderer now: %s"), Port_WindowRendererName());
     ImGui::BeginDisabled(Settings_FromEnv("video.renderer") != 0);
-    if (ImGui::RadioButton("OpenGL", gl)) {
+    if (ImGui::RadioButton(L("OpenGL", "r_gl"), gl)) {
         Settings_SetStr("video.renderer", "gl");
     }
     ImGui::SameLine();
-    if (ImGui::RadioButton("Software", !gl)) {
+    if (ImGui::RadioButton(L(Tr("overlay.video.software", "Software"), "r_sw"), !gl)) {
         Settings_SetStr("video.renderer", "sw");
     }
     ImGui::EndDisabled();
     setting_note("video.renderer");
-    check("V-sync", "video.vsync");
-    slider("Window scale", "video.scale", 1, 6, "%dx (640x448 each)");
-    check("Fullscreen", "video.fullscreen");
-    check("Frame-time meter", "video.fps_meter");
+    check(Tr("overlay.video.vsync", "V-sync"), "video.vsync");
+    slider(Tr("overlay.video.scale", "Window scale"), "video.scale", 1, 6, TrFmt("overlay.video.scale_fmt", "%dx (640x448 each)"));
+    check(Tr("overlay.video.fullscreen", "Fullscreen"), "video.fullscreen");
+    check(Tr("overlay.video.fps_meter", "Frame-time meter"), "video.fps_meter");
     /* T37: the GL back end's options (gs_gl.c reads them at each picture; docs/port/video.md) */
     ImGui::SeparatorText("OpenGL");
     ImGui::BeginDisabled(!gl);
-    slider("Internal resolution", "video.resolution", 1, 8, "%dx");
+    slider(Tr("overlay.video.resolution", "Internal resolution"), "video.resolution", 1, 8, "%dx");
     {
         static const char *const kAspect[3] = {"4:3", "16:9", "21:9"};
         char a[16];
         Settings_GetStr("video.aspect", a, sizeof a);
         ImGui::BeginDisabled(Settings_FromEnv("video.aspect") != 0);
-        ImGui::TextUnformatted("Aspect");
+        ImGui::TextUnformatted(Tr("overlay.video.aspect", "Aspect"));
         for (int i = 0; i < 3; i++) {
             ImGui::SameLine();
             if (ImGui::RadioButton(kAspect[i], strcmp(a, kAspect[i]) == 0 || (i == 0 && strcmp(a, "16:9") != 0 && strcmp(a, "21:9") != 0))) {
@@ -574,26 +745,27 @@ static void page_video(void) {
         ImGui::EndDisabled();
         setting_note("video.aspect");
     }
-    check("Game's flicker filter (half height, blurred)", "video.deflicker");
-    check("Smooth scaling to the window", "video.smooth");
-    check("Low input lag", "video.low_latency");
+    check(Tr("overlay.video.deflicker", "Game's flicker filter (half height, blurred)"), "video.deflicker");
+    check(Tr("overlay.video.smooth", "Smooth scaling to the window"), "video.smooth");
+    check(Tr("overlay.video.low_latency", "Low input lag"), "video.low_latency");
     /* T39: texture packs (gs_texpack.c, docs/port/textures.md), PCSX2's folder layout and names */
-    ImGui::SeparatorText("Texture packs");
-    check("Use replacement textures", "video.texture_replace");
-    check("Dump textures (new ones as PNG)", "video.texture_dump");
-    ImGui::TextDisabled("Folder: %s", Tp_Folder());
-    ImGui::TextDisabled("(replacements/ is read once a run; video.texture_dir or TTT_TEXTURES moves it, on the next start)");
+    ImGui::SeparatorText(Tr("overlay.video.texture_packs", "Texture packs"));
+    check(Tr("overlay.video.texture_replace", "Use replacement textures"), "video.texture_replace");
+    check(Tr("overlay.video.texture_dump", "Dump textures (new ones as PNG)"), "video.texture_dump");
+    ImGui::TextDisabled(TrFmt("overlay.video.texture_folder", "Folder: %s"), Tp_Folder());
+    ImGui::TextDisabled("%s", Tr("overlay.video.texture_note", "(replacements/ is read once a run; video.texture_dir or "
+                                 "TTT_TEXTURES moves it, on the next start)"));
     ImGui::EndDisabled();
 }
 
 static void page_audio(void) {
-    slider("Master volume", "audio.volume", 0, 100, "%d%%");
-    slider("Music", "audio.music", 0, 100, "%d%%");
-    slider("Effects", "audio.effects", 0, 100, "%d%%");
-    check("Mute", "audio.mute");
-    ImGui::TextWrapped("The volumes scale the port's output (the window and TTT_WAV); the game's own sound state is "
-                       "mixed as before. Music: the BGM and movie voices; effects: every other voice. Nothing is played "
-                       "while the game speed is not 1x.");
+    slider(Tr("overlay.audio.volume", "Master volume"), "audio.volume", 0, 100, "%d%%");
+    slider(Tr("overlay.audio.music", "Music"), "audio.music", 0, 100, "%d%%");
+    slider(Tr("overlay.audio.effects", "Effects"), "audio.effects", 0, 100, "%d%%");
+    check(Tr("overlay.audio.mute", "Mute"), "audio.mute");
+    ImGui::TextWrapped("%s", Tr("overlay.audio.note", "The volumes scale the port's output (the window and TTT_WAV); the "
+                                "game's own sound state is mixed as before. Music: the BGM and movie voices; effects: "
+                                "every other voice. Nothing is played while the game speed is not 1x."));
 }
 
 /* T40: the game speed presets (percent), the real-time clock's rate (plat_hw.c). */
@@ -618,29 +790,75 @@ static void speed_choice(const char *label, const char *key, int lo) {
     setting_note(key);
 }
 
+/* A pad button's name as shown (the file keeps its own names: Settings_ButtonName). */
+static const char *button_label(int k) {
+    switch (k) {
+    case SB_UP: return Tr("button.up", "Up");
+    case SB_DOWN: return Tr("button.down", "Down");
+    case SB_LEFT: return Tr("button.left", "Left");
+    case SB_RIGHT: return Tr("button.right", "Right");
+    case SB_SQUARE: return Tr("button.square", "Square");
+    case SB_TRIANGLE: return Tr("button.triangle", "Triangle");
+    case SB_CROSS: return Tr("button.cross", "Cross");
+    case SB_CIRCLE: return Tr("button.circle", "Circle");
+    case SB_START: return Tr("button.start", "Start");
+    case SB_SELECT: return Tr("button.select", "Select");
+    default: return Settings_ButtonName(k); /* L1 ... R3: the same everywhere */
+    }
+}
+
+/* A gamepad input's name as shown (the file keeps "south", "dpad_up"...). */
+static const char *gamepad_label(unsigned in) {
+    switch (in) {
+    case 0: return Tr("gamepad.south", "South");
+    case 1: return Tr("gamepad.east", "East");
+    case 2: return Tr("gamepad.west", "West");
+    case 3: return Tr("gamepad.north", "North");
+    case 4: return Tr("gamepad.back", "Back");
+    case 5: return Tr("gamepad.guide", "Guide");
+    case 6: return Tr("gamepad.start", "Start");
+    case 7: return Tr("gamepad.left_stick", "Left stick");
+    case 8: return Tr("gamepad.right_stick", "Right stick");
+    case 9: return Tr("gamepad.left_shoulder", "Left shoulder");
+    case 10: return Tr("gamepad.right_shoulder", "Right shoulder");
+    case 11: return Tr("gamepad.dpad_up", "D-pad up");
+    case 12: return Tr("gamepad.dpad_down", "D-pad down");
+    case 13: return Tr("gamepad.dpad_left", "D-pad left");
+    case 14: return Tr("gamepad.dpad_right", "D-pad right");
+    case 26: return Tr("gamepad.left_trigger", "Left trigger");
+    case 27: return Tr("gamepad.right_trigger", "Right trigger");
+    case SETTINGS_GP_NONE: return Tr("gamepad.none", "None");
+    default: return Settings_GamepadInputName(in); /* misc, paddles, touchpad */
+    }
+}
+
 static void page_controls(void) {
     uint16_t b[2][SB_COUNT];
     uint8_t g[SETTINGS_PADS][SB_GAMEPAD_COUNT];
-    char name[32], id[48];
+    char name[32], id[200], hint[160], pn[8];
     Port_WindowGetBindings(b);
     Port_WindowGetGamepad(g);
-    ImGui::SeparatorText("Keyboard");
-    ImGui::TextWrapped("Click a key, then press the new key (Escape cancels). F1, Escape and Tab (fast-forward) are kept for the overlay.");
+    ImGui::SeparatorText(Tr("overlay.controls.keyboard", "Keyboard"));
+    ImGui::TextWrapped("%s", Tr("overlay.controls.keyboard_help", "Click a key, then press the new key (Escape cancels). "
+                                "F1, Escape and Tab (fast-forward) are kept for the overlay."));
     if (ImGui::BeginTable("keys", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit)) {
-        ImGui::TableSetupColumn("Button");
-        ImGui::TableSetupColumn("Pad 1", ImGuiTableColumnFlags_WidthFixed, 160.0f);
-        ImGui::TableSetupColumn("Pad 2", ImGuiTableColumnFlags_WidthFixed, 160.0f);
+        ImGui::TableSetupColumn(Tr("overlay.controls.button", "Button"));
+        ImGui::TableSetupColumn(Tr("overlay.controls.pad1", "Pad 1"), ImGuiTableColumnFlags_WidthFixed, S(160.0f));
+        ImGui::TableSetupColumn(Tr("overlay.controls.pad2", "Pad 2"), ImGuiTableColumnFlags_WidthFixed, S(160.0f));
         ImGui::TableHeadersRow();
         for (int k = 0; k < SB_COUNT; k++) {
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
-            ImGui::TextUnformatted(Settings_ButtonName(k));
+            ImGui::TextUnformatted(button_label(k));
             for (int p = 0; p < 2; p++) {
                 ImGui::TableNextColumn();
                 bool waiting = !sCaptureGamepad && sCapturePad == p && sCaptureButton == k;
                 Settings_KeyName(b[p][k], name, sizeof name);
-                snprintf(id, sizeof id, "%s##k%d_%d", waiting ? "press a key..." : name, p, k);
-                if (ImGui::Button(id, ImVec2(150.0f, 0.0f))) {
+                snprintf(id, sizeof id, "%s##k%d_%d", waiting ? Tr("overlay.controls.press_key", "press a key...") : name, p, k);
+                snprintf(pn, sizeof pn, "%d", p + 1);
+                Lang_Format(hint, sizeof hint, "sr.binding", "Pad {0}, {1}: {2}", pn, button_label(k), name, NULL);
+                sr_hint(hint);
+                if (ImGui::Button(id, ImVec2(S(150.0f), 0.0f))) {
                     sCapturePad = p;
                     sCaptureButton = k;
                     sCaptureGamepad = false;
@@ -649,20 +867,24 @@ static void page_controls(void) {
         }
         ImGui::EndTable();
     }
-    if (ImGui::Button("Default keys")) {
+    if (ImGui::Button(L(Tr("overlay.controls.default_keys", "Default keys"), "defkeys"))) {
         Settings_DefaultBindings(b);
         Port_WindowSetBindings(b);
         Settings_SaveBindings(b);
     }
 
-    ImGui::SeparatorText("Gamepads");
+    ImGui::SeparatorText(Tr("overlay.controls.gamepads", "Gamepads"));
     for (int p = 0; p < SETTINGS_PADS; p++) {
         const char *n = Port_WindowGamepadName(p);
-        ImGui::Text("Pad %d: %s", p + 1, n != nullptr ? n : p < 2 ? "(none: keyboard only)" : "(none)");
+        ImGui::Text(TrFmt("overlay.controls.pad_line", "Pad %d: %s"), p + 1,
+                    n != nullptr ? n : p < 2 ? Tr("overlay.controls.none_keyboard", "(none: keyboard only)")
+                                             : Tr("overlay.controls.none", "(none)"));
     }
-    ImGui::TextDisabled("The first four gamepads SDL finds are pads 1-4, in the order they connect. Guide opens this window.");
+    ImGui::TextDisabled("%s", Tr("overlay.controls.gamepads_note", "The first four gamepads SDL finds are pads 1-4, in "
+                                 "the order they connect. Guide opens this window."));
     for (int p = 0; p < SETTINGS_PADS; p++) {
-        snprintf(id, sizeof id, "Pad %d##gp", p + 1);
+        snprintf(id, sizeof id, TrFmt("overlay.controls.pad_n", "Pad %d"), p + 1);
+        snprintf(id + strlen(id), sizeof id - strlen(id), "###gp%d", p);
         if (p > 0) {
             ImGui::SameLine();
         }
@@ -670,20 +892,25 @@ static void page_controls(void) {
             sGamepadPage = p;
         }
     }
-    ImGui::TextWrapped("Click a button, then press the gamepad's button or trigger (guide or any key cancels).");
+    ImGui::TextWrapped("%s", Tr("overlay.controls.gamepad_help", "Click a button, then press the gamepad's button or "
+                                "trigger (guide or any key cancels)."));
     const int gp = sGamepadPage;
     if (ImGui::BeginTable("gamepad", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit)) {
-        ImGui::TableSetupColumn("Button");
-        ImGui::TableSetupColumn("Gamepad", ImGuiTableColumnFlags_WidthFixed, 200.0f);
+        ImGui::TableSetupColumn(Tr("overlay.controls.button", "Button"));
+        ImGui::TableSetupColumn(Tr("overlay.controls.gamepad", "Gamepad"), ImGuiTableColumnFlags_WidthFixed, S(200.0f));
         ImGui::TableHeadersRow();
         for (int k = 0; k < SB_GAMEPAD_COUNT; k++) {
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
-            ImGui::TextUnformatted(Settings_ButtonName(k));
+            ImGui::TextUnformatted(button_label(k));
             ImGui::TableNextColumn();
             bool waiting = sCaptureGamepad && sCapturePad == gp && sCaptureButton == k;
-            snprintf(id, sizeof id, "%s##g%d_%d", waiting ? "press a button..." : Settings_GamepadInputName(g[gp][k]), gp, k);
-            if (ImGui::Button(id, ImVec2(190.0f, 0.0f))) {
+            snprintf(id, sizeof id, "%s##g%d_%d", waiting ? Tr("overlay.controls.press_button", "press a button...")
+                                                          : gamepad_label(g[gp][k]), gp, k);
+            snprintf(pn, sizeof pn, "%d", gp + 1);
+            Lang_Format(hint, sizeof hint, "sr.binding", "Pad {0}, {1}: {2}", pn, button_label(k), gamepad_label(g[gp][k]), NULL);
+            sr_hint(hint);
+            if (ImGui::Button(id, ImVec2(S(190.0f), 0.0f))) {
                 sCapturePad = gp;
                 sCaptureButton = k;
                 sCaptureGamepad = true;
@@ -691,7 +918,8 @@ static void page_controls(void) {
         }
         ImGui::EndTable();
     }
-    snprintf(id, sizeof id, "Default buttons (pad %d)", gp + 1);
+    snprintf(id, sizeof id, TrFmt("overlay.controls.default_buttons", "Default buttons (pad %d)"), gp + 1);
+    snprintf(id + strlen(id), sizeof id - strlen(id), "###defgp");
     if (ImGui::Button(id)) {
         uint8_t d[SETTINGS_PADS][SB_GAMEPAD_COUNT];
         Settings_DefaultGamepad(d);
@@ -700,60 +928,124 @@ static void page_controls(void) {
         Settings_SaveGamepad(g);
     }
 
-    ImGui::SeparatorText("Sticks, vibration, multitap");
-    slider("Stick dead zone", "input.deadzone", 0, 90, "%d%%");
-    check("Left stick works the d-pad", "input.stick_dpad");
-    ImGui::TextDisabled("The game itself reads the d-pad only; the sticks also reach it as they are.");
-    check("Vibration", "input.vibration");
-    check("Multitap: four players (pads 1-4 on port 1A-1D)", "input.multitap");
-    ImGui::TextDisabled("With the multitap, pad 2 is slot 1B and port 2 is empty; recordings keep their own setting.");
+    ImGui::SeparatorText(Tr("overlay.controls.sticks", "Sticks, vibration, multitap"));
+    slider(Tr("overlay.controls.deadzone", "Stick dead zone"), "input.deadzone", 0, 90, "%d%%");
+    check(Tr("overlay.controls.stick_dpad", "Left stick works the d-pad"), "input.stick_dpad");
+    ImGui::TextDisabled("%s", Tr("overlay.controls.stick_note", "The game itself reads the d-pad only; the sticks also reach it as they are."));
+    check(Tr("overlay.controls.vibration", "Vibration"), "input.vibration");
+    check(Tr("overlay.controls.multitap", "Multitap: four players (pads 1-4 on port 1A-1D)"), "input.multitap");
+    ImGui::TextDisabled("%s", Tr("overlay.controls.multitap_note", "With the multitap, pad 2 is slot 1B and port 2 is "
+                                 "empty; recordings keep their own setting."));
 }
 
 static void page_game(void) {
-    check("Movies", "game.movies");
-    check("Pause the game while this window is open", "game.pause");
-    ImGui::SeparatorText("Game speed");
-    speed_choice("Speed (x)", "game.speed", 25);
-    speed_choice("Hold Tab (x)", "game.fast_forward", 100);
-    ImGui::TextDisabled("Real time only: the game runs the same frames faster or slower; no sound off 1x.");
-    ImGui::SeparatorText("Data");
+    check(Tr("overlay.game.movies", "Movies"), "game.movies");
+    check(Tr("overlay.game.pause", "Pause the game while this window is open"), "game.pause");
+    ImGui::SeparatorText(Tr("overlay.game.speed_title", "Game speed"));
+    speed_choice(Tr("overlay.game.speed", "Speed (x)"), "game.speed", 25);
+    speed_choice(Tr("overlay.game.fast_forward", "Hold Tab (x)"), "game.fast_forward", 100);
+    ImGui::TextDisabled("%s", Tr("overlay.game.speed_note", "Real time only: the game runs the same frames faster or "
+                                 "slower; no sound off 1x."));
+    ImGui::SeparatorText(Tr("overlay.game.data", "Data"));
     const char *disc = Port_DiscName(), *dat = Port_DataPath();
-    ImGui::TextWrapped("Disc: %s", disc != nullptr && *disc ? disc : "(not opened)");
-    ImGui::TextWrapped("Data file: %s", dat != nullptr && *dat ? dat : "(none)");
-    static const char *const kData[] = {"USA release (verified)", "[modified game data]",
-                                        "USA release so far (TEKKEN.BIN being checked)", "not checked"};
+    ImGui::TextWrapped(TrFmt("overlay.game.disc", "Disc: %s"), disc != nullptr && *disc ? disc : Tr("overlay.game.not_opened", "(not opened)"));
+    ImGui::TextWrapped(TrFmt("overlay.game.data_file", "Data file: %s"), dat != nullptr && *dat ? dat : Tr("overlay.controls.none", "(none)"));
+    const char *kData[4] = {Tr("overlay.game.data_verified", "USA release (verified)"), data_mark(),
+                            Tr("overlay.game.data_checking", "USA release so far (TEKKEN.BIN being checked)"),
+                            Tr("overlay.game.data_unchecked", "not checked")};
     int st = Port_DataState();
-    ImGui::TextWrapped("Game data: %s", st >= 0 && st < 4 ? kData[st] : "?");
+    ImGui::TextWrapped(TrFmt("overlay.game.data_state", "Game data: %s"), st >= 0 && st < 4 ? kData[st] : "?");
     if ((st == 1 || st == 3) && *Port_DataWhy()) {
         ImGui::TextWrapped("(%s)", Port_DataWhy());
     }
-    ImGui::SeparatorText("Settings file");
+    ImGui::SeparatorText(Tr("overlay.game.settings_file", "Settings file"));
     const char *p = Settings_Path();
-    ImGui::TextWrapped("%s", *p ? p : "(none: set TTT_CONFIG or HOME)");
+    ImGui::TextWrapped("%s", *p ? p : Tr("overlay.game.no_settings_file", "(none: set TTT_CONFIG or HOME)"));
     if (*Settings_SaveError()) {
-        ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.4f, 1.0f), "Not saved: %s", Settings_SaveError());
+        ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.4f, 1.0f), TrFmt("overlay.game.not_saved", "Not saved: %s"), Settings_SaveError());
     }
 }
 
 /* T40: cheats (plat_cheat.c, docs/port/cheats.md). They change the game's own state. */
 static void page_cheats(void) {
-    ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "These modify the game's state.");
-    ImGui::TextWrapped("Unlocking sets the game's own unlock flags: every character, TEKKEN BOWL, THEATER (every "
-                       "ending) and GALLERY. Your next memory card save keeps them, and turning this off does not lock "
-                       "them again. The character select picks the new set at the next game start.");
-    check("Unlock everything", "cheats.unlock_all");
+    ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s", Tr("overlay.cheats.warning", "These modify the game's state."));
+    ImGui::TextWrapped("%s", Tr("overlay.cheats.note", "Unlocking sets the game's own unlock flags: every character, "
+                                "TEKKEN BOWL, THEATER (every ending) and GALLERY. Your next memory card save keeps them, "
+                                "and turning this off does not lock them again. The character select picks the new set "
+                                "at the next game start."));
+    check(Tr("overlay.cheats.unlock_all", "Unlock everything"), "cheats.unlock_all");
+}
+
+/* ---- the language (T47): the settings' ui.language, switched at once ---- */
+static LangInfo sLangs[32];
+static int sLangN = -1;
+
+static const char *lang_name(const char *code) {
+    for (int i = 0; i < sLangN; i++) {
+        if (strcmp(sLangs[i].code, code) == 0) {
+            return sLangs[i].name;
+        }
+    }
+    return code;
+}
+
+static void language_picker(void) {
+    char cur[32], autoName[128];
+    if (sLangN < 0) {
+        sLangN = Lang_List(sLangs, (int)(sizeof sLangs / sizeof sLangs[0]));
+    }
+    Settings_GetStr("ui.language", cur, sizeof cur);
+    bool automatic = cur[0] == 0 || strcmp(cur, "auto") == 0;
+    Lang_Format(autoName, sizeof autoName, "overlay.ui.language_auto", "Automatic ({0})", lang_name(Lang_Current()), NULL);
+    ImGui::BeginDisabled(Settings_FromEnv("ui.language") != 0);
+    ImGui::SetNextItemWidth(S(260.0f));
+    if (ImGui::BeginCombo(L(Tr("overlay.ui.language", "Language"), "language"), automatic ? autoName : lang_name(cur))) {
+        if (ImGui::Selectable(L(autoName, "auto"), automatic)) {
+            Settings_SetStr("ui.language", "");
+            Lang_Set("");
+        }
+        for (int i = 0; i < sLangN; i++) {
+            if (ImGui::Selectable(L(sLangs[i].name, sLangs[i].code), !automatic && strcmp(cur, sLangs[i].code) == 0)) {
+                Settings_SetStr("ui.language", sLangs[i].code);
+                Lang_Set(sLangs[i].code);
+            }
+        }
+        ImGui::EndCombo();
+    }
+    sr_value(automatic ? autoName : lang_name(cur));
+    ImGui::EndDisabled();
+    setting_note("ui.language");
+}
+
+/* T48: the interface's size and colours, the screen reader (docs/port/accessibility.md) */
+static void page_access(void) {
+    language_picker();
+    ImGui::SeparatorText(Tr("overlay.ui.look", "Look"));
+    slider(Tr("overlay.ui.scale", "Interface size"), "ui.scale", 50, 300, "%d%%");
+    check(Tr("overlay.ui.high_contrast", "High contrast"), "ui.high_contrast");
+    ImGui::SeparatorText(Tr("overlay.ui.screen_reader_title", "Screen reader"));
+    check(Tr("overlay.ui.screen_reader", "Read the focused item aloud"), "ui.screen_reader");
+    ImGui::BeginDisabled(Settings_GetInt("ui.screen_reader") == 0);
+    check(Tr("overlay.ui.announce_game", "Announce the game's menus and fights"), "ui.announce_game");
+    ImGui::EndDisabled();
+    ImGui::TextDisabled(TrFmt("overlay.ui.output", "Output: %s"), Speech_Output());
+    ImGui::TextWrapped("%s", Tr("overlay.ui.screen_reader_note", "Speech goes through speech-dispatcher when it is "
+                                "installed. Arrow keys or the d-pad move between the items, Enter or the south button "
+                                "activates. The game's announcements read its memory only: the main menu's item, the "
+                                "characters picked, each round, the life bars by quarters."));
 }
 
 static void page_about(void) {
-    ImGui::Text("Tekken Tag Tournament, native PC port");
-    ImGui::Text("Build %s", TTT_GIT);
+    ImGui::TextUnformatted(Tr("overlay.about.title", "Tekken Tag Tournament, native PC port"));
+    ImGui::Text(TrFmt("overlay.about.build", "Build %s"), TTT_GIT);
     if (Port_DataState() == 1) {
-        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "[modified game data]");
+        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s", data_mark());
     }
-    ImGui::Text("Dear ImGui %s (MIT)", IMGUI_VERSION);
+    ImGui::Text(TrFmt("overlay.about.imgui", "Dear ImGui %s (MIT)"), IMGUI_VERSION);
     ImGui::Separator();
-    ImGui::TextWrapped("F1: this window. Hold Tab: fast-forward. Escape or the close button: quit (asks first). The game's data comes from your "
-                       "own disc; nothing of the game is in this program.");
+    ImGui::TextWrapped("%s", Tr("overlay.about.keys", "F1: this window. Hold Tab: fast-forward. Escape or the close "
+                                "button: quit (asks first). The game's data comes from your own disc; nothing of the "
+                                "game is in this program."));
 }
 
 static void meter(void) {
@@ -772,7 +1064,8 @@ static void meter(void) {
     if (ImGui::Begin("##meter", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
                                              ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoNav |
                                              ImGuiWindowFlags_NoFocusOnAppearing)) {
-        ImGui::Text("%.1f FPS  %.2f ms  (worst %.2f ms)", avg > 0.0f ? 1000.0f / avg : 0.0f, avg, (float)worst * 1e-6f);
+        ImGui::Text(TrFmt("overlay.meter", "%.1f FPS  %.2f ms  (worst %.2f ms)"), avg > 0.0f ? 1000.0f / avg : 0.0f, avg,
+                    (float)worst * 1e-6f);
     }
     ImGui::End();
 }
@@ -783,6 +1076,7 @@ static bool sSetupInit, sBrowse, sSetupAsked;
 static PortSetupEntry sEntries[512];
 static int sEntryN = -1;
 static int sSetupTest = -1; /* TTT_SETUP_TEST: the screen's frames */
+static char sSetupSaid[700];  /* the error or stage said last (the screen reader) */
 
 static void browse_to(const char *dir) {
     snprintf(sBrowseDir, sizeof sBrowseDir, "%s", *dir ? dir : "/");
@@ -850,15 +1144,24 @@ static void setup_screen(void) {
     if (Port_WindowDialogResult(got, sizeof got)) {
         snprintf(sSetupPath, sizeof sSetupPath, "%s", got);
     }
+    { /* the screen reader: a new reason, or the stage of the check */
+        const char *now = v.busy ? v.stage : v.error;
+        if (strcmp(now, sSetupSaid) != 0) {
+            snprintf(sSetupSaid, sizeof sSetupSaid, "%s", now);
+            sr_say(now, 0);
+        }
+    }
     ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
     ImGui::SetNextWindowSize(io.DisplaySize);
-    if (ImGui::Begin("Setup", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+    if (ImGui::Begin(L(Tr("setup.window", "Setup"), "setup"), nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                                            ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus)) {
-        ImGui::SeparatorText("Tekken Tag Tournament: setup");
-        ImGui::TextWrapped("The game's data comes from your own disc of Tekken Tag Tournament (USA, SLUS-20001); "
-                           "nothing of the game is in this program. Pick the disc: the folder of a mounted disc or of "
-                           "its files, or an image of it (.iso, .bin or .cue). It is checked against the unmodified "
-                           "release, then the game's data file is made and the game starts.");
+        ImGui::SeparatorText(Tr("setup.title", "Tekken Tag Tournament: setup"));
+        language_picker();
+        ImGui::TextWrapped("%s", Tr("setup.intro", "The game's data comes from your own disc of Tekken Tag Tournament "
+                                    "(USA, SLUS-20001); nothing of the game is in this program. Pick the disc: the "
+                                    "folder of a mounted disc or of its files, or an image of it (.iso, .bin or .cue). It "
+                                    "is checked against the unmodified release, then the game's data file is made and "
+                                    "the game starts."));
         if (v.error[0] != 0 && !v.busy) {
             ImGui::Spacing();
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.5f, 0.4f, 1.0f));
@@ -867,26 +1170,28 @@ static void setup_screen(void) {
         }
         ImGui::Spacing();
         ImGui::BeginDisabled(v.busy != 0);
-        ImGui::Text("Disc");
+        ImGui::TextUnformatted(Tr("setup.disc", "Disc"));
         ImGui::SameLine();
         ImGui::SetNextItemWidth(-1.0f);
+        sr_hint(Tr("setup.disc_field", "Disc path"));
         if (ImGui::InputText("##disc", sSetupPath, sizeof sSetupPath, ImGuiInputTextFlags_EnterReturnsTrue)) {
             setup_request();
         }
-        if (ImGui::Button("Check and install")) {
+        sr_value(sSetupPath);
+        if (ImGui::Button(L(Tr("setup.install", "Check and install"), "install"))) {
             setup_request();
         }
         ImGui::SameLine();
-        if (ImGui::Button(sBrowse ? "Hide the browser" : "Browse...")) {
+        if (ImGui::Button(L(sBrowse ? Tr("setup.hide_browser", "Hide the browser") : Tr("setup.browse", "Browse..."), "browse"))) {
             sBrowse = !sBrowse;
         }
         if (Port_WindowDialogAvailable()) {
             ImGui::SameLine();
-            if (ImGui::Button("Image file (system dialog)...")) {
+            if (ImGui::Button(L(Tr("setup.image_dialog", "Image file (system dialog)..."), "dlgfile"))) {
                 Port_WindowDialog(0, sBrowseDir);
             }
             ImGui::SameLine();
-            if (ImGui::Button("Folder (system dialog)...")) {
+            if (ImGui::Button(L(Tr("setup.folder_dialog", "Folder (system dialog)..."), "dlgdir"))) {
                 Port_WindowDialog(1, sBrowseDir);
             }
         }
@@ -896,33 +1201,34 @@ static void setup_screen(void) {
         }
         float footer = ImGui::GetFrameHeightWithSpacing() * 2.0f + ImGui::GetTextLineHeightWithSpacing();
         if (sBrowse && !v.busy) {
-            ImGui::SeparatorText("Browse");
-            if (ImGui::Button("Up")) {
+            ImGui::SeparatorText(Tr("setup.browse_title", "Browse"));
+            if (ImGui::Button(L(Tr("setup.up", "Up"), "up"))) {
                 browse_up();
             }
             ImGui::SameLine();
-            if (ImGui::Button("Home")) {
+            if (ImGui::Button(L(Tr("setup.home", "Home"), "home"))) {
                 const char *home = getenv("HOME");
                 browse_to(home != nullptr && *home == '/' ? home : "/");
             }
             ImGui::SameLine();
-            if (ImGui::Button("Use this folder")) {
+            if (ImGui::Button(L(Tr("setup.use_folder", "Use this folder"), "usedir"))) {
                 snprintf(sSetupPath, sizeof sSetupPath, "%s", sBrowseDir);
             }
             ImGui::SameLine();
             ImGui::TextWrapped("%s", sBrowseDir);
             if (ImGui::BeginChild("##entries", ImVec2(0.0f, -footer), ImGuiChildFlags_Borders)) {
                 if (sEntryN < 0) {
-                    ImGui::TextDisabled("This folder cannot be read.");
+                    ImGui::TextDisabled("%s", Tr("setup.unreadable", "This folder cannot be read."));
                 } else if (sEntryN == 0) {
-                    ImGui::TextDisabled("No folders or disc images (.iso, .bin, .cue) here.");
+                    ImGui::TextDisabled("%s", Tr("setup.empty", "No folders or disc images (.iso, .bin, .cue) here."));
                 }
                 char go[1024] = "";
+                const char *kDisc = Tr("setup.tag_disc", "[disc]"), *kImage = Tr("setup.tag_image", "[image]");
                 for (int i = 0; i < sEntryN; i++) {
                     const PortSetupEntry &e = sEntries[i];
-                    char label[300];
-                    snprintf(label, sizeof label, "%s%s%s", e.kind == 3 ? "[disc] " : e.kind == 2 ? "[image] " : "",
-                             e.name, e.kind != 2 ? "/" : "");
+                    char label[400];
+                    snprintf(label, sizeof label, "%s%s%s%s##e%d", e.kind == 3 ? kDisc : e.kind == 2 ? kImage : "",
+                             e.kind == 3 || e.kind == 2 ? " " : "", e.name, e.kind != 2 ? "/" : "", i);
                     char full[1300];
                     snprintf(full, sizeof full, "%s/%s", strcmp(sBrowseDir, "/") == 0 ? "" : sBrowseDir, e.name);
                     if (ImGui::Selectable(label, strcmp(full, sSetupPath) == 0, ImGuiSelectableFlags_AllowDoubleClick)) {
@@ -940,8 +1246,8 @@ static void setup_screen(void) {
             ImGui::EndChild();
         }
         ImGui::Separator();
-        ImGui::TextDisabled("The data file goes to %s", v.dataPath != nullptr && *v.dataPath ? v.dataPath : "?");
-        if (ImGui::Button("Quit")) {
+        ImGui::TextDisabled(TrFmt("setup.data_goes", "The data file goes to %s"), v.dataPath != nullptr && *v.dataPath ? v.dataPath : "?");
+        if (ImGui::Button(L(Tr("setup.quit", "Quit"), "quit"))) {
             Overlay_AskQuit();
         }
     }
@@ -959,20 +1265,21 @@ static void ui(void) {
     if (sSettings && !Port_SetupActive()) {
         ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Appearing,
                                 ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(ImVec2(640.0f, 520.0f), ImGuiCond_Appearing);
+        ImGui::SetNextWindowSize(ImVec2(S(640.0f), S(520.0f)), ImGuiCond_Appearing);
         bool open = true;
-        if (ImGui::Begin("Settings (F1)", &open, ImGuiWindowFlags_NoCollapse)) {
+        if (ImGui::Begin(L(Tr("overlay.window", "Settings (F1)"), "settings"), &open, ImGuiWindowFlags_NoCollapse)) {
             if (Port_DataState() == 1) { /* on every page: the game data in use is not the verified USA release */
-                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "[modified game data]");
+                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s", data_mark());
                 sMarkDrawn++;
             }
             if (ImGui::BeginTabBar("pages")) {
-                if (tab("Video", 0)) { page_video(); ImGui::EndTabItem(); }
-                if (tab("Audio", 1)) { page_audio(); ImGui::EndTabItem(); }
-                if (tab("Controls", 2)) { page_controls(); ImGui::EndTabItem(); }
-                if (tab("Game", 3)) { page_game(); ImGui::EndTabItem(); }
-                if (tab("Cheats", 4)) { page_cheats(); ImGui::EndTabItem(); }
-                if (tab("About", 5)) { page_about(); ImGui::EndTabItem(); }
+                if (tab(Tr("overlay.tab.video", "Video"), "video", 0)) { page_video(); ImGui::EndTabItem(); }
+                if (tab(Tr("overlay.tab.audio", "Audio"), "audio", 1)) { page_audio(); ImGui::EndTabItem(); }
+                if (tab(Tr("overlay.tab.controls", "Controls"), "controls", 2)) { page_controls(); ImGui::EndTabItem(); }
+                if (tab(Tr("overlay.tab.game", "Game"), "game", 3)) { page_game(); ImGui::EndTabItem(); }
+                if (tab(Tr("overlay.tab.cheats", "Cheats"), "cheats", 4)) { page_cheats(); ImGui::EndTabItem(); }
+                if (tab(Tr("overlay.tab.access", "Accessibility"), "access", 5)) { page_access(); ImGui::EndTabItem(); }
+                if (tab(Tr("overlay.tab.about", "About"), "about", 6)) { page_about(); ImGui::EndTabItem(); }
                 ImGui::EndTabBar();
             }
         }
@@ -985,16 +1292,16 @@ static void ui(void) {
         ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always,
                                 ImVec2(0.5f, 0.5f));
         ImGui::SetNextWindowFocus();
-        if (ImGui::Begin("Quit?", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize |
-                                               ImGuiWindowFlags_NoMove)) {
-            ImGui::Text("Quit Tekken Tag Tournament?");
-            ImGui::TextDisabled("Escape again also quits.");
-            if (ImGui::Button("Yes, quit", ImVec2(140.0f, 0.0f))) {
+        if (ImGui::Begin(L(Tr("overlay.quit.window", "Quit?"), "quit"), nullptr, ImGuiWindowFlags_NoCollapse |
+                                               ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) {
+            ImGui::TextUnformatted(Tr("overlay.quit.question", "Quit Tekken Tag Tournament?"));
+            ImGui::TextDisabled("%s", Tr("overlay.quit.escape", "Escape again also quits."));
+            if (ImGui::Button(L(Tr("overlay.quit.yes", "Yes, quit"), "yes"), ImVec2(S(140.0f), 0.0f))) {
                 sQuitYes = true;
             }
             ImGui::SetItemDefaultFocus();
             ImGui::SameLine();
-            if (ImGui::Button("No", ImVec2(140.0f, 0.0f))) {
+            if (ImGui::Button(L(Tr("overlay.quit.no", "No"), "no"), ImVec2(S(140.0f), 0.0f))) {
                 sQuitAsk = false;
                 Port_WindowApply();
             }
@@ -1013,6 +1320,7 @@ extern "C" void Overlay_Render(int win_w, int win_h, int pix_w, int pix_h, int64
     float dt = sLastNs != 0 ? (float)(now_ns - sLastNs) * 1e-9f : 1.0f / 60.0f;
     io.DeltaTime = dt > 0.0001f ? dt : 0.0001f;
     sLastNs = now_ns;
+    apply_style();
     if (sMode == 1) {
         if (Port_SetupActive()) { /* no picture of the game under the setup screen: a plain background */
             if (sBindFramebuffer != nullptr) {
@@ -1025,9 +1333,11 @@ extern "C" void Overlay_Render(int win_w, int win_h, int pix_w, int pix_h, int64
         }
         ImGui_ImplOpenGL3_NewFrame();
     }
+    sr_frame_begin();
     ImGui::NewFrame();
     ui();
     ImGui::Render();
+    sr_frame_end();
     if (sMode == 1) {
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
     } else {
@@ -1040,12 +1350,23 @@ extern "C" void Overlay_Render(int win_w, int win_h, int pix_w, int pix_h, int64
 }
 
 /* ---- TTT_OVERLAY_TEST: the overlay driven from inside, no input from the desktop ---- */
+#define TEST_PAGES 7
+
 extern "C" void Overlay_TestStep(void) {
     if (sTest < 0 || sMode == 0) {
         return;
     }
     int n = sTest++; /* the window's test (plat_window.c) opens the settings with F1 at its first frame */
-    sTestTab = n >= 2 && n < 32 ? (n - 2) / 5 : -1; /* each page for five frames */
+    sTestTab = n >= 2 && n < 2 + 4 * TEST_PAGES ? (n - 2) / 4 : -1; /* each page for four frames */
+    if (sQuitAsk) { /* the "Quit?" question is up (asked at the window's frame 30): the arrow keys move the focus
+                       between its buttons, as a keyboard player would (the screen reader says each): right pressed
+                       and released, then left */
+        static int q;
+        int k = q++;
+        if (k >= 2 && k <= 5) {
+            ImGui::GetIO().AddKeyEvent(k <= 3 ? ImGuiKey_RightArrow : ImGuiKey_LeftArrow, (k & 1) == 0);
+        }
+    }
     if (n == 28) { /* bind pad 1's square through the capture path: a made-up key event, as SDL would hand it */
         uint8_t ev[128] = {0};
         uint32_t type = EV_KEY_DOWN, sc = 44; /* Space */
@@ -1075,8 +1396,21 @@ extern "C" void Overlay_TestStep(void) {
 
 static int pages(void) {
     int n = 0;
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < TEST_PAGES; i++) {
         n += sTestPages >> i & 1;
+    }
+    return n;
+}
+
+/* T47: the accented letters of the catalogs (Latin-1 and Latin Extended-A) in the font in use */
+static int glyphs(int *of) {
+    static const ImWchar kTest[] = {0xE1, 0xE9, 0xED, 0xF3, 0xFA, 0xF1, 0xFC, 0xC1, 0xC9, 0xCD, 0xD3, 0xDA, 0xD1, 0xBF,
+                                    0xA1, 0xE7, 0xE0, 0xE8, 0xF6, 0xE4, 0xDF};
+    ImFont *f = ImGui::GetIO().Fonts->Fonts.Size > 0 ? ImGui::GetIO().Fonts->Fonts[0] : nullptr;
+    int n = 0;
+    *of = (int)(sizeof kTest / sizeof kTest[0]);
+    for (int i = 0; f != nullptr && i < *of; i++) {
+        n += f->IsGlyphInFont(kTest[i]);
     }
     return n;
 }
@@ -1085,15 +1419,18 @@ extern "C" void Overlay_Report(void) {
     if (sTest >= 0) {
         uint16_t b[2][SB_COUNT];
         char name[32];
+        int of, has = glyphs(&of);
         Port_WindowGetBindings(b);
         Settings_KeyName(b[0][SB_SQUARE], name, sizeof name);
-        printf("ttt: overlay: %d frames drawn (%s), pages %d/6, key capture %d (pad 1 square: %s)\n", sTestFrames,
-               sMode == 1 ? "gl" : "sw", pages(), sTestCapture, name);
+        printf("ttt: overlay: %d frames drawn (%s), pages %d/%d, key capture %d (pad 1 square: %s)\n", sTestFrames,
+               sMode == 1 ? "gl" : "sw", pages(), TEST_PAGES, sTestCapture, name);
         printf("ttt: overlay: data mark drawn %u times\n", sMarkDrawn);
         uint8_t g[SETTINGS_PADS][SB_GAMEPAD_COUNT];
         Port_WindowGetGamepad(g);
         printf("ttt: overlay: gamepad capture %d (pad 2 cross: %s)\n", sTestGpCapture,
                Settings_GamepadInputName(g[1][SB_CROSS]));
+        printf("ttt: overlay: language %s, accented glyphs %d/%d, screen reader %u texts (%s)\n", Lang_Current(), has, of,
+               sSrCount, Speech_Output());
         fflush(stdout);
     }
 }

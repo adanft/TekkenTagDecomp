@@ -129,7 +129,7 @@ class Window(unittest.TestCase):
                 self.assertLess(mean, 4.0, name)
 
 
-OVERLAY = re.compile(r"ttt: overlay: (\d+) frames drawn \((gl|sw)\), pages (\d)/6, key capture (\d) "
+OVERLAY = re.compile(r"ttt: overlay: (\d+) frames drawn \((gl|sw)\), pages (\d)/7, key capture (\d) "
                      r"\(pad 1 square: (\w+)\)")
 WINDOW_TEST = "ttt: window: overlay test: F1 opens 1, presses blocked 1, Escape asks 1"
 
@@ -155,7 +155,7 @@ class Overlay(unittest.TestCase):
             self.assertIsNotNone(m, r.stdout[-2000:] + r.stderr[-2000:])
             self.assertEqual(m.group(2), renderer)
             self.assertGreater(int(m.group(1)), 40)
-            self.assertEqual((m.group(3), m.group(4), m.group(5)), ("6", "1", "Space"))
+            self.assertEqual((m.group(3), m.group(4), m.group(5)), ("7", "1", "Space"))
             self.assertIn(WINDOW_TEST, r.stdout)
             self.assertNotIn("ImGui check failed", r.stderr)
             self.assertIn("keys.p1.square = Space\n", cfg.read_text())
