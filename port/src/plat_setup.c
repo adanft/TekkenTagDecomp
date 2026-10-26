@@ -22,28 +22,20 @@
  *
  * The host stack only (before the game's stack switch), and the window thread through the functions below (a mutex).
  */
-#include <dirent.h>
 #include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
 #include <time.h>
 #include "port_host.h"
+#include "plat_os.h"
 #include "overlay.h"
 #include "plat_settings.h"
 
 /* C library calls the setup added, through the GOT (port_host.h: the PLT stays as it was) */
-#define PORT_NOPLT(f) __typeof__(f) f __attribute__((noplt))
-PORT_NOPLT(opendir);
-PORT_NOPLT(readdir);
-PORT_NOPLT(closedir);
-PORT_NOPLT(stat);
 PORT_NOPLT(qsort);
-PORT_NOPLT(realpath);
 PORT_NOPLT(strncmp);
-#undef PORT_NOPLT
 
 /* plat_data.c, plat_hw.c, plat_window.c */
 int Port_DataPending(void);
@@ -66,8 +58,8 @@ static int sTestFrames, sTestEntries, sTestErrorFrames; /* TTT_SETUP_TEST */
 
 /* The disc's path made absolute (the settings file keeps it for runs from any folder). */
 static void absolute(const char *in, char *out, int n) {
-    char buf[PATH_MAX];
-    if (realpath(in, buf) != NULL) {
+    char buf[PLAT_PATH_MAX];
+    if (PlatOs_RealPath(in, buf) != NULL) {
         snprintf(out, (size_t)n, "%s", buf);
     } else {
         snprintf(out, (size_t)n, "%s", in);
@@ -177,36 +169,36 @@ static int image_name(const char *n) {
    images (kind 2: .iso, .bin, .cue), by name, hidden entries left out. The count (at most `max`), -1 when it cannot be
    read. */
 int Port_SetupList(const char *dir, PortSetupEntry *out, int max) {
-    DIR *d = opendir(dir);
-    struct dirent *e;
+    PlatOsDir *d = PlatOs_DirOpen(dir);
+    const char *e;
     int n = 0;
     if (d == NULL) {
         return -1;
     }
-    while (n < max && (e = readdir(d)) != NULL) {
+    while (n < max && (e = PlatOs_DirNext(d)) != NULL) {
         char p[2300];
-        struct stat st;
-        if (e->d_name[0] == '.') {
+        PlatOsStat st;
+        if (e[0] == '.') {
             continue;
         }
-        snprintf(p, sizeof p, "%s/%s", strcmp(dir, "/") == 0 ? "" : dir, e->d_name);
-        if (stat(p, &st) != 0) {
+        snprintf(p, sizeof p, "%s/%s", strcmp(dir, "/") == 0 ? "" : dir, e);
+        if (PlatOs_Stat(p, &st) != 0) {
             continue;
         }
-        if (S_ISDIR(st.st_mode)) {
+        if (st.dir) {
             char t[2400];
-            struct stat ts;
+            PlatOsStat ts;
             snprintf(t, sizeof t, "%s/TEKKEN.BIN", p);
-            out[n].kind = stat(t, &ts) == 0 ? 3 : (snprintf(t, sizeof t, "%s/tekken.bin", p), stat(t, &ts) == 0 ? 3 : 1);
-        } else if (S_ISREG(st.st_mode) && image_name(e->d_name)) {
+            out[n].kind = PlatOs_Stat(t, &ts) == 0 ? 3 : (snprintf(t, sizeof t, "%s/tekken.bin", p), PlatOs_Stat(t, &ts) == 0 ? 3 : 1);
+        } else if (st.reg && image_name(e)) {
             out[n].kind = 2;
         } else {
             continue;
         }
-        snprintf(out[n].name, sizeof out[n].name, "%s", e->d_name);
+        snprintf(out[n].name, sizeof out[n].name, "%s", e);
         n++;
     }
-    closedir(d);
+    PlatOs_DirClose(d);
     qsort(out, (size_t)n, sizeof out[0], entry_cmp);
     return n;
 }

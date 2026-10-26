@@ -3,7 +3,8 @@
  *
  * SDL3 is loaded at run time (dlopen of libSDL3.so.0, or TTT_SDL_LIB) through the small function table below: the
  * program does not link it, headless runs and the tests never need it, and without it the run goes on headless with a
- * message. The 32-bit program needs the 32-bit library (Arch: lib32-sdl3 from multilib).
+ * message. The library of the program's word size: the default x86-64 program the system's (Arch: sdl3), the 32-bit
+ * builds (TTT_CC=gcc / clang) the 32-bit one (Arch: lib32-sdl3 from multilib).
  *
  * SDL runs on a thread of its own: the game's thread runs on the PS2 stack in EE RAM (plat_main.c), 200 KB that grow
  * into the game's .bss, too small and too precious for a video driver. Gs_VBlank (gs_core.c) hands each finished
@@ -43,6 +44,7 @@
 #include <string.h>
 #include <time.h>
 #include "port_host.h"
+#include "plat_os.h"
 #include "gs.h"
 #include "gs_int.h"
 #include "overlay.h"
@@ -432,49 +434,49 @@ static int sdl_load(void) {
     size_t i;
 
     if (lib == NULL || *lib == 0) {
-        lib = "libSDL3.so.0";
+        lib = PLAT_LIB_SDL3;
     }
-    h = dlopen(lib, RTLD_NOW | RTLD_LOCAL);
+    h = PlatOs_LibOpen(lib);
     if (h == NULL) {
-        const char *e = dlerror();
+        const char *e = PlatOs_LibError();
         snprintf(sWhy, sizeof sWhy, "cannot load %s (%s)", lib, e != NULL ? e : "?");
         return 0;
     }
     for (i = 0; i < sizeof kSdlFuncs / sizeof kSdlFuncs[0]; i++) {
-        void *f = dlsym(h, kSdlFuncs[i].name);
+        void *f = PlatOs_LibSym(h, kSdlFuncs[i].name);
         if (f == NULL) {
             snprintf(sWhy, sizeof sWhy, "%s has no %s", lib, kSdlFuncs[i].name);
-            dlclose(h);
+            PlatOs_LibClose(h);
             return 0;
         }
         memcpy((char *)&sdl + kSdlFuncs[i].offset, &f, sizeof f);
     }
     sHaveGlFuncs = 1;
     for (i = 0; i < sizeof kSdlGlFuncs / sizeof kSdlGlFuncs[0]; i++) {
-        void *f = dlsym(h, kSdlGlFuncs[i].name);
+        void *f = PlatOs_LibSym(h, kSdlGlFuncs[i].name);
         sHaveGlFuncs &= f != NULL;
         memcpy((char *)&sdl + kSdlGlFuncs[i].offset, &f, sizeof f);
     }
     sHaveAudioFuncs = 1;
     for (i = 0; i < sizeof kSdlAudioFuncs / sizeof kSdlAudioFuncs[0]; i++) {
-        void *f = dlsym(h, kSdlAudioFuncs[i].name);
+        void *f = PlatOs_LibSym(h, kSdlAudioFuncs[i].name);
         sHaveAudioFuncs &= f != NULL;
         memcpy((char *)&sdl + kSdlAudioFuncs[i].offset, &f, sizeof f);
     }
     sHaveOverlayFuncs = 1;
     for (i = 0; i < sizeof kSdlOverlayFuncs / sizeof kSdlOverlayFuncs[0]; i++) {
-        void *f = dlsym(h, kSdlOverlayFuncs[i].name);
+        void *f = PlatOs_LibSym(h, kSdlOverlayFuncs[i].name);
         sHaveOverlayFuncs &= f != NULL;
         memcpy((char *)&sdl + kSdlOverlayFuncs[i].offset, &f, sizeof f);
     }
-    *(void **)&sdl.SetWindowTitle = dlsym(h, "SDL_SetWindowTitle");
-    *(void **)&sdl.RumbleGamepad = dlsym(h, "SDL_RumbleGamepad");
-    *(void **)&sdl.StartTextInput = dlsym(h, "SDL_StartTextInput");
-    *(void **)&sdl.GetClipboardText = dlsym(h, "SDL_GetClipboardText");
-    *(void **)&sdl.SetClipboardText = dlsym(h, "SDL_SetClipboardText");
-    *(void **)&sdl.free = dlsym(h, "SDL_free");
-    *(void **)&sdl.ShowOpenFileDialog = dlsym(h, "SDL_ShowOpenFileDialog");
-    *(void **)&sdl.ShowOpenFolderDialog = dlsym(h, "SDL_ShowOpenFolderDialog");
+    *(void **)&sdl.SetWindowTitle = PlatOs_LibSym(h, "SDL_SetWindowTitle");
+    *(void **)&sdl.RumbleGamepad = PlatOs_LibSym(h, "SDL_RumbleGamepad");
+    *(void **)&sdl.StartTextInput = PlatOs_LibSym(h, "SDL_StartTextInput");
+    *(void **)&sdl.GetClipboardText = PlatOs_LibSym(h, "SDL_GetClipboardText");
+    *(void **)&sdl.SetClipboardText = PlatOs_LibSym(h, "SDL_SetClipboardText");
+    *(void **)&sdl.free = PlatOs_LibSym(h, "SDL_free");
+    *(void **)&sdl.ShowOpenFileDialog = PlatOs_LibSym(h, "SDL_ShowOpenFileDialog");
+    *(void **)&sdl.ShowOpenFolderDialog = PlatOs_LibSym(h, "SDL_ShowOpenFolderDialog");
     return 1;
 }
 

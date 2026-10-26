@@ -1,15 +1,26 @@
 """Paths and compiler settings of the PC build, shared by gen_data.py, undefined.py, link.py and build.py.
 
-Everything the build writes goes under build/port/ (ignored by git: it holds data generated from the user's own
-executable). The first target is 32-bit x86 Linux with the host gcc: the game keeps addresses in 4-byte fields.
-TTT_CC=clang compiles the game code with clang instead (same flags) into its own tree, build/port-clang/ (program
-build/port-clang/ttt), so the default build/port/ttt is never replaced."""
+Everything the build writes goes under build/port*/ (ignored: it holds data generated from the user's own
+executable). The game keeps addresses in 4-byte fields. Three variants, the same state hashes:
+- TTT_CC=clang64, the default since T42 b5 (docs/port/README.md "64-bit"): an x86-64 Linux program made by clang,
+  build/port/ttt. The game's pointers stay 4 bytes wide (ptr32.py rewrites its preprocessed text, irfix.py repairs
+  the LLVM IR, llc makes the objects), the port's own code has ordinary 64-bit pointers, and the program is linked
+  at 0x08000000 so that its code, the game's memory and the PS2's fixed addresses all lie below 4 GB.
+- TTT_CC=gcc: the 32-bit x86 program with the host gcc (the default before T42 b5), build/port-gcc/ttt.
+- TTT_CC=clang: the same 32-bit program through clang, build/port-clang/ttt. Every C file of the program is clang's
+  (the game, port/src, newlib's libm, the MPEG-2 decoder, the generated tables and stubs), the C++ overlay clang++'s,
+  and clang drives the link (docs/port/README.md gotcha 32)."""
 import os
 import pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-VARIANT = os.environ.get("TTT_CC", "gcc")
-BUILD = ROOT / ("build/port" if VARIANT == "gcc" else "build/port-" + VARIANT)
+VARIANTS = ("clang64", "gcc", "clang")
+VARIANT = os.environ.get("TTT_CC") or "clang64"
+if VARIANT not in VARIANTS:
+    raise SystemExit(f"TTT_CC={VARIANT}: one of {', '.join(VARIANTS)} (default clang64)")
+CLANG = VARIANT in ("clang", "clang64")   # every C file through clang, the C++ through clang++
+BITS64 = VARIANT == "clang64"            # an x86-64 program with 4-byte game pointers
+BUILD = ROOT / ("build/port" if VARIANT == "clang64" else "build/port-" + VARIANT)  # the default at build/port
 GEN = BUILD / "gen"                       # generated sources: game C with the drafts switched on, data, stubs
 OBJ = BUILD / "obj"
 DATA_OBJ = BUILD / "obj_data"             # the game's data, assembled from GEN/data
@@ -72,10 +83,12 @@ IMGUI_OBJCOPY = {"backends/imgui_impl_opengl3.cpp": ["--redefine-sym=atexit=ttt_
 NOPLT_FILES = ("plat_settings.c", "gs_texpack.c", "plat_crash.c")
 
 
-def host_float_objects():
-    """The objects whose functions may hold host float instructions: the overlay and Dear ImGui."""
-    return [OBJ / f"pc_{p.stem}.o" for p in sorted((ROOT / "port/src").glob("*.cpp"))] + \
-           [OBJ / f"im_{pathlib.Path(n).stem}.o" for n in IMGUI_SOURCES]
+def host_float_objects(obj=None):
+    """The objects (in `obj`, default OBJ) whose functions may hold host float instructions: the overlay and Dear
+    ImGui."""
+    obj = OBJ if obj is None else obj
+    return [obj / f"pc_{p.stem}.o" for p in sorted((ROOT / "port/src").glob("*.cpp"))] + \
+           [obj / f"im_{pathlib.Path(n).stem}.o" for n in IMGUI_SOURCES]
 
 
 # Port files that are VU0 macro code on the PS2: their float operations are the vector unit's, not the FPU's
@@ -98,11 +111,101 @@ CLANG_CFLAGS = ["-mno-x87", "-Wno-error=int-conversion", "-Wno-error=incompatibl
                 "-Wno-error=incompatible-function-pointer-types", "-Wno-error=implicit-int"]
 
 
+# The 64-bit variant: -m64 for -m32, and no -malign-double (x86-64 aligns 64-bit members to 8 already, as the PS2
+# does). The game's code gets -fms-extensions for `__ptr32 __uptr` (ptr32.py). The program image starts at 0x08000000:
+# the state hash's window for host code addresses (plat_state.c HOST_LO) and below the EE views (0x20000000), above
+# EE RAM (x86-64's default, 0x400000, lies inside it). The port's code gets it too, for the game structures it
+# declares with 4-byte pointer fields (port_addr.h PORT_GPTR).
+GAME64_CFLAGS = ["-fms-extensions"]
+TEXT64 = 0x08000000
+
+
+def bits(flags):
+    """`flags` for this variant's word size: unchanged for 32-bit, -m64 and no -malign-double for clang64."""
+    if not BITS64:
+        return list(flags)
+    return ["-m64" if a == "-m32" else a for a in flags if a != "-malign-double"]
+
+
+def march():
+    """The word-size flag of this variant (-m32 or -m64)."""
+    return "-m64" if BITS64 else "-m32"
+
+
 def cc():
-    """The C compiler of the game code for this variant."""
-    return "clang" if VARIANT == "clang" else "gcc"
+    """The C compiler of this variant: every C file of the program (game, port, newlib, MPEG-2, tables, stubs)."""
+    return "clang" if CLANG else "gcc"
+
+
+def cxx():
+    """The C++ compiler of the settings overlay and Dear ImGui for this variant."""
+    return "clang++" if CLANG else "g++"
 
 
 def game_cflags():
     """GAME_CFLAGS for this variant."""
-    return GAME_CFLAGS + CLANG_CFLAGS if VARIANT == "clang" else GAME_CFLAGS
+    return bits(GAME_CFLAGS + CLANG_CFLAGS + (GAME64_CFLAGS if BITS64 else [])) if CLANG else GAME_CFLAGS
+
+
+def port_cflags():
+    """PORT_CFLAGS for this variant (port/src and the MPEG-2 decoder)."""
+    return bits(PORT_CFLAGS + CLANG_CFLAGS + (GAME64_CFLAGS if BITS64 else [])) if CLANG else PORT_CFLAGS
+
+
+def newlib_cflags():
+    """NEWLIB_CFLAGS for this variant."""
+    return bits(NEWLIB_CFLAGS + CLANG_CFLAGS) if CLANG else NEWLIB_CFLAGS
+
+
+def overlay_cxxflags():
+    """OVERLAY_CXXFLAGS for this variant."""
+    return bits(OVERLAY_CXXFLAGS)
+
+
+# No PLT entry for a C library call (gcc: `noplt`, -fno-plt). On 32-bit x86 clang has neither: it does not know the
+# `noplt` attribute, and its -fno-plt changes nothing there (LLVM honours it on x86-64 only). Its variant reaches the
+# same PLT another way: a call goes to a local thunk `__ttt_got_<f>` (`jmp *<f>@GOT`, link.py: the GOT entry -z now
+# fills at start, as for gcc's `call *<f>@GOT`), so the C library function gets a GOT entry and no PLT entry. Names
+# declared with port_host.h's PORT_NOPLT get the thunk's name by an asm label; in the objects of NOPLT_FILES and of the
+# overlay, every call of a C library function is renamed after compiling (noplt_redefine_args).
+GOT_THUNK = "__ttt_got_"
+
+
+def clang_noplt_renames():
+    """True when -fno-plt objects need their C library calls renamed to GOT thunks (clang on 32-bit x86)."""
+    return VARIANT == "clang"  # (x86-64: clang's -fno-plt works, `call *f@GOTPCREL(%rip)`)
+
+
+_HOST_FUNCTIONS = None
+
+
+def host_functions():
+    """Names of the functions the host C library (libc.so.6: libpthread and libdl are part of it) exports."""
+    global _HOST_FUNCTIONS
+    if _HOST_FUNCTIONS is None:
+        import subprocess
+        lib = subprocess.run([cc(), march(), "-print-file-name=libc.so.6"], capture_output=True, text=True,
+                             check=True).stdout.strip()
+        out = subprocess.run(["nm", "-D", "--defined-only", lib], capture_output=True, text=True, check=True).stdout
+        _HOST_FUNCTIONS = frozenset(f[2].split("@")[0] for f in map(str.split, out.splitlines())
+                                    if len(f) == 3 and f[1] in "TWi")
+    return _HOST_FUNCTIONS
+
+
+def noplt_redefine_args(undefined, keep=()):
+    """objcopy arguments that send an object's calls of C library functions (`undefined`: its undefined names) to
+    their GOT thunks; names in `keep` (renamed otherwise already) stay."""
+    host = host_functions()
+    return [f"--redefine-sym={n}={GOT_THUNK}{n}" for n in sorted(set(undefined) - set(keep)) if n in host]
+
+
+def got_thunk_source(names):
+    """Assembly of the GOT thunks: one `jmp *<f>@GOT` per name, after every object (link.py), so a new one never moves
+    the game's code. Non-PIC: the operand is the GOT entry's absolute address (R_386_GOT32 with no base register)."""
+    lines = ["/* Generated by port/tools/link.py: C library calls through the GOT, no PLT entry (toolchain.py). */",
+             "\t.text"]
+    for n in sorted(names):
+        t = GOT_THUNK + n
+        lines += [f"\t.globl {t}", f"\t.hidden {t}", f"\t.type {t},@function", "\t.p2align 3", f"{t}:",
+                  f"\tjmp *{n}@GOT", f"\t.size {t}, .-{t}"]
+    return "\n".join(lines) + "\n"

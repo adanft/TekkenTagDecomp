@@ -19,7 +19,20 @@
 #include <stdint.h>
 
 #define Port_Ptr(addr) ((void *)(uintptr_t)(uint32_t)(addr))
+#if defined(__x86_64__)
+/* x86-64: host memory above 4 GB (thread stacks, large allocations, the libraries' buffers) has no game address; a
+   pointer to it handed to the game would lose its upper half, so it stops here (SIGILL, with a crash report naming
+   the caller) instead of corrupting memory later. */
+static inline uint32_t port_addr_checked(uintptr_t p) {
+    if (p >> 32) {
+        __builtin_trap();
+    }
+    return (uint32_t)p;
+}
+#define Port_Addr(p) port_addr_checked((uintptr_t)(p))
+#else
 #define Port_Addr(p) ((uint32_t)(uintptr_t)(p))
+#endif
 
 #define PORT_EE_RAM_SIZE 0x02000000u
 #define PORT_SPR_ADDR 0x70000000u
@@ -38,7 +51,21 @@
      : (((uint32_t)(addr) & 0x0FFFFFFFu) < 0x10000u) ? Port_Ptr(0x20000000u | ((uint32_t)(addr) & 0x0FFFFFFFu))   \
                                                      : Port_Ptr((uint32_t)(addr) & 0x0FFFFFFFu))
 
-/* The 32-bit build relies on these: a game pointer field and a host pointer have the same size. */
+/* The 32-bit build relies on these: a game pointer field and a host pointer have the same size. The 64-bit build
+   (TTT_CC=clang64, docs/port/README.md "64-bit") keeps the game's pointers 4 bytes wide by rewriting the game's code
+   (port/tools/ptr32.py) and keeps everything the game addresses below 4 GB, so the casts above stay right; the port's
+   own pointers are 8 bytes there, and a game structure the port declares must give its pointer fields the game's
+   width: `T *PORT_GPTR field` (clang's `__ptr32 __uptr` there, -fms-extensions: a 4-byte pointer, zero-extended when
+   read; nothing in the 32-bit build). */
+#if defined(__x86_64__)
+#define PORT_GPTR __ptr32 __uptr
+#else
+#define PORT_GPTR
+#endif
+#if defined(__x86_64__)
+typedef char port_addr_host_is_64_bit[sizeof(void *) == 8 ? 1 : -1];
+#else
 typedef char port_addr_pointer_is_4_bytes[sizeof(void *) == 4 ? 1 : -1];
+#endif
 
 #endif

@@ -18,14 +18,15 @@
  */
 #include <stdint.h>
 #include <string.h>
+#include "port_addr.h"
 
-typedef struct {
-    uint32_t *pCurrent;
-    uint32_t *pBase;
-    uint32_t *pDmaTag;
-    uint32_t *pVifCode; /* unused by the GIF packet functions */
+typedef struct { /* the game's structure: its pointers 4 bytes wide in the 64-bit build too (PORT_GPTR) */
+    uint32_t *PORT_GPTR pCurrent;
+    uint32_t *PORT_GPTR pBase;
+    uint32_t *PORT_GPTR pDmaTag;
+    uint32_t *PORT_GPTR pVifCode; /* unused by the GIF packet functions */
     uint32_t unk10;
-    uint32_t *pGifTag; /* VIF1 packets */
+    uint32_t *PORT_GPTR pGifTag; /* VIF1 packets */
 } Packet;
 
 /* Zero words up to the next quadword. */

@@ -35,7 +35,7 @@ def crash_run(where, kind, at="30"):
 @unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
 class CrashReport(unittest.TestCase):
     KINDS = {"segv": signal.SIGSEGV, "stack": signal.SIGSEGV, "ill": signal.SIGILL, "fpe": signal.SIGFPE,
-             "bus": signal.SIGBUS, "abrt": signal.SIGABRT}
+             "bus": signal.SIGBUS, "abrt": signal.SIGABRT, "thread": signal.SIGSEGV}
 
     def report(self, kind, at="30"):
         with tempfile.TemporaryDirectory(prefix="ttt-crash-") as d:
@@ -58,7 +58,11 @@ class CrashReport(unittest.TestCase):
         f = self.fields(text)
         self.assertTrue(text.startswith("Tekken Tag Tournament PC port: crash report\n"))
         self.assertTrue(f["signal"].startswith(f"{sig.name} ({int(sig)})"), f["signal"])
-        self.assertRegex(f["registers"], r"^eip 0x[0-9a-f]{8} esp 0x[0-9a-f]{8} ")
+        # x86-64's registers in full, r8-r15 included, or the 32-bit build's (TTT_EXE=build/port-gcc/ttt)
+        self.assertRegex(f["registers"],
+                         r"^eip 0x[0-9a-f]{8} esp 0x[0-9a-f]{8} |^rip 0x[0-9a-f]{16} rsp 0x[0-9a-f]{16} ")
+        if f["registers"].startswith("rip"):
+            self.assertRegex(text, r"\n {11}r14 0x[0-9a-f]{16} r15 0x[0-9a-f]{16}\n")
         self.assertEqual(f["last vblank"], "30")
         self.assertIn("thread", f)
         self.assertRegex(f["build"], r"^[0-9a-f]{7,}(-dirty)?$|^unknown$")
@@ -74,7 +78,7 @@ class CrashReport(unittest.TestCase):
         and, through the EE stack pointer Port_OffEe left, the game's functions with their PS2 addresses."""
         text = self.report("segv")
         f = self.check_common(text, signal.SIGSEGV)
-        self.assertRegex(f["fault address"], r"^0x[0-9a-f]{8}$")
+        self.assertRegex(f["fault address"], r"^0x[0-9a-f]{8}$|^0x[0-9a-f]{16}$")
         self.assertTrue(f["function"].startswith("Port_CrashVBlank+0x"), f["function"])
         self.assertIn("stack code address: ", text)
         self.assertRegex(text, r"EE stack code address: 0x[0-9a-f]{8} \w+\+0x[0-9a-f]{8} \(EE 0x00[0-9a-f]{6}\)")
@@ -83,6 +87,15 @@ class CrashReport(unittest.TestCase):
         """A fault with the stack pointer on an unmapped page: the handler runs on its own stack (sigaltstack)."""
         f = self.check_common(self.report("stack"), signal.SIGSEGV)
         self.assertTrue(f["function"].startswith("Port_CrashVBlank+0x"), f["function"])
+
+    def test_host_thread_stack(self):
+        """A fault on a thread of the port's own (the window, GS and audio threads' kind): its host stack (above 4 GB in
+        the x86-64 build, read through process_vm_readv) gives the faulting function's caller."""
+        text = self.report("thread")
+        f = self.check_common(text, signal.SIGSEGV)
+        self.assertTrue(f["function"].startswith("crash_write+0x"), f["function"])
+        self.assertTrue(f["thread"].startswith("other"), f["thread"])
+        self.assertRegex(text, r"\nstack code address: 0x[0-9a-f]{8} crash_thread\+0x")
 
     def test_other_signals(self):
         """SIGILL, SIGFPE, SIGBUS and SIGABRT: each written, and the program ends by the same signal."""

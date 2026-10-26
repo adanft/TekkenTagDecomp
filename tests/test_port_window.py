@@ -1,8 +1,9 @@
 """The PC build's window (port/src/plat_window.c: SDL3 loaded at run time) and the host calls added with it and the GS
 threads, checked on the built program build/port/ttt (made from your own SLUS_200.01 by port/tools/build.py).
 Skipped when the program has not been built; the runs are also skipped without disc data, and the SDL run when the
-32-bit SDL3 library is not installed. The SDL runs use SDL's dummy or offscreen video driver and a hidden window: no
-window appears, and no input reaches the desktop (the key mapping is checked on made-up events, TTT_SELFTEST=window)."""
+SDL3 library of the program's word size is not installed. The SDL runs use SDL's dummy or offscreen video driver and a
+hidden window: no window appears, and no input reaches the desktop (the key mapping is checked on made-up events,
+TTT_SELFTEST=window)."""
 
 import re
 import subprocess
@@ -11,9 +12,16 @@ import unittest
 import zlib
 from pathlib import Path
 
-from test_port_platform import EXE, disc, run_ttt
+from test_port_platform import EXE, GCC_EXE, disc, is_64_bit, run_ttt
 
-SDL32 = [Path("/usr/lib32/libSDL3.so.0"), Path("/usr/lib/i386-linux-gnu/libSDL3.so.0")]
+# SDL3 for the program's word size: x86-64 (the default build) or 32-bit (TTT_EXE=build/port-gcc/ttt)
+SDL_LIBS = ([Path("/usr/lib/libSDL3.so.0"), Path("/usr/lib64/libSDL3.so.0"),
+             Path("/usr/lib/x86_64-linux-gnu/libSDL3.so.0")] if is_64_bit() else
+            [Path("/usr/lib32/libSDL3.so.0"), Path("/usr/lib/i386-linux-gnu/libSDL3.so.0")])
+NO_SDL = "no SDL3 for the program's word size (Arch: sdl3, or lib32-sdl3 for a 32-bit build)"
+# The 32-bit build whose PLT HostCalls checks: the program itself, or with the default x86-64 one (whose PLT need not
+# match, README.md 64-bit) the gcc build
+PLT_EXE = GCC_EXE if is_64_bit() else EXE
 
 
 def state(r):
@@ -38,10 +46,11 @@ def png_rgb(path):
 
 @unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
 class HostCalls(unittest.TestCase):
+    @unittest.skipUnless(PLT_EXE.exists(), f"{PLT_EXE} not built (TTT_CC=gcc port/tools/build.py)")
     def test_new_host_calls_bypass_the_plt(self):
         """The game keeps host code addresses in .sbss, which the state hash covers: the threads and the window call
         libpthread / libdl through the GOT (port_host.h), so the PLT, and every game function's address, stay put."""
-        out = subprocess.run(["objdump", "-d", "--no-show-raw-insn", str(EXE)], capture_output=True, text=True,
+        out = subprocess.run(["objdump", "-d", "--no-show-raw-insn", str(PLT_EXE)], capture_output=True, text=True,
                              check=True).stdout
         plt = re.findall(r"<(\w+)@plt>:", out)
         self.assertTrue(plt)
@@ -94,7 +103,7 @@ class Window(unittest.TestCase):
         self.assertIsNotNone(state(plain), plain.stdout[-2000:])
         self.assertEqual(state(r), state(plain))
 
-    @unittest.skipUnless(any(p.exists() for p in SDL32), "no 32-bit SDL3 (Arch: lib32-sdl3)")
+    @unittest.skipUnless(any(p.exists() for p in SDL_LIBS), NO_SDL)
     def test_window_shows_the_pictures_and_leaves_the_game_alone(self):
         """With SDL3 (dummy video driver) the window opens, every VBlank's picture is handed over, and the game's state
         is the one of a run without a window."""
@@ -107,7 +116,7 @@ class Window(unittest.TestCase):
         plain = run_ttt(TTT_FRAMES=self.FRAMES, TTT_SEED="1")
         self.assertEqual(state(r), state(plain))
 
-    @unittest.skipUnless(any(p.exists() for p in SDL32), "no 32-bit SDL3 (Arch: lib32-sdl3)")
+    @unittest.skipUnless(any(p.exists() for p in SDL_LIBS), NO_SDL)
     def test_gl_back_end_draws_the_pictures_of_the_software_one(self):
         """TTT_RENDERER=gl (SDL's offscreen driver, a hidden window): the GPU draws the title and the main menu like the
         software rasteriser (the dumps of both at VBlanks 150 and 300 differ by a few levels on average), and the game's
@@ -138,7 +147,7 @@ WINDOW_TEST = "ttt: window: overlay test: F1 opens 1, presses blocked 1, Escape 
 
 @unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
 @unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
-@unittest.skipUnless(any(p.exists() for p in SDL32), "no 32-bit SDL3 (Arch: lib32-sdl3)")
+@unittest.skipUnless(any(p.exists() for p in SDL_LIBS), NO_SDL)
 class Overlay(unittest.TestCase):
     """The settings overlay (T36) in a hidden window, driven from inside (TTT_OVERLAY_TEST=1: made-up key events through
     the window's own handling, nothing sent to the desktop): F1 opens it, every page is drawn, a key pressed while it is
@@ -180,7 +189,7 @@ class Overlay(unittest.TestCase):
 
 @unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
 @unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
-@unittest.skipUnless(any(p.exists() for p in SDL32), "no 32-bit SDL3 (Arch: lib32-sdl3)")
+@unittest.skipUnless(any(p.exists() for p in SDL_LIBS), NO_SDL)
 class RealTime(unittest.TestCase):
     """The game's pace on the real-time clock (59.94 VBlanks a second of wall time), GL in a hidden window (SDL's
     offscreen driver): the scripted run of tests/test_port_input.py (main menu, character select, stage load, round 1)
@@ -212,7 +221,7 @@ class RealTime(unittest.TestCase):
 
 @unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
 @unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
-@unittest.skipUnless(any(p.exists() for p in SDL32), "no 32-bit SDL3 (Arch: lib32-sdl3)")
+@unittest.skipUnless(any(p.exists() for p in SDL_LIBS), NO_SDL)
 class Pacing(unittest.TestCase):
     """T38 (docs/port/video.md, Frame pacing): the intervals between the window's presents in real time over round 1
     of the scripted fight (VBlanks 1101-1451, TTT_PACE_FROM), GL in a hidden window (SDL's offscreen driver, so the
@@ -250,7 +259,7 @@ class Pacing(unittest.TestCase):
 
 @unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
 @unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
-@unittest.skipUnless(any(p.exists() for p in SDL32), "no 32-bit SDL3 (Arch: lib32-sdl3)")
+@unittest.skipUnless(any(p.exists() for p in SDL_LIBS), NO_SDL)
 class GameSpeed(unittest.TestCase):
     """T40 (docs/port/settings.md, Game speed): game.speed scales the real-time clock. The idle run's VBlanks 300-900
     (the attract sequence, GL in a hidden window, TTT_TIME_FROM) take 600 / 59.94 = 10.0 s of wall time at 1x: at 2x

@@ -84,6 +84,7 @@ int Port_SetupActive(void);                     /* the setup screen is up (the g
 void Port_SetupView(PortSetupView *v);
 void Port_SetupRequest(const char *path);       /* "Check and install" */
 int Port_SetupList(const char *dir, PortSetupEntry *out, int max); /* the browser: -1 when unreadable */
+const char *Port_HomeDir(void);                 /* plat_paths.c: the browser starts there */
 void Port_SetupTestNote(int entries, int errorShown); /* TTT_SETUP_TEST: a frame drawn */
 
 #ifdef __cplusplus

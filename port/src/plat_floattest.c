@@ -16,6 +16,8 @@
  *   libvu0 the fields the SDK's VU0 helpers (plat_vu0.c) write, read off the executable's code (0x34A7A8..): which
  *          of x / y / z / w each one computes, keeps or clears. A w left over where the library writes 0 turns a
  *          rotation into a projective matrix (the fighters' spiky heads and hair of T29).
+ *   printf sprintf / printf with integer, string and floating conversions (plat_libc.c; T42 b4: x86-64 passes the
+ *          software-float callers' doubles in integer registers).
  * The data directory is TTT_FLOATDATA, or port/tests/ps2float next to build/port/ttt.
  */
 #include <errno.h>
@@ -23,8 +25,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include "softfloat_ps2_inl.h"
+#include "plat_os.h"
 
 typedef uint32_t w32; /* a float's bits; every float function below is soft-float: bits in, bits out */
 
@@ -58,7 +60,7 @@ static int sFailed;
 static void data_dir(char *out, size_t n) {
     const char *e = getenv("TTT_FLOATDATA");
     char exe[1024];
-    ssize_t k;
+    long k;
     char *slash;
 
     if (e != NULL) {
@@ -66,7 +68,7 @@ static void data_dir(char *out, size_t n) {
         return;
     }
     out[0] = 0;
-    k = readlink("/proc/self/exe", exe, sizeof exe - 1);
+    k = PlatOs_ExePath(exe, sizeof exe - 1);
     if (k <= 0) {
         return;
     }
@@ -477,7 +479,26 @@ static void group_libvu0(void) {
     printf("ttt: float: libvu0: %d cases\n", sCases);
 }
 
+/* printf / sprintf with floating conversions (plat_libc.c: the software-float caller's doubles, which x86-64 passes in
+   integer registers, formatted by the port in that build). The doubles are constants: no float operation. */
+static void group_printf(void) {
+    static const char kWant[] = "42|1.500|ab| 1.23e+04|0.1|ff|    x|7   |1099511627776|-2.5|%|nine";
+    char buf[128];
+    int n = 0, r;
+    r = sprintf(buf, "%d|%.3f|%s|%9.2e|%g|%x|%5s|%-4d|%lld|%*.*f|%%|%s%n", 42, 1.5, "ab", 12345.678, 0.1, 255, "x", 7,
+                1LL << 40, 4, 1, -2.5, "nine", &n);
+    expect("sprintf formats integers, strings and doubles", strcmp(buf, kWant) == 0, 1);
+    expect("sprintf returns the length", (uint32_t)r, (uint32_t)strlen(kWant));
+    expect("sprintf %n", (uint32_t)n, (uint32_t)strlen(kWant));
+    if (strcmp(buf, kWant) != 0) {
+        printf("ttt: float: sprintf wrote \"%s\"\n", buf);
+    }
+    r = printf("ttt: float: printf %.2f %s\n", 0.25, "ok");
+    expect("printf returns the length", (uint32_t)r, 27);
+}
+
 void Port_FloatSelfTest(void) {
+    group_printf();
     group_pcsx2();
     group_rules();
     group_vu_fast();

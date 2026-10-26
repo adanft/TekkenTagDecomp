@@ -12,12 +12,13 @@ import concurrent.futures
 import os
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 
-from toolchain import (BUILD, HOT_CFLAGS, HOT_FILES, IMGUI, IMGUI_OBJCOPY, IMGUI_SOURCES, MPEG2, NEWLIB,
-                       NEWLIB_CFLAGS, NOPLT_FILES, OBJ, OVERLAY_CXXFLAGS, PORT_CFLAGS, ROOT, SIMD_CFLAGS, SIMD_FILES,
-                       VU_FILES, cc, game_cflags, vu_redefine_args)
+from toolchain import (BITS64, BUILD, GEN, HOT_CFLAGS, HOT_FILES, IMGUI, IMGUI_OBJCOPY, IMGUI_SOURCES, MPEG2, NEWLIB,
+                       NOPLT_FILES, OBJ, ROOT, SIMD_CFLAGS, SIMD_FILES, VU_FILES, cc, clang_noplt_renames, cxx,
+                       game_cflags, newlib_cflags, noplt_redefine_args, overlay_cxxflags, port_cflags, vu_redefine_args)
 import portsrc
 
 TEXT_START, TEXT_END = 0x340000, 0x415700  # .text of SLUS_200.01; .data and the rest follow
@@ -62,13 +63,72 @@ def classify(sym, addr):
     return "game function"
 
 
-def compile_one(job):
-    compiler, src, obj, flags = job[:4]
-    redefine = job[4] if len(job) > 4 else []
-    r = subprocess.run([compiler, "-c"] + flags + [str(src), "-o", str(obj)],
+def ptr32_python():
+    """An interpreter with libclang's Python bindings (clang.cindex) for ptr32.py: this one, or the system's python3
+    (a virtual environment usually has no bindings; the distribution's clang package installs them system-wide)."""
+    try:
+        import clang.cindex  # noqa: F401
+        return sys.executable
+    except ImportError:
+        return shutil.which("python3") or sys.executable
+
+
+def is_game_source(src):
+    """Whether src is one of the game's C files (src/, or its prepared copy under the build's gen/src)."""
+    return src.parent in (ROOT / "src", GEN / "src") or GEN / "src" in src.parents
+
+
+def compile_game64(compiler, src, obj, flags):
+    """A game file in the 64-bit variant: preprocess (with the forced include) -> ptr32.py (every pointer of the game's
+    text 4 bytes wide) -> clang -emit-llvm -> irfix.py -> llc (static relocation model: the program is not PIE and lies
+    below 4 GB). The intermediate files stay next to the object (<name>.i, <name>.p32.i, <name>.ll)."""
+    pre, p32, ll = obj.with_suffix(".i"), obj.with_suffix(".p32.i"), obj.with_suffix(".ll")
+    nocomp = [a for a in flags if a != "-c"]
+    r = subprocess.run([compiler, "-E"] + nocomp + [str(src), "-o", str(pre)], cwd=ROOT, capture_output=True, text=True)
+    if r.returncode:
+        return r
+    std = next((a for a in flags if a.startswith("-std=")), "-std=gnu89")
+    r = subprocess.run([ptr32_python(), str(pathlib.Path(__file__).with_name("ptr32.py")), str(pre), str(p32),
+                        "-x", "cpp-output", "-m64", std, "-fms-extensions", "-w"] +
+                       [a for a in flags if a.startswith("-Wno-error=")],
                        cwd=ROOT, capture_output=True, text=True)
+    if r.returncode:
+        return r
+    c2, skip = [], False  # the forced include is in the preprocessed text already
+    for a in flags:
+        if skip:
+            skip = False
+        elif a == "-include":
+            skip = True
+        else:
+            c2.append(a)
+    r = subprocess.run([compiler, "-S", "-emit-llvm"] + c2 + ["-x", "cpp-output", str(p32), "-o", str(ll)],
+                       cwd=ROOT, capture_output=True, text=True)
+    if r.returncode:
+        return r
+    import irfix
+    text, _ = irfix.fix(ll.read_text())
+    ll.write_text(text)
+    return subprocess.run(["llc", "-O2", "-filetype=obj", "-relocation-model=static", str(ll), "-o", str(obj)],
+                          cwd=ROOT, capture_output=True, text=True)
+
+
+def compile_one(job):
+    """Compiles one job (compiler, source, object, flags[, objcopy arguments]); an object built with -fno-plt has its
+    C library calls renamed to the GOT thunks where the compiler cannot do it (toolchain.noplt_redefine_args)."""
+    compiler, src, obj, flags = job[:4]
+    redefine = list(job[4]) if len(job) > 4 else []
+    if BITS64 and is_game_source(src):
+        r = compile_game64(compiler, src, obj, flags)
+    else:
+        r = subprocess.run([compiler, "-c"] + flags + [str(src), "-o", str(obj)],
+                           cwd=ROOT, capture_output=True, text=True)
     if r.returncode == 0 and src.parent == ROOT / "port/src" and src.name in VU_FILES:
         redefine = vu_redefine_args()
+    if r.returncode == 0 and "-fno-plt" in flags and clang_noplt_renames():
+        und = subprocess.run(["nm", "-u", str(obj)], capture_output=True, text=True, check=True).stdout.split()
+        redefine += noplt_redefine_args([n for n in und if n != "U"],
+                                        keep=[a.split("=")[1] for a in redefine if a.startswith("--redefine-sym=")])
     if r.returncode == 0 and redefine:
         r = subprocess.run(["objcopy"] + redefine + [str(obj)], cwd=ROOT, capture_output=True, text=True)
     return src, obj, r.returncode, r.stderr
@@ -89,24 +149,24 @@ def jobs():
             missing[f.name] = miss
         out.append((cc(), src, OBJ / f"{f.stem}.o", game_cflags() + [f"-I{ROOT / 'src'}"]))
     for f in sorted((ROOT / "port/src").glob("*.c")):
-        out.append(("gcc", f, OBJ / f"pc_{f.stem}.o", PORT_CFLAGS + (HOT_CFLAGS if f.name in HOT_FILES else [])
+        out.append((cc(), f, OBJ / f"pc_{f.stem}.o", port_cflags() + (HOT_CFLAGS if f.name in HOT_FILES else [])
                     + (SIMD_CFLAGS if f.name in SIMD_FILES else []) + (["-fno-plt"] if f.name in NOPLT_FILES else [])
                     + ([f'-DTTT_GIT="{git_id()}"'] if f.name == "plat_crash.c" else [])))  # the crash report's build id
     for f in sorted((ROOT / "port/src").glob("*.cpp")):  # the settings overlay (T36), with the build's id for its About
-        out.append(("g++", f, OBJ / f"pc_{f.stem}.o", OVERLAY_CXXFLAGS + [f'-DTTT_GIT="{git_id()}"']))
+        out.append((cxx(), f, OBJ / f"pc_{f.stem}.o", overlay_cxxflags() + [f'-DTTT_GIT="{git_id()}"']))
     for n in IMGUI_SOURCES:  # Dear ImGui
-        out.append(("g++", IMGUI / n, OBJ / f"im_{pathlib.Path(n).stem}.o", OVERLAY_CXXFLAGS,
+        out.append((cxx(), IMGUI / n, OBJ / f"im_{pathlib.Path(n).stem}.o", overlay_cxxflags(),
                     IMGUI_OBJCOPY.get(n, [])))
     for f in sorted(NEWLIB.glob("*.c")):  # the PS2's maths library, on the EE float model
-        out.append(("gcc", f, OBJ / f"nl_{f.stem}.o", NEWLIB_CFLAGS))
+        out.append((cc(), f, OBJ / f"nl_{f.stem}.o", newlib_cflags()))
     for f in sorted(MPEG2.glob("*.c")):  # the MPEG-2 video decoder of the movies (integer only), -O3 like the hot paths
-        out.append(("gcc", f, OBJ / f"tp_{f.stem}.o", PORT_CFLAGS + HOT_CFLAGS))
+        out.append((cc(), f, OBJ / f"tp_{f.stem}.o", port_cflags() + HOT_CFLAGS))
     return out, missing
 
 
 def main():
     OBJ.mkdir(parents=True, exist_ok=True)
-    for old in OBJ.glob("*.o"):
+    for old in [*OBJ.glob("*.o"), *OBJ.glob("*.i"), *OBJ.glob("*.ll")]:
         old.unlink()
     todo, missing = jobs()
     workers = int(os.environ.get("COOL_JOBS", os.cpu_count() or 4))

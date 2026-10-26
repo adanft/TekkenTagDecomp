@@ -63,7 +63,7 @@ def lines_with_origin(text):
 
 def norm_origin(f):
     f = f.replace(str(ROOT) + "/", "")
-    return re.sub(r"^build/port/gen/src/", "src/", f)
+    return re.sub(r"^build/port[^/]*/gen/src/", "src/", f)
 
 
 class Types:

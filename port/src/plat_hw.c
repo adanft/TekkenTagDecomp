@@ -63,7 +63,8 @@ static int sInPoll, sInHandler;
 
 #define MAX_HANDLERS 8
 typedef int32_t (*Handler)(int32_t);
-static struct { Handler fn; int used; } sIntc[16][MAX_HANDLERS], sDmac[16][MAX_HANDLERS];
+/* fn: the game's handler as a 4-byte address in every build (state words, the same hash on x86-64) */
+static struct { uint32_t fn; int used; } sIntc[16][MAX_HANDLERS], sDmac[16][MAX_HANDLERS];
 static uint32_t sIntcMask, sDmacMask;   /* EnableIntc / EnableDmac */
 static uint32_t sIntcPend, sDmacPend;   /* raised while interrupts were off */
 
@@ -138,7 +139,7 @@ static int add_handler(void *tab, int cause, Handler fn) {
     for (i = 0; i < MAX_HANDLERS; i++) {
         if (!t[cause][i].used) {
             t[cause][i].used = 1;
-            t[cause][i].fn = fn;
+            t[cause][i].fn = Port_Addr(fn);
             return i + 1;
         }
     }
@@ -191,7 +192,7 @@ static void run_handlers(void *tab, uint32_t *pend, uint32_t mask) {
         }
         for (i = 0; i < MAX_HANDLERS; i++) {
             if (t[c][i].used) {
-                t[c][i].fn(c);
+                ((Handler)Port_Ptr(t[c][i].fn))(c);
             }
         }
     }
@@ -1004,7 +1005,13 @@ void Port_FloatSelfTest(void); /* plat_floattest.c */
 int Port_Vu1SelfTest(void);    /* gs_vu1.c */
 
 /* TTT_SELFTEST=hw | rpc | float | gs | gl | vu1 | ee | spu: run after the memory map (plat_mem.c, constructor 101), print and exit. */
+static void hw_selftests(void);
 __attribute__((constructor(102))) static void Port_HwSelfTestEntry(void) {
+    if (getenv("TTT_SELFTEST") != NULL) {
+        Port_OnLowStack(hw_selftests); /* (x86-64: on a stack below 4 GB, plat_state.h) */
+    }
+}
+static void hw_selftests(void) {
     const char *t = getenv("TTT_SELFTEST");
     if (t != NULL && strcmp(t, "hw") == 0) {
         Port_HwSelfTest();

@@ -1270,8 +1270,7 @@ static void setup_screen(void) {
     if (!sSetupInit) {
         sSetupInit = true;
         snprintf(sSetupPath, sizeof sSetupPath, "%s", v.path);
-        const char *home = getenv("HOME");
-        browse_to(home != nullptr && *home == '/' ? home : "/");
+        browse_to(Port_HomeDir());
     }
     setup_test_step(v);
     char got[1024];
@@ -1341,8 +1340,7 @@ static void setup_screen(void) {
             }
             ImGui::SameLine();
             if (ImGui::Button(L(Tr("setup.home", "Home"), "home"))) {
-                const char *home = getenv("HOME");
-                browse_to(home != nullptr && *home == '/' ? home : "/");
+                browse_to(Port_HomeDir());
             }
             ImGui::SameLine();
             if (ImGui::Button(L(Tr("setup.use_folder", "Use this folder"), "usedir"))) {

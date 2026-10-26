@@ -21,18 +21,12 @@
  * below 4 GB in a 32-bit process). KSEG0 / KSEG1 (0x80000000 / 0xA0000000) are not mapped: the game does not use
  * them. Everything is set up by a constructor, before the game's main() and before any game data is touched.
  */
-#define _GNU_SOURCE
 #include "port_addr.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/mman.h>
-#include <unistd.h>
-
-#ifndef MAP_FIXED_NOREPLACE
-#define MAP_FIXED_NOREPLACE 0x100000
-#endif
+#include "plat_os.h"
 
 #define EE_FIRST 0x00010000u /* the lowest address Linux lets a program map (vm.mmap_min_addr) */
 
@@ -51,18 +45,14 @@ static void fail(const char *what, uint32_t addr) {
 
 /* Anonymous memory at a fixed address; refused (not replaced) if anything is there already. */
 static void map_plain(uint32_t addr, uint32_t size, const char *what) {
-    void *p = mmap(Port_Ptr(addr), size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE,
-                   -1, 0);
-    if (p != Port_Ptr(addr)) {
+    if (PlatOs_MapFixed(Port_Ptr(addr), size) != 0) {
         fail(what, addr);
     }
 }
 
 /* A view of EE RAM (offset `off`, `size` bytes) at `addr`. */
 static void map_ee(uint32_t addr, uint32_t off, uint32_t size, int replace, const char *what) {
-    void *p = mmap(Port_Ptr(addr), size, PROT_READ | PROT_WRITE,
-                   MAP_SHARED | (replace ? MAP_FIXED : MAP_FIXED_NOREPLACE), sEeRam, off);
-    if (p != Port_Ptr(addr)) {
+    if (PlatOs_MapView(sEeRam, Port_Ptr(addr), off, size, replace) != 0) {
         fail(what, addr);
     }
 }
@@ -71,29 +61,18 @@ static void map_ee(uint32_t addr, uint32_t off, uint32_t size, int replace, cons
    something at those addresses is allowed its own range): anything else there (the host's code or heap) would be
    overwritten without a word. */
 static void check_ee_range(uint32_t lo, uint32_t hi) {
-    FILE *fp = fopen("/proc/self/maps", "r");
-    char line[512];
+    char what[512];
     uint32_t img_lo = Port_Addr(__ttt_data_start) & ~0xFFFu, img_hi = (Port_Addr(__ttt_bss_end) + 0xFFFu) & ~0xFFFu;
 
-    if (fp == NULL) {
-        return;
+    if (PlatOs_RangeTaken(lo, hi, img_lo, img_hi, what, sizeof what)) {
+        fprintf(stderr, "ttt: EE RAM range is taken: %s", what);
+        exit(2);
     }
-    while (fgets(line, sizeof(line), fp) != NULL) {
-        unsigned long a, b;
-        if (sscanf(line, "%lx-%lx", &a, &b) != 2 || b <= lo || a >= hi) {
-            continue;
-        }
-        if (a < img_lo || b > img_hi) {
-            fprintf(stderr, "ttt: EE RAM range is taken: %s", line);
-            exit(2);
-        }
-    }
-    fclose(fp);
 }
 
 static void ee_ram(void) {
-    sEeRam = memfd_create("ttt-ee-ram", MFD_CLOEXEC);
-    if (sEeRam < 0 || ftruncate(sEeRam, PORT_EE_RAM_SIZE) != 0) {
+    sEeRam = PlatOs_MemCreate("ttt-ee-ram", PORT_EE_RAM_SIZE);
+    if (sEeRam < 0) {
         fail("EE RAM (no memory object)", 0);
     }
     check_ee_range(EE_FIRST, PORT_EE_RAM_SIZE);

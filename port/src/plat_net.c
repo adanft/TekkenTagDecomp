@@ -63,46 +63,34 @@
  * rings and the saves outlive every load. The window thread only reads the session's state and queues chat lines
  * (plat_net.h, under sShareLock).
  */
-#include <netdb.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <fcntl.h>
-#include <poll.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
 #include <time.h>
 #include "port_host.h"
 #include "plat_lang.h"
 #include "plat_net.h"
+#include "plat_os.h" /* BSD sockets (Winsock 2 on Windows) */
 #include "plat_settings.h"
 #include "plat_state.h"
 #include "../server/ttt_match_proto.h"
 #include "../../third_party/tweetnacl/ed25519.h"
 
-/* the C library calls added here, through the GOT (port_host.h: the PLT, and every game function's address, stay) */
-#define PORT_NOPLT(f) __typeof__(f) f __attribute__((noplt))
+/* the C library calls added here, through the GOT (port_host.h: the PLT, and every game function's address, stay;
+   plat_os.h declares its own) */
 PORT_NOPLT(socket);
 PORT_NOPLT(bind);
 PORT_NOPLT(connect);
 PORT_NOPLT(sendto);
 PORT_NOPLT(recvfrom);
 PORT_NOPLT(getsockname);
-PORT_NOPLT(poll);
 PORT_NOPLT(getaddrinfo);
 PORT_NOPLT(freeaddrinfo);
 PORT_NOPLT(inet_ntop);
 PORT_NOPLT(strncmp);
 PORT_NOPLT(strchr);
-PORT_NOPLT(close);   /* T46: the socket that finds the local address */
-PORT_NOPLT(read);    /* the cookie's randomness (/dev/urandom) */
-PORT_NOPLT(open);
-PORT_NOPLT(setenv);  /* the overlay's restart into a session */
-PORT_NOPLT(execv);
 PORT_NOPLT(strtoull);
-#undef PORT_NOPLT
 
 uint32_t Port_VBlankCount(void); /* plat_hw.c */
 void Port_WindowExit(int code);  /* plat_window.c */
@@ -333,7 +321,7 @@ void Port_NetPads(uint32_t n, uint16_t buttons[2], uint8_t analog[2][4]) {
 
 /* ---------------------------------------------------------------------------------------------- the socket */
 
-static int sSock = -1;
+static PlatOsSock sSock = PLAT_SOCK_NONE;
 static struct sockaddr_storage sPeer;
 static socklen_t sPeerLen;
 static uint32_t sSession;
@@ -358,7 +346,7 @@ static uint32_t rng(void) {
 }
 
 static void raw_send(const uint8_t *p, uint32_t n) {
-    if (sendto(sSock, p, n, MSG_DONTWAIT, sPeerLen ? (const struct sockaddr *)&sPeer : NULL, sPeerLen) < 0) {
+    if (sendto(sSock, p, n, PLAT_MSG_DONTWAIT, sPeerLen ? (const struct sockaddr *)&sPeer : NULL, sPeerLen) < 0) {
         sSendFail++;
     }
 }
@@ -820,20 +808,16 @@ static uint8_t sWelcome[HDR + TERMS + MS_NAME]; /* the host's answer, again for 
 
 /* Everything that has arrived (and TTT_NET_SIM's packets that fell due); waits up to `ms` for the first. */
 static void pump(int ms) {
-    struct pollfd pf;
     uint8_t p[PKT_MAX + 64];
     sim_flush();
-    pf.fd = sSock;
-    pf.events = POLLIN;
-    pf.revents = 0;
     if (ms > 0 && sSimN != 0 && ms > 1) {
         ms = 1; /* (held packets fall due meanwhile) */
     }
-    poll(&pf, 1, ms);
+    PlatOs_SockWait(sSock, ms);
     for (;;) {
         struct sockaddr_storage from;
         socklen_t fl = sizeof from;
-        long n = (long)recvfrom(sSock, p, sizeof p, MSG_DONTWAIT, (struct sockaddr *)&from, &fl);
+        long n = (long)recvfrom(sSock, p, sizeof p, PLAT_MSG_DONTWAIT, (struct sockaddr *)&from, &fl);
         if (n < 0) {
             break;
         }
@@ -1270,12 +1254,8 @@ static int get_ep(const uint8_t *ep, struct sockaddr_storage *a, socklen_t *len)
 
 static uint32_t random32(void) {
     uint32_t r = 0;
-    int fd = open("/dev/urandom", O_RDONLY);
-    if (fd < 0 || read(fd, &r, sizeof r) != (long)sizeof r) {
+    if (PlatOs_Random(&r, sizeof r) != 0) {
         r = (uint32_t)ns_now() * 2654435761u ^ (uint32_t)(ns_now() >> 32);
-    }
-    if (fd >= 0) {
-        close(fd);
     }
     return r;
 }
@@ -1289,7 +1269,7 @@ static void ms_header(uint8_t *p, int type) {
 }
 
 static void ms_send(const uint8_t *p, uint32_t n) {
-    sendto(sSock, p, n, MSG_DONTWAIT, (const struct sockaddr *)&sServer, sServerLen);
+    sendto(sSock, p, n, PLAT_MSG_DONTWAIT, (const struct sockaddr *)&sServer, sServerLen);
 }
 
 /* The build id the server pairs by (TTT_NET_TEST_BUILD: another one, the version-mismatch test). */
@@ -1352,17 +1332,17 @@ static void open_match_socket(void) {
         }
         bl = sizeof *s;
     }
-    sSock = socket(sServer.ss_family, SOCK_DGRAM, 0);
-    if (sSock < 0 || bind(sSock, (struct sockaddr *)&b, bl) != 0) {
+    sSock = PlatOs_NetInit() == 0 ? socket(sServer.ss_family, SOCK_DGRAM, 0) : PLAT_SOCK_NONE;
+    if (sSock == PLAT_SOCK_NONE || bind(sSock, (struct sockaddr *)&b, bl) != 0) {
         FATAL(2, "cannot open a UDP socket for the matchmaking (TTT_NET_PORT %u in use?)", port);
     }
     bl = sizeof sLocalAddr;
     getsockname(sSock, (struct sockaddr *)&sLocalAddr, &bl);
     if (!is_loopback(&sServer)) { /* the address the system sends to the server from, with our port */
-        int t = socket(sServer.ss_family, SOCK_DGRAM, 0);
+        PlatOsSock t = socket(sServer.ss_family, SOCK_DGRAM, 0);
         struct sockaddr_storage l;
         socklen_t ll = sizeof l;
-        if (t >= 0 && connect(t, (struct sockaddr *)&sServer, sServerLen) == 0 &&
+        if (t != PLAT_SOCK_NONE && connect(t, (struct sockaddr *)&sServer, sServerLen) == 0 &&
             getsockname(t, (struct sockaddr *)&l, &ll) == 0 && l.ss_family == sLocalAddr.ss_family) {
             if (l.ss_family == AF_INET) {
                 ((struct sockaddr_in *)&sLocalAddr)->sin_addr = ((struct sockaddr_in *)&l)->sin_addr;
@@ -1370,8 +1350,8 @@ static void open_match_socket(void) {
                 ((struct sockaddr_in6 *)&sLocalAddr)->sin6_addr = ((struct sockaddr_in6 *)&l)->sin6_addr;
             }
         }
-        if (t >= 0) {
-            close(t);
+        if (t != PLAT_SOCK_NONE) {
+            PlatOs_SockClose(t);
         }
     }
     sCookie = random32() | 1u;
@@ -1469,7 +1449,6 @@ static int update_check(uint32_t ms) {
     }
     url[0] = 0;
     while (ns_now() < end) {
-        struct pollfd pf;
         struct sockaddr_storage from;
         socklen_t fl = sizeof from;
         long n;
@@ -1479,11 +1458,8 @@ static int update_check(uint32_t ms) {
             ms_send(p, MS_MANIFEST_REQ_SIZE);
             last = ns_now();
         }
-        pf.fd = sSock;
-        pf.events = POLLIN;
-        pf.revents = 0;
-        poll(&pf, 1, 50);
-        while ((n = (long)recvfrom(sSock, p, sizeof p, MSG_DONTWAIT, (struct sockaddr *)&from, &fl)) >= 0) {
+        PlatOs_SockWait(sSock, 50);
+        while ((n = (long)recvfrom(sSock, p, sizeof p, PLAT_MSG_DONTWAIT, (struct sockaddr *)&from, &fl)) >= 0) {
             fl = sizeof from;
             if (n < MS_HDR + 2 || get32(p) != MS_MAGIC || get32(p + 8) != sCookie || !same_addr(&from, &sServer)) {
                 continue;
@@ -1533,7 +1509,6 @@ static void matchmake(void) {
     }
     end = ns_now() + (uint64_t)sWaitS * 1000000000ull;
     while (ns_now() < end) {
-        struct pollfd pf;
         struct sockaddr_storage from;
         socklen_t fl = sizeof from;
         long n;
@@ -1541,11 +1516,8 @@ static void matchmake(void) {
             ms_request(sMatch);
             lastReq = ns_now();
         }
-        pf.fd = sSock;
-        pf.events = POLLIN;
-        pf.revents = 0;
-        poll(&pf, 1, 50);
-        while ((n = (long)recvfrom(sSock, p, sizeof p, MSG_DONTWAIT, (struct sockaddr *)&from, &fl)) >= 0) {
+        PlatOs_SockWait(sSock, 50);
+        while ((n = (long)recvfrom(sSock, p, sizeof p, PLAT_MSG_DONTWAIT, (struct sockaddr *)&from, &fl)) >= 0) {
             fl = sizeof from;
             if (n < MS_HDR || get32(p) != MS_MAGIC || get32(p + 8) != sCookie || !same_addr(&from, &sServer)) {
                 continue;
@@ -1617,7 +1589,7 @@ static void punch_send(int type, const struct sockaddr_storage *to, socklen_t tl
     uint8_t p[HDR + 4];
     header(p, type);
     put32(p + HDR, sCookie);
-    sendto(sSock, p, sizeof p, MSG_DONTWAIT, (const struct sockaddr *)to, tl);
+    sendto(sSock, p, sizeof p, PLAT_MSG_DONTWAIT, (const struct sockaddr *)to, tl);
 }
 
 /* The joining side: PUNCH to the peer's addresses every 50 ms; a PUNCH_ACK proves a path both ways. 1: direct, with
@@ -1632,7 +1604,6 @@ static int punch_phase(void) {
         return 0;
     }
     while (ns_now() < end) {
-        struct pollfd pf;
         struct sockaddr_storage from;
         socklen_t fl = sizeof from;
         long k;
@@ -1642,11 +1613,8 @@ static int punch_phase(void) {
             }
             last = ns_now();
         }
-        pf.fd = sSock;
-        pf.events = POLLIN;
-        pf.revents = 0;
-        poll(&pf, 1, 10);
-        while ((k = (long)recvfrom(sSock, p, sizeof p, MSG_DONTWAIT, (struct sockaddr *)&from, &fl)) >= 0) {
+        PlatOs_SockWait(sSock, 10);
+        while ((k = (long)recvfrom(sSock, p, sizeof p, PLAT_MSG_DONTWAIT, (struct sockaddr *)&from, &fl)) >= 0) {
             socklen_t got = fl;
             fl = sizeof from;
             if (k < HDR || get32(p) != MAGIC || get32(p + 8) != sSession || p[5] == sSide) {
@@ -1672,8 +1640,8 @@ static void open_socket(void) {
         fatal(2, sJoin ? "TTT_NET_JOIN: cannot resolve the address (<addr>:<port>)" :
                          "TTT_NET_HOST: cannot resolve the address ([<addr>:]<port>)");
     }
-    sSock = socket(a.ss_family, SOCK_DGRAM, 0);
-    if (sSock < 0) {
+    sSock = PlatOs_NetInit() == 0 ? socket(a.ss_family, SOCK_DGRAM, 0) : PLAT_SOCK_NONE;
+    if (sSock == PLAT_SOCK_NONE) {
         FATAL(2, "cannot make a UDP socket");
     }
     if (sJoin) {
@@ -1719,7 +1687,6 @@ static void host_wait(const Terms *mine) {
     uint8_t p[PKT_MAX];
     int nt = sMatch && sPunch ? punch_targets(t, tl) : 0;
     while (ns_now() < end) {
-        struct pollfd pf;
         struct sockaddr_storage from;
         socklen_t fl = sizeof from;
         long n;
@@ -1732,11 +1699,8 @@ static void host_wait(const Terms *mine) {
             }
             last = ns_now();
         }
-        pf.fd = sSock;
-        pf.events = POLLIN;
-        pf.revents = 0;
-        poll(&pf, 1, sMatch ? 20 : 100);
-        while ((n = (long)recvfrom(sSock, p, sizeof p, MSG_DONTWAIT, (struct sockaddr *)&from, &fl)) >= 0) {
+        PlatOs_SockWait(sSock, sMatch ? 20 : 100);
+        while ((n = (long)recvfrom(sSock, p, sizeof p, PLAT_MSG_DONTWAIT, (struct sockaddr *)&from, &fl)) >= 0) {
             socklen_t got = fl;
             fl = sizeof from;
             if (n < HDR || get32(p) != MAGIC || (sMatch && (get32(p + 8) != sSession || p[5] == sSide))) {
@@ -1792,17 +1756,13 @@ static void join_wait(const Terms *mine) {
         sSession |= 1;
     }
     while (ns_now() < end) {
-        struct pollfd pf;
         struct sockaddr_storage from;
         socklen_t fl = sizeof from;
         long n;
         put_hello(p, P_HELLO, mine);
         raw_send(p, HDR + TERMS + MS_NAME);
-        pf.fd = sSock;
-        pf.events = POLLIN;
-        pf.revents = 0;
-        poll(&pf, 1, 100);
-        while ((n = (long)recvfrom(sSock, p, sizeof p, MSG_DONTWAIT, (struct sockaddr *)&from, &fl)) >= 0) {
+        PlatOs_SockWait(sSock, 100);
+        while ((n = (long)recvfrom(sSock, p, sizeof p, PLAT_MSG_DONTWAIT, (struct sockaddr *)&from, &fl)) >= 0) {
             socklen_t got = fl;
             fl = sizeof from;
             if (n < HDR + 1 || get32(p) != MAGIC || get32(p + 8) != sSession || (sMatch && p[5] == sSide)) {
@@ -2156,7 +2116,7 @@ void Port_NetBoundary(uint32_t vb) {
 /* The server forgets us at once (else a room or a pair expires on its own). */
 static void ms_leave(void) {
     uint8_t p[MS_REQ_SIZE];
-    if (sServerLen == 0 || sSock < 0) {
+    if (sServerLen == 0 || sSock == PLAT_SOCK_NONE) {
         return;
     }
     memset(p, 0, sizeof p);
@@ -2186,11 +2146,11 @@ int Port_NetRestart(int mode, const char *code) {
     if (srv[0] == 0) {
         return 0;
     }
-    setenv("TTT_NET_SERVER", srv, 1);
-    setenv(mode == 1 ? "TTT_NET_CREATE" : mode == 2 ? "TTT_NET_ROOM" : "TTT_NET_QUICK", mode == 2 ? code : "1", 1);
+    PlatOs_SetEnv("TTT_NET_SERVER", srv, 1);
+    PlatOs_SetEnv(mode == 1 ? "TTT_NET_CREATE" : mode == 2 ? "TTT_NET_ROOM" : "TTT_NET_QUICK", mode == 2 ? code : "1", 1);
     printf("ttt: net: starting again in a matchmaking session\n");
     fflush(stdout);
-    execv("/proc/self/exe", sArgv); /* (from boot: a session plays the same simulation from the start on both sides) */
+    PlatOs_Restart(sArgv); /* (from boot: a session plays the same simulation from the start on both sides) */
     return 0;
 }
 

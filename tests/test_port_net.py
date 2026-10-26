@@ -12,7 +12,7 @@ from pathlib import Path
 
 from test_port_input import IDLE, IN_THE_FIGHT, TO_THE_FIGHT
 from test_port_platform import EXE, disc, run_ttt
-from test_port_window import SDL32
+from test_port_window import NO_SDL, SDL_LIBS
 
 START, LEFT, SQUARE = 0x0800, 0x8000, 0x0080
 # The joining side (pad 2) in round 1: back, a punch, then Start (a challenger: the game goes to the select).
@@ -154,7 +154,7 @@ class Netplay(Session):
 
 @unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
 @unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
-@unittest.skipUnless(any(p.exists() for p in SDL32), "no 32-bit SDL3 (Arch: lib32-sdl3)")
+@unittest.skipUnless(any(p.exists() for p in SDL_LIBS), NO_SDL)
 class NetplayWindow(Session):
     def test_drawn_in_hidden_windows(self):
         """The same session drawn with GL in two hidden windows (SDL's offscreen driver, no sound), with 20 ms of

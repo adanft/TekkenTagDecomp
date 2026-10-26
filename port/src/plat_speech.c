@@ -15,25 +15,20 @@
  * A thread of its own speaks (a speech server may be slow to answer); the callers only queue. Nothing here is game
  * state: the game's thread calls Speech_Say off the EE stack (plat_hw.c's VBlank) and reads nothing back.
  */
-#include <spawn.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/wait.h>
 #include "port_host.h"
+#include "plat_os.h"
 #include "plat_lang.h"
 #include "plat_settings.h"
 #include "plat_speech.h"
 
 #define PORT_NOPLT(f) __typeof__(f) f __attribute__((noplt))
-PORT_NOPLT(posix_spawnp);
-PORT_NOPLT(waitpid);
 PORT_NOPLT(fputs);
 PORT_NOPLT(fopen);
 PORT_NOPLT(fflush);
 #undef PORT_NOPLT
-
-extern char **environ;
 
 #define QUEUE 16
 #define TEXT 512
@@ -85,30 +80,23 @@ const char *Speech_Output(void) {
 
 /* ---- the speaking thread ---- */
 static int open_libspeechd(void) {
-    void *h = dlopen("libspeechd.so.2", RTLD_NOW | RTLD_LOCAL);
+    void *h = PLAT_LIB_SPEECHD != NULL ? PlatOs_LibOpen(PLAT_LIB_SPEECHD) : NULL;
     if (h == NULL) {
         return 0;
     }
-    *(void **)&spd_open = dlsym(h, "spd_open");
-    *(void **)&spd_say = dlsym(h, "spd_say");
-    *(void **)&spd_cancel = dlsym(h, "spd_cancel");
-    *(void **)&spd_set_language = dlsym(h, "spd_set_language");
+    *(void **)&spd_open = PlatOs_LibSym(h, "spd_open");
+    *(void **)&spd_say = PlatOs_LibSym(h, "spd_say");
+    *(void **)&spd_cancel = PlatOs_LibSym(h, "spd_cancel");
+    *(void **)&spd_set_language = PlatOs_LibSym(h, "spd_set_language");
     if (spd_open == NULL || spd_say == NULL || spd_cancel == NULL ||
         (sSpd = spd_open("ttt", "main", NULL, 0)) == NULL) {
-        dlclose(h);
+        PlatOs_LibClose(h);
         return 0;
     }
     return 1;
 }
 
-static int run(char *const argv[]) {
-    pid_t pid;
-    int st;
-    if (posix_spawnp(&pid, argv[0], NULL, NULL, argv, environ) != 0) {
-        return 0;
-    }
-    return waitpid(pid, &st, 0) == pid && WIFEXITED(st) && WEXITSTATUS(st) == 0;
-}
+static int run(char *const argv[]) { return PlatOs_RunWait(argv); }
 
 static int spd_say_works(void) {
     char *argv[] = {"spd-say", "-C", NULL};

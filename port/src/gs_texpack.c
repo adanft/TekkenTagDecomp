@@ -29,20 +29,17 @@
  * only read (gs_core.c's CPU copy, which the window thread owns in GL mode). Integer only, like the rest of the port.
  * All C library calls go through the GOT (port_host.h; toolchain.py NOPLT_FILES): no new PLT entry.
  */
-#include <dirent.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <unistd.h>
 #include "port_host.h"
+#include "plat_os.h"
 #include "gs_int.h"
 #include "plat_settings.h"
 
 /* C library calls through the GOT: no new PLT entry (port_host.h) */
-#define PORT_NOPLT(f) __typeof__(f) f __attribute__((noplt))
 PORT_NOPLT(malloc);
 PORT_NOPLT(calloc);
 PORT_NOPLT(realloc);
@@ -68,16 +65,9 @@ PORT_NOPLT(fseek);
 PORT_NOPLT(ftell);
 PORT_NOPLT(fflush);
 PORT_NOPLT(rename);
-PORT_NOPLT(opendir);
-PORT_NOPLT(readdir);
-PORT_NOPLT(closedir);
-PORT_NOPLT(mkdir);
-PORT_NOPLT(stat);
-PORT_NOPLT(access);
 PORT_NOPLT(readlink);
 PORT_NOPLT(getpid);
 PORT_NOPLT(clock_gettime);
-#undef PORT_NOPLT
 
 #define XXH_INLINE_ALL
 #define XXH_NO_STDLIB
@@ -453,33 +443,33 @@ static void add_repl(const char *path, const TpName *n) {
 }
 
 static void scan(const char *dir, int depth) {
-    DIR *d = opendir(dir);
-    struct dirent *e;
+    PlatOsDir *d = PlatOs_DirOpen(dir);
+    const char *e;
     char path[1200];
     if (d == NULL) {
         return;
     }
-    while ((e = readdir(d)) != NULL) {
-        struct stat st;
+    while ((e = PlatOs_DirNext(d)) != NULL) {
+        PlatOsStat st;
         TpName n;
-        if (e->d_name[0] == '.') {
+        if (e[0] == '.') {
             continue;
         }
-        snprintf(path, sizeof path, "%s/%s", dir, e->d_name);
-        if (stat(path, &st) != 0) {
+        snprintf(path, sizeof path, "%s/%s", dir, e);
+        if (PlatOs_Stat(path, &st) != 0) {
             continue;
         }
-        if (S_ISDIR(st.st_mode)) {
+        if (st.dir) {
             if (depth < 8) {
                 scan(path, depth + 1);
             }
-        } else if (parse_name(e->d_name, &n)) {
+        } else if (parse_name(e, &n)) {
             add_repl(path, &n);
         } else {
             sSkippedFiles++;
         }
     }
-    closedir(d);
+    PlatOs_DirClose(d);
 }
 
 static int name_cmp(const TpName *a, const TpName *b) {
@@ -525,7 +515,7 @@ static void write_dump(Job *j) {
         if (f != NULL) {
             ok = fwrite(png, 1, (size_t)len, f) == (size_t)len;
             ok &= fclose(f) == 0;
-            ok = ok && rename(tmp, j->path) == 0; /* a dump is whole or absent */
+            ok = ok && PlatOs_Replace(tmp, j->path) == 0; /* a dump is whole or absent */
         }
         STBIW_FREE(png);
     }
@@ -668,12 +658,12 @@ void Tp_Settings(int dump, int replace) {
         if (!made) {
             char dir[1200];
             made = 1;
-            mkdir(sRoot, 0755);
-            mkdir(sGame, 0755);
+            PlatOs_MkDir(sRoot, 0755);
+            PlatOs_MkDir(sGame, 0755);
             snprintf(dir, sizeof dir, "%s/dumps", sGame);
-            mkdir(dir, 0755);
+            PlatOs_MkDir(dir, 0755);
             snprintf(dir, sizeof dir, "%s/replacements", sGame);
-            mkdir(dir, 0755);
+            PlatOs_MkDir(dir, 0755);
         }
     }
 }
@@ -693,7 +683,7 @@ void Tp_Dump(const uint32_t *vram, const Draw *d, const uint32_t *pal, const TpN
     }
     name_str(n, name, sizeof name);
     snprintf(j->path, sizeof j->path, "%s/dumps/%s.png", sGame, name);
-    if (access(j->path, F_OK) == 0) {
+    if (PlatOs_Exists(j->path)) {
         free(j);
         sDumpExisting++;
         return;

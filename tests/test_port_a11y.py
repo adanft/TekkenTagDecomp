@@ -17,7 +17,7 @@ from pathlib import Path
 
 from test_port_input import IN_THE_FIGHT, TO_THE_FIGHT, stream
 from test_port_platform import EXE, disc, run_ttt
-from test_port_window import SDL32
+from test_port_window import NO_SDL, SDL_LIBS
 
 FIGHT_FRAMES = "1451"
 
@@ -80,7 +80,7 @@ class GameAnnouncements(unittest.TestCase):
 
 @unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
 @unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
-@unittest.skipUnless(any(p.exists() for p in SDL32), "no 32-bit SDL3 (Arch: lib32-sdl3)")
+@unittest.skipUnless(any(p.exists() for p in SDL_LIBS), NO_SDL)
 class OverlayInSpanish(unittest.TestCase):
     def test_overlay_speaks_spanish(self):
         with tempfile.TemporaryDirectory(prefix="ttt-a11y-ovl-") as d:

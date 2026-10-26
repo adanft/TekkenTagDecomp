@@ -29,8 +29,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <unistd.h>
 #include "softfloat_ps2_inl.h"
+#include "plat_os.h"
 
 uint32_t Port_VBlankCount(void);
 void Port_Di(void), Port_Ei(void);
@@ -82,7 +82,7 @@ static int load_elf(void) {
     sImgState = -1;
     if (path == NULL) { /* build/SLUS_200.01, next to build/port/ttt */
         static char buf[1100];
-        ssize_t k = readlink("/proc/self/exe", buf, 1000);
+        long k = PlatOs_ExePath(buf, 1000);
         char *slash;
         buf[k > 0 ? k : 0] = 0;
         slash = strrchr(buf, '/');
@@ -1005,14 +1005,15 @@ static int sHostFnState;
 static const char *sPs2Names[MAX_FNS];
 static uint32_t sPs2Addrs[MAX_FNS], sPs2N;
 
-/* Calls fn(name, value) for every function symbol of a 32-bit little-endian ELF file; the names stay valid (the file
-   is kept in memory). */
+/* Calls fn(name, value) for every function symbol of a 32-bit little-endian ELF file, or a 64-bit one with values below
+   4 GB; the names stay valid (the file is kept in memory). The program's own: PlatOs_SelfImage. */
 static void elf_funcs(const char *path, void (*fn)(const char *, uint32_t)) {
     FILE *f = fopen(path, "rb");
     uint8_t *d;
     long n;
     uint32_t shoff, k;
     uint16_t shnum, shentsize;
+    int e64;
 
     if (f == NULL) {
         return;
@@ -1027,18 +1028,20 @@ static void elf_funcs(const char *path, void (*fn)(const char *, uint32_t)) {
         return;
     }
     fclose(f);
-    shoff = rd32le(d + 32);
-    shentsize = rd16le(d + 46);
-    shnum = rd16le(d + 48);
+    e64 = n > 64 && d[4] == 2;
+    shoff = rd32le(d + (e64 ? 40 : 32));
+    shentsize = rd16le(d + (e64 ? 58 : 46));
+    shnum = rd16le(d + (e64 ? 60 : 48));
     for (k = 0; k < shnum; k++) {
         const uint8_t *sh = d + shoff + k * shentsize;
         if (rd32le(sh + 4) == 2) { /* SHT_SYMTAB */
-            const uint8_t *str = d + rd32le(d + shoff + rd32le(sh + 24) * shentsize + 16);
-            uint32_t off = rd32le(sh + 16), size = rd32le(sh + 20), j;
-            for (j = 0; j + 16 <= size; j += 16) {
+            uint32_t link = rd32le(sh + (e64 ? 40 : 24)), symsize = e64 ? 24 : 16;
+            const uint8_t *str = d + rd32le(d + shoff + link * shentsize + (e64 ? 24 : 16));
+            uint32_t off = rd32le(sh + (e64 ? 24 : 16)), size = rd32le(sh + (e64 ? 32 : 20)), j;
+            for (j = 0; j + symsize <= size; j += symsize) {
                 const uint8_t *sym = d + off + j;
-                if ((sym[12] & 15) == 2) { /* STT_FUNC */
-                    fn((const char *)str + rd32le(sym), rd32le(sym + 4));
+                if ((sym[e64 ? 4 : 12] & 15) == 2) { /* STT_FUNC */
+                    fn((const char *)str + rd32le(sym), rd32le(sym + (e64 ? 8 : 4)));
                 }
             }
         }
@@ -1071,12 +1074,19 @@ static void add_host(const char *name, uint32_t a) {
     }
 }
 
+static void add_host_sym(void *ctx, const char *name, uint32_t a, int type) {
+    (void)ctx;
+    if (type == PLAT_SYM_FUNC) {
+        add_host(name, a);
+    }
+}
+
 static uint32_t host_to_ps2(uint32_t a) {
     uint32_t k;
 
     if (sHostFnState == 0) {
         static char buf[1100];
-        ssize_t n = readlink("/proc/self/exe", buf, 1000);
+        long n = PlatOs_ExePath(buf, 1000);
         char *slash;
         sHostFnState = 1;
         buf[n > 0 ? n : 0] = 0;
@@ -1085,7 +1095,7 @@ static uint32_t host_to_ps2(uint32_t a) {
             strcpy(slash + 1, "../SLUS_200.01.elf");
             elf_funcs(buf, add_ps2);
         }
-        elf_funcs("/proc/self/exe", add_host);
+        PlatOs_SelfImage(NULL, add_host_sym, NULL); /* the program's own functions */
     }
     for (k = 0; k < sHostFnN; k++) {
         if (sHostFns[k].host == a) {
@@ -1126,8 +1136,15 @@ void func_00343178(uint32_t spr, uint32_t qwc);
 void func_0035E6B8(void *tag);
 void func_0035E758(void *addr, uint32_t qwc);
 void Gfx_WaitVSync(void);
-typedef uint32_t (*FnR12)(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t,
-                          uint32_t, uint32_t, uint32_t);
+/* An argument of a native call made from 4-byte words: on x86-64 (TTT_CC=clang64) a full register, zero-extended, since
+   the game's functions take their pointer parameters as 8-byte pointers there (port/tools/ptr32.py) and the upper half
+   of a 32-bit argument's register is undefined. */
+#if defined(__x86_64__)
+typedef uint64_t FnArg;
+#else
+typedef uint32_t FnArg;
+#endif
+typedef uint32_t (*FnR12)(FnArg, FnArg, FnArg, FnArg, FnArg, FnArg, FnArg, FnArg, FnArg, FnArg, FnArg, FnArg);
 static const struct {
     uint32_t addr;
     void *fn;
@@ -1320,7 +1337,7 @@ static int wanted(const char *name) {
     return *count_of(name) < sMaxCalls;
 }
 
-typedef uint32_t (*FnR8)(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+typedef uint32_t (*FnR8)(FnArg, FnArg, FnArg, FnArg, FnArg, FnArg, FnArg, FnArg);
 
 /* Prints the differing words of [lo, hi) between the C result c and the interpreter's i, as runs. */
 /* Equal words, or a function pointer: the port's C stores the host address where the original stores the PS2 one. */

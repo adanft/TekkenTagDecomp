@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Build the PC port from a clean tree: every object (undefined.py), the link with stubs (link.py). Needs neither the
 game's executable nor its split: the game's data is not linked in, the program reads it from your disc when it runs
-(port/tools/data_layout.txt, port/src/plat_data.c, docs/port/data.md). Everything is written under build/port/.
+(port/tools/data_layout.txt, port/src/plat_data.c, docs/port/data.md). Everything is written under build/port/
+(build/port-<TTT_CC>/ for the 32-bit variants).
 
-Usage: python3 port/tools/build.py [-v]      -> build/port/ttt (32-bit x86 Linux)
-       TTT_CC=clang python3 port/tools/build.py  (game code through clang -> build/port-clang/ttt)"""
+Usage: python3 port/tools/build.py [-v]      -> build/port/ttt (x86-64 Linux through clang, docs/port/README.md 64-bit)
+       TTT_CC=gcc python3 port/tools/build.py    (the 32-bit x86 program through gcc -> build/port-gcc/ttt)
+       TTT_CC=clang python3 port/tools/build.py  (the 32-bit program through clang -> build/port-clang/ttt)"""
 import pathlib
 import subprocess
 import sys

@@ -35,20 +35,14 @@
  * Runs in plat_mem.c's constructor, before anything of the game, or from the setup in __wrap_main before the game
  * starts: no EE stack is involved.
  */
-#define _GNU_SOURCE /* statx */
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <unistd.h>
 #include "port_addr.h"
 #include "port_host.h"
 #include "plat_lang.h"
-
-/* the C library calls added with the background check, through the GOT (port_host.h: the PLT stays as it was) */
-__typeof__(statx) statx __attribute__((noplt));
+#include "plat_os.h"
 
 /* port/tools/link.py: build/port/gen/data_table.c */
 extern const uint32_t gPortDataRanges[][2], gPortDataRangeN, gPortDataFix[][2], gPortDataFixN, gPortDataSize;
@@ -358,13 +352,12 @@ static int check_disc(int full) {
 static int archive_key(char *key, int n) {
     long long off;
     const char *path = Port_DiscArchiveFile(&off);
-    struct statx st; /* not struct stat: -malign-double (PORT_CFLAGS) would move its 64-bit fields */
-    if (path == NULL || statx(AT_FDCWD, path, 0, STATX_INO | STATX_SIZE | STATX_MTIME, &st) != 0) {
+    PlatOsFileKey st;
+    if (path == NULL || PlatOs_FileKey(path, &st) != 0) {
         return 0;
     }
-    snprintf(key, (size_t)n, "TTTDISC 1 %u:%u %llu %llu %lld %u %lld", st.stx_dev_major, st.stx_dev_minor,
-             (unsigned long long)st.stx_ino, (unsigned long long)st.stx_size, (long long)st.stx_mtime.tv_sec,
-             st.stx_mtime.tv_nsec, off);
+    snprintf(key, (size_t)n, "TTTDISC 1 %u:%u %llu %llu %lld %u %lld", st.dev_major, st.dev_minor, st.ino, st.size,
+             st.mtime_s, st.mtime_ns, off);
     return 1;
 }
 
@@ -386,7 +379,7 @@ static void cache_put(const uint8_t h[20]) {
     }
     ok = fprintf(f, "%s %s\n", key, x) > 0;
     ok &= fclose(f) == 0;
-    if (!ok || rename(tmp, path) != 0) {
+    if (!ok || PlatOs_Replace(tmp, path) != 0) {
         unlink(tmp);
     }
 }
@@ -582,9 +575,9 @@ static int save_dat(const char *path, const uint8_t *payload, const uint8_t elfS
         return 0;
     }
     ok = fwrite(hd, 1, DAT_HEADER, f) == DAT_HEADER && fwrite(payload, 1, gPortDataSize, f) == gPortDataSize &&
-         fflush(f) == 0 && fsync(fileno(f)) == 0;
+         fflush(f) == 0 && PlatOs_SyncFile(f) == 0;
     ok &= fclose(f) == 0;
-    if (!ok || rename(tmp, path) != 0) {
+    if (!ok || PlatOs_Replace(tmp, path) != 0) {
         unlink(tmp);
         fprintf(stderr, "ttt: cannot write %s: the game's data is taken from the disc on every run\n", path);
         return 0;
@@ -711,25 +704,11 @@ static int load(const char *path, uint8_t *payload, int selftest) {
 /* The setup was asked for (plat_setup.c): `--setup` on the command line, or TTT_SETUP_TEST. Then nothing is loaded here:
    the setup checks the disc it is given. */
 static int setup_asked(void) {
-    char cmd[4096];
-    FILE *f;
-    size_t n, i;
     const char *t = getenv("TTT_SETUP_TEST");
     if (t != NULL && *t) {
         return 1;
     }
-    if ((f = fopen("/proc/self/cmdline", "rb")) == NULL) {
-        return 0;
-    }
-    n = fread(cmd, 1, sizeof cmd - 1, f);
-    fclose(f);
-    cmd[n] = 0;
-    for (i = strlen(cmd) + 1; i < n; i += strlen(cmd + i) + 1) { /* the arguments after the program's name */
-        if (strcmp(cmd + i, "--setup") == 0) {
-            return 1;
-        }
-    }
-    return 0;
+    return PlatOs_HasArg("--setup"); /* (from a constructor: before main has its arguments) */
 }
 
 /* Fills EE RAM (already mapped) with the game's initialised data: from the data file, or from the disc (making the

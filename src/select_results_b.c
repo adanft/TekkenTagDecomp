@@ -2040,8 +2040,16 @@ extern s32 D_005F6E78;
  * is spelled with __builtin_next_arg [I] */
 #if 0
 #ifdef PORT
+#if defined(__x86_64__) /* x86-64 (TTT_CC=clang64): the SysV convention passes them in registers first: a real va_list */
+#define TP_AP(fmt) __builtin_va_list ap; __builtin_va_start(ap, fmt)
+#define TP_ARG() __builtin_va_arg(ap, s32)
+#else
+#define TP_AP(fmt) char *ap = TP_START(fmt)
+#endif
 /* i386 cdecl: the variadic arguments are 4-byte stack slots right after fmt. */
+#ifndef TP_ARG
 #define TP_ARG() (ap += 4, *(s32 *)(ap - 4))
+#endif
 #ifdef __clang__ /* no __builtin_next_arg; an i386 va_list is the address of the first variadic slot */
 #define TP_START(fmt) ({ __builtin_va_list v_; __builtin_va_start(v_, fmt); (char *)v_; })
 #else
@@ -2050,12 +2058,13 @@ extern s32 D_005F6E78;
 #else
 #define TP_ARG() (ap += 8, *(s32 *)(ap - 8))
 #define TP_START(fmt) ((char *)__builtin_next_arg(fmt) - 7 * 8) /* fake: the EABI register save area */
+#define TP_AP(fmt) char *ap = TP_START(fmt)
 #endif
 
 s32 Text_Printf(const char *fmt, ...) {
     Digits16 digits;
     Font font;
-    char *ap = TP_START(fmt);
+    TP_AP(fmt);
     s32 state;
     s32 zero;
     s32 width;

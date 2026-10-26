@@ -1498,8 +1498,16 @@ end:
 /* NON_MATCHING: 328 lines: typed from the asm (T33 b1; was an m2c draft that never read its variadic arguments);
  * the original keeps the state in s1-s7 / fp and its switch is the jump table jtbl_00522D20 */
 #ifdef PORT
+#if defined(__x86_64__) /* x86-64 (TTT_CC=clang64): the SysV convention passes them in registers first: a real va_list */
+#define DFA_AP(fmt) __builtin_va_list ap; __builtin_va_start(ap, fmt)
+#define DFA_ARG() __builtin_va_arg(ap, s32)
+#else
+#define DFA_AP(fmt) u8 *ap = DFA_START(fmt)
+#endif
 /* i386 cdecl: the variadic arguments are 4-byte stack slots right after fmt. */
+#ifndef DFA_ARG
 #define DFA_ARG() (ap += 4, *(s32 *)(ap - 4))
+#endif
 #ifdef __clang__ /* no __builtin_next_arg; an i386 va_list is the address of the first variadic slot */
 #define DFA_START(fmt) ({ __builtin_va_list v_; __builtin_va_start(v_, fmt); (u8 *)v_; })
 #else
@@ -1508,6 +1516,7 @@ end:
 #else
 #define DFA_ARG() (ap += 8, *(s32 *)(ap - 8))
 #define DFA_START(fmt) ((u8 *)__builtin_next_arg(fmt) - 7 * 8) /* fake: the EABI register save area */
+#define DFA_AP(fmt) u8 *ap = DFA_START(fmt)
 #endif
 s32 exit(s32);
 
@@ -1517,7 +1526,7 @@ s32 exit(s32);
  * for func_003E06A0. Returns the end of fmt (past its terminator). */
 u8 *func_003DFA00(u8 *fmt, ...) {
     DemoTextPos t;
-    u8 *ap = DFA_START(fmt);
+    DFA_AP(fmt);
     u8 *s;
     u8 *next;
     u8 *str;

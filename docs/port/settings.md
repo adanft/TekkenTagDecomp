@@ -173,8 +173,8 @@ GL context / renderer and the window, then `_exit(0)`). `TTT_NO_QUIT_CONFIRM=1` 
 `third_party/imgui`: Dear ImGui v1.92.9 (MIT, `third_party/imgui/LICENSE.txt`), from
 `https://github.com/ocornut/imgui/archive/refs/tags/v1.92.9.tar.gz` (SHA-256
 `af97ed649182c39314320514a672b82008ab462b9293fe23d37b30bfa5d05519`), unmodified: the core files and the OpenGL 3
-renderer backend (`backends/imgui_impl_opengl3*`). Built as C++17 with `g++ -m32`, `-fno-exceptions -fno-rtti
--fno-threadsafe-statics`, no libstdc++ (nothing of the C++ run time is referenced), `-fno-plt` (its C library calls go
+renderer backend (`backends/imgui_impl_opengl3*`). Built as C++17 with `clang++ -m64` (`g++ -m32` in the 32-bit
+gcc build), `-fno-exceptions -fno-rtti -fno-threadsafe-statics`, no libstdc++ (nothing of the C++ run time is referenced), `-fno-plt` (its C library calls go
 through the GOT: the program's PLT, and so every game function's address, is unchanged), SSE maths
 (`port/tools/toolchain.py`).
 
