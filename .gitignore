@@ -40,3 +40,6 @@ saves/
 
 # Texture packs (T39): dumps and replacements made from your own game (docs/port/textures.md)
 textures/
+
+# Mods (T49): music and textures you add yourself (docs/port/mods.md)
+mods/

@@ -17,6 +17,7 @@
  * Both get the host's volumes (T40: audio.volume master, audio.music for the music voices, audio.effects for the rest,
  * audio.mute), applied to the mixed output only: the SPU2 model and what the game reads back never see them. While the
  * game speed is not 1x (plat_hw.c) the window plays nothing; TTT_WAV still gets every frame, at the game's pace.
+ * Music mods (T49, plat_mods.c) replace the music bus there too, before the volumes, and nowhere else.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,6 +27,7 @@
 #include "spu2.h"
 #include "plat_state.h"
 #include "plat_settings.h"
+#include "plat_mods.h"
 
 static int sCore; /* SpuSetCore */
 static uint32_t sHalfLines; /* the BGM timer's phase in the field (half H-lines) */
@@ -346,7 +348,9 @@ void Port_SndVBlank(uint32_t n) {
         }
     }
     if (!gPortResim) { /* frames run again (TTT_SYNCTEST) were heard already */
-        if (v != (100 | 100 << 8 | 100 << 16)) {
+        /* T49: a music mod replaces the music bus (plat_mods.c); the model above ran as without it */
+        if (Mods_MusicMix(bus, frames, __atomic_load_n(&sRingOn, __ATOMIC_ACQUIRE)) ||
+            v != (100 | 100 << 8 | 100 << 16)) {
             apply_volumes(pcm, bus, frames, v);
         }
         wav_write(pcm, frames);

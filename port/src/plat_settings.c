@@ -62,6 +62,12 @@ static const Def kDefs[] = {
     {"audio.mute", "TTT_MUTE", 0, 1, 0, NULL, 0},
     {"audio.music", "TTT_MUSIC_VOLUME", 0, 100, 100, NULL, 0},
     {"audio.effects", "TTT_EFFECTS_VOLUME", 0, 100, 100, NULL, 0},
+    /* T49: mods (plat_mods.c, docs/port/mods.md); the lists are mod folder names with commas between them */
+    {"mods.music", "TTT_MOD_MUSIC", 0, 1, 1, NULL, 0},
+    {"mods.textures", "TTT_MOD_TEXTURES", 0, 1, 1, NULL, 1},
+    {"mods.dir", "TTT_MODS", 0, 0, 0, "", 1},
+    {"mods.order", "TTT_MOD_ORDER", 0, 0, 0, "", 0},
+    {"mods.disabled", "TTT_MOD_DISABLED", 0, 0, 0, "", 0},
     {"game.movies", "TTT_MOVIES", 0, 1, 1, NULL, 1},
     {"game.disc", "TTT_DISC", 0, 0, 0, "", 1}, /* the disc the setup checked (T43, plat_setup.c) */
     {"game.pause", "TTT_PAUSE_IN_MENU", 0, 1, 1, NULL, 0},

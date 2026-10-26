@@ -24,6 +24,7 @@ configuration). Tests: `tests/test_port_settings.py`, `tests/test_port_window.py
 | | Game speed 0.25x-4x and the speed while Tab is held 1x-4x (T40, [Game speed](#game-speed)) | at once |
 | | The disc, the data file, verified or `[modified game data]`, the settings file and a write error if any (read only) | |
 | Cheats | Unlock everything (T40, off by default; it modifies the game's state, [cheats.md](cheats.md)) | at once |
+| Mods | Music mods and texture mods on / off; the mods folder's mods in load order: each on or off, up / down, the tracks and textures each replaces, what an earlier mod hides, the track playing now; "Read the folder again" (T49, [mods.md](mods.md)) | music at once, textures next start |
 | About | The build (`git describe`), `[modified game data]` when set, Dear ImGui's version | |
 
 A setting whose environment variable is set shows `(set by TTT_...)` and cannot be changed there (the variable wins).
@@ -92,6 +93,11 @@ know are kept as they are, in place; a changed key's line is replaced, a new key
 | `audio.mute` | 0 / 1 | 0 | `TTT_MUTE` |
 | `audio.music` | 0-100 (the BGM and movie voices) | 100 | `TTT_MUSIC_VOLUME` |
 | `audio.effects` | 0-100 (every other voice) | 100 | `TTT_EFFECTS_VOLUME` |
+| `mods.music` | 0 / 1 (music mods, [mods.md](mods.md)) | 1 | `TTT_MOD_MUSIC` |
+| `mods.textures` | 0 / 1 (texture mods, OpenGL; read at start) | 1 | `TTT_MOD_TEXTURES` |
+| `mods.dir` | a folder (read at start; empty: `mods/` of the checkout, else in the data folder) | (empty) | `TTT_MODS` |
+| `mods.order` | mod folder names, commas between them: the load order (the first wins a conflict) | (empty) | `TTT_MOD_ORDER` |
+| `mods.disabled` | mod folder names, commas between them: the mods switched off | (empty) | `TTT_MOD_DISABLED` |
 | `game.movies` | 0 / 1 | 1 | `TTT_MOVIES` |
 | `game.disc` | the disc's folder or image (written by the setup, [install.md](install.md); read at start) | (empty) | `TTT_DISC` |
 | `game.pause` | 0 / 1 | 1 | `TTT_PAUSE_IN_MENU` |
@@ -157,7 +163,7 @@ GL context / renderer and the window, then `_exit(0)`). `TTT_NO_QUIT_CONFIRM=1` 
 |---|---|
 | `TTT_CONFIG=<file>` | The settings file. |
 | `TTT_NO_QUIT_CONFIRM=1` | Close / Escape quit without asking. |
-| `TTT_SCALE`, `TTT_FULLSCREEN`, `TTT_FPS_METER`, `TTT_VOLUME`, `TTT_MUTE`, `TTT_MUSIC_VOLUME`, `TTT_EFFECTS_VOLUME`, `TTT_SPEED`, `TTT_FAST_FORWARD`, `TTT_CHEAT_UNLOCK`, `TTT_PAUSE_IN_MENU`, `TTT_RESOLUTION`, `TTT_ASPECT`, `TTT_DEFLICKER`, `TTT_SMOOTH`, `TTT_LOW_LATENCY`, `TTT_TEXTURE_REPLACE`, `TTT_TEXTURE_DUMP`, `TTT_TEXTURES`, `TTT_VIBRATION`, `TTT_DEADZONE`, `TTT_STICK_DPAD`, `TTT_MULTITAP` | The settings above, over the file. |
+| `TTT_SCALE`, `TTT_FULLSCREEN`, `TTT_FPS_METER`, `TTT_VOLUME`, `TTT_MUTE`, `TTT_MUSIC_VOLUME`, `TTT_EFFECTS_VOLUME`, `TTT_SPEED`, `TTT_FAST_FORWARD`, `TTT_CHEAT_UNLOCK`, `TTT_PAUSE_IN_MENU`, `TTT_RESOLUTION`, `TTT_ASPECT`, `TTT_DEFLICKER`, `TTT_SMOOTH`, `TTT_LOW_LATENCY`, `TTT_TEXTURE_REPLACE`, `TTT_TEXTURE_DUMP`, `TTT_TEXTURES`, `TTT_MOD_MUSIC`, `TTT_MOD_TEXTURES`, `TTT_MODS`, `TTT_MOD_ORDER`, `TTT_MOD_DISABLED`, `TTT_VIBRATION`, `TTT_DEADZONE`, `TTT_STICK_DPAD`, `TTT_MULTITAP` | The settings above, over the file. |
 | `TTT_OVERLAY_TEST=1` | Tests: with a window, the overlay is driven from inside (made-up key events through the window's own handling at fixed frames: F1, a key pressed while open, Escape; every page drawn; a key and a gamepad button bound through the capture paths) and the report adds `ttt: overlay: ...` and `ttt: window: overlay test: ...`. Nothing is sent to the desktop. |
 | `TTT_SELFTEST=settings` | The file's round trip (comments, sections and unknown keys kept, no temporary file left), the environment's precedence, clamping, key names both ways, rebinding (swaps, F1 / Escape / Tab refused), the gamepads' bindings (defaults, swaps within a pad, guide refused,
 `none`, names both ways, the file's round trip), the `input.*` options, the T40 defaults. Needs `TTT_CONFIG` (it writes that file). |

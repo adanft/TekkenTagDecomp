@@ -66,6 +66,7 @@
 #include "gs.h"
 #include "gs_int.h"
 #include "plat_settings.h"
+#include "plat_mods.h"
 
 /* ------------------------------------------------------------------------------------------------ GL */
 
@@ -2693,6 +2694,7 @@ static void apply_settings(void) {
     sLowLat = Settings_GetInt("video.low_latency");
     { /* T39: texture packs; a change names every texture again */
         int dump = Settings_GetInt("video.texture_dump"), repl = Settings_GetInt("video.texture_replace");
+        repl = repl ? 1 : Mods_TexturesActive() ? 2 : 0; /* T49: the mods' textures/ folders, even without a pack */
         if (dump != sTpDump || repl != sTpRepl || (sTpSlot == NULL && (dump || repl))) {
             Tp_Settings(dump, repl);
             sTpDump = dump;

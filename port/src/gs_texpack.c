@@ -24,7 +24,9 @@
  * clamp / repeat narrower than the texture (PCSX2's "-r<w>x<h>" names), CLUTs the GPU loaded from a target.
  *
  * Threads: everything here runs on the window thread, except one worker (started on the first need) that scans the
- * replacements folder, decodes every replacement it found (stb_image, PNG only) and compresses and writes the dumps
+ * replacements folder (after the enabled mods' textures/ folders, T49, plat_mods.c: the first file of a name wins, so
+ * a mod higher in the load order wins over a lower one and over the pack), decodes every replacement it found
+ * (stb_image, PNG only; a name already found earlier is not decoded) and compresses and writes the dumps
  * (stb_image_write), so a picture never waits for the disk. Nothing of the game reads any of it: the GS memory is
  * only read (gs_core.c's CPU copy, which the window thread owns in GL mode). Integer only, like the rest of the port.
  * All C library calls go through the GOT (port_host.h; toolchain.py NOPLT_FILES): no new PLT entry.
@@ -40,6 +42,7 @@
 #include "port_host.h"
 #include "gs_int.h"
 #include "plat_settings.h"
+#include "plat_mods.h"
 
 /* C library calls through the GOT: no new PLT entry (port_host.h) */
 #define PORT_NOPLT(f) __typeof__(f) f __attribute__((noplt))
@@ -412,7 +415,8 @@ typedef struct Repl {
     char *path;
     uint8_t *px;     /* decoded RGBA8 until the GL back end took it */
     int w, h;
-    int state;       /* 0 waiting, 1 decoded, 2 failed, 3 taken */
+    int state;       /* 0 waiting, 1 decoded, 2 failed, 3 taken (or hidden by an earlier file of the name) */
+    int src;         /* where it was found: mod folder 0.. in load order, then the texture pack */
 } Repl;
 
 typedef struct Job {
@@ -431,6 +435,8 @@ static int sBusy;              /* the worker is writing a dump */
 static Repl *sRepl;            /* sorted by name; the window thread reads it once sScanned */
 static int sNRepl, sCapRepl, sDecoded, sFailed, sSkippedFiles;
 static uint32_t sDumped, sDumpFailed, sDumpExisting;
+static int sScanSrc, sScanMods;  /* the folder being read (as Repl.src), the mod folders before the pack's */
+static int sScanPack = 1;        /* the pack's replacements/ too (video.texture_replace), not only the mods' */
 
 static void add_repl(const char *path, const TpName *n) {
     if (sNRepl == sCapRepl) {
@@ -444,6 +450,7 @@ static void add_repl(const char *path, const TpName *n) {
     }
     memset(&sRepl[sNRepl], 0, sizeof sRepl[0]);
     sRepl[sNRepl].n = *n;
+    sRepl[sNRepl].src = sScanSrc;
     sRepl[sNRepl].path = malloc(strlen(path) + 1);
     if (sRepl[sNRepl].path == NULL) {
         return;
@@ -462,8 +469,8 @@ static void scan(const char *dir, int depth) {
     while ((e = readdir(d)) != NULL) {
         struct stat st;
         TpName n;
-        if (e->d_name[0] == '.') {
-            continue;
+        if (e->d_name[0] == '.' || (sScanSrc < sScanMods && strcmp(e->d_name, "dumps") == 0)) {
+            continue; /* a mod's textures/ may hold a whole pack: its dumps are not replacements */
         }
         snprintf(path, sizeof path, "%s/%s", dir, e->d_name);
         if (stat(path, &st) != 0) {
@@ -543,11 +550,22 @@ static void *worker(void *arg) {
     pthread_mutex_lock(&sLock);
     for (;;) {
         if (sScanWanted && !sScanned) {
+            static char mods[MODS_MAX][1100];
+            static int modIndex[MODS_MAX], modFiles[MODS_MAX + 1], modHidden[MODS_MAX + 1];
             char dir[1200];
-            int i, n;
+            int i, n, m;
             pthread_mutex_unlock(&sLock);
+            /* sRepl is the worker's until sScanned: the mods' folders first (T49), then the pack's */
+            sScanMods = Mods_TextureDirs(mods, modIndex, MODS_MAX);
+            for (m = 0; m < sScanMods; m++) {
+                sScanSrc = m;
+                scan(mods[m], 0);
+            }
+            sScanSrc = sScanMods;
             snprintf(dir, sizeof dir, "%s/replacements", sGame);
-            scan(dir, 0); /* sRepl is the worker's until sScanned */
+            if (sScanPack) {
+                scan(dir, 0);
+            }
             /* sorted by name, so the window thread finds one by binary search; equal names: the first stays */
             for (i = 1; i < sNRepl; i++) {
                 Repl r = sRepl[i];
@@ -558,6 +576,26 @@ static void *worker(void *arg) {
                 }
                 sRepl[k + 1] = r;
             }
+            /* a name found again further down the order is hidden: never decoded, counted for the Mods page */
+            memset(modFiles, 0, sizeof modFiles);
+            memset(modHidden, 0, sizeof modHidden);
+            for (i = 0; i < sNRepl; i++) {
+                modFiles[sRepl[i].src]++;
+                if (i > 0 && name_cmp(&sRepl[i - 1].n, &sRepl[i].n) == 0) {
+                    sRepl[i].state = 3;
+                    modHidden[sRepl[i].src]++;
+                }
+            }
+            for (m = 0, n = 0; m <= sScanMods; m++) {
+                n += modHidden[m];
+                if (m < sScanMods) {
+                    Mods_NoteTextures(modIndex[m], modFiles[m], modHidden[m]);
+                }
+            }
+            if (sScanMods > 0) {
+                printf("ttt: textures: mods: %d mod folder%s, %d replacements from mods, %d names hidden by an earlier "
+                       "file\n", sScanMods, sScanMods == 1 ? "" : "s", sNRepl - modFiles[sScanMods], n);
+            }
             pthread_mutex_lock(&sLock);
             sScanned = 1;
             n = sNRepl;
@@ -565,7 +603,11 @@ static void *worker(void *arg) {
             /* every replacement decoded now, in the background: ready when the game first draws its texture */
             for (i = 0; i < n; i++) {
                 long len = 0;
-                uint8_t *file = read_file(sRepl[i].path, &len);
+                uint8_t *file;
+                if (sRepl[i].state == 3) {
+                    continue;
+                }
+                file = read_file(sRepl[i].path, &len);
                 int w = 0, h = 0, c = 0;
                 uint8_t *px = file != NULL ? stbi_load_from_memory(file, (int)len, &w, &h, &c, 4) : NULL;
                 free(file);
@@ -649,15 +691,17 @@ static int seen_add(const TpName *n) {
     return 1;
 }
 
+/* replace: 1 the pack and the mods' textures, 2 the mods' only (video.texture_replace off, T49). */
 void Tp_Settings(int dump, int replace) {
     sDump = dump;
-    sReplace = replace;
+    sReplace = replace != 0;
     if (!dump && !replace) {
         return;
     }
     folders();
     pthread_mutex_lock(&sLock);
     if (replace && !sScanWanted) {
+        sScanPack = replace == 1;
         sScanWanted = 1; /* read once a run: new files are seen at the next start */
         start_worker();
         pthread_cond_broadcast(&sCond);

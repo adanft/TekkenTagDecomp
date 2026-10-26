@@ -20,6 +20,7 @@ void Port_PadSelfTest(void); /* plat_pad.c: TTT_SELFTEST=pad */
 void Port_WindowSelfTest(void); /* plat_window.c: TTT_SELFTEST=window */
 void Settings_Load(void); /* plat_settings.c: the settings file, before anything reads the variables it sets */
 void Settings_SelfTest(void); /* TTT_SELFTEST=settings */
+void Mods_SelfTest(void); /* plat_mods.c: TTT_SELFTEST=mods */
 void Port_CrashInstall(void); /* plat_crash.c: the crash report handlers, with their own signal stack */
 void Port_SetupArgs(int argc, char **argv); /* plat_setup.c: `--setup <disc>` (exits) or `--setup` (the screen) */
 void Port_SetupRun(void); /* plat_setup.c: the setup screen when the game's data is not loaded yet (T43) */
@@ -29,6 +30,7 @@ int __wrap_main(int argc, char **argv) {
        game's clock */
     Settings_Load();
     Settings_SelfTest();
+    Mods_SelfTest();
     Port_PadSelfTest();
     Port_WindowSelfTest();
     Port_SetupArgs(argc, argv);
