@@ -284,8 +284,9 @@ class Signatures(unittest.TestCase):
 def game_env(d, port, extra):
     e = {k: v for k, v in os.environ.items() if not k.startswith(("TTT_", "SDL_"))}
     e.update({"TTT_DISC": str(disc()), "TTT_MOVIES": "0", "TTT_LANG": "en", "TTT_SAVES": d,
-              "TTT_CONFIG": d + "/settings.ini", "TTT_TEXTURES": d + "/textures", "XDG_DATA_HOME": d + "/data",
-              "XDG_CONFIG_HOME": d + "/config", "TTT_NET_SERVER": f"127.0.0.1:{port}", "TTT_NET_WAIT": "60",
+              "TTT_CONFIG": d + "/settings.ini", "TTT_TEXTURES": d + "/textures", "TTT_MODS": d + "/mods",
+              "XDG_DATA_HOME": d + "/data", "XDG_CONFIG_HOME": d + "/config", "TTT_NET_SERVER": f"127.0.0.1:{port}",
+              "TTT_NET_WAIT": "60",
               "TTT_FRAMES": "600", "TTT_SEED": "1", "TTT_NET_DRAW": "0", "TTT_NET_PACE_FROM": "0"})
     e.update(extra)
     return e

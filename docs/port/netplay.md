@@ -48,7 +48,8 @@ printed), 5 a desync, 6 a rollback found no state to go back to (a bug).
 
 A session plays the same simulation on both sides, so everything that changes the game's state must be the same.
 The joining side sends HELLO (every 100 ms) until the host answers WELCOME or REFUSE (both also carry the player's
-name, `net.name`, for the overlay and the title); each compares:
+name, `net.name`, for the overlay and the title, and the player's mods, `Mods_Summary`: shown to the peer and never
+compared, [mods.md](mods.md)); each compares:
 
 - the protocol version and the **build id** (the program's code hashed with the state's region list,
   `Port_StateBuildId`): another build of the program is refused;

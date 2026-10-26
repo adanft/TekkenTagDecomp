@@ -21,6 +21,7 @@ typedef struct {
     uint32_t rttMs, delay, rollbacks, framesAgain, stalls, vblank;
     int update;             /* NET_UPDATE_* */
     char updateVersion[48]; /* the manifest's version text */
+    char mods[96], peerMods[96]; /* T49: this side's mods and the peer's (Mods_Summary; information only, "" unknown) */
 } PortNetInfo;
 
 void Port_NetInfo(PortNetInfo *out);

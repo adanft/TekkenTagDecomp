@@ -30,6 +30,7 @@
 #include "plat_lang.h"
 #include "plat_net.h"
 #include "plat_speech.h"
+#include "plat_mods.h"
 
 #ifndef TTT_GIT
 #define TTT_GIT "unknown"
@@ -769,6 +770,102 @@ static void page_audio(void) {
                                 "every other voice. Nothing is played while the game speed is not 1x."));
 }
 
+/* T49: the mods (plat_mods.c, docs/port/mods.md): the folder's mods in load order, each on or off, moved up or down;
+   what each replaces and what an earlier one hides. */
+static void track_list(char *out, size_t n, uint32_t mask) {
+    size_t k = 0;
+    out[0] = 0;
+    for (int t = 0; t < MODS_TRACKS && k + 4 < n; t++) {
+        if (mask >> t & 1u) {
+            k += (size_t)snprintf(out + k, n - k, "%s%d", k ? ", " : "", t);
+        }
+    }
+}
+
+static void page_mods(void) {
+    char now[1200], list[160];
+    check(Tr("overlay.mods.music", "Music mods"), "mods.music");
+    check(Tr("overlay.mods.textures", "Texture mods"), "mods.textures");
+    ImGui::TextDisabled(TrFmt("overlay.mods.folder", "Folder: %s"), Mods_Folder());
+    if (ImGui::Button(L(Tr("overlay.mods.rescan", "Read the folder again"), "mods_rescan"))) {
+        Mods_Rescan();
+    }
+    int t = Mods_MusicNow(now, sizeof now);
+    const char *base = strrchr(now, '/');
+    if (t >= 0) {
+        ImGui::Text(TrFmt("overlay.mods.music_now", "Music now: track %d, %s"), t,
+                    now[0] ? (base != nullptr ? base + 1 : now) : Tr("overlay.mods.music_game", "the game's own"));
+    } else {
+        ImGui::TextDisabled("%s", Tr("overlay.mods.music_none", "Music now: none"));
+    }
+    int n = Mods_Count();
+    if (n == 0) {
+        ImGui::TextWrapped("%s", Tr("overlay.mods.none", "No mods found. Each folder in the mods folder is a mod: music "
+                                    "files named by track number (07.ogg, 21.wav) and a textures/ folder of replacement "
+                                    "textures."));
+    } else if (ImGui::BeginTable("mods", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit)) {
+        ImGui::TableSetupColumn(Tr("overlay.mods.col_on", "On"));
+        ImGui::TableSetupColumn(Tr("overlay.mods.col_mod", "Mod"), ImGuiTableColumnFlags_WidthFixed, 150.0f);
+        ImGui::TableSetupColumn(Tr("overlay.mods.col_music", "Music tracks"), ImGuiTableColumnFlags_WidthFixed, 170.0f);
+        ImGui::TableSetupColumn(Tr("overlay.mods.col_textures", "Textures"), ImGuiTableColumnFlags_WidthFixed, 110.0f);
+        ImGui::TableSetupColumn(Tr("overlay.mods.col_order", "Order"));
+        ImGui::TableHeadersRow();
+        for (int i = 0; i < n; i++) {
+            ModInfo m;
+            char id[200]; /* (the mod's name: up to 127 bytes, then the id) */
+            if (!Mods_Get(i, &m)) {
+                break;
+            }
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            bool on = m.enabled != 0;
+            snprintf(id, sizeof id, "%s###on%d", m.name, i); /* (the screen reader says the mod) */
+            if (ImGui::Checkbox(id, &on)) {
+                Mods_SetEnabled(i, on ? 1 : 0);
+            }
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(m.name);
+            ImGui::TableNextColumn();
+            track_list(list, sizeof list, m.music);
+            ImGui::TextUnformatted(m.music ? list : "-");
+            if (m.enabled && m.shadowed) {
+                track_list(list, sizeof list, m.shadowed);
+                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), TrFmt("overlay.mods.music_hidden", "hidden by an earlier mod: %s"), list);
+            }
+            ImGui::TableNextColumn();
+            if (!m.textures) {
+                ImGui::TextUnformatted("-");
+            } else if (m.texFiles > 0) {
+                ImGui::Text(TrFmt("overlay.mods.tex_files", "%d files"), m.texFiles);
+                if (m.texShadowed > 0) {
+                    ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), TrFmt("overlay.mods.tex_hidden", "%d hidden"), m.texShadowed);
+                }
+            } else {
+                ImGui::TextUnformatted(Tr("overlay.mods.tex_yes", "yes"));
+            }
+            ImGui::TableNextColumn();
+            ImGui::BeginDisabled(i == 0);
+            snprintf(id, sizeof id, "%s###up%d", Tr("overlay.mods.up", "Up"), i);
+            if (ImGui::SmallButton(id)) {
+                Mods_Move(i, -1);
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            ImGui::BeginDisabled(i == n - 1);
+            snprintf(id, sizeof id, "%s###dn%d", Tr("overlay.mods.down", "Down"), i);
+            if (ImGui::SmallButton(id)) {
+                Mods_Move(i, 1);
+            }
+            ImGui::EndDisabled();
+        }
+        ImGui::EndTable();
+    }
+    ImGui::TextWrapped("%s", Tr("overlay.mods.note", "A mod higher in the list wins when two replace the same track or "
+                                "texture. Music changes at once; textures on the next start. Mods change only what you "
+                                "hear and see: the game runs the same with or without them, and netplay only shows the "
+                                "other player which mods you use."));
+}
+
 /* T40: the game speed presets (percent), the real-time clock's rate (plat_hw.c). */
 static void speed_choice(const char *label, const char *key, int lo) {
     static const int kSpeeds[] = {25, 50, 75, 100, 150, 200, 300, 400};
@@ -1132,6 +1229,10 @@ static void page_netplay(void) {
         if (ni.peer[0]) {
             ImGui::Text(TrFmt("overlay.net.peer", "Playing with: %s (pad %d)"), ni.peer, 2 - ni.side);
         }
+        if (ni.peerMods[0]) { /* T49: information only (mods change no game state; the handshake never compares them) */
+            ImGui::TextWrapped(TrFmt("overlay.net.peer_mods", "Their mods: %s"), ni.peerMods);
+            ImGui::TextWrapped(TrFmt("overlay.net.my_mods", "Your mods: %s"), ni.mods);
+        }
         if (ni.phase == NET_PHASE_PLAYING) {
             ImGui::Text(TrFmt("overlay.net.path", "Connection: %s"),
                         ni.path == NET_PATH_RELAY ? Tr("net.path.relay", "relayed") : Tr("net.path.direct", "direct"));
@@ -1413,9 +1514,10 @@ static void ui(void) {
                 if (tab(Tr("overlay.tab.controls", "Controls"), "controls", 2)) { page_controls(); ImGui::EndTabItem(); }
                 if (tab(Tr("overlay.tab.game", "Game"), "game", 3)) { page_game(); ImGui::EndTabItem(); }
                 if (tab(Tr("overlay.tab.cheats", "Cheats"), "cheats", 4)) { page_cheats(); ImGui::EndTabItem(); }
-                if (tab(Tr("overlay.tab.access", "Accessibility"), "access", 5)) { page_access(); ImGui::EndTabItem(); }
-                if (tab(Tr("overlay.tab.about", "About"), "about", 6)) { page_about(); ImGui::EndTabItem(); }
-                if (tab(Tr("overlay.tab.netplay", "Netplay"), "netplay", 7)) { page_netplay(); ImGui::EndTabItem(); }
+                if (tab(Tr("overlay.tab.mods", "Mods"), "mods", 5)) { page_mods(); ImGui::EndTabItem(); }
+                if (tab(Tr("overlay.tab.access", "Accessibility"), "access", 6)) { page_access(); ImGui::EndTabItem(); }
+                if (tab(Tr("overlay.tab.about", "About"), "about", 7)) { page_about(); ImGui::EndTabItem(); }
+                if (tab(Tr("overlay.tab.netplay", "Netplay"), "netplay", 8)) { page_netplay(); ImGui::EndTabItem(); }
                 ImGui::EndTabBar();
             }
         }
@@ -1486,7 +1588,7 @@ extern "C" void Overlay_Render(int win_w, int win_h, int pix_w, int pix_h, int64
 }
 
 /* ---- TTT_OVERLAY_TEST: the overlay driven from inside, no input from the desktop ---- */
-#define TEST_PAGES 8
+#define TEST_PAGES 9
 
 extern "C" void Overlay_TestStep(void) {
     if (sTest < 0 || sMode == 0) {

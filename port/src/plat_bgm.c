@@ -188,6 +188,30 @@ void Port_BgmQueue(const uint8_t *q) {
     }
 }
 
+/* Read-only views for the host's music mods (plat_mods.c, T49), which replace what the host plays and never the
+   engine: the table track playing now (state 4; -1 none, the movie track included), with its volume (option volume *
+   fade, 0x4000 = 1), stereo, and whether it loops for ever. */
+int Port_BgmNow(int *gain, int *stereo, int *loops) {
+    if (sB.state != 4 || sB.cur < 0 || sB.cur >= TRACKS) {
+        return -1;
+    }
+    *gain = sB.optVol * sB.fade;
+    *stereo = sB.stereo;
+    *loops = sB.count < 0;
+    return sB.cur;
+}
+
+/* Track i as 0x205E registered it: 0 when it is not registered (yet). */
+int Port_BgmTrackInfo(int i, int *type, int *count, uint32_t *bytes) {
+    if (i < 0 || i >= TRACKS || sB.tracks[i].type == 0) {
+        return 0;
+    }
+    *type = sB.tracks[i].type;
+    *count = sB.tracks[i].count;
+    *bytes = sB.tracks[i].bytes;
+    return 1;
+}
+
 uint32_t Port_BgmStatus(void) {
     return (sB.state == 3 ? 0x10u : 0) | (sB.mode == 1 ? 0x40u : 0);
 }

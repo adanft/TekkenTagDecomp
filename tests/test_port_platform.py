@@ -50,6 +50,7 @@ def run_ttt(timeout=120, **env):
         e.setdefault("TTT_SAVES", saves)
         e.setdefault("TTT_CONFIG", str(Path(saves) / "settings.ini"))  # never the player's own settings file
         e.setdefault("TTT_TEXTURES", str(Path(saves) / "textures"))  # texture packs (T39): never the repository's textures/
+        e.setdefault("TTT_MODS", str(Path(saves) / "mods"))  # mods (T49): never the player's or the repository's mods/
         e.setdefault("XDG_DATA_HOME", str(Path(saves) / "data"))  # T43: a data folder that is never the player's
         e.setdefault("XDG_CONFIG_HOME", str(Path(saves) / "config"))
         return subprocess.run([str(EXE)], env=e, capture_output=True, text=True, timeout=timeout)

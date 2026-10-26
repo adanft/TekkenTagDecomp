@@ -43,3 +43,5 @@ textures/
 
 # Matchmaking (T46): the update manifest's signing key (port/server/ttt-sign keygen) is never committed
 ttt-update*.key
+# Mods (T49): music and textures you add yourself (docs/port/mods.md)
+mods/

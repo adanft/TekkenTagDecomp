@@ -35,6 +35,15 @@ the next start.
 an empty `replacements/`. This is PCSX2's layout below its textures folder (`textures/<serial>/{dumps,replacements}`),
 so a PCSX2 pack folder for SLUS-20001 can be copied in as it is.
 
+### Mods (T49)
+
+Every enabled mod with a `textures/` folder (`<mods>/<name>/textures/`, any sub-folder, any depth up to 8; a
+`dumps/` folder inside is skipped) is read before the pack's `replacements/`, in the mods' load order: the first file
+of a name wins, so a mod higher in the list wins over a lower one, and any mod over the pack. The names and PNG rules
+are the same. With `video.texture_replace` off, only the mods' folders are read (`mods.textures`, on by default); the
+run reports `ttt: textures: mods: <n> mod folders, <k> replacements from mods, <h> names hidden by an earlier file`.
+How to make a stage retexture mod: [mods.md](mods.md).
+
 ## Names
 
 PCSX2's (checked against its sources, `pcsx2/GS/Renderers/HW/GSTextureReplacements.cpp` and `GSTextureCache.cpp`:

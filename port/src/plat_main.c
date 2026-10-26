@@ -23,6 +23,7 @@ void Settings_SelfTest(void); /* TTT_SELFTEST=settings */
 void Lang_Init(void); /* plat_lang.c: the interface's language (T47) */
 void Speech_Init(void); /* plat_speech.c: the screen reader's output (T48) */
 void A11y_Init(void); /* plat_a11y.c: the game's announcements (T48, opt-in) */
+void Mods_SelfTest(void); /* plat_mods.c: TTT_SELFTEST=mods */
 void Port_CrashInstall(void); /* plat_crash.c: the crash report handlers, with their own signal stack */
 void Port_SetupArgs(int argc, char **argv); /* plat_setup.c: `--setup <disc>` (exits) or `--setup` (the screen) */
 void Port_SetupRun(void); /* plat_setup.c: the setup screen when the game's data is not loaded yet (T43) */
@@ -36,6 +37,7 @@ int __wrap_main(int argc, char **argv) {
     Speech_Init();
     A11y_Init();
     Settings_SelfTest();
+    Mods_SelfTest();
     Port_PadSelfTest();
     Port_WindowSelfTest();
     Port_NetMain(argc, argv);

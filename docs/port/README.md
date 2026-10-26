@@ -319,6 +319,7 @@ wait loops drive the hardware.
 | `plat_window.c` | The SDL3 window: SDL loaded at run time, its own thread, the GL context ([Window](#window)), the audio stream, F1 / the quit question / the live settings, `TTT_SELFTEST=window` |
 | `gs_gl.c` | The GS's OpenGL 3.3 back end on the window thread ([GL back end](#gl-back-end)) |
 | `gs_texpack.c` | Texture packs for the GL back end: PCSX2's texture names (XXH3), PNG dumps and replacements on a worker thread, `third_party/stb` ([textures.md](textures.md)) |
+| `plat_mods.c` / `plat_mods.h` / `mods_vorbis.cpp` | Mods (T49): the mods folder and its load order, music files replacing the BGM in the host's output only (WAV, Ogg Vorbis through `third_party/stb/stb_vorbis.c` in host float), the mods' texture folders for `gs_texpack.c`, `TTT_SELFTEST=mods` ([mods.md](mods.md)) |
 | `gs_async.c` | The GS threads: VIF1 and VU1, then the GIF and the GS front end, beside the game ([Speed](#speed)) |
 | `gs_int.h` | The GS commands and helpers both back ends share |
 | `port_host.h` | Host library calls added since T30, declared `noplt` (gotcha 20); `PORT_NOPLT`, which other files use for theirs (GOT thunks with clang, gotcha 32) |
@@ -426,6 +427,7 @@ Switches:
 | `TTT_INPUT_PLAY=<file>` | The pads' states come from that recording instead of the keyboard and gamepads. |
 | `TTT_INPUT_RECORD=<file>` | Write the pads' states latched at each VBlank to that file (a line per change). |
 | `TTT_SELFTEST=pad` | The recording's line format, libpad's read data and the answers of the game's pad set-up sequence (`tests/test_port_input.py`). |
+| `TTT_MODS=<folder>`, `TTT_MOD_MUSIC=0/1`, `TTT_MOD_TEXTURES=0/1`, `TTT_MOD_ORDER`, `TTT_MOD_DISABLED`, `TTT_MODS_TRACKS=1` | Mods (T49, [mods.md](mods.md)): music files replacing BGM tracks in the output, mod texture folders; `TTT_MODS_TRACKS=1` prints the game's track table, its stage -> track table and each track start. Presentation only (the state is the same). |
 | `TTT_WAV=<file>` | Write the run's sound as a 48 kHz 16-bit stereo WAV (headless runs too; the header is finished at the `TTT_FRAMES` report). Put it outside the repository: the sound is the game's ([sound.md](sound.md)). |
 | `TTT_AUDIO=0` | The window opens no audio device (default: SDL's default playback device; `SDL_AUDIO_DRIVER=dummy` / `disk` for tests). |
 | `TTT_SND_TRACE=1` | Print every sound command with its VBlank (and the struct of the 0x7xxx sets). |

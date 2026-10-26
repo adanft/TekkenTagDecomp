@@ -223,6 +223,15 @@ model: the SPU2 state and everything the game reads back never see them, so the 
 - While the game speed is not 1x ([settings.md](settings.md#game-speed)) nothing goes to the window's ring;
   `TTT_WAV` gets every frame.
 
+### 4.2 Music mods (T49)
+
+A music mod's file replaces a BGM track in the same place as the volumes: after the model, on the music bus. While
+the engine is in state 4 with table track n (`Port_BgmNow`, a read-only view of `plat_bgm.c`) and an enabled mod has
+a file for n, `plat_mods.c` takes the music bus out of the whole mix and puts the file's samples in, at the game's
+option volume and fade and through core 0's master, core 1's AVOL and core 1's master; mono when the game is set to
+mono. The SPU2 model, the stream voices, the status bits and the state hash are those of a run without mods, and the
+movie track (type 4) is never replaced. Files, loops and the track list: [mods.md](mods.md).
+
 ## 5. Effect on the game's timing
 
 Before T32 the stub never reported status bit 4. The attract cycle's loading mode starts track 1 with the hold flag

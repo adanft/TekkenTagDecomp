@@ -70,6 +70,7 @@
 #include <time.h>
 #include "port_host.h"
 #include "plat_lang.h"
+#include "plat_mods.h"
 #include "plat_net.h"
 #include "plat_os.h" /* BSD sockets (Winsock 2 on Windows) */
 #include "plat_settings.h"
@@ -804,7 +805,9 @@ static void got_inputs(const uint8_t *p, uint32_t n) {
 #define TERMS 40
 static void got_chat(const uint8_t *p, uint32_t n);
 static void got_chat_ack(const uint8_t *p, uint32_t n);
-static uint8_t sWelcome[HDR + TERMS + MS_NAME]; /* the host's answer, again for each HELLO that comes after it (one was lost) */
+#define MS_MODS 96 /* T49: the sender's mods (Mods_Summary), information for the player only: never compared, never refused */
+#define HELLO_SIZE (HDR + TERMS + MS_NAME + MS_MODS)
+static uint8_t sWelcome[HELLO_SIZE]; /* the host's answer, again for each HELLO that comes after it (one was lost) */
 
 /* Everything that has arrived (and TTT_NET_SIM's packets that fell due); waits up to `ms` for the first. */
 static void pump(int ms) {
@@ -831,7 +834,7 @@ static void pump(int ms) {
         } else if (p[4] == P_REGIONS) {
             got_regions(p + HDR, (uint32_t)n - HDR);
         } else if (p[4] == P_HELLO && !sJoin) {
-            raw_send(sWelcome, HDR + TERMS + MS_NAME);
+            raw_send(sWelcome, HELLO_SIZE);
         } else if (p[4] == P_CHAT) {
             got_chat(p + HDR, (uint32_t)n - HDR);
         } else if (p[4] == P_CHAT_ACK) {
@@ -945,6 +948,7 @@ static uint32_t sChatGot;                /* the peer's lines taken, in order */
 static uint64_t sChatSentNs;
 static int sPath, sPhase;
 static char sCode[MS_CODE], sPeerName[MS_NAME], sMyName[MS_NAME];
+static char sMyMods[MS_MODS], sPeerMods[MS_MODS]; /* Mods_Summary's lines, this side's and the peer's ("" unknown) */
 static int sUpdate;
 static char sUpdateVersion[48];
 
@@ -956,6 +960,8 @@ static void share_update(void) {
     memcpy(sInfo.code, sCode, sizeof sInfo.code);
     sInfo.code[sizeof sInfo.code - 1] = 0;
     snprintf(sInfo.peer, sizeof sInfo.peer, "%s", sPeerName);
+    snprintf(sInfo.mods, sizeof sInfo.mods, "%s", sMyMods);
+    snprintf(sInfo.peerMods, sizeof sInfo.peerMods, "%s", sPeerMods);
     sInfo.rttMs = (uint32_t)((sRttSmooth + 500000u) / 1000000u);
     sInfo.delay = sDelay;
     sInfo.rollbacks = (uint32_t)sRollbacks;
@@ -1662,17 +1668,23 @@ static void open_socket(void) {
     fflush(stdout);
 }
 
-/* HELLO / WELCOME: the terms, then the sender's name. */
+/* HELLO / WELCOME: the terms, then the sender's name and its mods (T49: shown to the peer, never compared). */
 static void put_hello(uint8_t *p, int type, const Terms *t) {
     header(p, type);
     put_terms(p + HDR, t);
-    memset(p + HDR + TERMS, 0, MS_NAME);
+    memset(p + HDR + TERMS, 0, MS_NAME + MS_MODS);
     memcpy(p + HDR + TERMS, sMyName, MS_NAME - 1);
+    memcpy(p + HDR + TERMS + MS_NAME, sMyMods, MS_MODS - 1);
 }
 
 static void got_name(const uint8_t *p, long n) {
     if (n >= HDR + TERMS + MS_NAME && !sMatch) { /* (matchmaking: the server's name for the peer stays) */
         clean_text(sPeerName, (const char *)p + HDR + TERMS, MS_NAME - 1);
+    }
+    if (n >= HELLO_SIZE) {
+        clean_text(sPeerMods, (const char *)p + HDR + TERMS + MS_NAME, MS_MODS - 1);
+        printf("ttt: net: the peer's mods: %s\n", sPeerMods[0] ? sPeerMods : "?");
+        fflush(stdout);
     }
 }
 
@@ -1731,7 +1743,7 @@ static void host_wait(const Terms *mine) {
                 sPeerLen = 0; /* (connected: sendto without an address) */
             }
             put_hello(sWelcome, P_WELCOME, mine);
-            raw_send(sWelcome, HDR + TERMS + MS_NAME);
+            raw_send(sWelcome, HELLO_SIZE);
             {
                 char text[96];
                 int relayed = sMatch && same_addr(&from, &sServer);
@@ -1760,7 +1772,7 @@ static void join_wait(const Terms *mine) {
         socklen_t fl = sizeof from;
         long n;
         put_hello(p, P_HELLO, mine);
-        raw_send(p, HDR + TERMS + MS_NAME);
+        raw_send(p, HELLO_SIZE);
         PlatOs_SockWait(sSock, 100);
         while ((n = (long)recvfrom(sSock, p, sizeof p, PLAT_MSG_DONTWAIT, (struct sockaddr *)&from, &fl)) >= 0) {
             socklen_t got = fl;
@@ -1839,6 +1851,10 @@ static void start(void) {
         set_phase(NET_PHASE_WAITING);
     }
     my_terms(&mine);
+    Mods_Summary(sMyMods, sizeof sMyMods); /* (cosmetic: not in the terms, so a difference never refuses a peer) */
+    printf("ttt: net: mods: %s\n", sMyMods);
+    fflush(stdout);
+    share_update();
     if (sJoin) {
         join_wait(&mine);
         if (!sMatch) {

@@ -47,8 +47,8 @@ def run_pair(common=None, host=None, join=None, timeout=600):
     def env(d, extra):
         e = {k: v for k, v in os.environ.items() if not k.startswith(("TTT_", "SDL_"))}
         e.update({"TTT_DISC": str(disc()), "TTT_MOVIES": "0", "TTT_SAVES": d, "TTT_CONFIG": d + "/settings.ini",
-                  "TTT_TEXTURES": d + "/textures", "XDG_DATA_HOME": d + "/data", "XDG_CONFIG_HOME": d + "/config",
-                  "TTT_NET_WAIT": "30"})
+                  "TTT_TEXTURES": d + "/textures", "TTT_MODS": d + "/mods", "XDG_DATA_HOME": d + "/data",
+                  "XDG_CONFIG_HOME": d + "/config", "TTT_NET_WAIT": "30"})
         e.update(common or {})
         e.update(extra)
         return e
@@ -113,6 +113,18 @@ class Netplay(Session):
         self.assertIn("ttt: net: the host refused: other settings", j[1])
         self.assertIn("ttt: net: refused a peer", h[1])
         self.assertEqual(h[0], 3, h[1][-2000:])
+
+    def test_mods_are_shown_never_compared(self):
+        """T49: each side's mods (Mods_Summary) travel in HELLO / WELCOME as information: a joining side with a texture
+        mod plays with a host without one, and each prints the other's."""
+        with tempfile.TemporaryDirectory(prefix="ttt-net-mods-") as m:
+            (Path(m) / "shiny" / "textures").mkdir(parents=True)
+            h, j = run_pair(common={"TTT_FRAMES": "100", "TTT_NET_DRAW": "0"}, join={"TTT_MODS": m}, timeout=180)
+        self.assertEqual(h[0], 0, h[1][-2000:])
+        self.assertEqual(j[0], 0, j[1][-2000:])
+        self.assertIn("ttt: net: mods: music 0 tracks, textures 1 mod (shiny)", j[1])
+        self.assertIn("ttt: net: the peer's mods: music 0 tracks, textures 1 mod (shiny)", h[1])
+        self.assertIn("ttt: net: the peer's mods: music 0 tracks, textures 0 mods", j[1])
 
     def test_sessions_match_each_other_and_the_offline_replay(self):
         """Both sides play their own pad (pad 1 from the main menu to round 1 and in it, pad 2 in round 1) over
