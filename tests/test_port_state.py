@@ -11,6 +11,7 @@ from pathlib import Path
 
 from test_port_input import IN_THE_FIGHT, TO_THE_FIGHT, stream
 from test_port_platform import EXE, disc, run_ttt
+from test_port_window import SDL32
 
 
 def state(r):
@@ -36,6 +37,8 @@ class StateSelfTest(unittest.TestCase):
         r = run_ttt(TTT_SELFTEST="state")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("ttt: state self-test OK", r.stdout)
+        # page tracking (F07): tested where the kernel offers it (Linux 6.7: asynchronous write protection)
+        self.assertRegex(r.stdout, r"ttt: state: page tracking(: \d+ pages tracked| not offered here)")
 
 
 @unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
@@ -109,6 +112,125 @@ class Synctest(unittest.TestCase):
         self.assertGreaterEqual(int(m.group(1)), 70)
         self.assertEqual((m.group(2), m.group(3)), ("0", "0"))
         self.assertEqual(state(a), state(b))
+
+
+TRACK = re.compile(r"ttt: state-track: ([^;]+); (\d+) pages tracked, .*?(\d+) of (\d+) saves and (\d+) of (\d+) loads by "
+                   r"page .*; (\d+) checked, (\d+) wrong")
+SYNC = re.compile(r"ttt: synctest: (\d+) checks of \d+ vblanks, (\d+) diverged, (\d+) skipped; state \d+ bytes, "
+                  r"save (\d+) us, load (\d+) us")
+ROLLBACK = re.compile(r"ttt: rollback: (\d+) rollbacks of (\d+) vblanks( undrawn)?, (\d+) checked, (\d+) diverged, "
+                      r"(\d+) skipped")
+
+
+def tracking(test, r):
+    """The state-track report line's groups; skips the test where the kernel offers no page tracking."""
+    m = TRACK.search(r.stdout)
+    test.assertIsNotNone(m, r.stdout[-2000:])
+    if m.group(1) != "on":
+        test.skipTest("no page tracking here: " + m.group(1))
+    return m
+
+
+@unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
+@unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
+class Tracking(unittest.TestCase):
+    """F07 (docs/port/determinism.md): page tracking. Saves into and loads from buffers this process saved copy only
+    the pages written since; TTT_STATE_TRACK_CHECK compares every such save and load with what a whole copy gives."""
+
+    def test_tracked_saves_and_loads_equal_whole_copies(self):
+        """The synctest over the attract cycle's loading (VBlanks 650-800) with page tracking (its default) and every
+        tracked save and load checked: none differs from a whole copy, nearly all are by page, and the synctest's
+        result and the run's end are those of whole copies (TTT_STATE_TRACK=0)."""
+        a = run_ttt(timeout=600, TTT_FRAMES="800", TTT_SEED="1", TTT_SYNCTEST="2", TTT_SYNCTEST_FROM="650",
+                    TTT_STATE_TRACK_CHECK="1")
+        b = run_ttt(timeout=600, TTT_FRAMES="800", TTT_SEED="1", TTT_SYNCTEST="2", TTT_SYNCTEST_FROM="650",
+                    TTT_STATE_TRACK="0")
+        for r in (a, b):
+            self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
+        m = tracking(self, a)
+        inc_saves, saves, inc_loads, loads, checked, wrong = (int(g) for g in m.groups()[2:])
+        self.assertEqual(wrong, 0, a.stdout[-2000:])
+        self.assertEqual(checked, inc_saves + inc_loads)
+        self.assertGreaterEqual(inc_saves, saves - 3)  # the three synctest buffers' first saves are whole
+        self.assertEqual(inc_loads, loads)
+        self.assertNotIn("ttt: state-track:", b.stdout)
+        sa, sb = SYNC.search(a.stdout), SYNC.search(b.stdout)
+        self.assertEqual(sa.groups()[:3], sb.groups()[:3])
+        self.assertEqual(sa.groups()[1:3], ("0", "0"))
+        self.assertEqual(state(a), state(b))
+
+    def test_rollback(self):
+        """TTT_ROLLBACK=4 over VBlanks 700-800: at every VBlank the state of 4 VBlanks before is loaded and those
+        VBlanks run again (saved by page), drawn or not (TTT_ROLLBACK_DRAW=0: the GS's side is left out of the
+        states); each rollback comes back to the state saved the first time, and the run ends as one without."""
+        plain = run_ttt(timeout=600, TTT_FRAMES="800", TTT_SEED="1")
+        for draw in ("1", "0"):
+            r = run_ttt(timeout=900, TTT_FRAMES="800", TTT_SEED="1", TTT_ROLLBACK="4", TTT_ROLLBACK_FROM="700",
+                        TTT_ROLLBACK_CHECK="1", TTT_ROLLBACK_DRAW=draw, TTT_STATE_TRACK_CHECK="1")
+            self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
+            m = ROLLBACK.search(r.stdout)
+            self.assertIsNotNone(m, r.stdout[-2000:])
+            self.assertEqual(m.group(3) is not None, draw == "0")
+            self.assertGreaterEqual(int(m.group(1)), 95)
+            self.assertEqual(int(m.group(4)), int(m.group(1)))
+            self.assertEqual(m.group(5, 6), ("0", "0"))
+            self.assertEqual(tracking(self, r).group(8), "0")
+            self.assertEqual(state(r), state(plain))
+
+
+@unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
+@unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
+@unittest.skipUnless(any(p.exists() for p in SDL32), "no 32-bit SDL3 (Arch: lib32-sdl3)")
+class Gl(unittest.TestCase):
+    """F07: save, load and the synctest with the GL back end (a hidden window, SDL's offscreen driver): a save first
+    has the window thread make GS memory whole on the CPU and drop its targets, a load has it take the loaded memory."""
+
+    def run_gl(self, **env):
+        r = run_ttt(timeout=900, TTT_SEED="1", TTT_WINDOW="1", TTT_WINDOW_HIDDEN="1", TTT_RENDERER="gl", TTT_AUDIO="0",
+                    TTT_VSYNC="0", SDL_VIDEO_DRIVER="offscreen", **env)
+        self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
+        if "OpenGL renderer" not in r.stdout:
+            self.skipTest("no OpenGL 3.3 context here: " + r.stdout[-500:])
+        return r
+
+    def test_synctest(self):
+        """The synctest over VBlanks 650-800 with GL: every pair of passes ends in the same state, GS memory
+        included (read back from the GPU), and the run ends where the software run without the synctest ends."""
+        a = self.run_gl(TTT_FRAMES="800", TTT_SYNCTEST="2", TTT_SYNCTEST_FROM="650", TTT_STATE_TRACK_CHECK="1")
+        b = run_ttt(timeout=600, TTT_FRAMES="800", TTT_SEED="1")
+        m = SYNC.search(a.stdout)
+        self.assertIsNotNone(m, a.stdout[-2000:])
+        self.assertGreaterEqual(int(m.group(1)), 70)
+        self.assertEqual(m.group(2, 3), ("0", "0"))
+        g = re.search(r"ttt: gl: state: (\d+) saves, (\d+) loads", a.stdout)
+        self.assertIsNotNone(g, a.stdout[-2000:])
+        self.assertGreaterEqual(int(g.group(2)), int(m.group(1)))
+        self.assertEqual(tracking(self, a).group(8), "0")
+        self.assertEqual(state(a), state(b))
+
+    def test_load_in_a_fresh_process(self):
+        """A state saved with GL at VBlank 700 and loaded by a fresh GL process (whose window thread has drawn nothing
+        yet) continues with the same pictures, modes and state; the run that saved draws what a run without the
+        save draws."""
+        with tempfile.TemporaryDirectory(prefix="ttt-state-") as d:
+            d = Path(d)
+            for k in ("a", "b", "c"):
+                (d / k).mkdir()
+            f = d / "state.bin"
+            dump = dict(TTT_FRAMES="820", TTT_DUMP_EVERY="40")
+            a = self.run_gl(TTT_DUMP=str(d / "a"), TTT_SAVESTATE=f"700:{f}", **dump)
+            self.assertRegex(a.stdout, r"ttt: savestate: vblank 700 to ")
+            b = self.run_gl(TTT_DUMP=str(d / "b"), TTT_LOADSTATE=str(f), **dump)
+            self.assertRegex(b.stdout, r"ttt: loadstate: vblank 700 from ")
+            c = self.run_gl(TTT_DUMP=str(d / "c"), TTT_DUMP_FROM="720", **dump)
+            pa, pb, pc = pictures(d / "a"), pictures(d / "b"), pictures(d / "c")
+            pa = {k: v for k, v in pa.items() if int(k[6:11]) > 700}
+        self.assertEqual(sorted(pb), ["frame_00720.png", "frame_00760.png", "frame_00800.png"])
+        self.assertEqual(pa, pb)
+        self.assertEqual(pa, pc)
+        self.assertEqual(modes(a), modes(b))
+        self.assertEqual(state(a), state(b))
+        self.assertEqual(state(a), state(c))
 
 
 @unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")

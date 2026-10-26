@@ -471,9 +471,9 @@ int Port_Vu1SelfTest(void) {
 /* VU1's registers and pipeline (the unit's pointers name this file's variables and VU memory: the same in every process
    of the build). Not the predecoded program (ops, opsInit): each slot is checked against micro memory when it runs. */
 __attribute__((constructor(101))) static void vu1_state(void) {
-    Port_StateAdd("vu1.vf", sVf, sizeof sVf, 0);
-    Port_StateAdd("vu1.vi", sVi, sizeof sVi, 0);
-    Port_StateAdd("vu1.acc", sAcc, sizeof sAcc, 0);
-    Port_StateAdd("vu1.q", &sQ, sizeof sQ, 0);
-    Port_StateAdd("vu1.core", &sVu, (uint32_t)offsetof(VuCore, ops), 0);
+    Port_StateAdd("vu1.vf", sVf, sizeof sVf, PS_GSSIDE);
+    Port_StateAdd("vu1.vi", sVi, sizeof sVi, PS_GSSIDE);
+    Port_StateAdd("vu1.acc", sAcc, sizeof sAcc, PS_GSSIDE);
+    Port_StateAdd("vu1.q", &sQ, sizeof sQ, PS_GSSIDE);
+    Port_StateAdd("vu1.core", &sVu, (uint32_t)offsetof(VuCore, ops), PS_GSSIDE);
 }

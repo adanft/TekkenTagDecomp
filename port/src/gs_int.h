@@ -42,7 +42,7 @@ typedef struct Draw {
     int lcm, lodl, mmagLinear, mminLinear;
 } Draw;
 
-enum { CMD_POINT, CMD_LINE, CMD_TRIANGLE, CMD_SPRITE, CMD_UPLOAD, CMD_COPY, CMD_CLUT, CMD_SHOW, CMD_BARRIER };
+enum { CMD_POINT, CMD_LINE, CMD_TRIANGLE, CMD_SPRITE, CMD_UPLOAD, CMD_COPY, CMD_CLUT, CMD_SHOW, CMD_BARRIER, CMD_STATE };
 
 /* The display registers at a VBlank (the picture the dump and the window show), and the field the game's flicker
    filter last made a display buffer for (GsField below): fieldOdd 1 when that copy took the frame's odd lines. */
@@ -61,6 +61,9 @@ typedef struct Cmd {
         struct { uint64_t bitbltbuf, trxpos; uint32_t tx, ty, tw, th; } copy;
         struct { uint64_t t0, texclut; } clut;
         struct { DispRegs regs; uint32_t vblank; uint8_t *rgb; uint8_t window; uint64_t ns; } show; /* window: the GL back end's window picture */ /* rgb: the window's picture, else the dump */ /* ns: when the GL window picture was queued (host, monotonic) */
+        /* the GL back end at a state save (load 0: GS memory and the CLUT buffer made whole on the CPU, the CLUT
+           buffer into clut) or after a load (load 1: the loaded GS memory and CLUT buffer taken), F07 */
+        struct { uint16_t *clut; uint8_t load; } state;
     } u;
 } Cmd;
 

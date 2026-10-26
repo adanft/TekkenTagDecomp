@@ -58,7 +58,8 @@ now as many rows as the target has: a target that grows is written back and made
   T30) reads each GS pixel's first sample, the value the GS would have drawn; the loads of new targets read the mirror
   (each GS pixel N x N times). Everything read back to the CPU, every CLUT load, every reinterpretation (an 8-bit or
   4-bit texture over a frame buffer, the fonts in the top byte, a 16-bit texture over a 32-bit buffer) reads GS memory
-  as at 1x.
+  as at 1x. A state save (F07, [determinism.md](determinism.md)) writes every target back, reads GS memory back and
+  drops the targets and their snapshots: the frames after a save start again from GS memory at 1x, as after a load.
 - **Snapshots: the game sampling its own frames.** A texture that is a colour target in a format that reads the same
   values (32 or 24 bits over a 32-bit target, 16 over 16; same block and width) is sampled from that target's
   snapshot at full resolution instead of from GS memory: the flicker filter's copy, the shadow target. The snapshot is

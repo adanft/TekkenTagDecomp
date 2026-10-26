@@ -388,7 +388,7 @@ uint32_t Gs_AsyncCpuMs(int k) { return __atomic_load_n(&sCpuMs[k & 1], __ATOMIC_
 
 /* The GS's CSR / SIGLBLID effects not yet written back (none after the drain a save starts with). */
 __attribute__((constructor(101))) static void async_state(void) {
-    Port_StateAdd("gs.csrBits", &sCsrBits, sizeof sCsrBits, 0);
-    Port_StateAdd("gs.sigLblId", &sSigLblId, sizeof sSigLblId, 0);
-    Port_StateAdd("gs.sigLblIdSet", &sSigLblIdSet, sizeof sSigLblIdSet, 0);
+    Port_StateAdd("gs.csrBits", &sCsrBits, sizeof sCsrBits, PS_GSSIDE);
+    Port_StateAdd("gs.sigLblId", &sSigLblId, sizeof sSigLblId, PS_GSSIDE);
+    Port_StateAdd("gs.sigLblIdSet", &sSigLblIdSet, sizeof sSigLblIdSet, PS_GSSIDE);
 }

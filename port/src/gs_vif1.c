@@ -356,4 +356,4 @@ int Port_GsVifSelfTest(void) {
     return sFails;
 }
 
-__attribute__((constructor(101))) static void vif1_state(void) { Port_StateAdd("vif1", &vif, sizeof vif, 0); }
+__attribute__((constructor(101))) static void vif1_state(void) { Port_StateAdd("vif1", &vif, sizeof vif, PS_GSSIDE); }

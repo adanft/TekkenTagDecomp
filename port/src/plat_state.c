@@ -34,11 +34,16 @@
  *   TTT_SYNCTEST_FROM=<vblank>  ... from that VBlank on (default: from the first)
  *   TTT_SELFTEST=state          the hash's host-address rule and an in-process save / load
  */
+#include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
+#include <sys/syscall.h>
 #include <time.h>
+#include <unistd.h>
 #define memcpy __builtin_memcpy
 #define XXH_INLINE_ALL
 #define XXH_NO_STDLIB
@@ -53,6 +58,8 @@ int Port_Headless(void);
 
 int gPortStateWant;
 int gPortResim;
+int gPortNoGs;
+int gPortStateNoGs;
 
 /* ---------------------------------------------------------------------------------------------- the regions */
 
@@ -99,7 +106,7 @@ __attribute__((constructor(101))) static void state_memory(void) {
     Port_StateAdd("ee.spr", Port_Ptr(PORT_SPR_ADDR), PORT_SPR_SIZE, PS_HASH);
     Port_StateAdd("ee.hw", Port_Ptr(0x10000000u), 0x10000u, PS_HASH);
     Port_StateAdd("vu0.mem", Port_Ptr(0x11000000u), 0x8000u, PS_HASH);
-    Port_StateAdd("vu1.mem", Port_Ptr(0x11008000u), 0x8000u, 0);
+    Port_StateAdd("vu1.mem", Port_Ptr(0x11008000u), 0x8000u, PS_GSSIDE);
     Port_StateAdd("gs.priv", Port_Ptr(0x12000000u), 0x2000u, PS_HASH | PS_GSPRIV);
 }
 
@@ -370,7 +377,9 @@ typedef struct {
     uint32_t version, size;
     uint64_t build; /* the program's code and the region list */
     uint32_t esp, vblank;
-    uint32_t pad[4];
+    uint64_t token; /* page tracking (F07): the process and tracking session that saved it (0: none, as in files) */
+    uint32_t epoch; /* ... and the tracking epoch the save was taken at */
+    uint32_t pad;
 } StateHeader;      /* 48 bytes: the regions start 16-aligned */
 #define STATE_VERSION 1
 
@@ -426,13 +435,275 @@ static int prepare(void) {
     return 0;
 }
 
+/* ---------------------------------------------------------------------------------------------- page tracking (F07) */
+
+/* A save copies 40 MB, most of it EE RAM, GS memory and sound RAM, of which a VBlank writes a small part. With tracking
+   on, the kernel write-protects the whole pages of every region of TRK_MIN bytes or more (EE RAM through all three of
+   its views): userfaultfd in asynchronous write-protect mode, where a write to a protected page is let through by the
+   kernel itself (no signal, nothing on any stack, writes by the kernel and by other threads included), and
+   PAGEMAP_SCAN, which lists the pages written since the last scan and protects them again in one call. Each scan is
+   an epoch; every tracked page keeps the epoch it was last seen written in. A buffer saved by this tracking session
+   carries its epoch: compared with the memory now, only pages written in a later epoch can differ (a load's own
+   copies are writes too), so a save into it copies those and a load from it copies those back. The parts of regions
+   outside whole pages and the small regions are copied every time. */
+#ifndef UFFD_USER_MODE_ONLY
+#define UFFD_USER_MODE_ONLY 1
+#endif
+#define TRK_FEATURES ((1ull << 12) | (1ull << 13) | (1ull << 15)) /* UFFD_FEATURE_WP_HUGETLBFS_SHMEM, _UNPOPULATED, _ASYNC */
+#define TRK_UFFDIO_API 0xC018AA3Fu      /* _IOWR(0xAA, 0x3F, struct uffdio_api) */
+#define TRK_UFFDIO_REGISTER 0xC020AA00u /* _IOWR(0xAA, 0x00, struct uffdio_register) */
+#define TRK_PAGEMAP_SCAN 0xC0606610u    /* _IOWR('f', 16, struct pm_scan_arg) */
+#define TRK_PAGE 4096u
+#define TRK_MIN 65536u
+typedef struct { uint64_t api, features, ioctls; } TrkApi;
+typedef struct { uint64_t start, len, mode, ioctls; } TrkReg;
+typedef struct {
+    uint64_t size, flags, start, end, walk_end, vec, vec_len, max_pages, category_inverted, category_mask,
+        category_anyof_mask, return_mask;
+} TrkScan;
+typedef struct { uint64_t start, end, categories; } TrkRange;
+#define PORT_NOPLT(f) __typeof__(f) f __attribute__((noplt))
+PORT_NOPLT(syscall);
+PORT_NOPLT(ioctl);
+PORT_NOPLT(open);
+PORT_NOPLT(close);
+PORT_NOPLT(madvise);
+#undef PORT_NOPLT
+
+static int sTrack;                    /* 1 on, 0 off, -1 not offered by the kernel */
+static int sUffd = -1, sPagemap = -1;
+static uint32_t sTrkOff[MAX_REGIONS], sTrkEnd[MAX_REGIONS]; /* a region's whole pages, bytes [off, end) (end 0: none) */
+static uint32_t sTrkBase[MAX_REGIONS]; /* index of its first page in sPageEp */
+static uint32_t *sPageEp, sTrkPages;  /* per tracked page: the epoch it was last seen written in */
+static uint32_t sEpoch;
+static uint64_t sToken;
+static TrkRange sVec[256];
+static uint64_t sTrkScans, sTrkScanNs, sTrkWritten, sTrkPagesSaved, sTrkPagesLoaded, sTrkIncSaves, sTrkIncLoads;
+static uint64_t sAllSaves, sAllLoads;
+static const char *sTrkWhy = "off";
+static uint64_t ns_now(void);
+
+static int trk_register(uintptr_t a, uint32_t n) {
+    TrkReg r;
+    memset(&r, 0, sizeof r);
+    r.start = a;
+    r.len = n;
+    r.mode = 2; /* UFFDIO_REGISTER_MODE_WP */
+    return ioctl(sUffd, TRK_UFFDIO_REGISTER, &r);
+}
+
+/* The written pages of view `base` (region r's byte i at base + i) in [off, end): their epoch is now, and they are
+   protected again. */
+static int trk_scan_view(int r, uintptr_t base, uint32_t off, uint32_t end) {
+    uint64_t at = base + off, stop = base + end;
+    while (at < stop) {
+        TrkScan a;
+        int n, i;
+        memset(&a, 0, sizeof a);
+        a.size = sizeof a;
+        a.flags = 1 | 2; /* PM_SCAN_WP_MATCHING | PM_SCAN_CHECK_WPASYNC */
+        a.start = at;
+        a.end = stop;
+        a.vec = (uintptr_t)sVec;
+        a.vec_len = sizeof sVec / sizeof sVec[0];
+        a.category_mask = a.return_mask = 2; /* PAGE_IS_WRITTEN */
+        n = ioctl(sPagemap, TRK_PAGEMAP_SCAN, &a);
+        if (n < 0) {
+            return -1;
+        }
+        for (i = 0; i < n; i++) {
+            uint32_t p = (uint32_t)((sVec[i].start - base - sTrkOff[r]) / TRK_PAGE);
+            uint32_t q = (uint32_t)((sVec[i].end - base - sTrkOff[r]) / TRK_PAGE);
+            sTrkWritten += q - p;
+            for (; p < q; p++) {
+                sPageEp[sTrkBase[r] + p] = sEpoch;
+            }
+        }
+        if (a.walk_end <= at) {
+            return -1;
+        }
+        at = a.walk_end;
+    }
+    return 0;
+}
+
+static void trk_off(const char *why) {
+    if (sUffd >= 0) {
+        close(sUffd); /* (unregisters every range: the pages are writable again) */
+    }
+    if (sPagemap >= 0) {
+        close(sPagemap);
+    }
+    sUffd = sPagemap = -1;
+    sTrack = why != NULL ? -1 : 0;
+    sTrkWhy = why != NULL ? why : "off";
+    sToken = 0; /* the buffers saved so far are whole copies like any other */
+}
+
+/* A new epoch: the pages written since the last one. */
+static void trk_scan(void) {
+    uint64_t t0 = ns_now();
+    int r;
+    sEpoch++;
+    for (r = 0; r < sRegN && sTrack > 0; r++) {
+        if (sTrkEnd[r] == 0) {
+            continue;
+        }
+        if (trk_scan_view(r, (uintptr_t)sReg[r].p, sTrkOff[r], sTrkEnd[r]) != 0 ||
+            ((sReg[r].flags & PS_EERAM) && (trk_scan_view(r, 0x00000000u, 0x10000u, sTrkEnd[r]) != 0 ||
+                                           trk_scan_view(r, 0x30000000u, sTrkOff[r], sTrkEnd[r]) != 0))) {
+            trk_off("PAGEMAP_SCAN failed");
+        }
+    }
+    sTrkScans++;
+    sTrkScanNs += ns_now() - t0;
+}
+
+static int trk_on(void) {
+    TrkApi api;
+    uint32_t pages = 0;
+    int r;
+    if (sTrack != 0) {
+        return sTrack > 0;
+    }
+    sUffd = (int)syscall(SYS_userfaultfd, O_CLOEXEC | O_NONBLOCK | UFFD_USER_MODE_ONLY);
+    if (sUffd < 0) {
+        trk_off("no userfaultfd");
+        return 0;
+    }
+    memset(&api, 0, sizeof api);
+    api.api = 0xAA; /* UFFD_API */
+    api.features = TRK_FEATURES;
+    sPagemap = open("/proc/self/pagemap", O_RDONLY | O_CLOEXEC);
+    if (ioctl(sUffd, TRK_UFFDIO_API, &api) != 0 || (api.features & TRK_FEATURES) != TRK_FEATURES || sPagemap < 0) {
+        trk_off("the kernel has no asynchronous write protection (Linux 6.7)");
+        return 0;
+    }
+    for (r = 0; r < sRegN; r++) {
+        uintptr_t a = (uintptr_t)sReg[r].p, lo = (a + TRK_PAGE - 1) & ~(uintptr_t)(TRK_PAGE - 1);
+        uintptr_t hi = (a + sReg[r].size) & ~(uintptr_t)(TRK_PAGE - 1);
+        sTrkEnd[r] = 0;
+        if ((sReg[r].flags & PS_HASHONLY) || sReg[r].size < TRK_MIN || hi <= lo) {
+            continue;
+        }
+        sTrkOff[r] = (uint32_t)(lo - a);
+        sTrkEnd[r] = (uint32_t)(hi - a);
+        sTrkBase[r] = pages;
+        pages += (uint32_t)(hi - lo) / TRK_PAGE;
+        if (!(sReg[r].flags & PS_EERAM)) {
+            madvise((void *)lo, hi - lo, MADV_NOHUGEPAGE); /* (pages of the program's bss: 4 KB, not 2 MB, at a time) */
+        }
+        if (trk_register(lo, (uint32_t)(hi - lo)) != 0 ||
+            ((sReg[r].flags & PS_EERAM) && (trk_register(0x00010000u, (uint32_t)(hi - lo) - 0x10000u) != 0 ||
+                                           trk_register(0x30000000u, (uint32_t)(hi - lo)) != 0))) {
+            trk_off("userfaultfd refused a region");
+            return 0;
+        }
+    }
+    if (pages != sTrkPages) {
+        free(sPageEp);
+        sPageEp = malloc(pages * sizeof *sPageEp);
+        sTrkPages = pages;
+    }
+    if (sPageEp == NULL) {
+        trk_off("no memory");
+        return 0;
+    }
+    sTrack = 1;
+    sTrkWhy = "on";
+    sToken = (ns_now() << 16) ^ (uint64_t)syscall(SYS_getpid) ^ 0x7474740000000000ull;
+    sToken += sToken == 0;
+    trk_scan(); /* every page counts as written once: no buffer holds anything of this session yet */
+    return sTrack > 0;
+}
+
+int Port_StateTrack(int on) {
+    if (!on) {
+        if (sTrack > 0) {
+            trk_off(NULL);
+        }
+        return 0;
+    }
+    return trk_on();
+}
+
+/* Copies the pages of region r written after epoch `since` (and the bytes outside its whole pages) from src to dst;
+   how many pages. */
+static uint32_t trk_copy(int r, uint8_t *dst, const uint8_t *src, uint32_t since) {
+    const uint32_t *ep = sPageEp + sTrkBase[r];
+    uint32_t off = sTrkOff[r], n = (sTrkEnd[r] - off) / TRK_PAGE, k = 0, copied = 0;
+    memcpy(dst, src, off);
+    memcpy(dst + sTrkEnd[r], src + sTrkEnd[r], sReg[r].size - sTrkEnd[r]);
+    while (k < n) {
+        uint32_t j;
+        if (ep[k] <= since) {
+            k++;
+            continue;
+        }
+        for (j = k; j < n && ep[j] > since; j++) {
+        }
+        memcpy(dst + off + k * TRK_PAGE, src + off + k * TRK_PAGE, (j - k) * TRK_PAGE);
+        copied += j - k;
+        k = j;
+    }
+    return copied;
+}
+
+/* Whether buffer h holds a save of this tracking session (its pages that were not written since are the memory's). */
+static int trk_valid(const StateHeader *h) {
+    return sTrack > 0 && h->token == sToken && h->epoch != 0 && h->epoch <= sEpoch &&
+           memcmp(h->magic, "TTTSTATE", 8) == 0 && h->build == sBuild && h->size == Port_StateSize();
+}
+
+/* TTT_STATE_TRACK_CHECK=1: after each save into or load from a tracked buffer, the whole of every region compared with
+   the buffer (what a whole copy would have given): the pages a difference is in were written and not seen. */
+static int sTrkCheck;
+static uint64_t sTrkChecks, sTrkCheckBad;
+static void trk_check(const uint8_t *buf, const char *what) {
+    const uint8_t *d = buf + sizeof(StateHeader);
+    int r, bad = 0;
+    for (r = 0; r < sRegN; r++) {
+        if (sReg[r].flags & PS_HASHONLY) {
+            continue;
+        }
+        if ((sReg[r].flags & PS_GSSIDE) && (gPortStateNoGs || (((const StateHeader *)buf)->pad & 1))) {
+            d += (sReg[r].size + 15u) & ~15u; /* (not saved or loaded; the GS threads may be writing it) */
+            continue;
+        }
+        if (memcmp(sReg[r].p, d, sReg[r].size) != 0) {
+            uint32_t i = 0;
+            while (sReg[r].p[i] == d[i]) {
+                i++;
+            }
+            if (sTrkCheckBad == 0) {
+                printf("ttt: state-track: %s at vblank %u: %s +0x%X differs from a whole copy\n", what,
+                       (unsigned)Port_VBlankCount(), sReg[r].name, (unsigned)i);
+            }
+            bad = 1;
+        }
+        d += (sReg[r].size + 15u) & ~15u;
+    }
+    sTrkChecks++;
+    sTrkCheckBad += bad;
+}
+
+static int sLoading;
+int Port_StateLoading(void) { return sLoading; }
+
 int Port_StateSave(void *buf) {
     StateHeader *h = buf;
     uint8_t *d = (uint8_t *)buf + sizeof *h;
-    int r;
+    uint32_t since = 0;
+    int r, inc, hadGs, noGs = gPortStateNoGs;
     if (prepare() != 0) {
         return -1;
     }
+    if (sTrack > 0) {
+        trk_scan();
+    }
+    inc = trk_valid(h);
+    since = h->epoch;
+    hadGs = !(h->pad & 1);
     memset(h, 0, sizeof *h);
     memcpy(h->magic, "TTTSTATE", 8);
     h->version = STATE_VERSION;
@@ -440,11 +711,28 @@ int Port_StateSave(void *buf) {
     h->build = sBuild;
     h->esp = gPortCtxEsp;
     h->vblank = Port_VBlankCount();
+    h->pad = (uint32_t)noGs; /* bit 0: the GS's side is not in it */
     for (r = 0; r < sRegN; r++) {
         if (!(sReg[r].flags & PS_HASHONLY)) {
-            memcpy(d, sReg[r].p, sReg[r].size);
+            int gs = (sReg[r].flags & PS_GSSIDE) != 0;
+            if (noGs && gs) {
+                /* left out */
+            } else if (inc && sTrkEnd[r] != 0 && (hadGs || !gs)) {
+                sTrkPagesSaved += trk_copy(r, d, sReg[r].p, since);
+            } else {
+                memcpy(d, sReg[r].p, sReg[r].size);
+            }
             d += (sReg[r].size + 15u) & ~15u;
         }
+    }
+    sTrkIncSaves += inc;
+    sAllSaves++;
+    if (inc && sTrkCheck) {
+        trk_check(buf, "save");
+    }
+    if (sTrack > 0) {
+        h->token = sToken;
+        h->epoch = sEpoch;
     }
     return 0;
 }
@@ -452,29 +740,47 @@ int Port_StateSave(void *buf) {
 int Port_StateLoad(const void *buf) {
     const StateHeader *h = buf;
     const uint8_t *d = (const uint8_t *)buf + sizeof *h;
-    int r;
+    int r, inc, noGs = gPortStateNoGs;
     if (memcmp(h->magic, "TTTSTATE", 8) != 0 || h->version != STATE_VERSION || h->size != Port_StateSize()) {
         sBusyWhy = "not a state of this version";
         return -1;
     }
-    if (prepare() != 0) {
+    gPortStateNoGs = noGs | (int)(h->pad & 1); /* (a state without the GS's side leaves that side as it is) */
+    sLoading = 1;
+    r = prepare();
+    sLoading = 0;
+    if (r != 0 || h->build != sBuild) {
+        sBusyWhy = r != 0 ? sBusyWhy : "saved by another build of the program";
+        gPortStateNoGs = noGs;
         return -1;
     }
-    if (h->build != sBuild) {
-        sBusyWhy = "saved by another build of the program";
-        return -1;
+    if (sTrack > 0) {
+        trk_scan(); /* (the pages written since the last save or load) */
     }
+    inc = trk_valid(h);
     for (r = 0; r < sRegN; r++) {
         if (!(sReg[r].flags & PS_HASHONLY)) {
-            memcpy(sReg[r].p, d, sReg[r].size);
+            if (gPortStateNoGs && (sReg[r].flags & PS_GSSIDE)) {
+                /* left as it is */
+            } else if (inc && sTrkEnd[r] != 0) {
+                sTrkPagesLoaded += trk_copy(r, sReg[r].p, d, h->epoch);
+            } else {
+                memcpy(sReg[r].p, d, sReg[r].size);
+            }
             d += (sReg[r].size + 15u) & ~15u;
         }
+    }
+    sTrkIncLoads += inc;
+    sAllLoads++;
+    if (inc && sTrkCheck) {
+        trk_check(buf, "load");
     }
     for (r = 0; r < sHookN; r++) {
         if (sHook[r].after != NULL) {
             sHook[r].after();
         }
     }
+    gPortStateNoGs = noGs;
     gPortCtxEsp = h->esp; /* the boundary returns into the saved one */
     return 0;
 }
@@ -495,6 +801,17 @@ static int sPhase; /* synctest: 0 none, 1 first pass, 2 second pass */
 static uint32_t sSyncFrom, sSyncTo, sChecks, sDiverged, sSkipped;
 static uint64_t sSaveNs, sLoadNs, sDrainNs, sSaves, sLoads;
 static void (*sTestHook)(void); /* TTT_SELFTEST=state */
+/* TTT_ROLLBACK=<n>: the rollback test (below) */
+#define RB_MAX 16
+static uint32_t sRbN, sRbFrom, sRbTarget, sRbChecks, sRbDiverged, sRbSkipped, sRbOver, sRbFrames, sRbRolls;
+static uint8_t *sRbSlot[RB_MAX + 1], *sRbCheck;
+static int sRbNoDraw;
+static uint64_t sRbStart, sRbLast, sRbSum, sRbMax, sRbWorkSum, sRbWorkMax, sRbCpu0, sRbCpuSum;
+static uint64_t cpu_now(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+    return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
+}
 
 static uint8_t *must_alloc(size_t n) {
     uint8_t *p = malloc(n);
@@ -535,7 +852,34 @@ static void init(void) {
             sBufB = must_alloc(n);
         }
     }
-    sOn = sHashEvery || sSaveAt || sLoadFile || sSyncN;
+    if ((e = getenv("TTT_ROLLBACK")) != NULL && *e && sSyncN == 0) {
+        uint32_t k;
+        sRbN = (uint32_t)strtoul(e, NULL, 0);
+        if ((e = getenv("TTT_ROLLBACK_FROM")) != NULL && *e) {
+            sRbFrom = (uint32_t)strtoul(e, NULL, 0);
+        }
+        if (sRbN > RB_MAX) {
+            sRbN = RB_MAX;
+        }
+        for (k = 0; sRbN != 0 && k <= sRbN; k++) {
+            sRbSlot[k] = must_alloc(Port_StateSize());
+            memset(sRbSlot[k], 0, sizeof(StateHeader));
+        }
+        e = getenv("TTT_ROLLBACK_DRAW");
+        sRbNoDraw = e != NULL && strcmp(e, "0") == 0;
+        gPortStateNoGs = sRbNoDraw; /* undrawn frames: the GS's side is neither saved nor loaded (it never goes back) */
+        if (sRbN != 0 && getenv("TTT_ROLLBACK_CHECK") != NULL) {
+            sRbCheck = must_alloc(Port_StateSize());
+            memset(sRbCheck, 0, sizeof(StateHeader));
+        }
+    }
+    sOn = sHashEvery || sSaveAt || sLoadFile || sSyncN || sRbN;
+    /* page tracking: on for the synctest and the rollback test unless TTT_STATE_TRACK=0, on for anything with 1 */
+    e = getenv("TTT_STATE_TRACK");
+    sTrkCheck = getenv("TTT_STATE_TRACK_CHECK") != NULL;
+    if (e != NULL && *e ? strcmp(e, "0") != 0 : sSyncN != 0 || sRbN != 0) {
+        Port_StateTrack(1);
+    }
 }
 
 /* TTT_LOADSTATE asks for the first poll (plat_hw.c checks gPortStateWant). */
@@ -577,6 +921,8 @@ static void save_file(uint32_t vb) {
         return;
     }
     dt = ns_now() - t0;
+    ((StateHeader *)buf)->token = 0; /* (a file is a whole copy for whoever loads it) */
+    ((StateHeader *)buf)->epoch = 0;
     f = fopen(sSaveFile, "wb");
     if (f == NULL || fwrite(buf, 1, n, f) != n || fclose(f) != 0) {
         fprintf(stderr, "ttt: TTT_SAVESTATE: cannot write %s\n", sSaveFile);
@@ -590,10 +936,10 @@ static void save_file(uint32_t vb) {
 /* ---------------------------------------------------------------------------------------------- the synctest */
 
 /* Two states of the same VBlank, region by region: the first difference of each region that differs (the GS's
-   FINISH / SIGNAL / LABEL bits do not count). */
+   FINISH / SIGNAL / LABEL bits do not count; nor does the GS's side when a state lacks it). */
 static int compare(const uint8_t *a, const uint8_t *b, uint32_t vb) {
     uint32_t off = sizeof(StateHeader), shown = 0;
-    int r, bad = 0;
+    int r, bad = 0, noGs = (((const StateHeader *)a)->pad | ((const StateHeader *)b)->pad) & 1;
     for (r = 0; r < sRegN; r++) {
         const uint8_t *pa = a + off, *pb = b + off;
         uint32_t n = sReg[r].size, i, first = 0xFFFFFFFFu, count = 0;
@@ -601,7 +947,7 @@ static int compare(const uint8_t *a, const uint8_t *b, uint32_t vb) {
             continue;
         }
         off += (n + 15u) & ~15u;
-        if (memcmp(pa, pb, n) == 0) {
+        if ((noGs && (sReg[r].flags & PS_GSSIDE)) || memcmp(pa, pb, n) == 0) {
             continue;
         }
         for (i = 0; i + 4 <= n; i += 4) {
@@ -644,12 +990,27 @@ static int compare(const uint8_t *a, const uint8_t *b, uint32_t vb) {
     return bad;
 }
 
-static void timed_save(uint8_t *buf) {
+/* A save or a load of the synctest or the rollback test: its time, apart from the wait for the GS threads. */
+static int timed_save(uint8_t *buf) {
     uint64_t t0 = ns_now();
-    Port_StateSave(buf);
+    if (Port_StateSave(buf) != 0) {
+        return -1;
+    }
     sSaveNs += ns_now() - t0 - sPrepNs;
     sDrainNs += sPrepNs;
     sSaves++;
+    return 0;
+}
+
+static void timed_load(const uint8_t *buf, const char *what) {
+    uint64_t t0 = ns_now();
+    if (Port_StateLoad(buf) != 0) {
+        fprintf(stderr, "ttt: %s: cannot load: %s\n", what, sBusyWhy);
+        exit(2);
+    }
+    sLoadNs += ns_now() - t0 - sPrepNs;
+    sDrainNs += sPrepNs;
+    sLoads++;
 }
 
 /* At each boundary: a checkpoint (save), n VBlanks on (first pass), a save of where they led, the checkpoint loaded,
@@ -659,14 +1020,10 @@ static void synctest_step(uint32_t vb) {
         if (vb < sSyncStart) {
             return;
         }
-        uint64_t t0 = ns_now();
-        if (Port_StateSave(sSlot) != 0) {
+        if (timed_save(sSlot) != 0) {
             sSkipped++;
             return;
         }
-        sSaveNs += ns_now() - t0 - sPrepNs;
-        sDrainNs += sPrepNs;
-        sSaves++;
         sPhase = 1;
         sSyncFrom = vb;
         sSyncTo = vb + sSyncN;
@@ -676,16 +1033,8 @@ static void synctest_step(uint32_t vb) {
         return;
     }
     if (sPhase == 1) {
-        uint64_t t0;
         timed_save(sBufA);
-        t0 = ns_now();
-        if (Port_StateLoad(sSlot) != 0) {
-            fprintf(stderr, "ttt: synctest: cannot load the checkpoint: %s\n", sBusyWhy);
-            exit(2);
-        }
-        sLoadNs += ns_now() - t0 - sPrepNs;
-        sDrainNs += sPrepNs;
-        sLoads++;
+        timed_load(sSlot, "synctest");
         sPhase = 2;
         gPortResim = 1;
         return; /* the game goes on at the checkpoint */
@@ -701,6 +1050,64 @@ static void synctest_step(uint32_t vb) {
     }
     sPhase = 0;
     synctest_step(vb);
+}
+
+/* TTT_ROLLBACK=<n> (F07, ahead of T45): rollback netplay's steady worst case. At every VBlank from TTT_ROLLBACK_FROM + n
+   on: a save, the state of n VBlanks before loaded and those n VBlanks run again (gPortResim) with a save at each, as
+   when a peer's inputs for all of them came late; then the game goes on. The report gives the wall time per VBlank
+   (all of it work: a headless run does not wait) against the 16.68 ms of a VBlank. TTT_ROLLBACK_CHECK=1 also
+   compares the state each rollback comes back to with the one saved the first time. */
+#define VBLANK_NS 16683333u
+static void rollback_step(uint32_t vb) {
+    uint64_t now = ns_now();
+    uint8_t *slot = sRbSlot[vb % (sRbN + 1)];
+    if (!gPortResim) {
+        if (sRbLast != 0 && vb > sRbFrom + sRbN) { /* the last VBlank, its rollback included */
+            uint64_t d = now - sRbLast;
+            sRbSum += d;
+            sRbMax = d > sRbMax ? d : sRbMax;
+            sRbOver += d > VBLANK_NS;
+            sRbFrames++;
+        }
+        sRbLast = now;
+        if (vb < sRbFrom) {
+            return;
+        }
+        if (timed_save(slot) != 0) {
+            sRbSkipped++;
+            return;
+        }
+        if (vb >= sRbFrom + sRbN) {
+            sRbTarget = vb;
+            sRbStart = now;
+            sRbCpu0 = cpu_now();
+            timed_load(sRbSlot[(vb - sRbN) % (sRbN + 1)], "rollback");
+            gPortResim = 1;
+            gPortNoGs = sRbNoDraw;
+        }
+        return;
+    }
+    if (vb < sRbTarget) {
+        timed_save(slot);
+        return;
+    }
+    now -= sRbStart; /* back where the rollback started: its time */
+    sRbCpuSum += cpu_now() - sRbCpu0;
+    sRbRolls++;
+    sRbWorkSum += now;
+    sRbWorkMax = now > sRbWorkMax ? now : sRbWorkMax;
+    gPortResim = 0;
+    gPortNoGs = 0;
+    if (sRbCheck != NULL && Port_StateSave(sRbCheck) == 0) {
+        sRbChecks++;
+        if (compare(slot, sRbCheck, vb)) {
+            if (sDiverged == 0) {
+                printf("ttt: rollback: first divergence at vblank %u\n", (unsigned)vb);
+            }
+            sDiverged++;
+            sRbDiverged++;
+        }
+    }
 }
 
 /* ---------------------------------------------------------------------------------------------- the boundary */
@@ -733,6 +1140,9 @@ void port_boundary_body(void) {
     }
     if (sSyncN != 0) {
         synctest_step(vb);
+    }
+    if (sRbN != 0) {
+        rollback_step(vb);
     }
     sInBoundary = 0;
 }
@@ -782,6 +1192,28 @@ void Port_StateReport(void) {
                (unsigned)sChecks, (unsigned)sSyncN, (unsigned)sDiverged, (unsigned)sSkipped, (unsigned)Port_StateSize(),
                (unsigned)(sSaves ? sSaveNs / sSaves / 1000 : 0), (unsigned)(sLoads ? sLoadNs / sLoads / 1000 : 0),
                (unsigned)(sSaves + sLoads ? sDrainNs / (sSaves + sLoads) / 1000 : 0));
+    }
+    if (sRbN != 0) {
+        printf("ttt: rollback: %u rollbacks of %u vblanks%s, %u checked, %u diverged, %u skipped; per vblank mean %u us, "
+               "max %u us, %u over %u us; the rollback itself mean %u us (game thread CPU %u us), max %u us; save %u us, "
+               "load %u us (mean, besides %u us waiting for the GS threads)\n",
+               (unsigned)sRbRolls, (unsigned)sRbN, sRbNoDraw ? " undrawn" : "", (unsigned)sRbChecks,
+               (unsigned)sRbDiverged, (unsigned)sRbSkipped, (unsigned)(sRbFrames ? sRbSum / sRbFrames / 1000 : 0),
+               (unsigned)(sRbMax / 1000), (unsigned)sRbOver, VBLANK_NS / 1000,
+               (unsigned)(sRbRolls ? sRbWorkSum / sRbRolls / 1000 : 0), (unsigned)(sRbRolls ? sRbCpuSum / sRbRolls / 1000 : 0),
+               (unsigned)(sRbWorkMax / 1000),
+               (unsigned)(sSaves ? sSaveNs / sSaves / 1000 : 0), (unsigned)(sLoads ? sLoadNs / sLoads / 1000 : 0),
+               (unsigned)(sSaves + sLoads ? sDrainNs / (sSaves + sLoads) / 1000 : 0));
+    }
+    if (sTrack != 0 || sTrkScans != 0) {
+        printf("ttt: state-track: %s; %u pages tracked, %llu scans (mean %u us, %u pages written), %llu of %llu saves and "
+               "%llu of %llu loads by page (mean %u / %u pages copied); %llu checked, %llu wrong\n",
+               sTrkWhy, (unsigned)sTrkPages, (unsigned long long)sTrkScans,
+               (unsigned)(sTrkScans ? sTrkScanNs / sTrkScans / 1000 : 0), (unsigned)(sTrkScans ? sTrkWritten / sTrkScans : 0),
+               (unsigned long long)sTrkIncSaves, (unsigned long long)sAllSaves, (unsigned long long)sTrkIncLoads,
+               (unsigned long long)sAllLoads, (unsigned)(sTrkIncSaves ? sTrkPagesSaved / sTrkIncSaves : 0),
+               (unsigned)(sTrkIncLoads ? sTrkPagesLoaded / sTrkIncLoads : 0), (unsigned long long)sTrkChecks,
+               (unsigned long long)sTrkCheckBad);
     }
 }
 
@@ -855,6 +1287,63 @@ static void round_trip(void) {
     expect(Port_StateSave(sTestBuf) != 0, "no save outside a boundary");
 }
 
+/* Page tracking (F07): a save into and a load from a tracked buffer give what whole copies give (trk_check), after
+   writes through each view of EE RAM, by the kernel (a system call's result) and into GS memory and sound RAM, and
+   copy only about the pages written. */
+static uint8_t *region_ptr(const char *name) {
+    int r;
+    for (r = 0; r < sRegN; r++) {
+        if (strcmp(sReg[r].name, name) == 0) {
+            return sReg[r].p + sReg[r].size / 2;
+        }
+    }
+    return NULL;
+}
+
+static void track_test(void) {
+    uint8_t *buf, *vram = region_ptr("gs.vram"), *snd = region_ptr("spu2.ram");
+    uint64_t saved, loaded, checks;
+    if (!Port_StateTrack(1)) {
+        printf("ttt: state: page tracking not offered here (%s): not tested\n", sTrkWhy);
+        return;
+    }
+    buf = must_alloc(Port_StateSize());
+    memset(buf, 0, sizeof(StateHeader));
+    sInBoundary = 1;
+    sTrkCheck = 1;
+    expect(Port_StateSave(buf) == 0 && ((StateHeader *)buf)->token == sToken, "a save with tracking on is stamped");
+    *(volatile uint32_t *)Port_Ptr(0x00100000u) = 0x5A5A0001u;
+    *(volatile uint32_t *)Port_Ptr(0x20200004u) = 0x5A5A0002u;
+    *(volatile uint32_t *)Port_Ptr(0x30300008u) = 0x5A5A0003u;
+    syscall(SYS_clock_gettime, 1, Port_Ptr(0x00180000u)); /* written by the kernel */
+    if (vram != NULL && snd != NULL) {
+        *vram ^= 0x55;
+        *snd ^= 0x55;
+    }
+    saved = sTrkPagesSaved;
+    checks = sTrkChecks;
+    expect(Port_StateSave(buf) == 0 && sTrkChecks == checks + 1, "a save into a tracked buffer is by page");
+    expect(sTrkPagesSaved - saved >= 6 && sTrkPagesSaved - saved < 64, "it copies about the pages written");
+    *(volatile uint32_t *)Port_Ptr(0x00100000u) = 0x77777777u;
+    *(volatile uint32_t *)Port_Ptr(0x00180000u) = 0x77777777u;
+    if (vram != NULL) {
+        *vram ^= 0xFF;
+    }
+    loaded = sTrkPagesLoaded;
+    expect(Port_StateLoad(buf) == 0 && sTrkChecks == checks + 2, "a load from a tracked buffer is by page");
+    expect(sTrkPagesLoaded - loaded >= 2 && sTrkPagesLoaded - loaded < 64, "it copies about the pages written");
+    expect(*(volatile uint32_t *)Port_Ptr(0x20100000u) == 0x5A5A0001u, "the loaded word back");
+    expect(sTrkCheckBad == 0, "tracked saves and loads equal whole copies");
+    sTrkCheck = 0;
+    sInBoundary = 0;
+    *(volatile uint32_t *)Port_Ptr(0x00100000u) = 0;
+    *(volatile uint32_t *)Port_Ptr(0x20200004u) = 0;
+    *(volatile uint32_t *)Port_Ptr(0x30300008u) = 0;
+    Port_StateTrack(0);
+    printf("ttt: state: page tracking: %u pages tracked\n", (unsigned)sTrkPages);
+    free(buf);
+}
+
 void Port_StateSelfTest(void) {
     uint32_t a = (uint32_t)(uintptr_t)func_003D9588, b = (uint32_t)(uintptr_t)func_003DA138;
     uint32_t w1[4], w2[4], w3[4];
@@ -871,6 +1360,7 @@ void Port_StateSelfTest(void) {
     expect(buf_hash(w1, 16) == buf_hash(w2, 16), "moved callbacks: the same hash");
     expect(buf_hash(w1, 16) != buf_hash(w3, 16), "other data: another hash");
     port_call_on_ee(round_trip);
+    track_test();
     printf("ttt: state: %d regions, %u bytes; program image 0x%08X-0x%08X\n", sRegN, (unsigned)Port_StateSize(),
            (unsigned)sImgLo, (unsigned)sImgHi);
     if (sFails == 0) {

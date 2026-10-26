@@ -2,6 +2,7 @@
 
 T27. The base of rollback netplay (T45): one number that says whether two runs are in the same state, a copy of the
 whole simulation that can be put back at a VBlank, and a test mode that does that every few VBlanks and compares.
+F07 added saves with the GL back end, page tracking (a save copies what changed) and the rollback test.
 Code: `port/src/plat_state.c` (and `plat_state.h`), with each module registering its own part of the state.
 Tests: `tests/test_port_state.py`.
 
@@ -17,7 +18,13 @@ Tests: `tests/test_port_state.py`.
 | `TTT_HASH_REGIONS=1` | With `TTT_FRAMES`: each hashed region's own hash at the end (to see where two runs part). |
 | `TTT_HASH_DUMP=<file>` | With `TTT_FRAMES`: EE RAM as the hash sees it, at the end (to compare two builds word by word). |
 | `TTT_STATE_STACK=1` | With `TTT_FRAMES`: the EE stack words that look like this process's heap or C library (there should be none). |
-| `TTT_SELFTEST=state` | The hash's host-address rule and an in-process save / load round trip. |
+| `TTT_SELFTEST=state` | The hash's host-address rule, an in-process save / load round trip, and page tracking's saves and loads against whole copies. |
+| `TTT_STATE_TRACK=0` / `1` | Page tracking (F07, below): on by default for the synctest and the rollback test, `0` turns it off (whole copies), `1` turns it on for anything that saves. |
+| `TTT_STATE_TRACK_CHECK=1` | Every save into and load from a tracked buffer is compared with what a whole copy gives; the `ttt: state-track:` line counts them and the wrong ones. |
+| `TTT_ROLLBACK=<n>` | The rollback test (F07, below): at every VBlank, the state of n VBlanks before is loaded and those n VBlanks run again (n up to 16). The report adds a `ttt: rollback:` line (times per VBlank against 16.68 ms). |
+| `TTT_ROLLBACK_FROM=<vblank>` | Start it there (default: the first boundary). |
+| `TTT_ROLLBACK_CHECK=1` | Compare the state each rollback comes back to with the one saved the first time. |
+| `TTT_ROLLBACK_DRAW=0` | The frames run again are not drawn: their DMA into the GS path and their pictures are dropped, and the states leave out the GS's side (VIF1, VU1, the GS front end, GS memory), so nothing waits for the GS threads. |
 
 State files hold the game's memory: keep them out of the repository (put them under `build/` or outside).
 
@@ -38,7 +45,10 @@ the program's code hashed with the region list, is checked).
 The in-process API for rollback (`plat_state.h`): code that runs inside the boundary calls `Port_StateSave(buf)` (copy
 now) and `Port_StateLoad(buf)` (put back; when the boundary returns, the game goes on from the saved boundary).
 `Port_StateSize()` gives the buffer size. A save is refused (and says why) while a movie plays (its decoder is host
-memory), while the game has a memory card file open, and with the GL back end (below).
+memory) and while the game has a memory card file open. With page tracking on (`Port_StateTrack(1)`, below), a save
+into a buffer that holds an earlier save of this process copies only the pages written since, and a load from one
+only those pages: the caller keeps saved buffers unchanged (copying a whole buffer is fine). `gPortStateNoGs` leaves
+the GS's side out of saves and loads (below).
 
 ### What is in a state
 
@@ -50,7 +60,7 @@ memory), while the game has a memory card file open, and with the GL back end (b
 | GS privileged registers | `plat_state.c` | yes, CSR only by FIELD / VSINT, SIGLBLID not |
 | Clock, VBlank count, timers' fractions, INTC / DMAC handlers, masks and pending causes; the report's modes | `plat_hw.c` | yes (report: no) |
 | COP0 Status (interrupts on), VU0 registers (vf, vi, ACC, Q), VIF0, VU0's pipeline | `plat_ee.c`, `vu0_micro.c` | yes |
-| VU1 registers and pipeline, VIF1, the GS front end (registers, GIF paths, CLUT state), GS memory (4 MB), the CLUT buffer, the GS threads' pending CSR bits | `gs_vu1.c`, `gs_vif1.c`, `gs_core.c`, `gs_async.c` | no (the GS threads' side: the game never reads it back) |
+| VU1 registers and pipeline, VU1 memory, VIF1, the GS front end (registers, GIF paths, CLUT state), GS memory (4 MB), the CLUT buffer, the GS threads' pending CSR bits | `gs_vu1.c`, `gs_vif1.c`, `gs_core.c`, `gs_async.c` | no (the GS threads' side, `PS_GSSIDE`: the game never reads it back) |
 | SPU2 model (cores, 2 MB sound RAM), libspu2 core, BGM timer phase, BGM streamer | `spu2.c`, `plat_snd.c`, `plat_bgm.c` | yes |
 | SPU2 interpolation tail (each voice's previous block's samples 25 and 26, F06) | `spu2.c` | no (only what is heard depends on it; [sound.md](sound.md) section 2) |
 | RSPU2DRV status, movie stream arguments | `plat_file.c` | yes |
@@ -60,16 +70,92 @@ memory), while the game has a memory card file open, and with the GL back end (b
 
 40,029,888 bytes (`TTT_SELFTEST=state`). Not saved, drained or rebuilt instead: the GS threads' queues and the raster workers (`Gs_Finish` at
 the save or load: they are idle there), the predecoded VU programs (each slot is checked against micro memory when it
-runs), the GL back end, the window, the audio ring, the WAV file, open files. Things that come from the switches stay
-the loading process's: `TTT_FRAMES`, the replay file (its position follows the loaded VBlank count), `TTT_SAVES`.
+runs), the GL back end's targets and caches (below), the window, the audio ring, the WAV file, open files. Things that
+come from the switches stay the loading process's: `TTT_FRAMES`, the replay file (its position follows the loaded
+VBlank count), `TTT_SAVES`.
+
+### With the GL back end (F07)
+
+GS memory is gs_core.c's 4 MB on the CPU, mirrored on the GPU, where the render targets draw; what a target drew
+reaches the CPU copy only when something needs it there ([video.md](video.md)). A save therefore first queues a
+`CMD_STATE` for the window thread and waits for it (`gs_core.c` `gs_state_before`, `gs_gl.c` `state_cmd`): every target
+is written back into the mirror and dropped, the pages the GPU wrote are read back, the CLUT halves only the GPU had
+are read back from its CLUT row, and the CLUT buffer goes into the state. After a load the window thread drops its
+targets without writing them back, takes the loaded CLUT buffer and pushes all of GS memory into the mirror again.
+Both end in the same place: no target, the mirror equal to the CPU copy, nothing cached that depends on the past
+(`state_reset`). So a run that saved and a run that loaded the same state send the same commands to the same GPU state
+and draw the same: the synctest compares GS memory too and finds no difference, and pictures after a load in a fresh
+process are byte for byte those of the run that saved, which are those of a run that never saved. What a dropped target
+loses is only what GS memory does not hold (its resolution above 1x, colour values above 255, the low bits of a 16-bit
+frame); the next frames draw it again. A load at the first poll of a fresh process starts the back end first (no
+command has been sent yet), so the loaded memory is pushed before anything is drawn. Video options that keep target
+snapshots between frames (internal resolution above 1x, widescreen, flicker filter off, low latency) and the window's
+skipped pictures are not covered by these checks.
+
+### Page tracking (F07)
+
+`Port_StateTrack(1)` (on by default for `TTT_SYNCTEST` and `TTT_ROLLBACK`) has the kernel write-protect the whole
+pages of every region of 64 KB or more: EE RAM through all three of its views, GS memory, sound RAM, the EE hardware
+registers; 9,743 pages, 38 MB. It uses `userfaultfd` in asynchronous write-protect mode (Linux 6.7, unprivileged
+`UFFD_USER_MODE_ONLY`): a write to a protected page is let through by the kernel itself, with no signal, nothing on
+any stack (the EE stack and the crash handler are not involved), and writes by the kernel (system calls) and by other
+threads (the GS threads, GL read backs) count too. At each save and load one `PAGEMAP_SCAN` per range lists the pages
+written since the last scan and protects them again; each scan is an epoch and every page keeps the epoch it was last
+seen written in. A buffer saved with tracking on carries its tracking session and epoch in the header; the memory can
+differ from it only in pages written in a later epoch (a load's own copies are writes too), so a save into it copies
+those pages, and a load from it copies them back. The parts of regions outside whole pages and the small regions are
+copied every time. A state written to a file has no session (`token` 0) and loads whole. Where the kernel does not
+offer it the switch stays off (`ttt: state-track: <why>`), and every save is a whole copy as before.
+
+`TTT_STATE_TRACK_CHECK=1` compares every save into and load from a tracked buffer with the memory (what a whole copy
+gives): no difference in the attract synctest, the fight's synctest (software and GL: GS memory read back from the GPU
+included) and the rollback tests. The idle and fight hashes are unchanged: nothing runs unless a state is taken.
+
+### Leaving the GS's side out
+
+The GS threads' regions (`PS_GSSIDE`) are the part of the state a save waits for: `Gs_Finish` waits until the GS
+threads, which run behind the game, have done everything queued (headless with the raster threads that is up to the
+software rasteriser's lag; with GL the window thread's). With `gPortStateNoGs` set, saves and loads skip those regions
+and the GS's hooks, so nothing waits; a state saved so is marked and loading it never touches that side. The game reads
+nothing from the GS but CSR's FIELD (game side), so its state is the same. This is what `TTT_ROLLBACK_DRAW=0` uses:
+the frames run again are not drawn at all (`gPortNoGs`: `plat_hw.c` drops their DMA into VIF1 and the GIF and their
+VBlank picture), the GS only ever sees each frame once, and its side never needs to go back.
+
+### The rollback test
+
+`TTT_ROLLBACK=<n>` is rollback netplay's steady worst case (every peer's inputs arriving n VBlanks late at every
+VBlank): at each VBlank a save into a ring of n + 1 buffers, the buffer of n VBlanks before loaded, those VBlanks run
+again (`gPortResim`) with a save at each, then the game goes on. With `TTT_ROLLBACK_CHECK=1` the state each rollback
+comes back to is compared with the one saved the first time. The scripted fight with rollbacks of 8 from VBlank 1100
+or 1150 (software and GL, drawn or not) never diverges and ends with the fight's hash.
 
 ### Times
 
-Measured with `TTT_SYNCTEST` (buffers warm): a save copies the 40 MB in about 3 ms, a load in about 3 ms. Before that,
-a save or a load waits for the GS threads to finish what is queued: nothing with `TTT_GS_THREADS=0 TTT_GS_ASYNC=0`,
-up to seconds headless with the raster threads (the game thread runs that far ahead of the software rasteriser); the
-lines say how much of the time that wait was. A save to a file adds the file. Rollback will want less copying (page
-tracking of what changed, as the reference project does) and the GL back end's support.
+Headless, the scripted fight's synctest (`TTT_SYNCTEST=1` from VBlank 850 to 1250) and rollback test (8 VBlanks from
+1150 to 1300), means per save / load besides the wait for the GS threads:
+
+| | Whole copies | Page tracking |
+|---|---|---|
+| Synctest, software, `TTT_GS_THREADS=0 TTT_GS_ASYNC=0` | 2.4 / 2.5 ms | 0.35 / 0.69 ms |
+| Synctest, GL | 2.8 / 2.7 ms (6 ms waiting for the window thread) | 0.49 / 0.77 ms |
+| Attract synctest (`TTT_SYNCTEST=2`, VBlanks 650-800), software | 3.4 / 3.3 ms | 0.35 / 0.50 ms |
+| Rollback 8, software, drawn | 3.6 / 3.0 ms | 0.60 / 1.26 ms |
+| Rollback 8, GL, drawn | | 1.0 / 1.2 ms |
+| Rollback 8, GL, undrawn | | 0.28 / 0.32 ms |
+
+A scan takes 50-90 us (200 us with GL's read backs) and finds about 400 pages written per VBlank in the fight
+undrawn, 1,000 drawn (GS memory's frame and depth buffers). Undrawn there is no wait at all; drawn, every save waits
+for the GS threads (19 ms per save or load with GL, 35 ms with the software raster threads: they draw the frames run
+again). Each write to a protected page costs a fault in the kernel (about 1.5 us), paid only between scans.
+
+Budget: per VBlank, a rollback of n costs n frames of the game plus n + 1 saves and a load. The states now cost about
+1 ms per VBlank for n = 1 and about 3 ms for n = 8 undrawn (whole copies: about 7 and 33 ms). What does not fit is the
+game itself: a fight VBlank run again undrawn takes about 8.5-10 ms of the game thread's CPU (74 % of its samples in
+the VU0 skinning programs' micro-mode interpreter, `vu_fast.c` `run_fast`), so on the measuring machine (`TTT_ROLLBACK=8
+TTT_ROLLBACK_DRAW=0`, GL) a rollback of 8 takes about 100 ms and the VBlank 120 ms: not even one VBlank of rollback
+fits in 16.68 ms next to the real frame. Drawn, the window thread would also have to draw n + 1 frames per VBlank
+(it draws about 60-70 a second): the frames run again must stay undrawn. Making 8 frames of rollback fit needs the
+game's frame about 8 times cheaper, mostly native skinning instead of the VU0 interpreter (T31's direction).
 
 ## The gameplay hash
 
@@ -148,9 +234,15 @@ continues with the same pictures, modes and state as the run that saved it.
 
 ## Open
 
-- **GL back end.** GS memory is partly on the GPU only (resolved targets), so saves are refused with
-  `TTT_RENDERER=gl` (the hash works). Loading needs the mirror pushed again and the GPU-newer pages read back first.
-- **Speed for rollback.** 40 MB per save; the GS drain before each save takes as long as the GS threads lag.
+- **The game's frame for rollback.** States cost well under a millisecond per save now (page tracking, the GS's side
+  left out), but a fight frame run again costs 8.5-10 ms of the game thread, three quarters of it the VU0 skinning
+  interpreter: rollback of more than a VBlank needs native skinning (T31) or a faster interpreter first. Rollback's
+  frames run again must stay undrawn (`gPortNoGs`); T45 decides what a GL save does there (no GPU read back is needed
+  when the GS's side is left out).
+- **GL with video options.** The GL checks run at 1x without widescreen, with the flicker filter and without low
+  latency; the snapshots those options keep between frames are dropped at a save but are not proved equal after it.
+- **Older kernels.** Page tracking needs Linux 6.7 (asynchronous userfaultfd write protection and `PAGEMAP_SCAN`);
+  before that every save is a whole copy.
 - **Uninitialised reads.** Stale stack words are now the same in every run of a build, but they can still hold
   build-dependent values (a frame layout, a code address): the cross-build check (a padding build, `TTT_HASH_DUMP`)
   found the two above; other paths of the game (menus, other modes) are not checked yet.

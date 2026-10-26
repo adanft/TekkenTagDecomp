@@ -3032,16 +3032,37 @@ void Port_GsSelfTest(void) {
 /* ------------------------------------------------------------------------------------------------ the state */
 
 /* The GS's part of the state (plat_state.c): the front end's registers and GIF paths, GS memory, the CLUT buffer (the
-   same in every raster worker once they are idle). With the GL back end GS memory is partly on the GPU only: no state
-   is taken then (docs/port/determinism.md). */
+   same in every raster worker once they are idle). With the GL back end (F07, docs/port/determinism.md) GS memory is
+   partly on the GPU only: a save first has the window thread make the CPU copy whole (CMD_STATE: every target written
+   back, the GPU's pages and CLUT halves read back, the targets dropped so that the GPU goes on from GS memory alone, as
+   it does after a load), and after a load the window thread takes the loaded GS memory and CLUT buffer. */
 static uint16_t sStateClut[512];
-static const char *gs_state_busy(void) { return sGl ? "the GL back end keeps GS memory on the GPU" : NULL; }
 static void gs_state_before(void) {
+    if (gPortStateNoGs) {
+        return; /* (the GS's side is left out: the GS threads go on) */
+    }
+    if (sThreads < 0) {
+        threads_start(); /* (a load at the first poll comes before any command: the back end must be known) */
+    }
     Gs_Finish();
+    if (sGl) {
+        if (!Port_StateLoading()) {
+            Cmd c;
+            memset(&c, 0, sizeof c);
+            c.type = CMD_STATE;
+            c.u.state.clut = sStateClut;
+            submit(&c);
+            gs_sync();
+        }
+        return;
+    }
     memcpy(sStateClut, (sThreads > 0 ? &sWorker[0] : &sSync)->clut, sizeof sStateClut);
 }
 static void gs_state_after_load(void) {
     int k;
+    if (gPortStateNoGs) {
+        return;
+    }
     memcpy(sSync.clut, sStateClut, sizeof sStateClut);
     sSync.palKey.valid = 0;
     for (k = 0; k < 16; k++) {
@@ -3049,13 +3070,21 @@ static void gs_state_after_load(void) {
         sWorker[k].palKey.valid = 0;
     }
     sEpoch.open = 0;
+    if (sGl) { /* (read by the window thread before the next save or load: both drain first) */
+        Cmd c;
+        memset(&c, 0, sizeof c);
+        c.type = CMD_STATE;
+        c.u.state.clut = sStateClut;
+        c.u.state.load = 1;
+        submit(&c);
+    }
 }
 __attribute__((constructor(101))) static void gs_state(void) {
-    Port_StateAdd("gs.regs", &gs, sizeof gs, 0);
-    Port_StateAdd("gs.path", sPath, sizeof sPath, 0);
-    Port_StateAdd("gs.uploadGen", &sUploadGen, sizeof sUploadGen, 0);
-    Port_StateAdd("gs.clutVer", &sClutVer, sizeof sClutVer, 0);
-    Port_StateAdd("gs.clut", sStateClut, sizeof sStateClut, 0);
-    Port_StateAdd("gs.vram", sVram, sizeof sVram, 0);
-    Port_StateHooks(gs_state_busy, gs_state_before, gs_state_after_load);
+    Port_StateAdd("gs.regs", &gs, sizeof gs, PS_GSSIDE);
+    Port_StateAdd("gs.path", sPath, sizeof sPath, PS_GSSIDE);
+    Port_StateAdd("gs.uploadGen", &sUploadGen, sizeof sUploadGen, PS_GSSIDE);
+    Port_StateAdd("gs.clutVer", &sClutVer, sizeof sClutVer, PS_GSSIDE);
+    Port_StateAdd("gs.clut", sStateClut, sizeof sStateClut, PS_GSSIDE);
+    Port_StateAdd("gs.vram", sVram, sizeof sVram, PS_GSSIDE);
+    Port_StateHooks(NULL, gs_state_before, gs_state_after_load);
 }

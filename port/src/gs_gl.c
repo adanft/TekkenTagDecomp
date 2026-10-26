@@ -2808,6 +2808,75 @@ static void show(const Cmd *c) {
     }
 }
 
+/* ------------------------------------------------------------------------------------------------ the state */
+
+/* F07 (plat_state.c, docs/port/determinism.md). A state holds gs_core.c's CPU copy of GS memory and the CLUT buffer;
+   here part of both may be on the GPU only. A save makes them whole on the CPU (every target written back into the
+   mirror and dropped, the pages the GPU wrote read back, the CLUT halves only the GPU had read back) and a load drops
+   the targets unwritten and pushes the loaded memory again. Both end in the same place (state_reset): no target, the
+   mirror equal to the CPU copy, the CLUT buffer known on the CPU, no cached GPU work, so a run that saved and a run
+   that loaded that state go on with the same commands on the same GPU state and draw the same. (A target dropped at
+   a save loses what GS memory does not keep: its resolution above 1x, values above 255 or the low bits of a 16-bit
+   frame; the next frames redraw them.) */
+static uint32_t sStates[2]; /* saves, loads */
+
+static void state_reset(void) {
+    int p;
+    memset(sGpuNewer, 0, sizeof sGpuNewer);
+    sGpuPages = 0;
+    memset(sPageDrawn, 0, sizeof sPageDrawn);
+    for (p = 0; p < 512; p++) {
+        sPageGen[p] = ++sGenClock;
+    }
+    sMemGen++;
+    sMirrorGen++;
+    memset(sClutUnk, 0, sizeof sClutUnk);
+    sClutUnkAny = 0;
+    sClutHash = clut_hash();
+    memset(&sLastGpuLoad, 0, sizeof sLastGpuLoad);
+    sPalKey.row = -1;
+    sTexPages.valid = 0;
+    sLastZ.valid = 0;
+}
+
+static void state_cmd(const Cmd *c) {
+    int i;
+    flush();
+    if (c->u.state.load) {
+        for (i = 0; i < MAX_RT; i++) {
+            sRt[i].dirty = 0; /* (not written back: the loaded memory replaces it) */
+            rt_drop(i);
+        }
+        memcpy(sClut, c->u.state.clut, sizeof sClut);
+        memset(sCpuDirty, 0xF, sizeof sCpuDirty);
+        sStates[1]++;
+    } else {
+        uint32_t all[16];
+        sCause = 4;
+        for (i = 0; i < MAX_RT; i++) {
+            rt_drop(i);
+        }
+        memset(all, 0xFF, sizeof all);
+        readback(all, 0xF);
+        push();
+        if (sClutUnkAny) { /* the halves only the GPU has, from its current CLUT row */
+            uint16_t row[512];
+            uint32_t h;
+            gl.BindFramebuffer(GL_READ_FRAMEBUFFER, sClutFbo[sClutGpu & 1]);
+            gl.ReadBuffer(GL_COLOR_ATTACHMENT0);
+            gl.ReadPixels(0, (GLint)((sClutGpu >> 1) % CLUT_ROWS), 512, 1, GL_RED_INTEGER, GL_UNSIGNED_SHORT, row);
+            for (h = 0; h < 512; h++) {
+                if ((sClutUnk[h >> 5] >> (h & 31)) & 1) {
+                    sClut[h] = row[h];
+                }
+            }
+        }
+        memcpy(c->u.state.clut, sClut, sizeof sClut);
+        sStates[0]++;
+    }
+    state_reset();
+}
+
 /* ------------------------------------------------------------------------------------------------ entry points */
 
 void Gl_Exec(const Cmd *c) {
@@ -2822,6 +2891,7 @@ void Gl_Exec(const Cmd *c) {
     case CMD_COPY: copy(c); break;
     case CMD_CLUT: clut(c); break;
     case CMD_SHOW: show(c); break;
+    case CMD_STATE: state_cmd(c); break;
     default: break;
     }
 }
@@ -3031,6 +3101,9 @@ void Gl_Report(void) {
                sGlStat.clutGpu, sGlStat.shows, sGlStat.date, sGlStat.ad, sGlStat.fbmsk, sGlStat.colclamp, sGlStat.pabe, sGlStat.overlapZ);
         printf("ttt: gl: resolves by texture %u clut %u upload %u show %u target %u; read back by texture %u clut %u upload %u show %u target %u\n",
                sResBy[0], sResBy[1], sResBy[2], sResBy[3], sResBy[4], sRbBy[0], sRbBy[1], sRbBy[2], sRbBy[3], sRbBy[4]);
+        if (sStates[0] + sStates[1] != 0) { /* F07 (a save's resolves and read backs count as "target" above) */
+            printf("ttt: gl: state: %u saves, %u loads\n", sStates[0], sStates[1]);
+        }
         /* T37: the presents, and the time from the VBlank after which each shown frame was complete (the one at which
            the game copies it into its display buffer) to its present (swap returned; with low latency glFinish too),
            at VBlank pictures and early ones (low latency), from window picture 600 on */

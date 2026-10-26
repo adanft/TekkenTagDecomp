@@ -261,10 +261,10 @@ static void dma_block(int ch, uint32_t addr, uint32_t qwc) {
     if (ch == 0 && qwc != 0) { /* VIF0: microcode uploads (vu0_micro.c) */
         Port_Vif0Feed((const uint32_t *)Port_DmaPtr(addr), qwc * 4);
     }
-    if (ch == 1 && qwc != 0) { /* VIF1: VU1 and PATH2 (gs_vif1.c) */
+    if (ch == 1 && qwc != 0 && !gPortNoGs) { /* VIF1: VU1 and PATH2 (gs_vif1.c); none in undrawn frames (F07) */
         Gs_DmaVif1((const uint32_t *)Port_DmaPtr(addr), qwc * 4);
     }
-    if (ch == 2 && qwc != 0) { /* GIF: PATH3 (gs_core.c) */
+    if (ch == 2 && qwc != 0 && !gPortNoGs) { /* GIF: PATH3 (gs_core.c) */
         Gs_DmaGif3((const uint8_t *)Port_DmaPtr(addr), qwc);
     }
     /* IPU / SIF: dropped here. */
@@ -311,7 +311,7 @@ static int dma_source_chain(int ch) {
         if (ch == 0 && (REG(base + CHCR) & 0x40u)) { /* TTE: the tag's upper half goes to VIF0 as two codes */
             Port_Vif0Feed(&tag[2], 2);
         }
-        if (ch == 1 && (REG(base + CHCR) & 0x40u)) { /* the same for VIF1 */
+        if (ch == 1 && (REG(base + CHCR) & 0x40u) && !gPortNoGs) { /* the same for VIF1 */
             Gs_DmaVif1(&tag[2], 2);
         }
         if (ch == 9 && (REG(base + CHCR) & 0x40u)) { /* toSPR with TTE: the whole tag quadword goes in front of its data */
@@ -490,7 +490,9 @@ void Port_DataReport(void);        /* plat_data.c */
 static void vblank(void) {
     sVBlanks++;
     Port_PadVBlank((uint32_t)sVBlanks); /* the pads' state for this field: latched once, before the handler */
-    Gs_VBlank((uint32_t)sVBlanks); /* the frame dump: the picture shown during the field that ends here */
+    if (!gPortNoGs) {
+        Gs_VBlank((uint32_t)sVBlanks); /* the frame dump: the picture shown during the field that ends here */
+    }
     Port_SndVBlank((uint32_t)sVBlanks); /* the sound of that field */
     Port_CheatVBlank(); /* T40: the opt-in unlocks, raised again at each VBlank (off by default: nothing written) */
     Port_CrashVBlank((uint32_t)sVBlanks); /* T41: the crash test's fault, when TTT_CRASH_TEST asks for one */
