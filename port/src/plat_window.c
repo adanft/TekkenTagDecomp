@@ -623,9 +623,10 @@ static void handle_event(const uint8_t *ev) {
 /* The window's title: "[modified game data]" after it when the game data in use is not the verified USA release
    (plat_data.c; the background check of TEKKEN.BIN may find that after the window is open). */
 const char *Port_DataMark(void); /* plat_data.c */
+const char *Tr(const char *key, const char *en); /* plat_lang.c */
 static char sTitle[96];
 static const char *window_title(void) {
-    const char *m = Port_DataMark();
+    const char *m = *Port_DataMark() ? Tr("data.mark", "[modified game data]") : ""; /* T47: translated */
     snprintf(sTitle, sizeof sTitle, "Tekken Tag Tournament%s%s", *m ? " " : "", m);
     return sTitle;
 }

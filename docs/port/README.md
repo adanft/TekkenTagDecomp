@@ -97,6 +97,12 @@ Players: [install.md](install.md) (the setup screen, `ttt --setup <disc>`, where
   clock only ([settings.md](settings.md#game-speed); no sound off 1x); master / music / effects volumes scale the
   output after the SPU2 model ([sound.md](sound.md) section 4.1); the Cheats page's "unlock everything" raises the
   game's own unlock flags, opt-in and marked as changing the game's state ([cheats.md](cheats.md)).
+- Translations (T47, [translations.md](translations.md)): the overlay, the setup screen and its messages come from JSON
+  catalogs (`port/lang/en.json` the English source, `es.json` Spanish), picked by `ui.language` / `TTT_LANG` or the
+  locale, switched live; `tests/test_port_lang.py` checks keys and placeholders.
+- Accessibility (T48, [accessibility.md](accessibility.md)): interface size, high contrast, a screen reader for the
+  overlay (speech-dispatcher, or `TTT_SR_LOG`), and opt-in announcements of the game's menus and fights read from its
+  memory (no effect on the state hash).
 - Determinism (T27, [determinism.md](determinism.md)): the `ttt: state:` line's hash is now a 64-bit XXH3 of the
   whole gameplay state (EE RAM without the EE stack, scratchpad, hardware registers, VU0, the port's own state), with
   every host address in the game's memory counted as one constant, so that it does not move when the code changes
@@ -284,6 +290,9 @@ wait loops drive the hardware.
 | `plat_crash.c` | Crash reports: the signal handlers on their own stack, the report file, `TTT_CRASH_TEST` ([Crash reports](#crash-reports)) |
 | `plat_settings.c` | The settings file (`key = value`, unknown lines kept, atomic writes), the environment's precedence, key names, the keyboard's bindings ([settings.md](settings.md)) |
 | `overlay.cpp` / `overlay.h` / `imconfig_ttt.h` | The F1 overlay and the quit question: Dear ImGui (`third_party/imgui`) on the window thread, its SDL glue, its software-renderer path, its maths ([settings.md](settings.md)) |
+| `plat_lang.c` / `plat_lang.h` | The port's text catalogs (T47): a small JSON reader, the language from the settings or the locale, `Tr` / `TrFmt` / `Lang_Format` with the English fallback ([translations.md](translations.md)) |
+| `plat_speech.c` / `plat_speech.h` | The screen reader's output (T48): `TTT_SR_LOG`, libspeechd (dlopen) or `spd-say`, on a thread of its own ([accessibility.md](accessibility.md)) |
+| `plat_a11y.c` | The game's menus and fights for the screen reader (T48, opt-in): read once a VBlank from the game's memory, never written ([accessibility.md](accessibility.md)) |
 | `plat_cheat.c` | Cheats (T40): "unlock everything" through the game's own save-block unlock flags, opt-in, the `ttt: unlocks:` report line ([cheats.md](cheats.md)) |
 | `plat_state.c` | The state: the regions the modules register, the gameplay hash, save / load at the VBlank boundary (a stack switch), page tracking (userfaultfd, `PAGEMAP_SCAN`), `Port_OffEe`, the synctest and the rollback test ([determinism.md](determinism.md)) |
 | `plat_window.c` | The SDL3 window: SDL loaded at run time, its own thread, the GL context ([Window](#window)), the audio stream, F1 / the quit question / the live settings, `TTT_SELFTEST=window` |

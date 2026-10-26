@@ -33,6 +33,7 @@ ttt --setup /path/to/disc-or-image     # exit code 0 done, 2 no disc there / can
 | Texture packs `textures/` | same folder | beside the program | `video.texture_dir`, `TTT_TEXTURES` |
 | Settings `settings.ini` (holds `game.disc`, the disc you set up) | `$XDG_CONFIG_HOME/ttt/`, else `~/.config/ttt/` | beside the program | `TTT_CONFIG=<file>` |
 | Crash reports `crash/` | beside the settings file | beside the program | follows the settings file |
+| Translations `lang/<code>.json` (T47, [translations.md](translations.md)) | the data folder's `lang/` (your own), then `lang/` beside the program (a release's), then `port/lang/` of a checkout | beside the program | `TTT_LANG_DIR=<dir>` |
 | The disc | where it is: read only, never copied | | `TTT_DISC=<folder or image>` |
 
 - **Portable mode**: put an empty file named `portable.txt` beside the program; everything stays in that folder (a USB

@@ -484,6 +484,8 @@ void Port_SndVBlank(uint32_t n); /* plat_snd.c */
 void Port_SndEnd(void);
 void Port_CheatVBlank(void); /* plat_cheat.c */
 void Port_CheatReport(void);
+void Port_A11yVBlank(void); /* plat_a11y.c: T48, the game's menus and fights read for the screen reader (opt-in) */
+void Port_A11yReport(void);
 void Port_CrashVBlank(uint32_t n); /* plat_crash.c: TTT_CRASH_TEST */
 void Port_DataReport(void);        /* plat_data.c */
 
@@ -495,6 +497,7 @@ static void vblank(void) {
     }
     Port_SndVBlank((uint32_t)sVBlanks); /* the sound of that field */
     Port_CheatVBlank(); /* T40: the opt-in unlocks, raised again at each VBlank (off by default: nothing written) */
+    Port_A11yVBlank(); /* T48: reads only; nothing when off */
     Port_CrashVBlank((uint32_t)sVBlanks); /* T41: the crash test's fault, when TTT_CRASH_TEST asks for one */
     if (sTimeFrom != 0 && sVBlanks == sTimeFrom) {
         Gs_Finish();
@@ -713,6 +716,7 @@ static void report_and_exit(void) {
     Port_StateReport();
     Port_DataReport();
     Port_CheatReport();
+    Port_A11yReport();
     if (!sHeadless) {
         printf("ttt: speed: %d%% at the end\n", sSpeed);
     }

@@ -27,11 +27,12 @@ def run_ttt(timeout=120, **env):
     temporary directory (plat_mc.c), so no run reads or writes the repository's saves/; without TTT_CONFIG the settings
     file (plat_settings.c) is a fresh one there too, never the player's. Without TTT_MOVIES the movies
     are skipped (TTT_MOVIES=0), as before T33: the intro movie would fill the first 4000 VBlanks of every run
-    (tests/test_port_movie.py plays them)."""
+    (tests/test_port_movie.py plays them). The port's interface is in English (TTT_LANG=en) unless asked."""
     e = {k: v for k, v in os.environ.items() if not k.startswith("TTT_")}
     if disc() is not None:
         e["TTT_DISC"] = str(disc())
     e["TTT_MOVIES"] = "0"
+    e["TTT_LANG"] = "en"  # T47: the port's own text in English whatever the host's locale (LANG, LC_MESSAGES)
     e.update(env)
     with tempfile.TemporaryDirectory(prefix="ttt-saves-") as saves:
         e.setdefault("TTT_SAVES", saves)

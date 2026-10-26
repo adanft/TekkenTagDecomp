@@ -24,6 +24,7 @@ configuration). Tests: `tests/test_port_settings.py`, `tests/test_port_window.py
 | | Game speed 0.25x-4x and the speed while Tab is held 1x-4x (T40, [Game speed](#game-speed)) | at once |
 | | The disc, the data file, verified or `[modified game data]`, the settings file and a write error if any (read only) | |
 | Cheats | Unlock everything (T40, off by default; it modifies the game's state, [cheats.md](cheats.md)) | at once |
+| Accessibility | Language (T47, [translations.md](translations.md): automatic from the locale, or a catalog), interface size 50-300 %, high contrast, screen reader and the game's announcements (T48, [accessibility.md](accessibility.md)) | at once |
 | About | The build (`git describe`), `[modified game data]` when set, Dear ImGui's version | |
 
 A setting whose environment variable is set shows `(set by TTT_...)` and cannot be changed there (the variable wins).
@@ -102,6 +103,11 @@ know are kept as they are, in place; a changed key's line is replaced, a new key
 | `input.deadzone` | 0-90 (percent of the sticks' travel) | 20 | `TTT_DEADZONE` |
 | `input.stick_dpad` | 0 / 1 (the left stick also presses the d-pad) | 1 | `TTT_STICK_DPAD` |
 | `input.multitap` | 0 / 1 (read at start: four pads on port 1A-1D) | 0 | `TTT_MULTITAP` |
+| `ui.language` | a catalog's code (`en`, `es`, `es_AR` falls back to `es`), empty or `auto`: from `LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG` ([translations.md](translations.md)) | (empty) | `TTT_LANG` |
+| `ui.scale` | 50-300 (percent: the overlay's text and widgets) | 100 | `TTT_UI_SCALE` |
+| `ui.high_contrast` | 0 / 1 (white on black, yellow focus) | 0 | `TTT_HIGH_CONTRAST` |
+| `ui.screen_reader` | 0 / 1 (say the focused item, [accessibility.md](accessibility.md)) | 0 | `TTT_SCREEN_READER` |
+| `ui.announce_game` | 0 / 1 (with the screen reader: the game's menus and fights, read only) | 0 | `TTT_ANNOUNCE_GAME` |
 | `keys.p1.up` ... `keys.p2.select` | a key name (`W`, `Up`, `Keypad 4`, `Left Shift`, `F5`, `Space`; any case) or `Scancode <n>` | the [Input](README.md#input) table | |
 | `pad.p1.up` ... `pad.p4.r3` | a gamepad input (`south`, `east`, `west`, `north`, `back`, `start`, `left_stick`, `right_stick`, `left_shoulder`, `right_shoulder`, `dpad_up` / `_down` / `_left` / `_right`, `misc1`-`misc6`, `left_paddle1` ..., `touchpad`, `left_trigger`, `right_trigger`; any case) or `none` | [input.md](input.md) | |
 
@@ -157,10 +163,10 @@ GL context / renderer and the window, then `_exit(0)`). `TTT_NO_QUIT_CONFIRM=1` 
 |---|---|
 | `TTT_CONFIG=<file>` | The settings file. |
 | `TTT_NO_QUIT_CONFIRM=1` | Close / Escape quit without asking. |
-| `TTT_SCALE`, `TTT_FULLSCREEN`, `TTT_FPS_METER`, `TTT_VOLUME`, `TTT_MUTE`, `TTT_MUSIC_VOLUME`, `TTT_EFFECTS_VOLUME`, `TTT_SPEED`, `TTT_FAST_FORWARD`, `TTT_CHEAT_UNLOCK`, `TTT_PAUSE_IN_MENU`, `TTT_RESOLUTION`, `TTT_ASPECT`, `TTT_DEFLICKER`, `TTT_SMOOTH`, `TTT_LOW_LATENCY`, `TTT_TEXTURE_REPLACE`, `TTT_TEXTURE_DUMP`, `TTT_TEXTURES`, `TTT_VIBRATION`, `TTT_DEADZONE`, `TTT_STICK_DPAD`, `TTT_MULTITAP` | The settings above, over the file. |
-| `TTT_OVERLAY_TEST=1` | Tests: with a window, the overlay is driven from inside (made-up key events through the window's own handling at fixed frames: F1, a key pressed while open, Escape; every page drawn; a key and a gamepad button bound through the capture paths) and the report adds `ttt: overlay: ...` and `ttt: window: overlay test: ...`. Nothing is sent to the desktop. |
+| `TTT_SCALE`, `TTT_FULLSCREEN`, `TTT_FPS_METER`, `TTT_VOLUME`, `TTT_MUTE`, `TTT_MUSIC_VOLUME`, `TTT_EFFECTS_VOLUME`, `TTT_SPEED`, `TTT_FAST_FORWARD`, `TTT_CHEAT_UNLOCK`, `TTT_PAUSE_IN_MENU`, `TTT_RESOLUTION`, `TTT_ASPECT`, `TTT_DEFLICKER`, `TTT_SMOOTH`, `TTT_LOW_LATENCY`, `TTT_TEXTURE_REPLACE`, `TTT_TEXTURE_DUMP`, `TTT_TEXTURES`, `TTT_VIBRATION`, `TTT_DEADZONE`, `TTT_STICK_DPAD`, `TTT_MULTITAP`, `TTT_LANG`, `TTT_UI_SCALE`, `TTT_HIGH_CONTRAST`, `TTT_SCREEN_READER`, `TTT_ANNOUNCE_GAME` | The settings above, over the file. |
+| `TTT_OVERLAY_TEST=1` | Tests: with a window, the overlay is driven from inside (made-up key events through the window's own handling at fixed frames: F1, a key pressed while open, Escape; every page drawn; a key and a gamepad button bound through the capture paths) and the report adds `ttt: overlay: ...` and `ttt: window: overlay test: ...`. Nothing is sent to the desktop. Since T47 / T48 there are seven pages, and after Escape the arrow keys move the focus in the "Quit?" question; the report adds the language, the font's accented letters and the screen reader's count. |
 | `TTT_SELFTEST=settings` | The file's round trip (comments, sections and unknown keys kept, no temporary file left), the environment's precedence, clamping, key names both ways, rebinding (swaps, F1 / Escape / Tab refused), the gamepads' bindings (defaults, swaps within a pad, guide refused,
-`none`, names both ways, the file's round trip), the `input.*` options, the T40 defaults. Needs `TTT_CONFIG` (it writes that file). |
+`none`, names both ways, the file's round trip), the `input.*` options, the T40 defaults; T47: the catalog reader (escapes, UTF-8, broken files refused), the English fallback, the placeholder checks, the language's round trip through `ui.language` / `TTT_LANG` to `port/lang/es.json` and back, `es_AR` to `es`, the locale's detection, the picker's list. Needs `TTT_CONFIG` (it writes that file). |
 
 ## Dear ImGui
 
