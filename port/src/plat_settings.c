@@ -79,6 +79,11 @@ static const Def kDefs[] = {
     {"ui.high_contrast", "TTT_HIGH_CONTRAST", 0, 1, 0, NULL, 0},
     {"ui.screen_reader", "TTT_SCREEN_READER", 0, 1, 0, NULL, 0},
     {"ui.announce_game", "TTT_ANNOUNCE_GAME", 0, 1, 0, NULL, 0}, /* the game's menus and fights, read only */
+    /* T46: matchmaking (plat_net.c, docs/port/matchmaking.md): no server is built in */
+    {"net.server", "TTT_NET_SERVER", 0, 0, 0, "", 1},     /* <addr>:<port> of a matchmaking server */
+    {"net.name", "TTT_NET_NAME", 0, 0, 0, "Player", 0},   /* the name the other player sees */
+    {"net.punch", "TTT_NET_PUNCH", 0, 1, 1, NULL, 1},     /* try a direct path before the server's relay */
+    {"net.update_key", "TTT_NET_UPDATE_KEY", 0, 0, 0, "", 1}, /* the update manifest's public key, 64 hex digits */
 };
 #define NDEFS ((int)(sizeof kDefs / sizeof kDefs[0]))
 

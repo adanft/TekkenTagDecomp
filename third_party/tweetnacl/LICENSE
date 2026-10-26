@@ -1,0 +1,7 @@
+ed25519.h is derived from TweetNaCl (https://tweetnacl.cr.yp.to/), version 20140427, by Daniel J. Bernstein,
+Bernard van Gastel, Wesley Janssen, Tanja Lange, Peter Schwabe and Sjaak Smetsers.
+
+TweetNaCl is public domain: "TweetNaCl is a self-contained public-domain cryptographic library" (the TweetNaCl web
+page and paper, "TweetNaCl: A crypto library in 100 tweets"). The changes made here (detached signatures, an
+incremental SHA-512 written out from FIPS 180-4, the S < L check of RFC 8032, renamed static functions) are placed in
+the public domain as well.

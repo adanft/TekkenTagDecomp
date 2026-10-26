@@ -28,6 +28,7 @@
 #include "overlay.h"
 #include "plat_settings.h"
 #include "plat_lang.h"
+#include "plat_net.h"
 #include "plat_speech.h"
 
 #ifndef TTT_GIT
@@ -483,7 +484,7 @@ extern "C" int Overlay_Open(void) { return sMode != 0 && (sSettings || sQuitAsk 
 
 extern "C" int Overlay_Visible(void) {
     return sMode != 0 && (sSettings || sQuitAsk || sTest >= 0 || Port_SetupActive() ||
-                          Settings_GetInt("video.fps_meter") != 0);
+                          Settings_GetInt("video.fps_meter") != 0 || Port_NetChatRecent());
 }
 
 extern "C" void Overlay_FrameShown(int64_t now_ns) {
@@ -1048,6 +1049,139 @@ static void page_about(void) {
                                 "game is in this program."));
 }
 
+/* ---- netplay (T46, plat_net.c, docs/port/matchmaking.md): the server, the session, the chat ---- */
+static char sNetServer[256], sNetName[64], sNetCode[16], sNetChat[160];
+static bool sNetInit;
+
+/* A text setting edited in a field: saved when Return is pressed or the field loses the focus. */
+static void text_setting(const char *label, const char *key, char *buf, int n) {
+    ImGui::BeginDisabled(Settings_FromEnv(key) != 0);
+    ImGui::SetNextItemWidth(S(260.0f));
+    ImGui::InputText(L(label, key), buf, (size_t)n);
+    if (ImGui::IsItemDeactivatedAfterEdit()) {
+        Settings_SetStr(key, buf);
+    }
+    ImGui::EndDisabled();
+    setting_note(key);
+}
+
+static void chat_lines(float height) {
+    ImGui::BeginChild("##chatlog", ImVec2(0.0f, height), ImGuiChildFlags_Borders);
+    int n = Port_NetChatCount();
+    for (int i = 0; i < n; i++) {
+        char t[160];
+        int mine = 0;
+        if (Port_NetChatLine(i, &mine, t, sizeof t)) {
+            PortNetInfo ni;
+            Port_NetInfo(&ni);
+            ImGui::TextWrapped("%s: %s", mine ? Tr("overlay.net.you", "You") : (ni.peer[0] ? ni.peer : "?"), t);
+        }
+    }
+    if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY()) {
+        ImGui::SetScrollHereY(1.0f);
+    }
+    ImGui::EndChild();
+}
+
+static void page_netplay(void) {
+    PortNetInfo ni;
+    Port_NetInfo(&ni);
+    if (!sNetInit) {
+        sNetInit = true;
+        Settings_GetStr("net.server", sNetServer, sizeof sNetServer);
+        Settings_GetStr("net.name", sNetName, sizeof sNetName);
+    }
+    ImGui::SeparatorText(Tr("overlay.net.server_title", "Matchmaking server"));
+    text_setting(Tr("overlay.net.server", "Server (address:port)"), "net.server", sNetServer, sizeof sNetServer);
+    text_setting(Tr("overlay.net.name", "Your name"), "net.name", sNetName, sizeof sNetName);
+    check(Tr("overlay.net.punch", "Try a direct connection first"), "net.punch");
+    if (sNetServer[0] == 0) {
+        ImGui::TextWrapped("%s", Tr("overlay.net.no_server", "No server is built in: run your own (ttt-server) or ask "
+                                    "a friend for theirs. See docs/port/matchmaking.md."));
+    }
+    if (ni.phase == NET_PHASE_OFF) {
+        ImGui::SeparatorText(Tr("overlay.net.play_title", "Play online"));
+        bool can = Port_NetCanRestart() && sNetServer[0] != 0;
+        ImGui::TextWrapped("%s", Tr("overlay.net.restart_note", "A session starts the game again from the beginning on "
+                                    "both sides."));
+        ImGui::BeginDisabled(!can);
+        if (ImGui::Button(L(Tr("overlay.net.create", "Create a room"), "create"))) {
+            Port_NetRestart(1, "");
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(L(Tr("overlay.net.quick", "Quick match"), "quick"))) {
+            Port_NetRestart(3, "");
+        }
+        ImGui::SetNextItemWidth(S(120.0f));
+        ImGui::InputText("##roomcode", sNetCode, sizeof sNetCode, ImGuiInputTextFlags_CharsUppercase);
+        ImGui::SameLine();
+        if (ImGui::Button(L(Tr("overlay.net.join", "Join this room"), "join")) && sNetCode[0] != 0) {
+            Port_NetRestart(2, sNetCode);
+        }
+        ImGui::EndDisabled();
+    } else {
+        const char *phase = ni.phase == NET_PHASE_SERVER ? Tr("overlay.net.phase_server", "Contacting the server") :
+                            ni.phase == NET_PHASE_WAITING ? Tr("overlay.net.phase_waiting", "Waiting for a player") :
+                            ni.phase == NET_PHASE_CONNECTING ? Tr("overlay.net.phase_connecting", "Connecting") :
+                            Tr("overlay.net.phase_playing", "Playing");
+        ImGui::SeparatorText(Tr("overlay.net.session_title", "Session"));
+        ImGui::Text(TrFmt("overlay.net.phase", "State: %s"), phase);
+        if (ni.code[0]) {
+            ImGui::Text(TrFmt("overlay.net.code", "Room code: %s"), ni.code);
+        }
+        if (ni.peer[0]) {
+            ImGui::Text(TrFmt("overlay.net.peer", "Playing with: %s (pad %d)"), ni.peer, 2 - ni.side);
+        }
+        if (ni.phase == NET_PHASE_PLAYING) {
+            ImGui::Text(TrFmt("overlay.net.path", "Connection: %s"),
+                        ni.path == NET_PATH_RELAY ? Tr("net.path.relay", "relayed") : Tr("net.path.direct", "direct"));
+            ImGui::Text(TrFmt("overlay.net.rtt", "Round trip: %u ms; input delay %u frames"), ni.rttMs, ni.delay);
+            ImGui::Text(TrFmt("overlay.net.rollbacks", "Rollbacks: %u (%u frames run again); waits: %u"), ni.rollbacks,
+                        ni.framesAgain, ni.stalls);
+            ImGui::SeparatorText(Tr("overlay.net.chat_title", "Chat"));
+            chat_lines(S(110.0f));
+            ImGui::SetNextItemWidth(S(360.0f));
+            bool send = ImGui::InputText("##chat", sNetChat, sizeof sNetChat, ImGuiInputTextFlags_EnterReturnsTrue);
+            ImGui::SameLine();
+            send |= ImGui::Button(L(Tr("overlay.net.send", "Send"), "send"));
+            if (send && Port_NetChatSend(sNetChat)) {
+                sNetChat[0] = 0;
+                ImGui::SetKeyboardFocusHere(-1);
+            }
+        }
+    }
+    if (ni.update == NET_UPDATE_NEWER) {
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), TrFmt("overlay.net.update_newer", "Version %s is available "
+                           "(nothing is downloaded: get it from a source you trust)."), ni.updateVersion);
+    } else if (ni.update == NET_UPDATE_BAD_SIGNATURE || ni.update == NET_UPDATE_MALFORMED) {
+        ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.4f, 1.0f), "%s", Tr("overlay.net.update_bad", "The server's update "
+                           "notice is not correctly signed: ignored."));
+    }
+}
+
+/* The last chat lines over the game for 10 s after one arrives, the overlay closed. */
+static void chat_toast(void) {
+    ImGuiIO &io = ImGui::GetIO();
+    int n = Port_NetChatCount();
+    ImGui::SetNextWindowPos(ImVec2(8.0f, io.DisplaySize.y - 8.0f), ImGuiCond_Always, ImVec2(0.0f, 1.0f));
+    ImGui::SetNextWindowBgAlpha(0.6f);
+    if (ImGui::Begin("##chattoast", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
+                                                 ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoNav |
+                                                 ImGuiWindowFlags_NoFocusOnAppearing)) {
+        PortNetInfo ni;
+        Port_NetInfo(&ni);
+        for (int i = n > 4 ? n - 4 : 0; i < n; i++) {
+            char t[160];
+            int mine = 0;
+            if (Port_NetChatLine(i, &mine, t, sizeof t)) {
+                ImGui::Text("%s: %s", mine ? Tr("overlay.net.you", "You") : (ni.peer[0] ? ni.peer : "?"), t);
+            }
+        }
+        ImGui::TextDisabled("%s", Tr("overlay.net.chat_hint", "F1: reply"));
+    }
+    ImGui::End();
+}
+
 static void meter(void) {
     unsigned n = sShownN < 64 ? sShownN : 64;
     if (n < 2) {
@@ -1259,6 +1393,9 @@ static void ui(void) {
     if (Settings_GetInt("video.fps_meter") && !Port_SetupActive()) {
         meter();
     }
+    if (!sSettings && Port_NetChatRecent()) {
+        chat_toast();
+    }
     if (Port_SetupActive()) {
         setup_screen();
     }
@@ -1280,6 +1417,7 @@ static void ui(void) {
                 if (tab(Tr("overlay.tab.cheats", "Cheats"), "cheats", 4)) { page_cheats(); ImGui::EndTabItem(); }
                 if (tab(Tr("overlay.tab.access", "Accessibility"), "access", 5)) { page_access(); ImGui::EndTabItem(); }
                 if (tab(Tr("overlay.tab.about", "About"), "about", 6)) { page_about(); ImGui::EndTabItem(); }
+                if (tab(Tr("overlay.tab.netplay", "Netplay"), "netplay", 7)) { page_netplay(); ImGui::EndTabItem(); }
                 ImGui::EndTabBar();
             }
         }
@@ -1350,7 +1488,7 @@ extern "C" void Overlay_Render(int win_w, int win_h, int pix_w, int pix_h, int64
 }
 
 /* ---- TTT_OVERLAY_TEST: the overlay driven from inside, no input from the desktop ---- */
-#define TEST_PAGES 7
+#define TEST_PAGES 8
 
 extern "C" void Overlay_TestStep(void) {
     if (sTest < 0 || sMode == 0) {

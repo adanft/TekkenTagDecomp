@@ -26,6 +26,7 @@ void A11y_Init(void); /* plat_a11y.c: the game's announcements (T48, opt-in) */
 void Port_CrashInstall(void); /* plat_crash.c: the crash report handlers, with their own signal stack */
 void Port_SetupArgs(int argc, char **argv); /* plat_setup.c: `--setup <disc>` (exits) or `--setup` (the screen) */
 void Port_SetupRun(void); /* plat_setup.c: the setup screen when the game's data is not loaded yet (T43) */
+void Port_NetMain(int argc, char **argv); /* plat_net.c: TTT_SELFTEST=net, TTT_UPDATE_CHECK=1 (T46) */
 
 int __wrap_main(int argc, char **argv) {
     /* the settings and the window first, on the host stack: SDL's start-up is neither for the EE stack nor for the
@@ -37,6 +38,7 @@ int __wrap_main(int argc, char **argv) {
     Settings_SelfTest();
     Port_PadSelfTest();
     Port_WindowSelfTest();
+    Port_NetMain(argc, argv);
     Port_SetupArgs(argc, argv);
     Port_WindowOpen();
     Port_SetupRun();

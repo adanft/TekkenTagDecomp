@@ -4,7 +4,8 @@ T45. Two copies of the game, one per player, play one match over UDP. Each copy 
 they exchange is the pads' states, one per VBlank, and a fingerprint of the state now and then to prove they still
 agree. Built on the state's save / load at the VBlank boundary ([determinism.md](determinism.md)). Code:
 `port/src/plat_net.c`; the hooks in `plat_state.c` (the boundary), `plat_pad.c` (the pads), `plat_hw.c` (the clock).
-Tests: `tests/test_port_net.py`. Matchmaking, NAT traversal and a menu are T46 (see Open).
+Tests: `tests/test_port_net.py`. Finding the other player through a server (room codes, quick match), NAT traversal,
+the chat and the session in the overlay are T46: [matchmaking.md](matchmaking.md).
 
 ## Playing
 
@@ -46,7 +47,8 @@ printed), 5 a desync, 6 a rollback found no state to go back to (a bug).
 ## What both sides must share
 
 A session plays the same simulation on both sides, so everything that changes the game's state must be the same.
-The joining side sends HELLO (every 100 ms) until the host answers WELCOME or REFUSE; each compares:
+The joining side sends HELLO (every 100 ms) until the host answers WELCOME or REFUSE (both also carry the player's
+name, `net.name`, for the overlay and the title); each compares:
 
 - the protocol version and the **build id** (the program's code hashed with the state's region list,
   `Port_StateBuildId`): another build of the program is refused;
@@ -171,10 +173,9 @@ vary from run to run (the clean runs' means 6-11 ms against 4.4 ms in the quiete
 
 ## Open
 
-- **T46**: finding each other (room codes, a list), NAT traversal (STUN, and a TURN relay when it fails), a version
-  check before connecting (now the build id refuses it only at the handshake), a menu instead of the variables, the
-  window's title and the overlay showing the session (peer, round trip, rollbacks), chat, spectators. A session needs
-  a reachable UDP port today (LAN, a forwarded port, or a VPN).
+- **Spectators** and a lobby with a list of rooms (T46 did room codes, the quick match, hole punching, the relay,
+  the version check before pairing, the overlay's page, the title and the chat: [matchmaking.md](matchmaking.md)).
+  `TTT_NET_HOST` / `TTT_NET_JOIN` still need a reachable UDP port (LAN, a forwarded port, or a VPN).
 - **Sessions from a menu** rather than from boot (both loading one state sent at the connection: 40 MB, or the
   pages that differ from a common boot state).
 - **The memory card**: both sides' saves (unlocks, records) could be exchanged at the connection and kept read-only.

@@ -117,6 +117,11 @@ Players: [install.md](install.md) (the setup screen, `ttt --setup <disc>`, where
   saves (up to 6 VBlanks, undrawn and unheard), time sync, a state fingerprint every 60 VBlanks (a desync stops the
   session with the VBlank and the region). Both sides on the deterministic clock at 1x, no memory card, no movies;
   the handshake refuses another build, other game data or other cheat / seed settings.
+- Matchmaking (T46, [matchmaking.md](matchmaking.md)): a self-hosted rendezvous server (`port/server/ttt-server.c`,
+  `python3 port/tools/build_server.py`; none is built into the game) pairs two games of the same build by a room's
+  code or a quick-match queue, coordinates UDP hole punching and relays when that fails; the overlay's Netplay page
+  and the window's title show the peer, the round trip and the rollbacks, with a chat between the two. Update
+  notices come from a manifest signed with Ed25519 (`third_party/tweetnacl`), checked and only reported.
 - Floats are the EE's: every float operation of the game and of `port/src` goes through the EE float model
   (`port/src/softfloat_ps2.c`), the maths library is the PS2's newlib (`third_party/newlib_libm`), `rand` / `srand`
   are newlib's on the game's own state word. No host float code is linked ([EE float model](#ee-float-model)).
@@ -299,7 +304,7 @@ wait loops drive the hardware.
 | `plat_speech.c` / `plat_speech.h` | The screen reader's output (T48): `TTT_SR_LOG`, libspeechd (dlopen) or `spd-say`, on a thread of its own ([accessibility.md](accessibility.md)) |
 | `plat_a11y.c` | The game's menus and fights for the screen reader (T48, opt-in): read once a VBlank from the game's memory, never written ([accessibility.md](accessibility.md)) |
 | `plat_cheat.c` | Cheats (T40): "unlock everything" through the game's own save-block unlock flags, opt-in, the `ttt: unlocks:` report line ([cheats.md](cheats.md)) |
-| `plat_net.c` | Rollback netplay (T45): the UDP session (handshake, inputs with redundancy, acknowledgements), prediction and rollback over `plat_state.c`'s saves, pacing and time sync, the fingerprint checks, `TTT_NET_SIM` ([netplay.md](netplay.md)) |
+| `plat_net.c` / `plat_net.h` | Rollback netplay (T45): the UDP session (handshake, inputs with redundancy, acknowledgements), prediction and rollback over `plat_state.c`'s saves, pacing and time sync, the fingerprint checks, `TTT_NET_SIM` ([netplay.md](netplay.md)); matchmaking through `ttt-server`, hole punching and the relay, the chat, the session's state for the overlay and the title, the signed update check (T46, [matchmaking.md](matchmaking.md)) |
 | `plat_state.c` | The state: the regions the modules register, the gameplay hash, save / load at the VBlank boundary (a stack switch), page tracking (userfaultfd, `PAGEMAP_SCAN`), `Port_OffEe`, the synctest and the rollback test ([determinism.md](determinism.md)) |
 | `plat_window.c` | The SDL3 window: SDL loaded at run time, its own thread, the GL context ([Window](#window)), the audio stream, F1 / the quit question / the live settings, `TTT_SELFTEST=window` |
 | `gs_gl.c` | The GS's OpenGL 3.3 back end on the window thread ([GL back end](#gl-back-end)) |

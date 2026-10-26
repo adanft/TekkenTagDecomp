@@ -96,7 +96,7 @@ class OverlayInSpanish(unittest.TestCase):
             self.assertEqual(m.group(1), "es")
             self.assertEqual(m.group(2), m.group(3), "the font lacks accented letters")
             self.assertEqual(m.group(5), "log")
-            self.assertRegex(r.stdout, r"pages 7/7")
+            self.assertRegex(r.stdout, r"pages 8/8")
             said = log.read_text(encoding="utf-8").splitlines()
             self.assertIn("Configuración (F1)", said)
             self.assertIn("¿Salir?", said)

@@ -46,6 +46,7 @@
 #include "gs.h"
 #include "gs_int.h"
 #include "overlay.h"
+#include "plat_net.h"
 #include "plat_settings.h"
 
 int Port_Headless(void); /* plat_hw.c */
@@ -625,27 +626,39 @@ static void handle_event(const uint8_t *ev) {
    (plat_data.c; the background check of TEKKEN.BIN may find that after the window is open). */
 const char *Port_DataMark(void); /* plat_data.c */
 const char *Tr(const char *key, const char *en); /* plat_lang.c */
-static char sTitle[96];
+extern int gPortNet; /* plat_net.c */
+static int64_t now_ns(void);
+static char sTitle[320], sNetTitle[200];
 static const char *window_title(void) {
     const char *m = *Port_DataMark() ? Tr("data.mark", "[modified game data]") : ""; /* T47: translated */
-    snprintf(sTitle, sizeof sTitle, "Tekken Tag Tournament%s%s", *m ? " " : "", m);
+    snprintf(sTitle, sizeof sTitle, "Tekken Tag Tournament%s%s%s%s", *m ? " " : "", m, sNetTitle[0] ? " - " : "",
+             sNetTitle);
     return sTitle;
 }
 
 static void title_update(void) {
     static int marked;
+    static int64_t netAt;
+    int changed = 0;
     if (!marked && *Port_DataMark() && sWindow != NULL && sdl.SetWindowTitle != NULL) {
         marked = 1;
+        changed = 1;
+    }
+    if (gPortNet && now_ns() - netAt > 500000000) { /* the netplay session (T46): peer, round trip, rollbacks */
+        netAt = now_ns();
+        changed |= Port_NetTitle(sNetTitle, sizeof sNetTitle);
+    }
+    if (changed && sWindow != NULL && sdl.SetWindowTitle != NULL) {
         sdl.SetWindowTitle(sWindow, window_title());
     }
 }
 
-static int64_t now_ns(void);
 static void events(void) {
     static int textOn;
     uint8_t ev[128];
     title_update();
-    if (!textOn && Port_SetupActive() && sdl.StartTextInput != NULL) { /* the setup screen's path entry (T43) */
+    if (!textOn && (Port_SetupActive() || Overlay_Open()) && sdl.StartTextInput != NULL) {
+        /* the setup screen's path entry (T43); the overlay's text fields (the netplay page, T46) */
         textOn = 1;
         sdl.StartTextInput(sWindow);
     }
