@@ -28,7 +28,6 @@
 #include "plat_lang.h"
 
 /* C library calls through the GOT: no new PLT entry (port_host.h) */
-#define PORT_NOPLT(f) __typeof__(f) f __attribute__((noplt))
 PORT_NOPLT(setenv);
 PORT_NOPLT(unsetenv);
 PORT_NOPLT(mkdir);
@@ -36,7 +35,6 @@ PORT_NOPLT(strncmp);
 PORT_NOPLT(strchr);
 PORT_NOPLT(strerror);
 PORT_NOPLT(access);
-#undef PORT_NOPLT
 
 typedef struct {
     const char *key, *env;

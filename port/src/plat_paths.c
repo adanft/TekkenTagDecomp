@@ -19,11 +19,10 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include "port_host.h"
 
-#define PORT_NOPLT(f) __typeof__(f) f __attribute__((noplt))
 PORT_NOPLT(access);
 PORT_NOPLT(mkdir);
-#undef PORT_NOPLT
 
 static char sExeDir[1024];
 static int sKind = -1; /* 0 installed, 1 portable, 2 a checkout */

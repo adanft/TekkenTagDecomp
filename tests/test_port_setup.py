@@ -17,7 +17,7 @@ import unittest
 from pathlib import Path
 
 from test_port_platform import EXE, disc, run_ttt
-from test_port_window import SDL32
+from test_port_window import NO_SDL, SDL_LIBS
 from test_setup_disc import GAME_FILES, make_iso, to_bin
 
 FRAMES = "200"
@@ -206,7 +206,7 @@ class CommandLineSetup(unittest.TestCase):
 
 
 @unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
-@unittest.skipUnless(any(p.exists() for p in SDL32), "no 32-bit SDL3 (Arch: lib32-sdl3)")
+@unittest.skipUnless(any(p.exists() for p in SDL_LIBS), NO_SDL)
 class SetupScreen(unittest.TestCase):
     """The setup screen in a hidden window (SDL's offscreen driver), driven from inside by TTT_SETUP_TEST=<disc>: it
     lists the disc's folder in the built-in browser, types the path and presses "Check and install"."""

@@ -193,7 +193,7 @@ class ModifiedDiscTest(unittest.TestCase):
         self.assertIn("IRX/RSPU2DRV.IRX has SHA-1", r.stderr)
 
 
-SDL32 = [Path("/usr/lib32/libSDL3.so.0"), Path("/usr/lib/i386-linux-gnu/libSDL3.so.0")]
+from test_port_window import NO_SDL, SDL_LIBS  # noqa: E402
 MARK = "[modified game data]"
 
 
@@ -243,7 +243,7 @@ class DataMarkTest(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
             self.assertIn(f"ttt: data: {MARK} (IRX/RSPU2DRV.IRX)\n", r.stdout)
 
-    @unittest.skipUnless(any(p.exists() for p in SDL32), "no 32-bit SDL3 (Arch: lib32-sdl3)")
+    @unittest.skipUnless(any(p.exists() for p in SDL_LIBS), NO_SDL)
     def test_window_title_and_overlay(self):
         """The title and the settings window (TTT_OVERLAY_TEST: F1 opened from inside, a hidden window on SDL's dummy
         driver) carry the mark with the changed disc only."""

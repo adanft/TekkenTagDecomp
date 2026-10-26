@@ -8,7 +8,15 @@
 #include <pthread.h>
 #include <unistd.h>
 
+/* PORT_NOPLT(f): calls of the host library function f go through the GOT. gcc: the `noplt` attribute. clang on 32-bit
+   x86 knows neither the attribute nor a working -fno-plt: the calls go to the local thunk __ttt_got_<f> instead, a
+   `jmp *f@GOT` that port/tools/link.py generates (toolchain.py, GOT_THUNK). Stays defined for the files that declare
+   their own host calls. */
+#if defined(__clang__) && defined(__i386__)
+#define PORT_NOPLT(f) __typeof__(f) f __asm__("__ttt_got_" #f)
+#else
 #define PORT_NOPLT(f) __typeof__(f) f __attribute__((noplt))
+#endif
 PORT_NOPLT(pthread_create);
 PORT_NOPLT(pthread_detach);
 PORT_NOPLT(pthread_mutex_lock);
@@ -22,6 +30,5 @@ PORT_NOPLT(dlerror);
 PORT_NOPLT(dlclose);
 PORT_NOPLT(sysconf);
 PORT_NOPLT(_exit);
-#undef PORT_NOPLT
 
 #endif

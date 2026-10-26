@@ -14,7 +14,7 @@ import zlib
 from pathlib import Path
 
 from test_port_platform import EXE, disc, run_ttt
-from test_port_window import SDL32, png_rgb
+from test_port_window import NO_SDL, SDL_LIBS, png_rgb
 
 
 def state(r):
@@ -106,7 +106,7 @@ def mean_diff(a, b):
 
 @unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
 @unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
-@unittest.skipUnless(any(p.exists() for p in SDL32), "no 32-bit SDL3 (Arch: lib32-sdl3)")
+@unittest.skipUnless(any(p.exists() for p in SDL_LIBS), NO_SDL)
 class Video(unittest.TestCase):
     """T37 (docs/port/video.md) on the title and the main menu (VBlanks 150 and 300)."""
 
@@ -208,7 +208,7 @@ NAME = re.compile(r"^[0-9a-f]{1,16}-(?:[0-9a-f]{1,16}-)?(?:r\d+x\d+-)?[0-9a-f]{8
 
 @unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
 @unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
-@unittest.skipUnless(any(p.exists() for p in SDL32), "no 32-bit SDL3 (Arch: lib32-sdl3)")
+@unittest.skipUnless(any(p.exists() for p in SDL_LIBS), NO_SDL)
 class TexturePacks(unittest.TestCase):
     """T39 (docs/port/textures.md) from the title to the versus screen (the scripted start of tests/test_port_input.py,
     VBlanks 150 to 600: the menu, the character select, the versus screen; the title and the menu draw no texture a pack

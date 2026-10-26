@@ -42,7 +42,6 @@
 #include "plat_settings.h"
 
 /* C library calls through the GOT: no new PLT entry (port_host.h) */
-#define PORT_NOPLT(f) __typeof__(f) f __attribute__((noplt))
 PORT_NOPLT(malloc);
 PORT_NOPLT(calloc);
 PORT_NOPLT(realloc);
@@ -77,7 +76,6 @@ PORT_NOPLT(access);
 PORT_NOPLT(readlink);
 PORT_NOPLT(getpid);
 PORT_NOPLT(clock_gettime);
-#undef PORT_NOPLT
 
 #define XXH_INLINE_ALL
 #define XXH_NO_STDLIB

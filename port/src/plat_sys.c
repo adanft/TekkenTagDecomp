@@ -26,7 +26,7 @@ void iFlushCache(int mode) { (void)mode; }
 int GsPutIMR(uint64_t imr) { (void)imr; return 0; }
 
 #define MAX_THREADS 16
-static struct { int used, started; void *param; } sThreads[MAX_THREADS];
+static struct { int used, started; uint32_t param; } sThreads[MAX_THREADS]; /* (the game's address: 4 bytes) */
 
 int GetThreadId(void) { return 1; }
 int CreateThread(void *param) {
@@ -35,7 +35,7 @@ int CreateThread(void *param) {
         if (!sThreads[i].used) {
             sThreads[i].used = 1;
             sThreads[i].started = 0;
-            sThreads[i].param = param;
+            sThreads[i].param = Port_Addr(param);
             return i;
         }
     }
@@ -131,12 +131,12 @@ int sceSifLoadModule(const char *path, int argSize, const char *args) {
 /* SIF commands: the game registers handlers for commands 0 and 1 (file.c). The IOP never sends any here (the BGM
    requests of RSPU2DRV come with the real sound, T35+); commands the game sends to the IOP are dropped. */
 typedef void (*SifCmdHandler)(void *, void *);
-static struct { SifCmdHandler fn; void *data; } sSifCmd[32];
+static struct { uint32_t fn, data; } sSifCmd[32]; /* the game's addresses, 4 bytes in every build (state words) */
 int sceSifAddCmdHandler(int cid, SifCmdHandler fn, void *data) {
     cid &= 0x7FFFFFFF;
     if (cid >= 0 && cid < 32) {
-        sSifCmd[cid].fn = fn;
-        sSifCmd[cid].data = data;
+        sSifCmd[cid].fn = Port_Addr(fn);
+        sSifCmd[cid].data = Port_Addr(data);
     }
     return 0;
 }

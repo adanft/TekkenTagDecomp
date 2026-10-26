@@ -22,7 +22,7 @@ import re
 import subprocess
 import sys
 
-from toolchain import ASM, DATA_OBJ, GEN, ROOT
+from toolchain import ASM, BITS64, DATA_OBJ, GEN, ROOT
 import portsrc
 
 KINDS = ("data", "rodata", "lit4", "sdata", "sbss", "bss")
@@ -144,7 +144,8 @@ def main():
     for old in DATA_OBJ.glob("*.o"):
         old.unlink()
     for f in sorted(dst.glob("*.s")):
-        r = subprocess.run(["as", "--32", str(f), "-o", str(DATA_OBJ / (f.name[:-2] + ".o"))],
+        r = subprocess.run(["as", "--64" if BITS64 else "--32", str(f),  # (.long stays 4 bytes on x86-64)
+                           "-o", str(DATA_OBJ / (f.name[:-2] + ".o"))],
                            capture_output=True, text=True)
         if r.returncode:
             sys.exit(f"gen_data: {f.name}: {r.stderr[:300]}")

@@ -40,9 +40,9 @@
 #include <unistd.h>
 #include <stddef.h>
 #include "plat_state.h"
+#include "port_host.h"
 
 /* new host calls go through the GOT (port_host.h explains why the PLT must not grow) */
-#define PORT_NOPLT(f) __typeof__(f) f __attribute__((noplt))
 PORT_NOPLT(mkdir);
 PORT_NOPLT(rename);
 PORT_NOPLT(unlink);
@@ -60,7 +60,6 @@ PORT_NOPLT(setenv);
 PORT_NOPLT(unsetenv);
 PORT_NOPLT(strncmp);
 PORT_NOPLT(realloc);
-#undef PORT_NOPLT
 
 #define MC_BUSY_POLLS 2 /* TTT_MC_POLLS overrides it (0: every request finishes at its first poll) */
 #define MC_FREE_EMPTY 8000 /* clusters of 1 KB */
@@ -1171,10 +1170,11 @@ static int mc_selftest(void) {
     return sFails;
 }
 
+static void mc_selftest_exit(void) { exit(mc_selftest() != 0); }
 __attribute__((constructor(103))) static void Port_McSelfTestEntry(void) {
     const char *t = getenv("TTT_SELFTEST");
     if (t != NULL && strcmp(t, "mc") == 0) {
-        exit(mc_selftest() != 0);
+        Port_OnLowStack(mc_selftest_exit); /* (x86-64: on a stack below 4 GB, plat_state.h) */
     }
 }
 

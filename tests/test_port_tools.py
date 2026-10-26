@@ -325,7 +325,7 @@ class LayoutTest(unittest.TestCase):
             link.image_script(lay)
 
     def test_data_table(self):
-        c = link.data_table(self.layout())
+        c = link.data_table(self.layout(), asm=False)  # the 32-bit builds' C form (x86-64's: test_port_clang64)
         self.assertIn("extern char func_00350000[];", c)
         self.assertIn("{0x00415700u, 0x100u},", c)
         self.assertIn("{0x00415710u, (uint32_t)(uintptr_t)func_00350000 + (0)},", c)
@@ -337,7 +337,7 @@ class LayoutTest(unittest.TestCase):
         self.assertIn("gPortElfSha1[20] = {0xc7, 0xad,", c)
 
     def test_data_table_keeps_only_host_names(self):
-        c = link.data_table(self.layout(), keep={"func_00350000"})
+        c = link.data_table(self.layout(), keep={"func_00350000"}, asm=False)
         self.assertNotIn("gThing", c)
         self.assertIn("const uint32_t gPortDataFixN = 2;", c)  # the zero word stays
 

@@ -259,9 +259,9 @@ class FieldPlacement(unittest.TestCase):
 
     def test_gl_with_and_without_the_flicker_filter(self):
         """Without the filter (video.deflicker 0) the frame itself is shown, the same in both fields: no shift."""
-        from test_port_window import SDL32
-        if not any(p.exists() for p in SDL32):
-            self.skipTest("no 32-bit SDL3 (Arch: lib32-sdl3)")
+        from test_port_window import NO_SDL, SDL_LIBS
+        if not any(p.exists() for p in SDL_LIBS):
+            self.skipTest("no SDL3 for the program's word size")
         gl = dict(TTT_WINDOW="1", TTT_WINDOW_HIDDEN="1", TTT_RENDERER="gl", TTT_AUDIO="0", TTT_VSYNC="0",
                   SDL_VIDEO_DRIVER="offscreen")
         for deflicker in ("1", "0"):

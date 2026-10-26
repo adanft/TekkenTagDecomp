@@ -51,6 +51,7 @@
 #include "../../third_party/xxhash/xxhash.h"
 #include "plat_state.h"
 #include "port_addr.h"
+#include "port_host.h"
 #include "gs.h"
 
 uint32_t Port_VBlankCount(void); /* plat_hw.c */
@@ -103,8 +104,12 @@ extern char __ttt_data_start[];
 #define ELFHDR_LO ((uint32_t)(uintptr_t)__ttt_data_start & ~0xFFFu)
 #define ELFHDR_HI ((uint32_t)(uintptr_t)__ttt_data_start)
 
-/* The PS2's memory, first of all (constructor 101, as the modules' registrations). */
+/* The PS2's memory, first of all (constructor 101, as the modules' registrations). The order of the regions is the
+   order of the hash's terms, so this runs at its place among the constructors: the empty asm keeps clang from
+   evaluating it at compile time (everything it calls is in this file), which put these regions first in its build and
+   gave every run another hash (T42 b2, docs/port/README.md gotcha 32). */
 __attribute__((constructor(101))) static void state_memory(void) {
+    __asm__ volatile("");
     Port_StateAdd("ee.ram", Port_Ptr(0x20000000u), PORT_EE_RAM_SIZE, PS_HASH | PS_EERAM); /* the uncached view: all 32 MB */
     Port_StateAdd("ee.spr", Port_Ptr(PORT_SPR_ADDR), PORT_SPR_SIZE, PS_HASH);
     Port_StateAdd("ee.hw", Port_Ptr(0x10000000u), 0x10000u, PS_HASH);
@@ -150,6 +155,7 @@ static void syms_init(void) {
     long n;
     uint32_t phoff, shoff, k, cap = 0;
     uint16_t phnum, phentsize, shnum, shentsize;
+    int e64;
 
     if (sSymsDone) {
         return;
@@ -163,22 +169,26 @@ static void syms_init(void) {
     n = ftell(f);
     fseek(f, 0, SEEK_SET);
     sElf = malloc((size_t)n);
-    if (sElf == NULL || fread(sElf, 1, (size_t)n, f) != (size_t)n || memcmp(sElf, "\177ELF\001\001", 6) != 0) {
+    if (sElf == NULL || fread(sElf, 1, (size_t)n, f) != (size_t)n || memcmp(sElf, "\177ELF", 4) != 0 ||
+        sElf[5] != 1 || (sElf[4] != 1 && sElf[4] != 2)) {
         fclose(f);
         return;
     }
     fclose(f);
-    phoff = rd32(sElf + 28);
-    phentsize = rd16(sElf + 42);
-    phnum = rd16(sElf + 44);
-    shoff = rd32(sElf + 32);
-    shentsize = rd16(sElf + 46);
-    shnum = rd16(sElf + 48);
+    /* ELF32, or ELF64 for the x86-64 build (TTT_CC=clang64): the same fields at other offsets and widths. Every
+       address and offset used here is below 4 GB, so the low word of a 64-bit field is the value (little-endian). */
+    e64 = sElf[4] == 2;
+    phoff = rd32(sElf + (e64 ? 32 : 28));
+    phentsize = rd16(sElf + (e64 ? 54 : 42));
+    phnum = rd16(sElf + (e64 ? 56 : 44));
+    shoff = rd32(sElf + (e64 ? 40 : 32));
+    shentsize = rd16(sElf + (e64 ? 58 : 46));
+    shnum = rd16(sElf + (e64 ? 60 : 48));
     sImgLo = 0xFFFFFFFFu;
     for (k = 0; k < phnum; k++) { /* PT_LOAD segments above the PS2's map: the host image */
         const uint8_t *ph = sElf + phoff + k * phentsize;
-        uint32_t va = rd32(ph + 8), memsz = rd32(ph + 20);
-        if (rd32(ph) == 1 && va >= 0x02000000u) {
+        uint32_t va = rd32(ph + (e64 ? 16 : 8)), memsz = rd32(ph + (e64 ? 40 : 20));
+        if (rd32(ph) == 1 && va >= 0x02000000u && va < 0x40000000u) { /* (not the heap guard, link.py BRK_GUARD) */
             sImgLo = va < sImgLo ? va : sImgLo;
             sImgHi = va + memsz > sImgHi ? va + memsz : sImgHi;
         }
@@ -186,11 +196,12 @@ static void syms_init(void) {
     for (k = 0; k < shnum; k++) {
         const uint8_t *sh = sElf + shoff + k * shentsize;
         if (rd32(sh + 4) == 2) { /* SHT_SYMTAB */
-            const char *str = (const char *)sElf + rd32(sElf + shoff + rd32(sh + 24) * shentsize + 16);
-            uint32_t off = rd32(sh + 16), size = rd32(sh + 20), j;
-            for (j = 0; j + 16 <= size; j += 16) {
+            uint32_t link = rd32(sh + (e64 ? 40 : 24)), symsize = e64 ? 24 : 16;
+            const char *str = (const char *)sElf + rd32(sElf + shoff + link * shentsize + (e64 ? 24 : 16));
+            uint32_t off = rd32(sh + (e64 ? 24 : 16)), size = rd32(sh + (e64 ? 32 : 20)), j;
+            for (j = 0; j + symsize <= size; j += symsize) {
                 const uint8_t *sym = sElf + off + j;
-                uint32_t v = rd32(sym + 4), type = sym[12] & 15;
+                uint32_t v = rd32(sym + (e64 ? 8 : 4)), type = sym[e64 ? 4 : 12] & 15;
                 const char *name = str + rd32(sym);
                 if ((type == 0 || type == 1) && v >= 0x10000u && v < PORT_EE_RAM_SIZE && name[0] != 0 && name[0] != '.' &&
                     name[0] != '$') {
@@ -352,10 +363,40 @@ static void hash_regions_print(void) {
    gPortCtxEsp and runs port_boundary_body on the service stack, then returns through whatever gPortCtxEsp is by then: the
    same frame, or after a load the saved one (the EE stack is part of EE RAM, so a saved frame comes back with the
    memory). */
+#if defined(__x86_64__)
+uintptr_t gPortCtxEsp; /* (x86-64: the self-tests also cross a boundary on the host stack, above 4 GB; a state holds
+                          the low half, taken on the EE stack) */
+#else
 uint32_t gPortCtxEsp;
+#endif
 #define SERVICE_STACK 262144
 uint8_t gPortCtxStack[SERVICE_STACK] __attribute__((aligned(16)));
 void port_boundary_body(void);
+#if defined(__x86_64__)
+/* x86-64 (TTT_CC=clang64): rbp, rbx, r12-r15 */
+__asm__(".text\n"
+        ".globl Port_StateBoundary\n"
+        ".type Port_StateBoundary, @function\n"
+        "Port_StateBoundary:\n"
+        "\tpushq %rbp\n"
+        "\tpushq %rbx\n"
+        "\tpushq %r12\n"
+        "\tpushq %r13\n"
+        "\tpushq %r14\n"
+        "\tpushq %r15\n"
+        "\tmovq %rsp, gPortCtxEsp(%rip)\n"
+        "\tleaq gPortCtxStack+262144(%rip), %rsp\n"
+        "\tcall port_boundary_body\n"
+        "\tmovq gPortCtxEsp(%rip), %rsp\n"
+        "\tpopq %r15\n"
+        "\tpopq %r14\n"
+        "\tpopq %r13\n"
+        "\tpopq %r12\n"
+        "\tpopq %rbx\n"
+        "\tpopq %rbp\n"
+        "\tret\n"
+        ".size Port_StateBoundary, .-Port_StateBoundary\n");
+#else
 __asm__(".text\n"
         ".globl Port_StateBoundary\n"
         ".type Port_StateBoundary, @function\n"
@@ -374,12 +415,34 @@ __asm__(".text\n"
         "\tpopl %ebp\n"
         "\tret\n"
         ".size Port_StateBoundary, .-Port_StateBoundary\n");
+#endif
 
 /* Port_OffEe: fn(arg) on a stack of its own when called on the EE stack (the game's thread), else where it is. The
    EE stack pointer it left is kept in gPortOffEeEsp (the crash report's view of the game's frames, plat_crash.c). */
 #define OFF_STACK 262144
 uint8_t gPortOffStack[OFF_STACK] __attribute__((aligned(16)));
 uint32_t gPortOffEeEsp;
+#if defined(__x86_64__)
+__asm__(".text\n"
+        ".globl Port_OffEe\n"
+        ".type Port_OffEe, @function\n"
+        "Port_OffEe:\n"
+        "\tpushq %rbp\n"
+        "\tmovq %rsp, %rbp\n"
+        "\tcmpq $0x02000000, %rsp\n"
+        "\tjae 1f\n"
+        "\tmovl %esp, gPortOffEeEsp(%rip)\n"
+        "\tleaq gPortOffStack+262144(%rip), %rsp\n"
+        "1:\n"
+        "\tandq $-16, %rsp\n"
+        "\tmovq %rdi, %rax\n"
+        "\tmovq %rsi, %rdi\n"
+        "\tcall *%rax\n"
+        "\tmovq %rbp, %rsp\n"
+        "\tpopq %rbp\n"
+        "\tret\n"
+        ".size Port_OffEe, .-Port_OffEe\n");
+#else
 __asm__(".text\n"
         ".globl Port_OffEe\n"
         ".type Port_OffEe, @function\n"
@@ -401,6 +464,7 @@ __asm__(".text\n"
         "\tpopl %ebp\n"
         "\tret\n"
         ".size Port_OffEe, .-Port_OffEe\n");
+#endif
 
 /* ---------------------------------------------------------------------------------------------- save and load */
 
@@ -497,13 +561,12 @@ typedef struct {
         category_anyof_mask, return_mask;
 } TrkScan;
 typedef struct { uint64_t start, end, categories; } TrkRange;
-#define PORT_NOPLT(f) __typeof__(f) f __attribute__((noplt))
+/* through the GOT (port_host.h: gcc's noplt, the GOT thunks of clang's 32-bit variant) */
 PORT_NOPLT(syscall);
 PORT_NOPLT(ioctl);
 PORT_NOPLT(open);
 PORT_NOPLT(close);
 PORT_NOPLT(madvise);
-#undef PORT_NOPLT
 
 static int sTrack;                    /* 1 on, 0 off, -1 not offered by the kernel */
 static int sUffd = -1, sPagemap = -1;
@@ -1375,6 +1438,20 @@ static uint64_t buf_hash(const void *p, uint32_t n) {
 
 /* The round trip runs on the EE stack, as the game does: a state holds that stack (not the host's). */
 void port_call_on_ee(void (*fn)(void));
+#if defined(__x86_64__)
+__asm__(".text\n"
+        ".globl port_call_on_ee\n"
+        ".type port_call_on_ee, @function\n"
+        "port_call_on_ee:\n"
+        "\tpushq %rbp\n"
+        "\tmovq %rsp, %rbp\n"
+        "\tmovl $0x01FFFF00, %esp\n"
+        "\tcall *%rdi\n"
+        "\tmovq %rbp, %rsp\n"
+        "\tpopq %rbp\n"
+        "\tret\n"
+        ".size port_call_on_ee, .-port_call_on_ee\n");
+#else
 __asm__(".text\n"
         ".globl port_call_on_ee\n"
         ".type port_call_on_ee, @function\n"
@@ -1388,6 +1465,33 @@ __asm__(".text\n"
         "\tpopl %ebp\n"
         "\tret\n"
         ".size port_call_on_ee, .-port_call_on_ee\n");
+#endif
+
+#if defined(__x86_64__)
+#define LOW_STACK (1u << 20)
+static uint8_t sLowStack[LOW_STACK] __attribute__((aligned(16)));
+void port_call_on_stack(void (*fn)(void), void *top);
+__asm__(".text\n"
+        ".type port_call_on_stack, @function\n"
+        "port_call_on_stack:\n"
+        "\tpushq %rbp\n"
+        "\tmovq %rsp, %rbp\n"
+        "\tmovq %rsi, %rsp\n"
+        "\tcall *%rdi\n"
+        "\tmovq %rbp, %rsp\n"
+        "\tpopq %rbp\n"
+        "\tret\n"
+        ".size port_call_on_stack, .-port_call_on_stack\n");
+void Port_OnLowStack(void (*fn)(void)) {
+    if ((uint64_t)(uintptr_t)__builtin_frame_address(0) >> 32) {
+        port_call_on_stack(fn, sLowStack + LOW_STACK);
+    } else {
+        fn();
+    }
+}
+#else
+void Port_OnLowStack(void (*fn)(void)) { fn(); }
+#endif
 
 static uint8_t *sTestBuf;
 static volatile int sTestPass;

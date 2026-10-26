@@ -43,6 +43,22 @@ int __wrap_main(int argc, char **argv) {
     Port_CrashInstall();
     /* The callee-saved registers are cleared first: they hold the C library's values here (__libc_start_main's), and
        the game's functions push them on the EE stack, which a state holds (plat_state.c). This never returns. */
+#if defined(__x86_64__)
+    /* x86-64 (TTT_CC=clang64): the same in the SysV convention, arguments in edi / rsi; rbx, rbp, r12-r15 cleared */
+    __asm__ volatile("movq %0, %%rsp\n\t" /* 16-byte aligned at the call */
+                     "xorl %%ebx, %%ebx\n\t"
+                     "xorl %%ebp, %%ebp\n\t"
+                     "xorl %%r12d, %%r12d\n\t"
+                     "xorl %%r13d, %%r13d\n\t"
+                     "xorl %%r14d, %%r14d\n\t"
+                     "xorl %%r15d, %%r15d\n\t"
+                     "call __real_main\n\t"
+                     "movl %%eax, %%edi\n\t"
+                     "call exit"
+                     :
+                     : "a"((uintptr_t)PORT_EE_STACK_TOP), "D"(argc), "S"(argv)
+                     : "memory");
+#else
     __asm__ volatile("movl %0, %%esp\n\t"
                      "subl $8, %%esp\n\t" /* 16-byte aligned at the call */
                      "pushl %2\n\t"
@@ -58,5 +74,6 @@ int __wrap_main(int argc, char **argv) {
                      :
                      : "r"(PORT_EE_STACK_TOP), "r"(argc), "r"(argv)
                      : "memory");
+#endif
     __builtin_unreachable();
 }
