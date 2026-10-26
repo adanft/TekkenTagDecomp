@@ -1,23 +1,26 @@
 """Paths and compiler settings of the PC build, shared by gen_data.py, undefined.py, link.py and build.py.
 
-Everything the build writes goes under build/port/ (ignored by git: it holds data generated from the user's own
-executable). The first target is 32-bit x86 Linux with the host gcc: the game keeps addresses in 4-byte fields.
-TTT_CC=clang compiles the game code with clang instead (same flags) into its own tree, build/port-clang/ (program
-build/port-clang/ttt), so the default build/port/ttt is never replaced. In that variant every C file of the program
-is clang's (the game, port/src, newlib's libm, the MPEG-2 decoder, the generated tables and stubs), the C++ overlay
-clang++'s, and clang drives the link (docs/port/README.md gotcha 32).
-TTT_CC=clang64 (T42 b3, docs/port/README.md "64-bit") is the same through clang as an x86-64 program
-(build/port-clang64/ttt): the game's pointers stay 4 bytes wide (ptr32.py rewrites its preprocessed text, irfix.py
-repairs the LLVM IR, llc makes the objects), the port's own code has ordinary 64-bit pointers, and the program is
-linked at 0x08000000 so that its code, the game's memory and the PS2's fixed addresses all lie below 4 GB."""
+Everything the build writes goes under build/port*/ (ignored: it holds data generated from the user's own
+executable). The game keeps addresses in 4-byte fields. Three variants, the same state hashes:
+- TTT_CC=clang64, the default since T42 b5 (docs/port/README.md "64-bit"): an x86-64 Linux program made by clang,
+  build/port/ttt. The game's pointers stay 4 bytes wide (ptr32.py rewrites its preprocessed text, irfix.py repairs
+  the LLVM IR, llc makes the objects), the port's own code has ordinary 64-bit pointers, and the program is linked
+  at 0x08000000 so that its code, the game's memory and the PS2's fixed addresses all lie below 4 GB.
+- TTT_CC=gcc: the 32-bit x86 program with the host gcc (the default before T42 b5), build/port-gcc/ttt.
+- TTT_CC=clang: the same 32-bit program through clang, build/port-clang/ttt. Every C file of the program is clang's
+  (the game, port/src, newlib's libm, the MPEG-2 decoder, the generated tables and stubs), the C++ overlay clang++'s,
+  and clang drives the link (docs/port/README.md gotcha 32)."""
 import os
 import pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-VARIANT = os.environ.get("TTT_CC", "gcc")
+VARIANTS = ("clang64", "gcc", "clang")
+VARIANT = os.environ.get("TTT_CC") or "clang64"
+if VARIANT not in VARIANTS:
+    raise SystemExit(f"TTT_CC={VARIANT}: one of {', '.join(VARIANTS)} (default clang64)")
 CLANG = VARIANT in ("clang", "clang64")   # every C file through clang, the C++ through clang++
 BITS64 = VARIANT == "clang64"            # an x86-64 program with 4-byte game pointers
-BUILD = ROOT / ("build/port" if VARIANT == "gcc" else "build/port-" + VARIANT)
+BUILD = ROOT / ("build/port" if VARIANT == "clang64" else "build/port-" + VARIANT)  # the default at build/port
 GEN = BUILD / "gen"                       # generated sources: game C with the drafts switched on, data, stubs
 OBJ = BUILD / "obj"
 DATA_OBJ = BUILD / "obj_data"             # the game's data, assembled from GEN/data

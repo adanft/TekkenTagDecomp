@@ -188,9 +188,11 @@ Values (sw, `TTT_SEED=1 TTT_MOVIES=0`, empty card): the 2551-VBlank idle run end
 1450 VBlanks at T27): two values the game reads from uninitialised stack bytes (`dma_spr.c` `func_0035D790`'s DMA
 tag and its stack address, `Light_StartFlash`'s fourth float) followed the compiler's frame layout; they are fixed
 under `PORT` now, and the gcc and clang builds give the same hashes ([README.md](README.md) gotcha 32; since T42 b2
-with every object of the clang build clang's). The x86-64 build (T42 b3, `TTT_CC=clang64`, [README.md](README.md)
-64-bit) gives both values too, with every region hash and picture alike: its program lies in the same window, and the
-port's hashed state keeps game addresses as 4-byte words.
+with every object of the clang build clang's). The x86-64 build (T42 b3, `TTT_CC=clang64`, the default since b5,
+[README.md](README.md) 64-bit) gives both values too, with every region hash and picture alike: its program lies in
+the same window, and the port's hashed state keeps game addresses as 4-byte words. Its synctest and rollback needed
+the game's variadic calls padded to six arguments (a variadic entry stores every argument register on the EE stack,
+unused ones with leftover host values; README.md 64-bit, Real use).
 
 ## Nondeterminism found and fixed
 

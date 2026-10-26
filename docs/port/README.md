@@ -116,16 +116,23 @@ Players: [install.md](install.md) (the setup screen, `ttt --setup <disc>`, where
   into its own tree, `build/port-clang/ttt`, with the gcc build's PLT, passes the self-tests and ends the idle run and
   the scripted fight (GL too) with the gcc build's hashes; the default build is unchanged but for two stale-stack
   reads now fixed under `PORT`, which gave new reference hashes (gotcha 32, `tests/test_port_clang.py`).
+- Since T42 b5 the default build is the x86-64 program through clang (`TTT_CC=clang64`, [64-bit](#64-bit)), at
+  `build/port/ttt`; the 32-bit gcc build, the default until then, is `TTT_CC=gcc` (`build/port-gcc/ttt`). The three
+  builds give the same state hashes, pictures and sound.
 
 ## Build
 
 ```sh
-python3 port/tools/build.py                   # -> build/port/ttt (no game file needed)
-build/port/ttt                                # real time, in a window (needs the 32-bit SDL3, see Window)
+python3 port/tools/build.py                   # x86-64 through clang -> build/port/ttt (no game file needed)
+build/port/ttt                                # real time, in a window (needs SDL3, see Window)
 TTT_FRAMES=600 build/port/ttt                 # headless, 600 VBlanks, then a report
-TTT_CC=clang python3 port/tools/build.py      # everything through clang -> build/port-clang/ttt (gotcha 32)
-TTT_CC=clang64 python3 port/tools/build.py    # x86-64 program -> build/port-clang64/ttt (see 64-bit)
+TTT_CC=gcc python3 port/tools/build.py        # the 32-bit program through gcc -> build/port-gcc/ttt
+TTT_CC=clang python3 port/tools/build.py      # the 32-bit program through clang -> build/port-clang/ttt (gotcha 32)
 ```
+
+Needs clang and llc (LLVM 23 here) and libclang's Python bindings (`clang.cindex`, for `ptr32.py`): [64-bit](#64-bit).
+The 32-bit builds need gcc's / clang's 32-bit support (multilib) instead. The tests run the default program; any
+other with `TTT_EXE=<program>` (`TTT_EXE=build/port-gcc/ttt .venv/bin/python -m unittest discover -s tests`).
 
 `build.py` runs the two steps below in order and fails if any of them fails. Each can also be run on its own
 from the repository root. Heavy runs go through `scripts/cool.sh`. The first run of the program checks your disc
@@ -348,7 +355,7 @@ Switches:
 | `--setup <disc>` | Command line (T43): checks the disc, makes the data file, remembers the disc as `game.disc`, exits (0; 2 no disc there or cannot write; 4 refused). `--setup` alone: the setup screen. |
 | `TTT_SETUP_TEST=<disc>` | Tests (with `TTT_WINDOW=1 TTT_WINDOW_HIDDEN=1`): the setup screen opens and drives itself (browser on the disc's folder, path typed, button pressed) and reports `ttt: setup: screen test: ...`; a refused disc ends the run with its exit code. |
 | `TTT_ALLOW_MODIFIED=1` | Run a disc whose files differ from the USA release (otherwise refused with exit code 4); the run is marked `[modified game data]` (stderr, window title, overlay, report: [data.md](data.md#data-verification-and-the-mark-t41)). Unmodified data is not marked. |
-| `TTT_CRASH_TEST=<kind>[@<vblank>]` | Port tests only: make a fault at that VBlank (default 30) to check the crash report: `segv`, `stack` (bad stack pointer), `ill`, `fpe`, `bus`, `abrt` ([Crash reports](#crash-reports)). |
+| `TTT_CRASH_TEST=<kind>[@<vblank>]` | Port tests only: make a fault at that VBlank (default 30) to check the crash report: `segv`, `stack` (bad stack pointer), `ill`, `fpe`, `bus`, `abrt`, `thread` (a `segv` on a thread of its own: a host stack) ([Crash reports](#crash-reports)). |
 | `TTT_FRAMES=<n>` | Stop after n VBlanks with a report: VBlanks and frames, `modes:` (mode@VBlank of each change), last mode and sub-state, `state:` (seed, `gRngSpin`, the gameplay hash of [determinism.md](determinism.md), cycles), placeholders hit. Exit code 0. Implies headless. |
 | `TTT_HASH_EVERY=<n>` / `TTT_SAVESTATE=<vblank>:<file>` / `TTT_LOADSTATE=<file>` / `TTT_SYNCTEST=<n>` / `TTT_ROLLBACK=<n>` | The gameplay hash every n VBlanks, a save, a load, the synctest, the rollback test; saves work with the GL back end too, and the synctest and rollback test copy only the pages written (`TTT_STATE_TRACK`; [determinism.md](determinism.md)). `TTT_SELFTEST=state` checks the hash's rule, an in-process save / load and page tracking. |
 | `TTT_HEADLESS=0/1` | Force the real-time or the headless clock. |
@@ -646,9 +653,10 @@ throttles the whole slice when hot, so wall times move by 10-20% between runs; C
 
 - **SDL3 at run time.** `dlopen("libSDL3.so.0")` (or `TTT_SDL_LIB`) and a table of the 20 functions used: the program
   does not link SDL, headless runs and the tests do not need it, and without it the run says
-  `ttt: window: cannot load ...: running headless` and goes on. The program is 32-bit, so it needs the 32-bit
-  library: on Arch `lib32-sdl3` from the multilib repository (`sudo pacman -S lib32-sdl3` with `[multilib]` enabled
-  in `/etc/pacman.conf`); on Debian / Ubuntu `libsdl3-0:i386` where packaged. Only pointer and integer arguments
+  `ttt: window: cannot load ...: running headless` and goes on. The library of the program's word size: the
+  default x86-64 program takes the system's (Arch `sdl3`, Debian / Ubuntu `libsdl3-0`); the 32-bit builds
+  (`TTT_CC=gcc` / `clang`) the 32-bit one, on Arch `lib32-sdl3` from the multilib repository (`sudo pacman -S
+  lib32-sdl3` with `[multilib]` enabled in `/etc/pacman.conf`), on Debian / Ubuntu `libsdl3-0:i386` where packaged. Only pointer and integer arguments
   cross into SDL (no `SDL_FRect`: the port has no host floating point).
 - **When.** Real-time runs (`build/port/ttt` without `TTT_FRAMES`) open it; `TTT_WINDOW=0` keeps them headless,
   `TTT_WINDOW=1` opens it for a `TTT_FRAMES` run too. Closing it or Escape asks "Quit?" (T36), F1 opens the settings
@@ -1256,11 +1264,11 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
 
 ## 64-bit
 
-`TTT_CC=clang64 python3 port/tools/build.py` (T42 b3) builds an x86-64 program, `build/port-clang64/ttt`; the 32-bit gcc
-build stays the default and is not touched. It runs the 2551-VBlank idle run and the scripted fight into exactly the
-gcc build's state (`0x8ba37caeb2bacfa8` / `0xcce5eb554fa51395`, every region hash and every picture alike), passes all
-fifteen self-tests, the TTT_DIFF skeleton check (all nine hooks `same`) and writes crash reports. Not checked yet: the
-window, GL, sound, movies and memory cards in real play (b4 / b5), Windows (b6 / b7).
+`python3 port/tools/build.py` (`TTT_CC=clang64`; T42 b3, the default since b5) builds an x86-64 program,
+`build/port/ttt`; the 32-bit gcc build is `TTT_CC=gcc` (`build/port-gcc/ttt`). It runs the 2551-VBlank idle run and
+the scripted fight into exactly the gcc build's state (`0x8ba37caeb2bacfa8` / `0xcce5eb554fa51395`, every region hash
+and every picture alike), passes all fifteen self-tests, the TTT_DIFF skeleton check (all nine hooks `same`) and the
+whole test suite, and writes crash reports. Windows: b6 / b7.
 
 How (the approach of the Tenkaichi 3 decompilation's port, whose `ptr32.py` and `irfix.py` are adapted here):
 
@@ -1301,9 +1309,59 @@ How (the approach of the Tenkaichi 3 decompilation's port, whose `ptr32.py` and 
 - **Requirements:** clang and llc (LLVM 23 here), and libclang's Python bindings (`clang.cindex`); `undefined.py`
   runs `ptr32.py` with the system's `python3` when the current interpreter has no bindings. The intermediate files stay
   beside the objects (`<name>.i`, `<name>.p32.i`, `<name>.ll`).
-- `tests/test_port_clang64.py`: the helpers (always), and with clang, llc and `TTT_SLOW_TESTS=1` the build, ELF64
-  objects, the image's place, no host float code, the self-tests, the crash report and the idle run against the gcc
-  build (state line, region hashes, pictures).
+- `tests/test_port_clang64.py`: the helpers and `ptr32.py`'s variadic padding (always), and with clang, llc and
+  `TTT_SLOW_TESTS=1` the build, ELF64 objects, the image's place, no host float code, the self-tests, the crash report
+  and the idle run and the scripted fight against the gcc build (state line, region hashes, pictures). The whole
+  suite runs on any build with `TTT_EXE=<program>` (`tests/test_port_platform.py`; the default program otherwise).
+
+### Real use (T42 b4)
+
+The whole test suite passes on the 64-bit program (and on the gcc build with `TTT_EXE=build/port-gcc/ttt`): the window
+and GL in a hidden window, the software renderer's threads, sound, movies, memory cards, save states, the synctest,
+rollback with page tracking, texture packs, the settings overlay, crash reports, the setup and input replays. Equal
+to the gcc build, byte for byte: the scripted fight's state, `TTT_WAV` output and pictures (software and GL), a
+1500-VBlank `TTT_MOVIES=1` run's (the intro movie: state, sound, pictures), an input recording of the fight and its
+replay. What it took:
+
+- **Variadic calls fill the argument registers.** A variadic function's entry stores all six argument registers on its
+  stack (the EE stack), the unused ones with whatever the code before left in them: host values, which differed
+  between a run and its rollback (`TTT_ROLLBACK_DRAW=0` diverged at every rollback, in `Port_DiffCall`'s frame). The
+  32-bit build passes them on the stack and stores nothing more. `ptr32.py` now adds zeros (`0LL`) up to six
+  arguments to every game call of a variadic function (`Text_Printf`, `sprintf`, `sceSdRemote`, `Port_DiffCall`).
+- **`sceSdRemote`.** The game calls it with only the words a command takes (`sceSdRemote(1, 0x2030)`); the port's
+  definition takes eight, and the frame it built on the EE stack kept the caller's leftovers (the synctest saw them
+  differ). Its words go to a buffer of the port's on x86-64.
+- **Two bowl drafts' vector locals** (`func_003EDC90`, `func_003EDF88` in `tekken_bowl.c`): the m2c drafts declared
+  the 16-byte vectors the VU0 routines write as single floats, so the stores ran over the neighbouring locals; on
+  x86-64 a saved pointer was there and the first throw crashed (`sceVu0SubVector` on NULL). They are `f32[4]` now
+  (the drafts only; the 32-bit builds' hashes are unchanged).
+- **printf / sprintf** with a floating conversion: the game's and the port's C are software float, so a double
+  passed to a variadic function travels in an integer register, where the C library reads it from a vector one.
+  `plat_libc.c` formats them on x86-64 one conversion at a time through `snprintf`, a double's bits handed over in
+  `%xmm0` by a three-instruction stub (no float instruction); `TTT_SELFTEST=float` checks integer, string and double
+  conversions, widths, `*` and `%n` (neither the game nor the port prints a float today). Not handled: positional
+  arguments and `long double`.
+- **Host memory and the game.** The audit found no host pointer handed to the game: the port's interfaces pass game
+  addresses as `uint32_t` (DMA, the SIF, the memory card, the movie and file buffers), its threads run no game code,
+  and the port's own allocations (`malloc` above 4 GB for large blocks, thread stacks, SDL / GL buffers) stay on the
+  port's side. `Port_Addr` (`port_addr.h`), the one conversion of a host pointer to a game address, now traps
+  (`SIGILL`, a crash report naming the caller) on an address above 4 GB instead of truncating it.
+- **Crash reports** print the 64-bit registers in full (r8-r15 too) and walk any thread's host stack through
+  `process_vm_readv` ([Crash reports](#crash-reports); `TTT_CRASH_TEST=thread`).
+
+Performance (`scripts/cool.sh`, the scripted fight, median of 3; headless rates from VBlank 830 to 1451,
+`TTT_TIME_FROM=830`; real time: the game frames of the 1401 the headless run makes, GL in a hidden window, no vsync):
+
+| | 32-bit gcc | x86-64 clang |
+|---|---|---|
+| headless, software renderer | 20.5 VBlanks/s | 21.8 VBlanks/s |
+| headless, GL | 73 VBlanks/s | 104 VBlanks/s |
+| real time, GL: game frames of 1401 | 1220-1374 | 1330-1400 |
+| rollback (`TTT_ROLLBACK=4`, VBlanks 700-800): mean per VBlank | 58.5-59.0 ms | 46.7-50.6 ms |
+
+So the 64-bit program became the default (T42 b5). Left: Windows (b6 / b7); m2c drafts elsewhere that treat
+neighbouring scalar locals as one array (`menu_bg.c` `func_003E1C68` / `func_003E38F0`: their pictures depend on the
+compiler's frame layout in every build).
 
 ## Crash reports
 
@@ -1320,10 +1378,10 @@ were without it.
 - **Its own stack.** `sigaltstack` (64 KB, mapped at start, outside the heap): the game thread runs on the EE stack
   in EE RAM, and a fault with a bad stack pointer could not deliver a signal on it. The alternate stack is the main
   thread's; the window, GS and audio threads report on their own stacks.
-- **Signal-safe.** Only `open`, `write`, `read`, `close`, `mkdir`, `clock_gettime`, `getpid`, `syscall(gettid)` and
-  `raise` in the handler, no `malloc` or `stdio`. Everything that needs the C library is formatted beforehand into
-  static text: the paths and the renderer at install, the settings line again after each change from the overlay
-  (`Settings_Summary`, into the copy the handler is not reading).
+- **Signal-safe.** Only `open`, `write`, `read`, `close`, `mkdir`, `clock_gettime`, `getpid`, `syscall(gettid)`,
+  `process_vm_readv` (a thread's host stack) and `raise` in the handler, no `malloc` or `stdio`. Everything that needs
+  the C library is formatted beforehand into static text: the paths and the renderer at install, the settings line
+  again after each change from the overlay (`Settings_Summary`, into the copy the handler is not reading).
 - **Contents** (no memory of the game beyond a few words):
 
   | Field | |
@@ -1331,9 +1389,9 @@ were without it.
   | `time (UTC)`, `build` | the build id is `git describe --always --dirty` at build time (as the overlay's About) |
   | `signal`, `fault address` | the signal, its `si_code`; the address for a fault, `(none …)` for a raised signal (`abort`) |
   | `thread` | main (the game) or another (window, GS, audio) |
-  | `registers` | eip, esp, ebp, eflags, eax-edi; `stack:` EE stack or host |
+  | `registers` | eip, esp, ebp, eflags, eax-edi; in the x86-64 build ([64-bit](#64-bit)) rip, rsp, rbp, eflags, rax-rdi and r8-r15 in full (16 digits, as the fault address); `stack:` EE stack or host |
   | `function` | the symbol the instruction is in, with its offset, and its PS2 address when it is a game function (`func_0035D790` or a named one from `config/symbols`): the game's code is native, so this is the EE pc to the function |
-  | `stack code address` | code addresses found in the first 4 KB above the stack pointer (at most 8), when the stack is one the program knows is mapped (the EE stack, the port's service stacks, the main thread's host stack); not for a fault in the stack's own guard page |
+  | `stack code address` | code addresses found in the first 4 KB above the stack pointer (at most 8), when the stack is one the program knows is mapped (the EE stack, the port's service stacks, the main thread's host stack; any other host stack too, the window, GS and audio threads' (above 4 GB in the x86-64 build), read through `process_vm_readv`, which reports an unmapped page instead of faulting); not for a fault in the stack's own guard page |
   | `EE stack code address` | when the fault is off the EE stack on the game's thread (`Port_OffEe`: the VBlank, the library work), the same scan above the EE stack pointer `Port_OffEe` left (`gPortOffEeEsp`): the game's callers, a heuristic `ra` chain |
   | `last vblank`, `renderer`, `settings`, `game data` | `Port_VBlankCount`; the window's renderer or `no window`; every setting (`(env)` when the environment set it); the data verification state ([data.md](data.md#data-verification-and-the-mark-t41)) |
 
@@ -1343,7 +1401,8 @@ were without it.
 - **Normal runs.** The handlers change nothing until a signal: the idle and GL fight state hashes are unchanged, and
   the new C library calls go through the GOT (`plat_crash.c` is in `NOPLT_FILES`): the PLT keeps its 48 entries.
 - **Tests.** `tests/test_port_crash.py`: each kind of `TTT_CRASH_TEST` in a temporary directory with core dumps off
-  (`RLIMIT_CORE` 0), the exit by the same signal, the report's path and fields; `ttt.syms`'s format.
+  (`RLIMIT_CORE` 0), the exit by the same signal, the report's path and fields (`thread`: the faulting function's
+  caller found on its host stack); `ttt.syms`'s format.
 
 ## EE float model
 

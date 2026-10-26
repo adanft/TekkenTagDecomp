@@ -11,7 +11,19 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-EXE = ROOT / "build/port/ttt"
+DEFAULT_EXE = ROOT / "build/port/ttt"  # the default build: x86-64 through clang (TTT_CC=clang64, T42 b5)
+GCC_EXE = ROOT / "build/port-gcc/ttt"  # the 32-bit gcc build (TTT_CC=gcc), which tests/test_port_clang*.py compare with
+# The program the tests run: TTT_EXE (another build, e.g. build/port-gcc/ttt), else the default build.
+EXE = Path(os.environ["TTT_EXE"]).resolve() if os.environ.get("TTT_EXE") else DEFAULT_EXE
+
+
+def is_64_bit(exe=EXE):
+    """Whether the program is the x86-64 build (ELF64; TTT_CC=clang64, docs/port/README.md "64-bit")."""
+    try:
+        with open(exe, "rb") as f:
+            return f.read(5)[4:5] == b"\x02"
+    except OSError:
+        return False
 
 
 def disc():

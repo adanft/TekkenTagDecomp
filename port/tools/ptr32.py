@@ -15,6 +15,10 @@ is rewritten; text from the port's files and from system headers is left alone, 
         (clang's code generator cannot call through a 4-byte function pointer; the cast makes an ordinary one)
   3. a pointer passed to a variadic function     ->  ((void * __ptr64)(arg))
         (a 4-byte pointer in a variable argument list would be read as 8 bytes by the C library)
+  4. a call of a variadic function with fewer than 6 arguments  ->  zeros (0LL) up to 6
+        (TTT, T42 b4: a variadic function's entry stores all six argument registers on its stack, the EE stack here;
+        the unused ones held whatever the code before left in them, host values among them, which a rollback's
+        synctest found differing between passes. Text_Printf, sprintf, sceSdRemote, Port_DiffCall...)
 
 The parse is done with libclang on the unchanged text; the edits are applied by byte offset afterwards.
 All game memory has to lie below 4 GB for this to hold (see docs/port/README.md).
@@ -36,6 +40,7 @@ if sys.platform == "darwin":  # (only there: on Linux and Windows an unknown kin
 
 ROOT_B = str(__import__("pathlib").Path(__file__).resolve().parents[2]).replace("\\", "/").encode() + b"/"
 P32 = "* __ptr32 __uptr "
+REG_ARGS = 6  # SysV x86-64: integer argument registers (rule 4)
 TYPE_EXPRS = {K.CSTYLE_CAST_EXPR, K.CXX_UNARY_EXPR, K.COMPOUND_LITERAL_EXPR, K.DECL_STMT}  # expressions that contain a type name
 
 def is_type_star(kind):
@@ -189,6 +194,8 @@ def transform(path, args, stats=None):
                 if a.type.get_canonical().kind in (TypeKind.POINTER, TypeKind.CONSTANTARRAY, TypeKind.INCOMPLETEARRAY):
                     edits.append((a.extent.start.offset, 0, "((void * __ptr64)(", 1))
                     edits.append((a.extent.end.offset, 0, "))", -1))
+            if cargs and len(cargs) < REG_ARGS and not ref.referenced.spelling.startswith("__builtin"):
+                edits.append((cargs[-1].extent.end.offset, 0, ", 0LL" * (REG_ARGS - len(cargs)), 0))
     walk(tu.cursor)
     data = apply(data, edits)
     return r2l(data, args).decode("latin-1")

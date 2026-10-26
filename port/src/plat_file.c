@@ -525,7 +525,18 @@ static void sd_remote_off(void *p) {
 /* sceSdRemote(mode, command, six argument words): the game's only door to the IOP (librspu2). Off the EE stack
    (Port_OffEe): the disc reads go through the C library, whose frames hold addresses of this process. */
 int sceSdRemote(int mode, int cmd, int a0, int a1, int a2, int a3, int a4, int a5) {
+#if defined(__x86_64__)
+    /* x86-64: the game calls it as variadic with only the words a command takes (sceSdRemote(1, 0x2030)), so the rest
+       are whatever the caller's registers and stack slots held, host values among them; copied into a frame on the
+       EE stack they stayed there (the synctest saw them differ between passes, T42 b4). The call's words go to a
+       buffer of the port's instead. (Not reentrant; nothing calls it from inside a call.) */
+    static SdCall c;
+    c.cmd = cmd, c.r = 0;
+    c.a[0] = (uint32_t)a0, c.a[1] = (uint32_t)a1, c.a[2] = (uint32_t)a2, c.a[3] = (uint32_t)a3;
+    c.a[4] = (uint32_t)a4, c.a[5] = (uint32_t)a5;
+#else
     SdCall c = { cmd, 0, { (uint32_t)a0, (uint32_t)a1, (uint32_t)a2, (uint32_t)a3, (uint32_t)a4, (uint32_t)a5 } };
+#endif
     (void)mode;
     Port_OffEe(sd_remote_off, &c);
     return c.r;

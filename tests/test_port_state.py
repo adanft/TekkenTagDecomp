@@ -11,7 +11,7 @@ from pathlib import Path
 
 from test_port_input import IN_THE_FIGHT, TO_THE_FIGHT, stream
 from test_port_platform import EXE, disc, run_ttt
-from test_port_window import SDL32
+from test_port_window import NO_SDL, SDL_LIBS
 
 
 def state(r):
@@ -180,7 +180,7 @@ class Tracking(unittest.TestCase):
 
 @unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
 @unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
-@unittest.skipUnless(any(p.exists() for p in SDL32), "no 32-bit SDL3 (Arch: lib32-sdl3)")
+@unittest.skipUnless(any(p.exists() for p in SDL_LIBS), NO_SDL)
 class Gl(unittest.TestCase):
     """F07: save, load and the synctest with the GL back end (a hidden window, SDL's offscreen driver): a save first
     has the window thread make GS memory whole on the CPU and drop its targets, a load has it take the loaded memory."""

@@ -3,7 +3,8 @@
  *
  * SDL3 is loaded at run time (dlopen of libSDL3.so.0, or TTT_SDL_LIB) through the small function table below: the
  * program does not link it, headless runs and the tests never need it, and without it the run goes on headless with a
- * message. The 32-bit program needs the 32-bit library (Arch: lib32-sdl3 from multilib).
+ * message. The library of the program's word size: the default x86-64 program the system's (Arch: sdl3), the 32-bit
+ * builds (TTT_CC=gcc / clang) the 32-bit one (Arch: lib32-sdl3 from multilib).
  *
  * SDL runs on a thread of its own: the game's thread runs on the PS2 stack in EE RAM (plat_main.c), 200 KB that grow
  * into the game's .bss, too small and too precious for a video driver. Gs_VBlank (gs_core.c) hands each finished

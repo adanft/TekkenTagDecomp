@@ -1,6 +1,6 @@
 """The program through clang (TTT_CC=clang, T42 b1 / b2, docs/port/README.md gotcha 32): port/tools/build.py compiles
-every object into its own tree, build/port-clang/ (the default build/port/ttt is not touched), every C object by clang
-(the game, port/src, newlib's libm, the MPEG-2 decoder, the generated table and stubs) and the overlay by clang++,
+every object into its own tree, build/port-clang/ (the gcc build, build/port-gcc/ttt, is not touched), every C object
+by clang (the game, port/src, newlib's libm, the MPEG-2 decoder, the generated table and stubs) and the overlay by clang++,
 with the gcc build's PLT (the C library calls gcc sends through the GOT go through GOT thunks) and no host float code
 outside the overlay and the SIMD files. The program's self-tests and a crash report work, and the 2551-VBlank idle run
 and the scripted fight end in exactly the gcc build's state: the same state line (seed, RNG spin, hash, cycles), the
@@ -21,7 +21,7 @@ from test_port_crash import no_core
 from test_port_data import IDLE_HASH
 from test_port_float import check_no_host_float_code, check_overlay_links_no_host_maths_or_cxx_runtime
 from test_port_input import IN_THE_FIGHT, TO_THE_FIGHT, stream
-from test_port_platform import EXE, ROOT, disc
+from test_port_platform import GCC_EXE as EXE, ROOT, disc
 
 CLANG = ROOT / "build/port-clang"
 CLANG_EXE = CLANG / "ttt"
@@ -91,7 +91,7 @@ class ClangBuild(unittest.TestCase):
         self.assertEqual({n: c for n, c in by.items() if not c.startswith("clang version")}, {})
         self.assertTrue((CLANG / "got_thunks.o").exists())
 
-    @unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
+    @unittest.skipUnless(EXE.exists(), "build/port-gcc/ttt not built (TTT_CC=gcc port/tools/build.py)")
     def test_plt_as_gcc(self):
         """The C library calls the gcc build sends through the GOT (`noplt`, -fno-plt) go through the GOT thunks: the
         PLT is the gcc build's, entry for entry (48), so none of tests/test_port_window.py's names is in it."""
@@ -163,13 +163,13 @@ class ClangBuild(unittest.TestCase):
             self.assertTrue(res["clang"][2] == res["gcc"][2], "the pictures differ")
             return len(res["gcc"][2])
 
-    @unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
+    @unittest.skipUnless(EXE.exists(), "build/port-gcc/ttt not built (TTT_CC=gcc port/tools/build.py)")
     @unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
     def test_idle_run_same_state(self):
         """The idle run (TTT_FRAMES=2551 TTT_SEED=1, 17 pictures) ends in the gcc build's state."""
         self.assertEqual(self.same_state(IDLE_HASH, "2551"), 17)
 
-    @unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
+    @unittest.skipUnless(EXE.exists(), "build/port-gcc/ttt not built (TTT_CC=gcc port/tools/build.py)")
     @unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
     def test_fight_same_state(self):
         """The scripted fight (tests/test_port_input.py: to round 1, then forward, punches and a kick; 1451 VBlanks)

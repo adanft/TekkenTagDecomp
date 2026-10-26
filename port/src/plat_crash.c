@@ -7,9 +7,10 @@
  * dump are as without the handler. The handler runs on a stack of its own (sigaltstack, mapped at start): the game
  * thread runs on the EE stack in EE RAM (plat_main.c), which may be the one that failed.
  *
- * In the handler only async-signal-safe calls (open, write, read, close, mkdir, clock_gettime, getpid, raise) and
- * plain memory reads: what needs the C library is written beforehand into static text (Port_CrashInstall at start,
- * Port_CrashRefresh after a settings change, into the buffer the handler does not read at the time). The report holds:
+ * In the handler only async-signal-safe calls (open, write, read, close, mkdir, clock_gettime, getpid, raise,
+ * process_vm_readv for a thread's host stack) and plain memory reads: what needs the C library is written
+ * beforehand into static text (Port_CrashInstall at start, Port_CrashRefresh after a settings change, into the buffer
+ * the handler does not read at the time). The report holds:
  * the signal and the fault address, the host registers, the function the instruction is in and code addresses found
  * on the stack (names from build/port/ttt.syms, which port/tools/link.py writes from the program's own symbols: the
  * game's functions are native code, so the EE pc is the PS2 address of the function's name, not tracked per
@@ -17,11 +18,13 @@
  * (plat_data.c). No memory of the game beyond those few words.
  *
  * TTT_CRASH_TEST=<kind>[@<vblank>] (port only, for tests/test_port_crash.py): segv, stack (a fault with a bad stack
- * pointer: only an alternate stack can take it), ill, fpe, bus, abrt, at that VBlank (default 30).
+ * pointer: only an alternate stack can take it), ill, fpe, bus, abrt, thread (a segv on a thread of its own: a host
+ * stack), at that VBlank (default 30).
  */
 #define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -30,6 +33,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
+#include <sys/uio.h>
 #include <time.h>
 #include <ucontext.h>
 #include <unistd.h>
@@ -48,9 +52,9 @@ extern uint8_t gPortOffStack[], gPortCtxStack[]; /* plat_state.c: the port's own
 extern uint32_t gPortOffEeEsp;                   /* plat_state.c: the EE stack pointer Port_OffEe left */
 extern char __executable_start[], etext[];
 
-/* The registers of the report: the 32-bit build's, or on x86-64 (TTT_CC=clang64) their 64-bit counterparts, written
-   as their low 32 bits (the program, the game's memory and the EE stack lie below 4 GB there; a host stack above 4 GB
-   is not walked). */
+/* The registers of the report: the 32-bit build's, or on x86-64 (TTT_CC=clang64) the 64-bit ones, r8-r15 too, written
+   in full. The program, the game's memory and the EE stack lie below 4 GB there, so code addresses stay 4 bytes; the
+   host stacks lie above 4 GB (read through process_vm_readv as in the 32-bit build, scan_stack). */
 #if defined(__x86_64__)
 #define R_PC REG_RIP
 #define R_SP REG_RSP
@@ -72,8 +76,6 @@ extern char __executable_start[], etext[];
 #define R_SI REG_ESI
 #define R_DI REG_EDI
 #endif
-/* The stack pointer as a 4-byte address, or 0 for a stack above 4 GB (x86-64's host stacks: not walked). */
-#define LOW_SP(g) ((uint64_t)(uintptr_t)(g)[R_SP] >> 32 ? 0u : (uint32_t)(g)[R_SP])
 
 #define ALT_STACK (64 * 1024)
 #define REPORT_MAX 16384
@@ -86,7 +88,8 @@ static char sSyms[1100];               /* build/port/ttt.syms beside the program
 static char sRenderer[128];
 static char sSettings[2][2048];        /* the settings line; the handler reads sSettings[sCur] */
 static int sCur;
-static uint32_t sMainStack; /* an address on the main thread's host stack, taken at start (the words above it are mapped) */
+/* an address on the main thread's host stack, taken at start (the words above it are mapped) */
+static uintptr_t sMainStack;
 static int sTestKind, sTestAt = 30;
 static char sReport[REPORT_MAX];
 static int sLen;
@@ -112,6 +115,21 @@ static void put_hex(uint32_t v) {
     }
     b[10] = 0;
     put(b);
+}
+
+/* A host address or register: 8 hex digits in the 32-bit build, 16 on x86-64. */
+static void put_word(uintptr_t v) {
+#if defined(__x86_64__)
+    char b[19] = "0x";
+    int i;
+    for (i = 0; i < 16; i++) {
+        b[2 + i] = "0123456789abcdef"[(uint64_t)v >> (60 - 4 * i) & 15];
+    }
+    b[18] = 0;
+    put(b);
+#else
+    put_hex((uint32_t)v);
+#endif
 }
 
 static void put_dec(uint64_t v, int width) {
@@ -219,32 +237,67 @@ static void put_name(int i) {
     }
 }
 
-/* Code addresses among the words above the stack pointer (at most STACK_ADDR, the first 4 KB), when the stack is one
-   the program knows to be mapped: the EE stack (EE RAM), the port's service stacks, the main thread's host stack. */
-static void scan_stack(uint32_t esp) {
-    uint32_t hi = 0, a;
-    uint32_t off = (uint32_t)(uintptr_t)gPortOffStack, ctx = (uint32_t)(uintptr_t)gPortCtxStack;
-    uint32_t main = sMainStack;
-    int found = 0;
-    if (esp >= 0x00100000u && esp < 0x02000000u) {
-        hi = 0x02000000u;
-    } else if (esp >= off && esp < off + 262144u) {
-        hi = off + 262144u;
-    } else if (esp >= ctx && esp < ctx + 262144u) {
-        hi = ctx + 262144u;
-    } else if (esp < main && main - esp < (8u << 20)) {
-        hi = main;
+/* Code addresses among the stack words in [p, p + n) (at most STACK_ADDR in all from one stack): 4-byte words in the
+   32-bit build; on x86-64 8-byte slots whose upper half is 0 (the program lies below 4 GB). */
+static void take_code(const uint8_t *p, uintptr_t n, int *found) {
+    uintptr_t a;
+#if defined(__x86_64__)
+    for (a = 0; a + 8 <= n && *found < STACK_ADDR; a += 8) {
+        uint64_t w = *(const uint64_t *)(p + a);
+        if ((w >> 32) == 0 && in_code((uint32_t)w)) {
+            sAddr[sAddrN++] = (uint32_t)w;
+            (*found)++;
+        }
     }
-    for (a = esp & ~3u; hi != 0 && a + 4 <= hi && a < esp + 4096 && found < STACK_ADDR; a += 4) {
-        uint32_t w = *(const uint32_t *)(uintptr_t)a;
+#else
+    for (a = 0; a + 4 <= n && *found < STACK_ADDR; a += 4) {
+        uint32_t w = *(const uint32_t *)(p + a);
         if (in_code(w)) {
             sAddr[sAddrN++] = w;
-            found++;
+            (*found)++;
         }
+    }
+#endif
+}
+
+/* Code addresses among the words above the stack pointer (the first 4 KB), when the stack is one the program knows to
+   be mapped: the EE stack (EE RAM), the port's service stacks, the main thread's host stack. Any other stack (the
+   window, GS and audio threads', above 4 GB on x86-64) is copied through process_vm_readv, a system call that reports
+   an unmapped page instead of faulting, up to the first page it cannot read. */
+static void scan_stack(uintptr_t sp) {
+    uintptr_t hi = 0, off = (uintptr_t)gPortOffStack, ctx = (uintptr_t)gPortCtxStack, main = sMainStack;
+    int found = 0;
+    sp &= ~(uintptr_t)(sizeof(void *) - 1);
+    if (sp >= 0x00100000u && sp < 0x02000000u) {
+        hi = 0x02000000u;
+    } else if (sp >= off && sp < off + 262144u) {
+        hi = off + 262144u;
+    } else if (sp >= ctx && sp < ctx + 262144u) {
+        hi = ctx + 262144u;
+    } else if (sp < main && main - sp < (8u << 20)) {
+        hi = main;
+    }
+    if (hi != 0) {
+        take_code((const uint8_t *)sp, hi - sp < 4096 ? hi - sp : 4096, &found);
+        return;
+    }
+    {
+        static uint8_t copy[4096] __attribute__((aligned(8)));
+        uintptr_t at = sp;
+        /* page by page: stop at the first page that cannot be read */
+        while (sp != 0 && sp + sizeof copy > sp && at < sp + sizeof copy) {
+            uintptr_t next = (at | 4095u) + 1 < sp + sizeof copy ? (at | 4095u) + 1 : sp + sizeof copy;
+            struct iovec local = {copy + (at - sp), next - at}, remote = {(void *)at, next - at};
+            if (syscall(SYS_process_vm_readv, getpid(), &local, 1UL, &remote, 1UL, 0UL) != (long)(next - at)) {
+                break;
+            }
+            at = next;
+        }
+        take_code(copy, at - sp, &found);
     }
 }
 
-static int is_ee_stack(uint32_t esp) { return esp >= 0x00100000u && esp < 0x02000000u; }
+static int is_ee_stack(uintptr_t sp) { return sp >= 0x00100000u && sp < 0x02000000u; }
 
 /* ---------------------------------------------------------------------------------------------- the handler */
 
@@ -300,7 +353,7 @@ static void handler(int sig, siginfo_t *si, void *ctx) {
     const greg_t *g = uc->uc_mcontext.gregs;
     char when[20], path[1300];
     int saved = errno, fd, i, state, nHere;
-    uint32_t fault, esp;
+    uintptr_t fault, esp;
     const char *name = "?";
 
     for (i = 0; i < NSIGNALS; i++) {
@@ -310,15 +363,15 @@ static void handler(int sig, siginfo_t *si, void *ctx) {
     }
     sAddrN = 0;
     sAddr[sAddrN++] = (uint32_t)g[R_PC];
-    fault = (uint32_t)(uintptr_t)si->si_addr;
-    esp = LOW_SP(g);
+    fault = (uintptr_t)si->si_addr;
+    esp = (uintptr_t)g[R_SP];
     if (!(sig == SIGSEGV && si->si_code > 0 && fault + 65536u >= esp && fault < esp + 4096u)) {
         scan_stack(esp); /* not when the stack itself is what failed (an overflow into its guard page) */
     }
     nHere = sAddrN;
     /* off the EE stack on the game's thread (Port_OffEe, the port's VBlank and library work): the game's frames are
        above the EE stack pointer it left */
-    if (!is_ee_stack(LOW_SP(g)) && is_ee_stack(gPortOffEeEsp) && syscall(SYS_gettid) == getpid()) {
+    if (!is_ee_stack(esp) && is_ee_stack(gPortOffEeEsp) && syscall(SYS_gettid) == getpid()) {
         scan_stack(gPortOffEeEsp);
     }
     resolve_names();
@@ -350,12 +403,31 @@ static void handler(int sig, siginfo_t *si, void *ctx) {
     put_dec((uint64_t)(si->si_code < 0 ? -si->si_code : si->si_code), 1);
     put("\nfault address: ");
     if (si->si_code > 0) {
-        put_hex((uint32_t)(uintptr_t)si->si_addr);
+        put_word((uintptr_t)si->si_addr);
     } else {
         put("(none: the signal was raised, not a fault)");
     }
     put("\nthread: ");
     put(syscall(SYS_gettid) == getpid() ? "main (the game)" : "other (window, GS or audio)");
+#if defined(__x86_64__)
+    {
+        static const struct { const char *name; int reg; } kRegs[] = {
+            {"\nregisters: rip ", REG_RIP}, {" rsp ", REG_RSP}, {" rbp ", REG_RBP}, {" eflags ", REG_EFL},
+            {"\n           rax ", REG_RAX}, {" rbx ", REG_RBX}, {" rcx ", REG_RCX}, {" rdx ", REG_RDX},
+            {"\n           rsi ", REG_RSI}, {" rdi ", REG_RDI}, {" r8 ", REG_R8}, {" r9 ", REG_R9},
+            {"\n           r10 ", REG_R10}, {" r11 ", REG_R11}, {" r12 ", REG_R12}, {" r13 ", REG_R13},
+            {"\n           r14 ", REG_R14}, {" r15 ", REG_R15},
+        };
+        for (i = 0; i < (int)(sizeof kRegs / sizeof kRegs[0]); i++) {
+            put(kRegs[i].name);
+            if (kRegs[i].reg == REG_EFL) {
+                put_hex((uint32_t)g[REG_EFL]);
+            } else {
+                put_word((uintptr_t)g[kRegs[i].reg]);
+            }
+        }
+    }
+#else
     put("\nregisters: eip ");
     put_hex((uint32_t)g[R_PC]);
     put(" esp ");
@@ -376,6 +448,7 @@ static void handler(int sig, siginfo_t *si, void *ctx) {
     put_hex((uint32_t)g[R_SI]);
     put(" edi ");
     put_hex((uint32_t)g[R_DI]);
+#endif
     put("\nstack: ");
     put(is_ee_stack(esp) ? "EE stack (EE RAM)" : "host");
     put("\nfunction: ");
@@ -444,7 +517,7 @@ void Port_CrashRefresh(void) {
 }
 
 static void test_switch(void) {
-    static const char *const kKinds[] = {"segv", "stack", "ill", "fpe", "bus", "abrt"};
+    static const char *const kKinds[] = {"segv", "stack", "ill", "fpe", "bus", "abrt", "thread"};
     const char *e = getenv("TTT_CRASH_TEST"), *at;
     unsigned i;
     if (e == NULL || !*e) {
@@ -461,7 +534,7 @@ static void test_switch(void) {
         sTestAt = atoi(at + 1);
     }
     if (sTestKind == 0) {
-        fprintf(stderr, "ttt: TTT_CRASH_TEST=segv|stack|ill|fpe|bus|abrt[@<vblank>]\n");
+        fprintf(stderr, "ttt: TTT_CRASH_TEST=segv|stack|ill|fpe|bus|abrt|thread[@<vblank>]\n");
     }
 }
 
@@ -474,7 +547,7 @@ void Port_CrashInstall(void) {
     ssize_t k;
     int i;
 
-    sMainStack = (uint64_t)(uintptr_t)&ss >> 32 ? 0u : (uint32_t)(uintptr_t)&ss; /* (x86-64: above 4 GB, not walked) */
+    sMainStack = (uintptr_t)&ss;
     if (*cfg) {
         const char *slash = strrchr(cfg, '/');
         snprintf(sParent, sizeof sParent, "%.*s", slash != NULL ? (int)(slash - cfg) : 1, slash != NULL ? cfg : ".");
@@ -516,6 +589,16 @@ void Port_CrashInstall(void) {
     test_switch();
 }
 
+/* TTT_CRASH_TEST=thread: a write to a page with no access on a thread of its own, whose stack the C library maps
+   (above 4 GB on x86-64): the report finds its caller on that stack. */
+__attribute__((noinline)) static void crash_write(void *page) { *(volatile int *)page = 1; }
+
+__attribute__((noinline)) static void *crash_thread(void *page) {
+    crash_write(page);
+    __asm__ volatile("" ::: "memory"); /* (not a tail call: crash_thread's return address stays on the stack) */
+    return NULL;
+}
+
 /* TTT_CRASH_TEST: the chosen fault at the chosen VBlank (plat_hw.c's VBlank, off the EE stack). */
 void Port_CrashVBlank(uint32_t n) {
     void *page;
@@ -547,5 +630,12 @@ void Port_CrashVBlank(uint32_t n) {
     case 6:
         abort();
         break;
+    case 7: {
+        pthread_t th;
+        if (pthread_create(&th, NULL, crash_thread, page) == 0) {
+            pthread_join(th, NULL);
+        }
+        break;
+    }
     }
 }

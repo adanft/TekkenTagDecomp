@@ -7,8 +7,7 @@ import subprocess
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-EXE = ROOT / "build/port/ttt"
+from test_port_platform import EXE, ROOT
 
 
 @unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
@@ -28,7 +27,7 @@ class MemoryMapTest(unittest.TestCase):
         out = subprocess.run(["nm", str(EXE)], capture_output=True, text=True, check=True).stdout
         syms = {}
         for l in out.splitlines():
-            m = re.match(r"([0-9a-f]{8}) ([aAdDbB]) (\S+)$", l)
+            m = re.match(r"([0-9a-f]{8}|[0-9a-f]{16}) ([aAdDbB]) (\S+)$", l)  # (ELF64: 16 digits)
             if m:
                 syms[m.group(3)] = int(m.group(1), 16)
         labels = [(s, a) for s, a in syms.items() if re.fullmatch(r"D_[0-9A-F]{8}", s)]

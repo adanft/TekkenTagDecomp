@@ -3194,14 +3194,12 @@ f32 func_003EDB98(f32 *u, f32 *v, f32 r, f32 def) {
 /* NON_MATCHING: 121 lines (190 instructions, draft 205): m2c draft, only made to compile (stack copies as struct copies, VU0 and unknown instructions as inline asm) */
 void func_003EDC90(BowlBall *b, BowlBody *p) {
     f32 sp[64]; /* m2c stack */
-    f32 sp34; /* m2c stack */
-    f32 sp38; /* m2c stack */
-    f32 sp44; /* m2c stack */
-    f32 sp48; /* m2c stack */
-    f32 sp10;
-    f32 sp20;
-    f32 sp30;
-    f32 sp40;
+    /* the m2c draft's vector locals (each 16 bytes on the EE stack) as vectors: as separate floats the vector
+       routines' 16-byte stores ran over the neighbouring locals, wherever the compiler put them */
+    f32 sp10[4];
+    f32 sp20[4];
+    f32 sp30[4];
+    f32 sp40[4];
     f32 temp_f0;
     f32 temp_f0_2;
     f32 temp_f20;
@@ -3221,9 +3219,9 @@ void func_003EDC90(BowlBall *b, BowlBody *p) {
     var_f22 = 1.0f;
     var_s0 = 0 * 0x10;
     do {
-        sceVu0SubVector(&sp10, (f32 *) b->pad30, p + (var_s0 + 0xC0));
+        sceVu0SubVector(sp10, (f32 *) b->pad30, p + (var_s0 + 0xC0));
         sceVu0SubVector(sp, (f32 *) temp_s6, p + (var_s0 + 0x100));
-        temp_f0 = func_003EDB98(sp, &sp10, D_00523570[var_s1] + 150.0f, var_f22);
+        temp_f0 = func_003EDB98(sp, sp10, D_00523570[var_s1] + 150.0f, var_f22);
         if (temp_f0 < var_f22) {
             var_f22 = temp_f0;
             var_s5 = var_s1;
@@ -3235,22 +3233,22 @@ void func_003EDC90(BowlBall *b, BowlBody *p) {
         func_003EC970((BowlBody *) b, var_f22);
         func_003ECA38(p, var_f22);
         temp_a1 = var_s5 * 0x10;
-        func_003E92C0(&sp20, p + (temp_a1 + 0xC0), p + (temp_a1 + 0x100), var_f22);
-        sceVu0SubVector(&sp40, &b->unk0, &sp20);
+        func_003E92C0(sp20, p + (temp_a1 + 0xC0), p + (temp_a1 + 0x100), var_f22);
+        sceVu0SubVector(sp40, &b->unk0, sp20);
         temp_f0_2 = D_00523570[var_s5];
-        func_003E92C0(&sp20, &sp20, &sp40, temp_f0_2 / (temp_f0_2 + 150.0f));
-        func_003ECBF0(&sp30, p, var_s5, var_f22);
-        sceVu0SubVector(&sp30, &sp30, (f32 *) temp_s6);
-        temp_f21 = (sp30 * sp40) + (sp34 * sp44) + (sp38 * sp48);
+        func_003E92C0(sp20, sp20, sp40, temp_f0_2 / (temp_f0_2 + 150.0f));
+        func_003ECBF0(sp30, p, var_s5, var_f22);
+        sceVu0SubVector(sp30, sp30, (f32 *) temp_s6);
+        temp_f21 = (sp30[0] * sp40[0]) + (sp30[1] * sp40[1]) + (sp30[2] * sp40[2]);
         if (temp_f21 > 0.0f) {
             temp_f3 = D_00523580[var_s5];
             p->unk178 = 0;
             p->unk17C = 1;
-            temp_f21_2 = (2.0f * temp_f21 * temp_f3) / ((temp_f3 + 30.0f) * ((sp40 * sp40) + (sp44 * sp44) + (sp48 * sp48)));
-            func_003E92C0(&b->unk10, (f32 *) temp_s6, &sp40, temp_f21_2);
+            temp_f21_2 = (2.0f * temp_f21 * temp_f3) / ((temp_f3 + 30.0f) * ((sp40[0] * sp40[0]) + (sp40[1] * sp40[1]) + (sp40[2] * sp40[2])));
+            func_003E92C0(&b->unk10, (f32 *) temp_s6, sp40, temp_f21_2);
             b->unk14 = 0.0f;
-            sceVu0ScaleVector(&sp30, &sp40, -temp_f21_2 * 30.0f);
-            func_003ECDE8(p, &sp30, &sp20);
+            sceVu0ScaleVector(sp30, sp40, -temp_f21_2 * 30.0f);
+            func_003ECDE8(p, sp30, sp20);
         }
         temp_f20 = 1.0f - var_f22;
         func_003EC980((BowlBody *) b, temp_f20);
@@ -3270,15 +3268,13 @@ INCLUDE_ASM("asm/nonmatchings/tekken_bowl", func_003EDC90);
 /* NON_MATCHING: 265 lines (220 instructions, draft 238): m2c draft, only made to compile (stack copies as struct copies, VU0 and unknown instructions as inline asm) */
 void func_003EDF88(BowlBody *p, BowlBody *q) {
     f32 sp[64]; /* m2c stack */
-    f32 sp34; /* m2c stack */
-    f32 sp38; /* m2c stack */
-    f32 sp44; /* m2c stack */
-    f32 sp48; /* m2c stack */
-    f32 sp10;
-    f32 sp20;
-    f32 sp30;
-    f32 sp40;
-    f32 sp50;
+    /* the m2c draft's vector locals (each 16 bytes on the EE stack) as vectors: as separate floats the vector
+       routines' 16-byte stores ran over the neighbouring locals, wherever the compiler put them */
+    f32 sp10[4];
+    f32 sp20[4];
+    f32 sp30[4];
+    f32 sp40[4];
+    f32 sp50[4];
     s32 sp60;
     s32 sp64;
     s32 sp68;
@@ -3307,9 +3303,9 @@ void func_003EDF88(BowlBody *p, BowlBody *q) {
         var_s1 = 0;
         var_s0 = 0 * 0x10;
 loop_2:
-        sceVu0SubVector(&sp10, p + (temp_v1 + 0xC0), q + (var_s0 + 0xC0));
+        sceVu0SubVector(sp10, p + (temp_v1 + 0xC0), q + (var_s0 + 0xC0));
         sceVu0SubVector(sp, p + (temp_v1 + 0x100), q + (var_s0 + 0x100));
-        temp_f0 = func_003EDB98(sp, &sp10, D_00523570[var_s2] + D_00523570[var_s1], var_f21);
+        temp_f0 = func_003EDB98(sp, sp10, D_00523570[var_s2] + D_00523570[var_s1], var_f21);
         if (temp_f0 < var_f21) {
             sp60 = var_s2;
             var_f21 = temp_f0;
@@ -3327,16 +3323,16 @@ loop_2:
             func_003ECA38(p, var_f21);
             func_003ECA38(q, var_f21);
             temp_a1 = sp60 * 0x10;
-            func_003E92C0(&sp50, p + (temp_a1 + 0xC0), p + (temp_a1 + 0x100), var_f21);
+            func_003E92C0(sp50, p + (temp_a1 + 0xC0), p + (temp_a1 + 0x100), var_f21);
             temp_a1_2 = sp64 * 0x10;
-            func_003E92C0(&sp20, q + (temp_a1_2 + 0xC0), q + (temp_a1_2 + 0x100), var_f21);
-            sceVu0SubVector(&sp40, &sp50, &sp20);
+            func_003E92C0(sp20, q + (temp_a1_2 + 0xC0), q + (temp_a1_2 + 0x100), var_f21);
+            sceVu0SubVector(sp40, sp50, sp20);
             temp_f0_2 = D_00523570[sp64];
-            func_003E92C0(&sp20, &sp20, &sp40, temp_f0_2 / (temp_f0_2 + D_00523570[sp60]));
-            func_003ECBF0(&sp50, p, sp60, var_f21);
-            func_003ECBF0(&sp30, q, sp64, var_f21);
-            sceVu0SubVector(&sp30, &sp30, &sp50);
-            temp_f20 = (sp30 * sp40) + (sp34 * sp44) + (sp38 * sp48);
+            func_003E92C0(sp20, sp20, sp40, temp_f0_2 / (temp_f0_2 + D_00523570[sp60]));
+            func_003ECBF0(sp50, p, sp60, var_f21);
+            func_003ECBF0(sp30, q, sp64, var_f21);
+            sceVu0SubVector(sp30, sp30, sp50);
+            temp_f20 = (sp30[0] * sp40[0]) + (sp30[1] * sp40[1]) + (sp30[2] * sp40[2]);
             if (temp_f20 > 0.0f) {
                 temp_f0_3 = D_00523580[sp60];
                 temp_f3 = D_00523580[sp64];
@@ -3344,11 +3340,11 @@ loop_2:
                 p->unk17C = 1;
                 q->unk178 = 0;
                 p->unk178 = 0;
-                temp_f20_2 = (2.0f * temp_f20 * temp_f0_3 * temp_f3) / ((temp_f0_3 + temp_f3) * ((sp40 * sp40) + (sp44 * sp44) + (sp48 * sp48)));
-                sceVu0ScaleVector(&sp30, &sp40, temp_f20_2);
-                func_003ECDE8(p, &sp30, &sp20);
-                sceVu0ScaleVector(&sp30, &sp40, -temp_f20_2);
-                func_003ECDE8(q, &sp30, &sp20);
+                temp_f20_2 = (2.0f * temp_f20 * temp_f0_3 * temp_f3) / ((temp_f0_3 + temp_f3) * ((sp40[0] * sp40[0]) + (sp40[1] * sp40[1]) + (sp40[2] * sp40[2])));
+                sceVu0ScaleVector(sp30, sp40, temp_f20_2);
+                func_003ECDE8(p, sp30, sp20);
+                sceVu0ScaleVector(sp30, sp40, -temp_f20_2);
+                func_003ECDE8(q, sp30, sp20);
             }
             temp_f20_3 = 1.0f - var_f21;
             func_003ECA80(p, temp_f20_3);

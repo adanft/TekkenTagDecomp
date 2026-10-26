@@ -19,7 +19,20 @@
 #include <stdint.h>
 
 #define Port_Ptr(addr) ((void *)(uintptr_t)(uint32_t)(addr))
+#if defined(__x86_64__)
+/* x86-64: host memory above 4 GB (thread stacks, large allocations, the libraries' buffers) has no game address; a
+   pointer to it handed to the game would lose its upper half, so it stops here (SIGILL, with a crash report naming
+   the caller) instead of corrupting memory later. */
+static inline uint32_t port_addr_checked(uintptr_t p) {
+    if (p >> 32) {
+        __builtin_trap();
+    }
+    return (uint32_t)p;
+}
+#define Port_Addr(p) port_addr_checked((uintptr_t)(p))
+#else
 #define Port_Addr(p) ((uint32_t)(uintptr_t)(p))
+#endif
 
 #define PORT_EE_RAM_SIZE 0x02000000u
 #define PORT_SPR_ADDR 0x70000000u

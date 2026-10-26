@@ -9,9 +9,10 @@ import sys
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-EXE = ROOT / "build/port/ttt"
-OBJ = ROOT / "build/port/obj"  # the gcc build's objects, whatever TTT_CC says
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from test_port_platform import EXE, ROOT  # noqa: E402  (TTT_EXE picks another build)
+
+OBJ = EXE.parent / "obj"  # that build's objects, whatever TTT_CC says
 TOOLS = ROOT / "port" / "tools"
 sys.path.insert(0, str(TOOLS))
 

@@ -1,10 +1,12 @@
-"""The 64-bit program (TTT_CC=clang64, T42 b3, docs/port/README.md "64-bit"): port/tools/build.py builds an x86-64
-program into build/port-clang64/ (the default build/port/ttt is not touched). The game's code goes through
+"""The 64-bit program (TTT_CC=clang64, T42 b3; the default build since T42 b5, docs/port/README.md "64-bit"):
+port/tools/build.py builds an x86-64 program into build/port/ (the 32-bit gcc build, build/port-gcc/ttt, is not
+touched). The game's code goes through
 port/tools/ptr32.py (its pointers 4 bytes wide), clang -emit-llvm, port/tools/irfix.py and llc; the port's code is
 ordinary 64-bit code; the program is linked at 0x08000000 with the heap guard page (link.py BRK_GUARD). The self-tests
-pass, a crash report is written, and the 2551-VBlank idle run ends in exactly the gcc build's state: the same state
-line, the reference hash, the same hash for every region and the same 17 pictures. Skipped without clang, llc or
-libclang's Python bindings; slow (a build and three long runs, a few minutes): TTT_SLOW_TESTS=1."""
+pass, a crash report is written, and the 2551-VBlank idle run and the scripted fight end in exactly the gcc build's
+state: the same state line, the reference hash, the same hash for every region and the same pictures. Skipped
+without clang, llc or libclang's Python bindings; slow (a build and five long runs, a few minutes):
+TTT_SLOW_TESTS=1."""
 
 import os
 import re
@@ -16,13 +18,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from test_port_clang import SELFTESTS, run
+from test_port_clang import FIGHT_HASH, SELFTESTS, run
 from test_port_crash import no_core
 from test_port_data import IDLE_HASH
 from test_port_float import check_no_host_float_code
-from test_port_platform import EXE, ROOT, disc
+from test_port_input import IN_THE_FIGHT, TO_THE_FIGHT, stream
+from test_port_platform import GCC_EXE as EXE, ROOT, disc
 
-C64 = ROOT / "build/port-clang64"
+C64 = ROOT / "build/port"  # the default build
 C64_EXE = C64 / "ttt"
 
 
@@ -89,6 +92,34 @@ class Clang64Helpers(unittest.TestCase):
             self.assertEqual(self.toolchain.bits(flags), flags)
 
 
+@unittest.skipUnless(shutil.which("clang") and have_bindings(), "no clang / libclang's Python bindings")
+class Ptr32Rewrite(unittest.TestCase):
+    def test_variadic_calls_fill_the_argument_registers(self):
+        """A game call of a variadic function gets zeros up to six arguments (the registers its entry stores on the EE
+        stack: none left holding stale host values), its pointer arguments widened; a call with six or more and a
+        call of a fixed function stay as they are."""
+        sys.path.insert(0, str(ROOT / "port/tools"))
+        try:
+            import undefined
+            py = undefined.ptr32_python()
+        finally:
+            sys.path.pop(0)
+        src = (f'# 1 "{ROOT}/src/x.c"\n'
+               "int P(const char *f, ...);\nint F(int a);\n"
+               "void g(char *s) { P(\"%d\", 1); P(\"%s\", s); P(\"\", 1, 2, 3, 4, 5); F(2); }\n")
+        with tempfile.TemporaryDirectory() as d:
+            i, o = Path(d) / "x.i", Path(d) / "x.p32.i"
+            i.write_text(src)
+            r = subprocess.run([py, str(ROOT / "port/tools/ptr32.py"), str(i), str(o), "-fms-extensions", "-m64"],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            out = o.read_text()
+        self.assertIn('P("%d", 1, 0LL, 0LL, 0LL, 0LL);', out)
+        self.assertIn('P("%s", ((void * __ptr64)(s)), 0LL, 0LL, 0LL, 0LL);', out)
+        self.assertIn('P("", 1, 2, 3, 4, 5);', out)
+        self.assertIn("F(2);", out)
+
+
 @unittest.skipUnless(shutil.which("clang") and shutil.which("llc"), "no clang / llc")
 @unittest.skipUnless(os.environ.get("TTT_SLOW_TESTS") == "1", "slow (a few minutes): TTT_SLOW_TESTS=1")
 class Clang64Build(unittest.TestCase):
@@ -102,13 +133,13 @@ class Clang64Build(unittest.TestCase):
         cls.gcc_untouched = (EXE.stat().st_mtime_ns if EXE.exists() else None) == before
 
     def test_build(self):
-        """Every object compiles and links, into build/port-clang64/ only."""
+        """Every object compiles and links, into build/port/ only."""
         out = self.build.stdout + self.build.stderr
         self.assertEqual(self.build.returncode, 0, out[-3000:])
         m = re.search(r"undefined: (\d+) of (\d+) objects compiled \((\d+) failed\)", out)
         self.assertIsNotNone(m, out[-3000:])
         self.assertEqual((m.group(1), m.group(3)), (m.group(2), "0"))
-        self.assertIn("link OK -> build/port-clang64/ttt", out)
+        self.assertIn("link OK -> build/port/ttt", out)
         self.assertTrue(self.gcc_untouched)
 
     def test_x86_64_below_4gb(self):
@@ -160,30 +191,44 @@ class Clang64Build(unittest.TestCase):
             self.assertTrue(text.startswith("Tekken Tag Tournament PC port: crash report\n"))
             self.assertRegex(text, r"\nsignal: SIGSEGV \(11\)")
 
-    @unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
-    @unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
-    def test_idle_run_same_state(self):
-        """The idle run (TTT_FRAMES=2551 TTT_SEED=1) ends in the gcc build's state: the same state line with the
-        reference hash, every region hash alike, the same 17 pictures."""
+    def same_state(self, reference, frames, **env):
+        """Runs the gcc build and the 64-bit one with TTT_SEED=1 and the given variables: the same state line with the
+        reference hash, every region hash alike, the same pictures (every 150 VBlanks). Returns the number of
+        pictures."""
         with tempfile.TemporaryDirectory() as d:
             res = {}
             for name, exe in (("gcc", EXE), ("clang64", C64_EXE)):
                 dump = os.path.join(d, "dump-" + name)
                 os.makedirs(dump)
-                r = run(exe, os.path.join(d, "saves"), TTT_FRAMES="2551", TTT_SEED="1", TTT_HASH_REGIONS="1",
-                        TTT_DUMP=dump, TTT_DUMP_EVERY="150")
+                r = run(exe, os.path.join(d, "saves"), TTT_FRAMES=frames, TTT_SEED="1", TTT_HASH_REGIONS="1",
+                        TTT_DUMP=dump, TTT_DUMP_EVERY="150", **env)
                 self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
                 state = re.search(r"ttt: state: .*", r.stdout)
                 self.assertIsNotNone(state, r.stdout[-2000:])
                 pictures = {p.name: p.read_bytes() for p in sorted(Path(dump).iterdir())}
                 res[name] = (state.group(0), re.findall(r"ttt: hash-region (\S+) (\w+)", r.stdout), pictures)
-            self.assertIn(f"hash {IDLE_HASH} ", res["gcc"][0])
+            self.assertIn(f"hash {reference} ", res["gcc"][0])
             self.assertEqual(res["clang64"][0], res["gcc"][0])
             self.assertTrue(res["gcc"][1])
             self.assertEqual(res["clang64"][1], res["gcc"][1])
-            self.assertEqual(len(res["gcc"][2]), 17)
             self.assertEqual(sorted(res["clang64"][2]), sorted(res["gcc"][2]))
             self.assertTrue(res["clang64"][2] == res["gcc"][2], "the pictures differ")
+            return len(res["gcc"][2])
+
+    @unittest.skipUnless(EXE.exists(), "build/port-gcc/ttt not built (TTT_CC=gcc port/tools/build.py)")
+    @unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
+    def test_idle_run_same_state(self):
+        """The idle run (TTT_FRAMES=2551 TTT_SEED=1, 17 pictures) ends in the gcc build's state."""
+        self.assertEqual(self.same_state(IDLE_HASH, "2551"), 17)
+
+    @unittest.skipUnless(EXE.exists(), "build/port-gcc/ttt not built (TTT_CC=gcc port/tools/build.py)")
+    @unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
+    def test_fight_same_state(self):
+        """The scripted fight (1451 VBlanks) ends in the gcc build's state."""
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "in.txt"
+            p.write_text(stream(*TO_THE_FIGHT, *IN_THE_FIGHT))
+            self.same_state(FIGHT_HASH, "1451", TTT_INPUT_PLAY=str(p))
 
 
 if __name__ == "__main__":
