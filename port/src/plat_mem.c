@@ -71,6 +71,9 @@ static void check_ee_range(uint32_t lo, uint32_t hi) {
 }
 
 static void ee_ram(void) {
+#ifdef _WIN32
+    PlatOs_MemPrepare(); /* (Windows: the fixed ranges made free first; may run the program again, plat_os_win32.c) */
+#endif
     sEeRam = PlatOs_MemCreate("ttt-ee-ram", PORT_EE_RAM_SIZE);
     if (sEeRam < 0) {
         fail("EE RAM (no memory object)", 0);

@@ -38,8 +38,11 @@ typedef struct {
     int r;
 } Fmt;
 
-#if defined(__x86_64__)
-/* x86-64 (TTT_CC=clang64): the game's code and the port's C are software float (toolchain.py), so a double passed to
+#if defined(__x86_64__) && !defined(_WIN32)
+/* (Windows x64, TTT_CC=win64: a va_list is a plain pointer to the arguments in memory, where the caller's integer
+   registers are stored, so the C library's vprintf reads a software-float double as it was passed: the 32-bit path
+   below.)
+   x86-64 (TTT_CC=clang64): the game's code and the port's C are software float (toolchain.py), so a double passed to
    a variadic function travels in an integer register, and the C library's vprintf would read it from a vector register
    (SysV). So printf / sprintf format here, one conversion at a time through the C library's snprintf: the integer,
    string and pointer arguments as they are, a double's bits handed over in %xmm0 by port_snprintf_double (a move, no

@@ -1,8 +1,8 @@
 /*
- * The operating system under the port, Windows side (T42 b6 skeleton for T42 b7: mingw-w64, x86-64; plat_os.h,
- * docs/port/windows.md). Not built yet: on Linux this file is empty, and no mingw-w64 compiler has checked it (none was
- * installed when it was written). Each function names the Linux call it stands for (plat_os.h, plat_os_posix.c) and
- * the Win32 one that replaces it; the ones marked TODO need more than the call.
+ * The operating system under the port, Windows side (T42 b6, completed in T42 b7: mingw-w64, x86-64, TTT_CC=win64;
+ * plat_os.h, docs/port/windows.md). On Linux this file is empty. Each function names the Linux call it stands for
+ * (plat_os.h, plat_os_posix.c) and the Win32 one that replaces it. Built and linked by a cross compiler; not run on
+ * Windows yet (docs/port/windows.md lists what is checked).
  *
  * Paths: the port builds them with '/', which every Win32 file call accepts; PlatOs_ExePath turns the module's '\' into
  * '/' so that the callers' strrchr(.., '/') keeps working. Names are UTF-8 in the port and UTF-16 for Win32 (the W
@@ -10,8 +10,11 @@
  */
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
+#include <winsock2.h>
 #include <windows.h>
+#include <shellapi.h>
 #include <bcrypt.h>
+#include <mswsock.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <direct.h>
@@ -181,8 +184,8 @@ int PlatOs_SetEnv(const char *name, const char *value, int replace) { /* setenv 
     }
     return _putenv_s(name, value) == 0 ? 0 : -1;
 }
-/* unsetenv -> _putenv_s(name, "") (TODO: getenv then gives NULL, as unsetenv; an empty value cannot be set this way:
-   SetEnvironmentVariableW keeps the C library's copy apart) */
+/* unsetenv -> _putenv_s(name, ""), which removes the variable (getenv gives NULL) from the C library's copy and from
+   the process's environment that a child inherits. (An empty value cannot be set this way; the port sets none.) */
 int PlatOs_UnsetEnv(const char *name) { return _putenv_s(name, "") == 0 ? 0 : -1; }
 
 /* dlopen / dlsym / dlclose / dlerror -> LoadLibraryW / GetProcAddress / FreeLibrary / FormatMessage */
@@ -207,11 +210,81 @@ long PlatOs_CpuCount(void) { /* sysconf(_SC_NPROCESSORS_ONLN) -> GetSystemInfo *
     return (long)si.dwNumberOfProcessors;
 }
 
-/* posix_spawnp + waitpid -> CreateProcessW + WaitForSingleObject + GetExitCodeProcess (TODO: quote the arguments into
-   one command line; plat_speech.c's spd-say has no Windows counterpart: speech would be SAPI's ISpVoice) */
+/* argv as one Windows command line (UTF-16) into out[n]: each argument quoted the way CommandLineToArgvW and the C
+   library read it back (backslashes doubled before a quote and at the end, quotes escaped). 0 when it does not fit. */
+static int command_line(char *const argv[], wchar_t *out, size_t n) {
+    size_t at = 0;
+    int i;
+    for (i = 0; argv[i] != NULL; i++) {
+        wchar_t w[2048];
+        const wchar_t *s;
+        if (!utf16(argv[i], w, 2048) || at + 3 >= n) {
+            return 0;
+        }
+        if (i > 0) {
+            out[at++] = L' ';
+        }
+        out[at++] = L'"';
+        for (s = w;; s++) {
+            size_t bs = 0, k;
+            while (*s == L'\\') {
+                s++, bs++;
+            }
+            if (*s == 0 || *s == L'"') { /* backslashes before the closing quote or a quote: doubled */
+                bs = bs * 2 + (*s == L'"');
+            }
+            if (at + bs + 3 >= n) {
+                return 0;
+            }
+            for (k = 0; k < bs; k++) {
+                out[at++] = L'\\';
+            }
+            if (*s == 0) {
+                break;
+            }
+            out[at++] = *s;
+        }
+        out[at++] = L'"';
+    }
+    out[at] = 0;
+    return 1;
+}
+
+/* A process from a command line (PATH searched for the program when app is NULL), sharing this one's standard
+   handles; suspended when asked. 0, or -1. */
+static int spawn(const wchar_t *app, wchar_t *cmd, DWORD flags, LPPROC_THREAD_ATTRIBUTE_LIST attr,
+                 PROCESS_INFORMATION *pi) {
+    STARTUPINFOEXW si;
+    memset(&si, 0, sizeof si);
+    si.StartupInfo.cb = attr != NULL ? sizeof si : sizeof si.StartupInfo;
+    si.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+    si.StartupInfo.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    si.StartupInfo.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+    si.StartupInfo.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+    si.lpAttributeList = attr;
+    fflush(NULL);
+    return CreateProcessW(app, cmd, NULL, NULL, TRUE, flags | (attr != NULL ? EXTENDED_STARTUPINFO_PRESENT : 0), NULL,
+                          NULL, &si.StartupInfo, pi)
+               ? 0
+               : -1;
+}
+
+/* posix_spawnp + waitpid -> CreateProcessW (the first argument found on PATH) + WaitForSingleObject +
+   GetExitCodeProcess. (plat_speech.c's spd-say has no Windows counterpart, PLAT_LIB_SPEECHD is NULL there: speech
+   would be SAPI's ISpVoice.) */
 int PlatOs_RunWait(char *const argv[]) {
-    (void)argv;
-    return 0;
+    static wchar_t cmd[32768];
+    PROCESS_INFORMATION pi;
+    DWORD code = 1;
+    if (argv == NULL || argv[0] == NULL || !command_line(argv, cmd, sizeof cmd / sizeof cmd[0]) ||
+        spawn(NULL, cmd, 0, NULL, &pi) != 0) {
+        return 0;
+    }
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    GetExitCodeProcess(pi.hProcess, &code);
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return code == 0;
 }
 
 /* /dev/urandom -> BCryptGenRandom with the system's generator (links bcrypt) */
@@ -219,25 +292,21 @@ int PlatOs_Random(void *buf, size_t n) {
     return BCryptGenRandom(NULL, (PUCHAR)buf, (ULONG)n, BCRYPT_USE_SYSTEM_PREFERRED_RNG) == 0 ? 0 : -1;
 }
 
-/* execv("/proc/self/exe") -> _wexecv on the module's own path. Windows has no exec in place: the C library starts a new
-   process and this one exits (a console sees it end). TODO: _wexecv joins the arguments with spaces, unquoted. */
+/* execv("/proc/self/exe") -> CreateProcessW of the module's own path with argv quoted into one command line
+   (command_line; _wexecv would join the arguments unquoted), then this process ends: Windows has no exec in place, so
+   a console sees it end while the new one goes on in the same console. Returns only when the new process could not be
+   made. */
 void PlatOs_Restart(char *const argv[]) {
-    static wchar_t self[MAX_PATH * 2], args[32][1024];
-    const wchar_t *w[33];
-    int i;
+    static wchar_t self[MAX_PATH * 2], cmd[32768];
+    PROCESS_INFORMATION pi;
     DWORD k = GetModuleFileNameW(NULL, self, MAX_PATH * 2);
-    if (k == 0 || k >= MAX_PATH * 2) {
+    if (k == 0 || k >= MAX_PATH * 2 || argv == NULL || argv[0] == NULL ||
+        !command_line(argv, cmd, sizeof cmd / sizeof cmd[0]) || spawn(self, cmd, 0, NULL, &pi) != 0) {
         return;
     }
-    for (i = 0; i < 32 && argv[i] != NULL; i++) {
-        if (!utf16(argv[i], args[i], 1024)) {
-            return;
-        }
-        w[i] = args[i];
-    }
-    w[i] = NULL;
-    fflush(NULL);
-    _wexecv(self, w);
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    ExitProcess(0);
 }
 
 /* ---------------------------------------------------------------------------------------------- memory */
@@ -257,16 +326,124 @@ int PlatOs_MemCreate(const char *name, size_t size) {
     return i;
 }
 
-/* mmap(MAP_SHARED | MAP_FIXED_NOREPLACE) -> MapViewOfFileEx at the address (fails when anything is there).
-   TODO `replace` (MAP_FIXED over EE RAM): Windows cannot map over a reservation; the program must leave the range
-   free instead (the PE image linked above 0x02000000, nothing in its bss there, the heap kept away with a
-   VirtualAlloc(MEM_RESERVE) of the PS2's ranges as early as possible, released just before the views are made). */
+/* The PS2's fixed ranges plat_mem.c maps (64 KB granules, Windows' allocation granularity): EE RAM above the first
+   64 KB (which Windows never maps), the hardware registers, VU memory, the GS registers, the two views of EE RAM and
+   the scratchpad. */
+static const uintptr_t kFixed[][2] = {
+    {0x00010000u, 0x02000000u}, {0x10000000u, 0x10010000u}, {0x11000000u, 0x11010000u}, {0x12000000u, 0x12010000u},
+    {0x20000000u, 0x22000000u}, {0x30000000u, 0x32000000u}, {0x70000000u, 0x70010000u},
+};
+#define NFIXED (int)(sizeof kFixed / sizeof kFixed[0])
+#define RELAUNCH_ENV L"TTT_WIN_FIXED_RELAUNCH"
+#ifndef PROC_THREAD_ATTRIBUTE_MITIGATION_POLICY
+#define PROC_THREAD_ATTRIBUTE_MITIGATION_POLICY 0x00020007
+#endif
+#ifndef PROCESS_CREATION_MITIGATION_POLICY_BOTTOM_UP_ASLR_ALWAYS_ON
+#define PROCESS_CREATION_MITIGATION_POLICY_BOTTOM_UP_ASLR_ALWAYS_ON (0x00000001ull << 16)
+#endif
+#ifndef PROCESS_CREATION_MITIGATION_POLICY_HIGH_ENTROPY_ASLR_ALWAYS_ON
+#define PROCESS_CREATION_MITIGATION_POLICY_HIGH_ENTROPY_ASLR_ALWAYS_ON (0x00000001ull << 20)
+#endif
+
+/* Whether m is a reservation the parent made for this process (relaunch): exactly one of the fixed ranges, reserved
+   with no access. It counts as free (PlatOs_RangeTaken) and is released just before its range is mapped
+   (release_ours), so nothing else takes the range in between. */
+static int is_ours(const MEMORY_BASIC_INFORMATION *m) {
+    int i;
+    if (m->State != MEM_RESERVE || m->Type != MEM_PRIVATE || m->AllocationProtect != PAGE_NOACCESS ||
+        m->BaseAddress != m->AllocationBase) {
+        return 0;
+    }
+    for (i = 0; i < NFIXED; i++) {
+        if ((uintptr_t)m->BaseAddress == kFixed[i][0] && (uintptr_t)m->BaseAddress + m->RegionSize == kFixed[i][1]) {
+            return 1;
+        }
+    }
+    return 0;
+}
+static void release_ours(void *addr) {
+    MEMORY_BASIC_INFORMATION m;
+    if (VirtualQuery(addr, &m, sizeof m) != 0 && is_ours(&m)) {
+        VirtualFree(addr, 0, MEM_RELEASE);
+    }
+}
+
+/* The program again, in a process made with bottom-up address randomisation (high entropy) forced on: the system's
+   own allocations of a new process (its first thread's stack, the heap, the code page tables) then start at a random
+   place in a terabyte instead of the bottom of the address space, where EE RAM goes; the program's image keeps its
+   fixed address (it has no relocations and is not marked relocatable). The process is made suspended, the fixed
+   ranges still free in it are reserved for it (is_ours: released as each is mapped), and this one waits for it and
+   ends with its exit code. Returns only when it could not be made. */
+static void relaunch(void) {
+    static wchar_t self[MAX_PATH * 2];
+    DWORD64 policy = PROCESS_CREATION_MITIGATION_POLICY_BOTTOM_UP_ASLR_ALWAYS_ON |
+                     PROCESS_CREATION_MITIGATION_POLICY_HIGH_ENTROPY_ASLR_ALWAYS_ON;
+    LPPROC_THREAD_ATTRIBUTE_LIST attr = NULL;
+    SIZE_T sz = 0;
+    PROCESS_INFORMATION pi;
+    DWORD k = GetModuleFileNameW(NULL, self, MAX_PATH * 2), code = 2;
+    wchar_t *cmd = _wcsdup(GetCommandLineW());
+    int i;
+    if (k == 0 || k >= MAX_PATH * 2 || cmd == NULL) {
+        return;
+    }
+    SetEnvironmentVariableW(RELAUNCH_ENV, L"1");
+    InitializeProcThreadAttributeList(NULL, 1, 0, &sz);
+    attr = (LPPROC_THREAD_ATTRIBUTE_LIST)malloc(sz);
+    if (attr == NULL || !InitializeProcThreadAttributeList(attr, 1, 0, &sz) ||
+        !UpdateProcThreadAttribute(attr, 0, PROC_THREAD_ATTRIBUTE_MITIGATION_POLICY, &policy, sizeof policy, NULL,
+                                   NULL)) {
+        free(attr);
+        attr = NULL;
+    }
+    if (spawn(self, cmd, CREATE_SUSPENDED, attr, &pi) != 0 &&
+        (attr == NULL || spawn(self, cmd, CREATE_SUSPENDED, NULL, &pi) != 0)) { /* (a system without the policy) */
+        SetEnvironmentVariableW(RELAUNCH_ENV, NULL);
+        return;
+    }
+    for (i = 0; i < NFIXED; i++) {
+        VirtualAllocEx(pi.hProcess, (void *)kFixed[i][0], kFixed[i][1] - kFixed[i][0], MEM_RESERVE, PAGE_NOACCESS);
+    }
+    ResumeThread(pi.hThread);
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    GetExitCodeProcess(pi.hProcess, &code);
+    ExitProcess(code);
+}
+
+/* Windows cannot map a view over memory in use (Linux's MAP_FIXED over EE RAM, `replace` below), and a process starts
+   with its first stack, its heap and the code page tables at the bottom of its address space, inside EE RAM. So,
+   before the first map, the fixed ranges are checked (a reservation the parent made counts as free); when anything
+   else is there, the program runs again in a process that keeps the bottom free (relaunch, once: the variable
+   RELAUNCH_ENV marks the second; TTT_NO_RELAUNCH=1 never). If even that one finds a range taken, plat_mem.c's
+   check or map fails with its message. */
+void PlatOs_MemPrepare(void) {
+    static int done;
+    char what[256];
+    int i, taken = 0, again = GetEnvironmentVariableW(RELAUNCH_ENV, NULL, 0) != 0;
+    if (done++) {
+        return;
+    }
+    for (i = 0; i < NFIXED; i++) {
+        taken |= PlatOs_RangeTaken(kFixed[i][0], kFixed[i][1], 0, 0, what, sizeof what);
+    }
+    if (again) {
+        SetEnvironmentVariableW(RELAUNCH_ENV, NULL); /* (not passed on to what this program starts) */
+    }
+    if (taken && !again && getenv("TTT_NO_RELAUNCH") == NULL) {
+        relaunch();
+    }
+}
+
+/* mmap(MAP_SHARED | MAP_FIXED[_NOREPLACE]) -> MapViewOfFileEx at the address, which fails when anything is there:
+   `replace` (Linux maps EE RAM over whatever the program had in the range) is honoured by PlatOs_MemPrepare having
+   made the ranges free beforehand. The address and the offset are multiples of 64 KB. */
 int PlatOs_MapView(int mem, void *addr, size_t off, size_t size, int replace) {
     void *p;
     (void)replace;
     if (mem < 0 || mem >= 4 || sSections[mem] == NULL) {
         return -1;
     }
+    release_ours(addr);
     p = MapViewOfFileEx(sSections[mem], FILE_MAP_ALL_ACCESS, (DWORD)((unsigned long long)off >> 32), (DWORD)off, size,
                         addr);
     return p == addr ? 0 : -1;
@@ -275,6 +452,7 @@ int PlatOs_MapView(int mem, void *addr, size_t off, size_t size, int replace) {
 /* mmap(MAP_ANONYMOUS | MAP_FIXED_NOREPLACE) -> VirtualAlloc(addr, MEM_RESERVE | MEM_COMMIT) (fails when taken; the
    address must be 64 KB aligned: the allocation granularity) */
 int PlatOs_MapFixed(void *addr, size_t size) {
+    release_ours(addr);
     return VirtualAlloc(addr, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE) == addr ? 0 : -1;
 }
 
@@ -282,7 +460,8 @@ void *PlatOs_MapPages(size_t size, int rw) {
     return VirtualAlloc(NULL, size, MEM_RESERVE | MEM_COMMIT, rw ? PAGE_READWRITE : PAGE_NOACCESS);
 }
 
-/* /proc/self/maps -> VirtualQuery over [lo, hi): any region not MEM_FREE outside [keep_lo, keep_hi) */
+/* /proc/self/maps -> VirtualQuery over [lo, hi): any region not MEM_FREE outside [keep_lo, keep_hi), but for a fixed
+   range's reservation of ours (is_ours) */
 int PlatOs_RangeTaken(uintptr_t lo, uintptr_t hi, uintptr_t keep_lo, uintptr_t keep_hi, char *what, size_t n) {
     uintptr_t a = lo;
     while (a < hi) {
@@ -292,7 +471,7 @@ int PlatOs_RangeTaken(uintptr_t lo, uintptr_t hi, uintptr_t keep_lo, uintptr_t k
             return 0;
         }
         b = (uintptr_t)m.BaseAddress + m.RegionSize;
-        if (m.State != MEM_FREE && ((uintptr_t)m.BaseAddress < keep_lo || b > keep_hi)) {
+        if (m.State != MEM_FREE && ((uintptr_t)m.BaseAddress < keep_lo || b > keep_hi) && !is_ours(&m)) {
             snprintf(what, n, "%p-%p state 0x%lx type 0x%lx\n", m.BaseAddress, (void *)b, (unsigned long)m.State,
                      (unsigned long)m.Type);
             return 1;
@@ -304,14 +483,21 @@ int PlatOs_RangeTaken(uintptr_t lo, uintptr_t hi, uintptr_t keep_lo, uintptr_t k
 
 /* ---------------------------------------------------------------------------------------------- crash handling */
 
-/* sigaction + sigaltstack -> AddVectoredExceptionHandler. No alternate stack on Windows: a stack overflow
-   (EXCEPTION_STACK_OVERFLOW) still runs the handler on the guard page's reserve (SetThreadStackGuarantee(alt_stack)
-   on each thread raises it). The exception code becomes the POSIX signal the report names; SA_RESETHAND: the handler
-   reports once and returns EXCEPTION_CONTINUE_SEARCH (the default: the process ends). Raised signals (abort, raise):
-   signal(SIGABRT, ...) TODO. */
+/* sigaction + sigaltstack -> AddVectoredExceptionHandler. No alternate stack on Windows: the handler runs on the
+   failing thread's stack (EE RAM for the game's thread), and after a stack overflow (EXCEPTION_STACK_OVERFLOW) on the
+   reserve SetThreadStackGuarantee(alt_stack) keeps (the calling thread's). The exception code becomes the POSIX signal
+   the report names; SA_RESETHAND: the handler reports once and returns EXCEPTION_CONTINUE_SEARCH (the default
+   follows: the process ends). A fault whose stack pointer itself is unusable (TTT_CRASH_TEST=stack) cannot be
+   reported: Windows ends the process before any handler runs.
+   Raised signals: abort() raises SIGABRT, which the C library delivers to signal()'s handler (on_raised), reset to the
+   default before it runs; abort then ends the process (exit code 3). The C library has no SIGBUS (raise(SIGBUS) fails
+   and returns), and SIGSEGV / SIGILL / SIGFPE raised by raise() are not hooked: mingw-w64's start-up code would call
+   the same handlers for faults the vectored handler has reported already. */
+#define MAX_SIGS 16
 static PlatOsFaultFn sFaultFn;
-static const int *sSigs;
-static int sSigN, sFired;
+static int sSigs[MAX_SIGS];
+static int sSigN;
+static volatile LONG sFired;
 
 static int win_sig(DWORD code) {
     switch (code) {
@@ -333,17 +519,23 @@ static int win_sig(DWORD code) {
     }
 }
 
-static LONG CALLBACK on_exception(EXCEPTION_POINTERS *e) {
+/* Whether pc lies in the program's own image (its code: the game's and the port's). */
+static int in_image(uintptr_t pc) {
+    const uint8_t *base = (const uint8_t *)GetModuleHandleW(NULL);
+    const IMAGE_NT_HEADERS *nt = (const IMAGE_NT_HEADERS *)(base + ((const IMAGE_DOS_HEADER *)base)->e_lfanew);
+    return pc - (uintptr_t)base < nt->OptionalHeader.SizeOfImage;
+}
+
+static LONG report(EXCEPTION_POINTERS *e) {
     const CONTEXT *c = e->ContextRecord;
     PlatOsFault f;
     int sig = win_sig(e->ExceptionRecord->ExceptionCode), i, ours = 0;
     for (i = 0; i < sSigN; i++) {
         ours |= sSigs[i] == sig;
     }
-    if (!ours || sFired) {
+    if (!ours || InterlockedExchange(&sFired, 1) != 0) {
         return EXCEPTION_CONTINUE_SEARCH;
     }
-    sFired = 1;
     memset(&f, 0, sizeof f);
     f.sig = sig;
     f.code = 1;
@@ -357,12 +549,51 @@ static LONG CALLBACK on_exception(EXCEPTION_POINTERS *e) {
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
+/* First chance, before any frame's handler: a fault in the program's own code. That is the game's thread on the EE
+   stack too, where no frame-based handler would be found (Windows unwinds only through stacks it knows). A fault in a
+   system library is left to its own handlers first (a graphics driver may handle one it expects) and reported by
+   on_unhandled when nobody does. */
+static LONG CALLBACK on_exception(EXCEPTION_POINTERS *e) {
+    return in_image((uintptr_t)e->ExceptionRecord->ExceptionAddress) ? report(e) : EXCEPTION_CONTINUE_SEARCH;
+}
+static LPTOP_LEVEL_EXCEPTION_FILTER sPrevFilter;
+static LONG WINAPI on_unhandled(EXCEPTION_POINTERS *e) {
+    report(e);
+    return sPrevFilter != NULL ? sPrevFilter(e) : EXCEPTION_CONTINUE_SEARCH;
+}
+
+/* signal()'s handler of a raised signal: the registers are those of this handler (the raise point's are not kept),
+   no address. */
+static void on_raised(int sig) {
+    CONTEXT c;
+    PlatOsFault f;
+    if (InterlockedExchange(&sFired, 1) != 0) {
+        return;
+    }
+    RtlCaptureContext(&c);
+    memset(&f, 0, sizeof f);
+    f.sig = sig;
+    f.code = 0;
+    f.pc = (uintptr_t)c.Rip, f.sp = (uintptr_t)c.Rsp, f.fp = (uintptr_t)c.Rbp, f.flags = c.EFlags;
+    f.ax = c.Rax, f.bx = c.Rbx, f.cx = c.Rcx, f.dx = c.Rdx, f.si = c.Rsi, f.di = c.Rdi;
+    f.r[0] = c.R8, f.r[1] = c.R9, f.r[2] = c.R10, f.r[3] = c.R11;
+    f.r[4] = c.R12, f.r[5] = c.R13, f.r[6] = c.R14, f.r[7] = c.R15;
+    sFaultFn(&f);
+}
+
 int PlatOs_CrashHooks(const int *sigs, int n, PlatOsFaultFn fn, size_t alt_stack) {
     ULONG guarantee = (ULONG)alt_stack;
+    int i;
     sFaultFn = fn;
-    sSigs = sigs; /* (the caller's array: TODO copy it) */
-    sSigN = n;
+    sSigN = n < MAX_SIGS ? n : MAX_SIGS;
+    for (i = 0; i < sSigN; i++) { /* (a copy: the caller's array may be on its stack) */
+        sSigs[i] = sigs[i];
+        if (sigs[i] == SIGABRT) {
+            signal(SIGABRT, on_raised);
+        }
+    }
     AddVectoredExceptionHandler(1, on_exception);
+    sPrevFilter = SetUnhandledExceptionFilter(on_unhandled);
     return SetThreadStackGuarantee(&guarantee) ? 0 : -1;
 }
 
@@ -374,11 +605,11 @@ int PlatOs_ReadMemory(void *dst, uintptr_t src, size_t n) {
 
 /* ---------------------------------------------------------------------------------------------- page tracking */
 
-/* userfaultfd + PAGEMAP_SCAN -> GetWriteWatch / ResetWriteWatch, which only work on memory allocated with
-   VirtualAlloc(MEM_WRITE_WATCH): not on file mapping views (EE RAM's three views) nor on the program's bss. TODO b7:
-   allocate the tracked regions that way where possible; until then tracking is off and every save is a whole copy
-   (plat_state.c's fallback, as on a Linux older than 6.7). */
-const char *PlatOs_DirtyOpen(void) { return "no write tracking on Windows yet (GetWriteWatch: T42 b7)"; }
+/* userfaultfd + PAGEMAP_SCAN -> none: GetWriteWatch / ResetWriteWatch work only on memory allocated with
+   VirtualAlloc(MEM_WRITE_WATCH), and the regions a state holds are file mapping views (EE RAM, aliased at 0x20000000
+   and 0x30000000) and the program's own bss, which cannot be allocated that way. So tracking is off and each save is
+   a whole copy (plat_state.c's fallback, as on a Linux older than 6.7): the same states, rollback slower. */
+const char *PlatOs_DirtyOpen(void) { return "no write tracking on Windows (whole copies)"; }
 void PlatOs_DirtyClose(void) {}
 int PlatOs_DirtyAdd(uintptr_t a, size_t n) {
     (void)a, (void)n;
@@ -395,18 +626,101 @@ void PlatOs_KernelWrite(void *p) { /* clock_gettime by the kernel -> ReadFile in
 
 /* ---------------------------------------------------------------------------------------------- the program's image */
 
-/* /proc/self/exe as ELF -> the PE image in memory (GetModuleHandleW(NULL)): its sections as the segments, and the COFF
-   symbol table mingw's ld keeps unless stripped (PointerToSymbolTable in the file: read the file through
-   PlatOs_ExePath). TODO: the symbols; the crash report's names come from ttt.syms, which link.py writes either way. */
+/* /proc/self/exe as ELF -> the PE image in memory (GetModuleHandleW(NULL)): its sections as the segments; and the COFF
+   symbol table GNU ld keeps in the file unless it is stripped (FileHeader.PointerToSymbolTable, 18-byte records, the
+   string table after them), read once from the program's file and kept (the names stay valid). A symbol's value is
+   its offset in its section (1-based number; the image base and the section's address are added) or, for section
+   -1, an absolute address (the game's data names in EE RAM, link.py). The crash report's names come from ttt.exe.syms,
+   which link.py writes as on Linux. */
+static uint8_t *sPe;
+static size_t sPeSize;
+static char *sPeNames; /* the short (8-byte, unterminated) names, each copied with a terminator */
+static int sPeState;   /* 0 not read, 1 read, -1 unreadable */
+
+static uint32_t rd32(const uint8_t *p) { return p[0] | p[1] << 8 | p[2] << 16 | (uint32_t)p[3] << 24; }
+static uint32_t rd16(const uint8_t *p) { return p[0] | p[1] << 8; }
+
+static int pe_read(void) {
+    wchar_t w[MAX_PATH * 2];
+    FILE *f;
+    long n;
+    DWORD k;
+    if (sPeState != 0) {
+        return sPeState;
+    }
+    sPeState = -1;
+    k = GetModuleFileNameW(NULL, w, MAX_PATH * 2);
+    if (k == 0 || k >= MAX_PATH * 2 || (f = _wfopen(w, L"rb")) == NULL) {
+        return -1;
+    }
+    fseek(f, 0, SEEK_END);
+    n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    sPe = n > 0x40 ? malloc((size_t)n) : NULL;
+    if (sPe == NULL || fread(sPe, 1, (size_t)n, f) != (size_t)n || sPe[0] != 'M' || sPe[1] != 'Z' ||
+        rd32(sPe + 0x3C) + 24u > (uint32_t)n || memcmp(sPe + rd32(sPe + 0x3C), "PE\0\0", 4) != 0) {
+        fclose(f);
+        return -1;
+    }
+    fclose(f);
+    sPeSize = (size_t)n;
+    sPeState = 1;
+    return 1;
+}
+
 int PlatOs_SelfImage(void (*seg)(void *ctx, uint32_t va, uint32_t size),
                      void (*sym)(void *ctx, const char *name, uint32_t value, int type), void *ctx) {
     const uint8_t *base = (const uint8_t *)GetModuleHandleW(NULL);
     const IMAGE_NT_HEADERS *nt = (const IMAGE_NT_HEADERS *)(base + ((const IMAGE_DOS_HEADER *)base)->e_lfanew);
     const IMAGE_SECTION_HEADER *s = IMAGE_FIRST_SECTION(nt);
-    unsigned i;
-    (void)sym;
+    const uint8_t *fh, *tab;
+    const char *str;
+    uint32_t nsec, nsym, symoff, i;
+    char *names;
     for (i = 0; i < nt->FileHeader.NumberOfSections && seg != NULL; i++) {
-        seg(ctx, (uint32_t)(uintptr_t)(base + s[i].VirtualAddress), s[i].Misc.VirtualSize);
+        if (!(s[i].Characteristics & IMAGE_SCN_MEM_DISCARDABLE)) { /* (not the debugging sections after the program) */
+            seg(ctx, (uint32_t)(uintptr_t)(base + s[i].VirtualAddress), s[i].Misc.VirtualSize);
+        }
+    }
+    if (sym == NULL) {
+        return 0;
+    }
+    if (pe_read() < 0) {
+        return -1;
+    }
+    fh = sPe + rd32(sPe + 0x3C) + 4; /* IMAGE_FILE_HEADER */
+    nsec = rd16(fh + 2);
+    symoff = rd32(fh + 8);
+    nsym = rd32(fh + 12);
+    if (symoff == 0 || nsym == 0 || symoff + (uint64_t)nsym * 18 + 4 > sPeSize) {
+        return 0; /* stripped */
+    }
+    tab = sPe + symoff;
+    str = (const char *)tab + nsym * 18;
+    if (sPeNames == NULL && (sPeNames = calloc(nsym, 9)) == NULL) {
+        return -1;
+    }
+    names = sPeNames;
+    for (i = 0; i < nsym; i += 1 + tab[i * 18 + 17]) {
+        const uint8_t *r = tab + i * 18;
+        int16_t secn = (int16_t)rd16(r + 12);
+        uint32_t v = rd32(r + 8), type = rd16(r + 14);
+        const char *name;
+        if (r[16] != IMAGE_SYM_CLASS_EXTERNAL && r[16] != IMAGE_SYM_CLASS_STATIC) {
+            continue;
+        }
+        if (rd32(r) == 0) {
+            name = str + rd32(r + 4);
+        } else {
+            memcpy(names + i * 9, r, 8);
+            name = names + i * 9;
+        }
+        if (secn > 0 && (uint32_t)secn <= nsec) {
+            v += (uint32_t)(uintptr_t)base + s[secn - 1].VirtualAddress;
+        } else if (secn != IMAGE_SYM_ABSOLUTE) {
+            continue; /* undefined or debugging */
+        }
+        sym(ctx, name, v, (type >> 4) == IMAGE_SYM_DTYPE_FUNCTION ? PLAT_SYM_FUNC : PLAT_SYM_NOTYPE);
     }
     return 0;
 }
@@ -422,6 +736,27 @@ int PlatOs_NetInit(void) { /* WSAStartup once */
     return done > 0 ? 0 : -1;
 }
 
+/* socket -> socket, made non-blocking (ioctlsocket FIONBIO: Winsock has no MSG_DONTWAIT, PLAT_MSG_DONTWAIT is 0), and
+   a datagram socket keeps receiving after an ICMP "port unreachable" (SIO_UDP_CONNRESET off; Windows would fail the
+   next receive with WSAECONNRESET). */
+PlatOsSock PlatOs_Socket(int family, int type) {
+    SOCKET s = socket(family, type, 0);
+    u_long on = 1;
+    BOOL off = FALSE;
+    DWORD got = 0;
+    if (s == INVALID_SOCKET) {
+        return s;
+    }
+    if (ioctlsocket(s, FIONBIO, &on) != 0) {
+        closesocket(s);
+        return INVALID_SOCKET;
+    }
+    if (type == SOCK_DGRAM) {
+        WSAIoctl(s, SIO_UDP_CONNRESET, &off, sizeof off, NULL, 0, &got, NULL, NULL);
+    }
+    return s;
+}
+
 void PlatOs_SockClose(PlatOsSock s) { closesocket(s); } /* close -> closesocket */
 
 void PlatOs_SockWait(PlatOsSock s, int ms) { /* poll -> WSAPoll */
@@ -430,6 +765,23 @@ void PlatOs_SockWait(PlatOsSock s, int ms) { /* poll -> WSAPoll */
     pf.events = POLLRDNORM;
     pf.revents = 0;
     WSAPoll(&pf, 1, ms);
+}
+/* ---------------------------------------------------------------------------------------------- the game's stack */
+
+/* The thread's stack bounds (NT_TIB StackBase / StackLimit in its TEB) widened to cover every stack the game's thread
+   uses from here on: the EE stack in EE RAM (0x01FFFF00 down), the service stacks in the program's bss (plat_state.c)
+   and whatever it had. Windows' code compares the stack pointer with them: the system libraries' __chkstk walks
+   down page by page from StackLimit to a new frame below it (from the host stack to EE RAM: through unmapped memory),
+   and exception dispatch stops at a frame outside them. (mingw-w64's own ___chkstk_ms touches pages from the stack
+   pointer and needs nothing.) Called once on the main thread just before it moves to the EE stack for good. */
+void PlatOs_StackWide(void) {
+    NT_TIB *tib = (NT_TIB *)NtCurrentTeb();
+    if ((uintptr_t)tib->StackLimit > 0x00010000u) {
+        tib->StackLimit = (PVOID)(uintptr_t)0x00010000u;
+    }
+    if ((uintptr_t)tib->StackBase < 0x100000000ull) {
+        tib->StackBase = (PVOID)(uintptr_t)0x100000000ull;
+    }
 }
 #else
 typedef int plat_os_win32_unused; /* (Linux: plat_os_posix.c) */

@@ -205,6 +205,9 @@ typedef int PlatOsSock;
 #define PLAT_SOCK_NONE (-1)
 #define PLAT_MSG_DONTWAIT MSG_DONTWAIT
 static inline int PlatOs_NetInit(void) { return 0; }
+/* A datagram socket whose receives never wait (POSIX: per call, PLAT_MSG_DONTWAIT). A macro: the call stays the
+   caller's, after its own PORT_NOPLT(socket) (clang's asm labels must precede a function's first use). */
+#define PlatOs_Socket(family, type) socket((family), (type), 0)
 static inline void PlatOs_SockClose(PlatOsSock s) { close(s); }
 static inline void PlatOs_SockWait(PlatOsSock s, int ms) {
     struct pollfd pf;
@@ -220,8 +223,25 @@ static inline void PlatOs_SockWait(PlatOsSock s, int ms) {
 #include <io.h>
 #include <process.h>
 #include <signal.h>
+/* Winsock brings windows.h: only its core here (no user interface, GDI or min / max macros), whose names would meet the
+   port's (winuser.h's SB_LEFT against plat_settings.h's). minwindef.h's empty IN / OUT / OPTIONAL go too (ee_diff.c
+   has an OUT). */
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#define NOUSER
+#define NOGDI
+#define NOSERVICE
+#define NOMCX
+#define NOIME
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#undef IN
+#undef OUT
+#undef OPTIONAL
 
 #ifndef SIGBUS
 #define SIGBUS 10 /* (not raised on Windows; the crash report's table and its test name it) */
@@ -260,8 +280,15 @@ typedef SOCKET PlatOsSock;
 #define PLAT_SOCK_NONE INVALID_SOCKET
 #define PLAT_MSG_DONTWAIT 0 /* (the socket is made non-blocking instead: ioctlsocket FIONBIO) */
 int PlatOs_NetInit(void);
+PlatOsSock PlatOs_Socket(int family, int type);
 void PlatOs_SockClose(PlatOsSock s);
 void PlatOs_SockWait(PlatOsSock s, int ms);
+/* Windows only. MemPrepare (plat_mem.c, first thing): makes the PS2's fixed ranges free for plat_mem.c's maps (what the
+   system put there before the program ran: the program is started again in a process whose system allocations go
+   elsewhere). StackWide (plat_main.c, before the EE stack): the thread's stack bounds in its TEB cover every stack
+   below 4 GB. */
+void PlatOs_MemPrepare(void);
+void PlatOs_StackWide(void);
 #endif
 
 #ifdef __cplusplus

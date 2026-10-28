@@ -135,6 +135,8 @@ Players: [install.md](install.md) (the setup screen, `ttt --setup <disc>`, where
 - Since T42 b5 the default build is the x86-64 program through clang (`TTT_CC=clang64`, [64-bit](#64-bit)), at
   `build/port/ttt`; the 32-bit gcc build, the default until then, is `TTT_CC=gcc` (`build/port-gcc/ttt`). The three
   builds give the same state hashes, pictures and sound.
+- `TTT_CC=win64` (T42 b7, [windows.md](windows.md)): the x86-64 program for Windows, cross-built on Linux with clang
+  and mingw-w64 into `build/port-win64/ttt.exe`. It compiles and links; it has not been run yet (no Windows, no Wine).
 
 ## Build
 
@@ -144,6 +146,7 @@ build/port/ttt                                # real time, in a window (needs SD
 TTT_FRAMES=600 build/port/ttt                 # headless, 600 VBlanks, then a report
 TTT_CC=gcc python3 port/tools/build.py        # the 32-bit program through gcc -> build/port-gcc/ttt
 TTT_CC=clang python3 port/tools/build.py      # the 32-bit program through clang -> build/port-clang/ttt (gotcha 32)
+TTT_CC=win64 python3 port/tools/build.py      # Windows x86-64 (clang + mingw-w64) -> build/port-win64/ttt.exe
 ```
 
 Needs clang and llc (LLVM 23 here) and libclang's Python bindings (`clang.cindex`, for `ptr32.py`): [64-bit](#64-bit).
@@ -287,7 +290,7 @@ wait loops drive the hardware.
 | `plat_data.c` | The game's initialised data from the disc into EE RAM at start, through the data file `ttt.dat`; the disc's SHA-1 checks, the refusal of a modified disc, the background check of `TEKKEN.BIN` and the `[modified game data]` state ([data.md](data.md)) |
 | `plat_setup.c` | The setup (T43, [install.md](install.md)): `ttt --setup <disc>` without a window, else the setup screen (overlay.cpp) when the game's data could not be loaded, the disc checked on the host thread while the window thread draws; the built-in browser's listing; `game.disc` remembered |
 | `plat_paths.c` | Where the player's files go: portable (`portable.txt` beside the program), a checkout (`build/port/ttt`: as before), else `$XDG_DATA_HOME/ttt` for `ttt.dat`, `saves/`, `textures/` (Windows: `%LOCALAPPDATA%`, `%APPDATA%`); the settings file's per-user folder (`Port_UserDir`) |
-| `plat_os.h` / `plat_os_posix.c` / `plat_os_win32.c` | The operating system under all of it (T42 b6, [windows.md](windows.md)): fixed-address memory, crash handlers, page tracking, the program's path and image, the command line, files and folders, shared libraries, child processes, socket set-up. Linux: inline calls in the header (each keeps its file's PLT / GOT discipline) and `plat_os_posix.c`; Windows: the skeleton for b7 |
+| `plat_os.h` / `plat_os_posix.c` / `plat_os_win32.c` | The operating system under all of it (T42 b6, [windows.md](windows.md)): fixed-address memory, crash handlers, page tracking, the program's path and image, the command line, files and folders, shared libraries, child processes, socket set-up. Linux: inline calls in the header (each keeps its file's PLT / GOT discipline) and `plat_os_posix.c`; Windows: `plat_os_win32.c` (b7: built, not run yet) |
 | `plat_file.c` | The disc (`TTT_DISC` / `game.disc`: a folder with `TEKKEN.BIN`, names in any case, or an image: `.iso`, raw `.bin` / `.cue`; without it the program stops at the first read, exit code 2) and `sceSdRemote`: RSPU2DRV's file reads (0x204E / 0x2045), status (0x2030), the sound commands passed to `plat_snd.c`, the movie stream's arguments (0x2058) |
 | `spu2.c` | The SPU2 model: 2 MB sound RAM, 2 x 24 voices, PS-ADPCM, pitch, ADSR, the 48 kHz mix, `TTT_SELFTEST=spu` ([sound.md](sound.md)) |
 | `plat_snd.c` | libspu2's commands of RSPU2DRV on the model, the per-VBlank mix, `TTT_WAV`, the ring to the window's audio ([sound.md](sound.md)) |
@@ -1318,7 +1321,7 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
 the scripted fight into exactly the gcc build's state (`0x8ba37caeb2bacfa8` / `0xcce5eb554fa51395`, every region hash
 and every picture alike), passes all fifteen self-tests, the TTT_DIFF skeleton check (all nine hooks `same`) and the
 whole test suite, and writes crash reports. Windows: the operating system layer is b6 ([windows.md](windows.md)),
-the mingw-w64 build b7.
+the mingw-w64 build b7 (`TTT_CC=win64`: builds and links, not run yet).
 
 How (the approach of the Tenkaichi 3 decompilation's port, whose `ptr32.py` and `irfix.py` are adapted here):
 
@@ -1419,8 +1422,9 @@ the host float allow-list (`toolchain.host_float_objects`). New C library calls 
 must come before `plat_os.h`'s inline functions first call them. The matchmaking server (`port/server`,
 `build_server.py`) is an ordinary separate program.
 
-So the 64-bit program became the default (T42 b5). Left: Windows (b6, the operating system layer, is done:
-[windows.md](windows.md); b7, the mingw-w64 build); m2c drafts elsewhere that treat
+So the 64-bit program became the default (T42 b5). Left: Windows (b6, the operating system layer, and b7, the
+mingw-w64 build, are done but the program has not run on Windows or Wine yet: [windows.md](windows.md)); m2c drafts
+elsewhere that treat
 neighbouring scalar locals as one array (`menu_bg.c` `func_003E1C68` / `func_003E38F0`: their pictures depend on the
 compiler's frame layout in every build).
 

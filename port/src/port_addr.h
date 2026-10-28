@@ -58,12 +58,18 @@ static inline uint32_t port_addr_checked(uintptr_t p) {
    width: `T *PORT_GPTR field` (clang's `__ptr32 __uptr` there, -fms-extensions: a 4-byte pointer, zero-extended when
    read; nothing in the 32-bit build). */
 #if defined(__x86_64__)
+#if defined(_WIN32)
+/* (Windows, TTT_CC=win64: mingw-w64's _mingw.h, brought in by stdint.h above, defines __ptr32 away for compilers
+   without Microsoft's keyword; clang has it with -fms-extensions. Every later _mingw.h is skipped by its guard.) */
+#undef __ptr32
+#endif
 #define PORT_GPTR __ptr32 __uptr
 #else
 #define PORT_GPTR
 #endif
 #if defined(__x86_64__)
 typedef char port_addr_host_is_64_bit[sizeof(void *) == 8 ? 1 : -1];
+typedef char port_addr_gptr_is_4_bytes[sizeof(char *PORT_GPTR) == 4 ? 1 : -1];
 #else
 typedef char port_addr_pointer_is_4_bytes[sizeof(void *) == 4 ? 1 : -1];
 #endif

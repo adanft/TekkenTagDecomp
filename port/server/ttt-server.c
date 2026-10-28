@@ -16,23 +16,41 @@
  *     that asks; the game checks the signature itself.
  *
  * Build: python3 port/tools/build_server.py (any C99 compiler on Linux, macOS or the BSDs: cc -O2 -o ttt-server
- * ttt-server.c). Run: ttt-server [--listen 127.0.0.1:7100] (--help for the rest).
+ * ttt-server.c; Windows: build_server.py --win64 cross-builds ttt-server.exe with mingw-w64). Run: ttt-server
+ * [--listen 127.0.0.1:7100] (--help for the rest).
  */
 #define _GNU_SOURCE
+#ifdef _WIN32
+/* Windows (T42 b7): Winsock 2 (WSAPoll for poll; the socket made non-blocking, Winsock having no MSG_DONTWAIT), the
+   system's random generator, the performance counter for the clock. */
+#define WIN32_LEAN_AND_MEAN
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <mswsock.h>
+#include <windows.h>
+#include <bcrypt.h>
+typedef SOCKET Sock;
+#define SOCK_NONE INVALID_SOCKET
+#define poll WSAPoll
+#define MSG_DONTWAIT 0
+#else
 #include <arpa/inet.h>
-#include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <poll.h>
+#include <sys/socket.h>
+#include <unistd.h>
+typedef int Sock;
+#define SOCK_NONE (-1)
+#endif
+#include <errno.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
 #include <time.h>
-#include <unistd.h>
 #include "ttt_match_proto.h"
 
 typedef struct {
@@ -67,7 +85,7 @@ static struct {
 
 static Waiter *sWait;
 static Pair *sPair;
-static int sSock = -1;
+static Sock sSock = SOCK_NONE;
 static uint8_t sManifest[MS_MANIFEST_MAX];
 static uint32_t sManifestLen;
 static volatile sig_atomic_t sStop;
@@ -76,9 +94,17 @@ static uint64_t sStatPairs, sStatRelayed, sStatRefused;
 /* ---------------------------------------------------------------------------------------------- little helpers */
 
 static uint64_t now_ns(void) {
+#ifdef _WIN32
+    LARGE_INTEGER c, f;
+    QueryPerformanceCounter(&c);
+    QueryPerformanceFrequency(&f);
+    return (uint64_t)(c.QuadPart / f.QuadPart) * 1000000000ull +
+           (uint64_t)(c.QuadPart % f.QuadPart) * 1000000000ull / (uint64_t)f.QuadPart;
+#else
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
+#endif
 }
 
 static void put16(uint8_t *p, uint32_t v) {
@@ -94,6 +120,12 @@ static uint64_t get64(const uint8_t *p) { return get32(p) | (uint64_t)get32(p + 
 
 /* Random bytes from the system (codes and session ids: not guessable from outside). */
 static void random_bytes(void *p, size_t n) {
+#ifdef _WIN32
+    if (BCryptGenRandom(NULL, (PUCHAR)p, (ULONG)n, BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0) {
+        fprintf(stderr, "ttt-server: no randomness (BCryptGenRandom)\n");
+        exit(1);
+    }
+#else
     static int fd = -1;
     size_t got = 0;
     if (fd < 0) {
@@ -110,6 +142,7 @@ static void random_bytes(void *p, size_t n) {
         fprintf(stderr, "ttt-server: no randomness (/dev/urandom)\n");
         exit(1);
     }
+#endif
 }
 
 static int addr_eq(const Addr *x, const struct sockaddr_storage *a, socklen_t len) {
@@ -169,7 +202,7 @@ static void clean_name(char *out, const uint8_t *in) {
 }
 
 static void sendto_addr(const Addr *to, const uint8_t *p, size_t n) {
-    if (sendto(sSock, p, n, 0, (const struct sockaddr *)&to->a, to->len) < 0 && sOpt.verbose) {
+    if (sendto(sSock, (const char *)p, n, 0, (const struct sockaddr *)&to->a, to->len) < 0 && sOpt.verbose) {
         fprintf(stderr, "ttt-server: send: %s\n", strerror(errno));
     }
 }
@@ -646,11 +679,32 @@ int main(int argc, char **argv) {
         fprintf(stderr, "ttt-server: --listen wants <numeric addr>:<port> or [<IPv6>]:<port>\n");
         return 2;
     }
+#ifdef _WIN32
+    {
+        WSADATA w;
+        u_long on = 1;
+        BOOL off = FALSE;
+        DWORD got = 0;
+        if (WSAStartup(MAKEWORD(2, 2), &w) != 0) {
+            fprintf(stderr, "ttt-server: no sockets (WSAStartup)\n");
+            return 2;
+        }
+        sSock = socket(la.ss_family, SOCK_DGRAM, 0);
+        if (sSock == SOCK_NONE || bind(sSock, (struct sockaddr *)&la, ll) != 0 ||
+            ioctlsocket(sSock, FIONBIO, &on) != 0) {
+            fprintf(stderr, "ttt-server: cannot listen on %s: Winsock error %d\n", sOpt.listen, WSAGetLastError());
+            return 2;
+        }
+        /* (an ICMP "port unreachable" from a gone game would fail the next receive: WSAECONNRESET) */
+        WSAIoctl(sSock, SIO_UDP_CONNRESET, &off, sizeof off, NULL, 0, &got, NULL, NULL);
+    }
+#else
     sSock = socket(la.ss_family, SOCK_DGRAM, 0);
-    if (sSock < 0 || bind(sSock, (struct sockaddr *)&la, ll) != 0) {
+    if (sSock == SOCK_NONE || bind(sSock, (struct sockaddr *)&la, ll) != 0) {
         fprintf(stderr, "ttt-server: cannot listen on %s: %s\n", sOpt.listen, strerror(errno));
         return 2;
     }
+#endif
     ll = sizeof la;
     getsockname(sSock, (struct sockaddr *)&la, &ll);
     addr_text(&la, text, sizeof text);
@@ -669,7 +723,7 @@ int main(int argc, char **argv) {
         for (;;) {
             struct sockaddr_storage from;
             socklen_t fl = sizeof from;
-            ssize_t n = recvfrom(sSock, p, sizeof p, MSG_DONTWAIT, (struct sockaddr *)&from, &fl);
+            long n = (long)recvfrom(sSock, (char *)p, sizeof p, MSG_DONTWAIT, (struct sockaddr *)&from, &fl);
             if (n < 0) {
                 break;
             }

@@ -9,22 +9,25 @@ executable). The game keeps addresses in 4-byte fields. Three variants, the same
 - TTT_CC=gcc: the 32-bit x86 program with the host gcc (the default before T42 b5), build/port-gcc/ttt.
 - TTT_CC=clang: the same 32-bit program through clang, build/port-clang/ttt. Every C file of the program is clang's
   (the game, port/src, newlib's libm, the MPEG-2 decoder, the generated tables and stubs), the C++ overlay clang++'s,
-  and clang drives the link (docs/port/README.md gotcha 32)."""
+  and clang drives the link (docs/port/README.md gotcha 32).
+- TTT_CC=win64 (T42 b7, docs/port/windows.md): the clang64 program for 64-bit Windows, cross-built with clang
+  (--target=x86_64-w64-mingw32) and mingw-w64's binutils, C library headers and linker, build/port-win64/ttt.exe."""
 import os
 import pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-VARIANTS = ("clang64", "gcc", "clang")
+VARIANTS = ("clang64", "gcc", "clang", "win64")
 VARIANT = os.environ.get("TTT_CC") or "clang64"
 if VARIANT not in VARIANTS:
     raise SystemExit(f"TTT_CC={VARIANT}: one of {', '.join(VARIANTS)} (default clang64)")
-CLANG = VARIANT in ("clang", "clang64")   # every C file through clang, the C++ through clang++
-BITS64 = VARIANT == "clang64"            # an x86-64 program with 4-byte game pointers
+CLANG = VARIANT in ("clang", "clang64", "win64")  # every C file through clang, the C++ through clang++
+BITS64 = VARIANT in ("clang64", "win64")  # an x86-64 program with 4-byte game pointers
+WIN64 = VARIANT == "win64"                # ... for Windows (the Win64 calling convention, a PE image)
 BUILD = ROOT / ("build/port" if VARIANT == "clang64" else "build/port-" + VARIANT)  # the default at build/port
 GEN = BUILD / "gen"                       # generated sources: game C with the drafts switched on, data, stubs
 OBJ = BUILD / "obj"
 DATA_OBJ = BUILD / "obj_data"             # the game's data, assembled from GEN/data
-EXE = BUILD / "ttt"
+EXE = BUILD / ("ttt.exe" if WIN64 else "ttt")
 YAML = ROOT / "config/SLUS_200.01.yaml"
 ASM = ROOT / "asm"                        # the matching build's split (configure.py), made from the user's executable
 
@@ -119,12 +122,35 @@ CLANG_CFLAGS = ["-mno-x87", "-Wno-error=int-conversion", "-Wno-error=incompatibl
 GAME64_CFLAGS = ["-fms-extensions"]
 TEXT64 = 0x08000000
 
+# Windows (TTT_CC=win64): clang and clang++ for mingw-w64's target (its headers and libraries under
+# /usr/x86_64-w64-mingw32, found through x86_64-w64-mingw32-gcc on PATH); mingw-w64's nm / objcopy for the COFF
+# objects, its gcc as the link driver (ld for PE: the image at TEXT64, no relocations, link.py). -D__CRT__NO_INLINE:
+# the C library headers' inline maths uses long double, which software float forbids (as in the reference port).
+# -D_FILE_OFFSET_BITS=64: a 64-bit off_t for fseeko / ftello (plat_file.c reads disc images larger than 2 GB;
+# mingw-w64's off_t is 32 bits otherwise, Windows' long being 32 bits). -fno-auto-import: a variable another object defines is
+# reached directly (RIP-relative; the game's data names are absolute addresses), not through a `.refptr` pointer kept
+# for a variable that might live in a DLL (the C library's are declared dllimport by its headers).
+MINGW = "x86_64-w64-mingw32"
+WIN64_TARGET = [f"--target={MINGW}"]
+WIN64_CFLAGS = ["-D__CRT__NO_INLINE", "-D_FILE_OFFSET_BITS=64", "-fno-auto-import"]
+
 
 def bits(flags):
-    """`flags` for this variant's word size: unchanged for 32-bit, -m64 and no -malign-double for clang64."""
+    """`flags` for this variant's word size: unchanged for 32-bit, -m64 and no -malign-double for clang64 (and the
+    Windows target in front for win64)."""
     if not BITS64:
         return list(flags)
-    return ["-m64" if a == "-m32" else a for a in flags if a != "-malign-double"]
+    return target() + ["-m64" if a == "-m32" else a for a in flags if a != "-malign-double"]
+
+
+def target():
+    """The compiler's target flags: the Windows one for win64, none otherwise (the host's)."""
+    return list(WIN64_TARGET) if WIN64 else []
+
+
+def tool(name):
+    """A binutils program (nm, objcopy, objdump) for this variant's objects: mingw-w64's for win64."""
+    return f"{MINGW}-{name}" if WIN64 else name
 
 
 def march():
@@ -144,17 +170,22 @@ def cxx():
 
 def game_cflags():
     """GAME_CFLAGS for this variant."""
-    return bits(GAME_CFLAGS + CLANG_CFLAGS + (GAME64_CFLAGS if BITS64 else [])) if CLANG else GAME_CFLAGS
+    return bits(GAME_CFLAGS + CLANG_CFLAGS + (GAME64_CFLAGS if BITS64 else []) + win_cflags()) if CLANG else GAME_CFLAGS
 
 
 def port_cflags():
     """PORT_CFLAGS for this variant (port/src and the MPEG-2 decoder)."""
-    return bits(PORT_CFLAGS + CLANG_CFLAGS + (GAME64_CFLAGS if BITS64 else [])) if CLANG else PORT_CFLAGS
+    return bits(PORT_CFLAGS + CLANG_CFLAGS + (GAME64_CFLAGS if BITS64 else []) + win_cflags()) if CLANG else PORT_CFLAGS
 
 
 def newlib_cflags():
     """NEWLIB_CFLAGS for this variant."""
-    return bits(NEWLIB_CFLAGS + CLANG_CFLAGS) if CLANG else NEWLIB_CFLAGS
+    return bits(NEWLIB_CFLAGS + CLANG_CFLAGS + win_cflags()) if CLANG else NEWLIB_CFLAGS
+
+
+def win_cflags():
+    """Flags of the software-float C files on Windows (WIN64_CFLAGS); none elsewhere."""
+    return list(WIN64_CFLAGS) if WIN64 else []
 
 
 def overlay_cxxflags():

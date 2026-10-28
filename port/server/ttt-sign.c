@@ -19,7 +19,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#ifdef _WIN32 /* (Windows, T42 b7: io.h's open / write / close, the system's random generator) */
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <bcrypt.h>
+#include <io.h>
+#else
 #include <unistd.h>
+#endif
 #include "../../third_party/tweetnacl/ed25519.h"
 
 #define MANIFEST_MAX 1100
@@ -93,13 +100,22 @@ int main(int argc, char **argv) {
     size_t n;
     const char *line;
     if (argc == 3 && strcmp(argv[1], "keygen") == 0) {
-        int fd = open("/dev/urandom", O_RDONLY), out;
+        int out;
+#ifdef _WIN32
+        if (BCryptGenRandom(NULL, seed, 32, BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0) {
+            fprintf(stderr, "ttt-sign: no randomness (BCryptGenRandom)\n");
+            return 1;
+        }
+        out = open(argv[2], O_WRONLY | O_CREAT | O_EXCL | O_BINARY, 0600); /* (no Unix modes: the folder's ACL rules) */
+#else
+        int fd = open("/dev/urandom", O_RDONLY);
         if (fd < 0 || read(fd, seed, 32) != 32) {
             fprintf(stderr, "ttt-sign: no randomness (/dev/urandom)\n");
             return 1;
         }
         close(fd);
         out = open(argv[2], O_WRONLY | O_CREAT | O_EXCL, 0600);
+#endif
         if (out < 0) {
             fprintf(stderr, "ttt-sign: %s: %s (an existing key is never overwritten)\n", argv[2], strerror(errno));
             return 1;

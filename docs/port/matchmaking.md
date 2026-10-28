@@ -16,6 +16,10 @@ Netplay page). Tests: `tests/test_port_match.py` (loopback only).
 
        python3 port/tools/build_server.py        # -> build/server/ttt-server, build/server/ttt-sign
        # or by hand: cc -O2 -o ttt-server port/server/ttt-server.c
+       python3 port/tools/build_server.py --win64   # Windows (mingw-w64 cross compiler) -> build/server-win64/*.exe
+
+   The Windows programs (T42 b7) cross-build with `-Werror` and need Windows 8 or later; they have not been run on
+   Windows yet.
 
 2. Run it where both players can reach it (a forwarded UDP port at home, a small VPS):
 

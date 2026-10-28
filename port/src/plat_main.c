@@ -28,6 +28,9 @@ void Port_CrashInstall(void); /* plat_crash.c: the crash report handlers, with t
 void Port_SetupArgs(int argc, char **argv); /* plat_setup.c: `--setup <disc>` (exits) or `--setup` (the screen) */
 void Port_SetupRun(void); /* plat_setup.c: the setup screen when the game's data is not loaded yet (T43) */
 void Port_NetMain(int argc, char **argv); /* plat_net.c: TTT_SELFTEST=net, TTT_UPDATE_CHECK=1 (T46) */
+#ifdef _WIN32
+void PlatOs_StackWide(void); /* plat_os_win32.c */
+#endif
 
 int __wrap_main(int argc, char **argv) {
     /* the settings and the window first, on the host stack: SDL's start-up is neither for the EE stack nor for the
@@ -47,7 +50,40 @@ int __wrap_main(int argc, char **argv) {
     Port_CrashInstall();
     /* The callee-saved registers are cleared first: they hold the C library's values here (__libc_start_main's), and
        the game's functions push them on the EE stack, which a state holds (plat_state.c). This never returns. */
-#if defined(__x86_64__)
+#if defined(_WIN32)
+    /* Windows x64 (TTT_CC=win64): the same in the Win64 convention, arguments in ecx / rdx and 32 bytes of shadow space
+       above the return address; its callee-saved rbx, rbp, rdi, rsi, r12-r15 and xmm6-xmm15 cleared. The thread's stack
+       bounds in its TEB are widened to every stack below 4 GB first (PlatOs_StackWide): Windows' own code checks a
+       stack pointer against them (the system DLLs' __chkstk would otherwise walk down from the host stack's limit to
+       EE RAM, page by page). */
+    PlatOs_StackWide();
+    __asm__ volatile("movq %0, %%rsp\n\t" /* 16-byte aligned at the call, the shadow space under it */
+                     "subq $32, %%rsp\n\t"
+                     "xorl %%ebx, %%ebx\n\t"
+                     "xorl %%ebp, %%ebp\n\t"
+                     "xorl %%edi, %%edi\n\t"
+                     "xorl %%esi, %%esi\n\t"
+                     "xorl %%r12d, %%r12d\n\t"
+                     "xorl %%r13d, %%r13d\n\t"
+                     "xorl %%r14d, %%r14d\n\t"
+                     "xorl %%r15d, %%r15d\n\t"
+                     "pxor %%xmm6, %%xmm6\n\t"
+                     "pxor %%xmm7, %%xmm7\n\t"
+                     "pxor %%xmm8, %%xmm8\n\t"
+                     "pxor %%xmm9, %%xmm9\n\t"
+                     "pxor %%xmm10, %%xmm10\n\t"
+                     "pxor %%xmm11, %%xmm11\n\t"
+                     "pxor %%xmm12, %%xmm12\n\t"
+                     "pxor %%xmm13, %%xmm13\n\t"
+                     "pxor %%xmm14, %%xmm14\n\t"
+                     "pxor %%xmm15, %%xmm15\n\t"
+                     "call __real_main\n\t"
+                     "movl %%eax, %%ecx\n\t"
+                     "call exit"
+                     :
+                     : "a"((uintptr_t)PORT_EE_STACK_TOP), "c"(argc), "d"(argv)
+                     : "memory");
+#elif defined(__x86_64__)
     /* x86-64 (TTT_CC=clang64): the same in the SysV convention, arguments in edi / rsi; rbx, rbp, r12-r15 cleared */
     __asm__ volatile("movq %0, %%rsp\n\t" /* 16-byte aligned at the call */
                      "xorl %%ebx, %%ebx\n\t"

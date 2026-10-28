@@ -18,7 +18,8 @@ import sys
 
 from toolchain import (BITS64, BUILD, GEN, HOT_CFLAGS, HOT_FILES, IMGUI, IMGUI_OBJCOPY, IMGUI_SOURCES, MPEG2, NEWLIB,
                        NOPLT_FILES, OBJ, ROOT, SIMD_CFLAGS, SIMD_FILES, VU_FILES, cc, clang_noplt_renames, cxx,
-                       game_cflags, newlib_cflags, noplt_redefine_args, overlay_cxxflags, port_cflags, vu_redefine_args)
+                       game_cflags, newlib_cflags, noplt_redefine_args, overlay_cxxflags, port_cflags, target, tool,
+                       vu_redefine_args)
 import portsrc
 
 TEXT_START, TEXT_END = 0x340000, 0x415700  # .text of SLUS_200.01; .data and the rest follow
@@ -89,7 +90,7 @@ def compile_game64(compiler, src, obj, flags):
         return r
     std = next((a for a in flags if a.startswith("-std=")), "-std=gnu89")
     r = subprocess.run([ptr32_python(), str(pathlib.Path(__file__).with_name("ptr32.py")), str(pre), str(p32),
-                        "-x", "cpp-output", "-m64", std, "-fms-extensions", "-w"] +
+                        "-x", "cpp-output", *target(), "-m64", std, "-fms-extensions", "-w"] +
                        [a for a in flags if a.startswith("-Wno-error=")],
                        cwd=ROOT, capture_output=True, text=True)
     if r.returncode:
@@ -126,11 +127,11 @@ def compile_one(job):
     if r.returncode == 0 and src.parent == ROOT / "port/src" and src.name in VU_FILES:
         redefine = vu_redefine_args()
     if r.returncode == 0 and "-fno-plt" in flags and clang_noplt_renames():
-        und = subprocess.run(["nm", "-u", str(obj)], capture_output=True, text=True, check=True).stdout.split()
+        und = subprocess.run([tool("nm"), "-u", str(obj)], capture_output=True, text=True, check=True).stdout.split()
         redefine += noplt_redefine_args([n for n in und if n != "U"],
                                         keep=[a.split("=")[1] for a in redefine if a.startswith("--redefine-sym=")])
     if r.returncode == 0 and redefine:
-        r = subprocess.run(["objcopy"] + redefine + [str(obj)], cwd=ROOT, capture_output=True, text=True)
+        r = subprocess.run([tool("objcopy")] + redefine + [str(obj)], cwd=ROOT, capture_output=True, text=True)
     return src, obj, r.returncode, r.stderr
 
 
@@ -181,7 +182,7 @@ def main():
     objs = [str(o) for _, o, rc, _ in res if rc == 0]
     print(f"undefined: {len(objs)} of {len(res)} objects compiled ({len(bad)} failed)")
     defined, undef = set(), collections.Counter()
-    out = subprocess.run(["nm", "-A"] + objs, capture_output=True, text=True, check=True).stdout
+    out = subprocess.run([tool("nm"), "-A"] + objs, capture_output=True, text=True, check=True).stdout
     for l in out.splitlines():
         m = re.match(r"\S+:\s*[0-9a-f]*\s+(\w)\s+(\S+)$", l)
         if not m:

@@ -43,6 +43,9 @@
 #define XXH_INLINE_ALL
 #define XXH_NO_STDLIB
 #define XXH_FORCE_MEMORY_ACCESS 2 /* x86: unaligned loads are fine */
+#ifdef _WIN32
+#define XXH_VECTOR 0 /* XXH_SCALAR, as on Linux (-mno-sse); xxhash takes _M_X64 for SSE2 */
+#endif
 #include "../../third_party/xxhash/xxhash.h"
 #include "plat_state.h"
 #include "port_addr.h"
@@ -333,7 +336,37 @@ uint32_t gPortCtxEsp;
 #define SERVICE_STACK 262144
 uint8_t gPortCtxStack[SERVICE_STACK] __attribute__((aligned(16)));
 void port_boundary_body(void);
-#if defined(__x86_64__)
+#if defined(_WIN32)
+/* Windows x64 (TTT_CC=win64): the callee-saved rbp, rbx, rdi, rsi, r12-r15 (xmm6-xmm15 too in the Win64 convention:
+   neither the game's code nor port_boundary_body's software float touches them); 32 bytes of shadow space for the
+   callee below the service stack's top. No unwind data: nothing unwinds through a boundary (no C++ exceptions, no
+   longjmp; a fault is reported by the vectored handler before any unwinding, plat_os_win32.c). */
+__asm__(".text\n"
+        ".globl Port_StateBoundary\n"
+        ".def Port_StateBoundary; .scl 2; .type 32; .endef\n"
+        "Port_StateBoundary:\n"
+        "\tpushq %rbp\n"
+        "\tpushq %rbx\n"
+        "\tpushq %rdi\n"
+        "\tpushq %rsi\n"
+        "\tpushq %r12\n"
+        "\tpushq %r13\n"
+        "\tpushq %r14\n"
+        "\tpushq %r15\n"
+        "\tmovq %rsp, gPortCtxEsp(%rip)\n"
+        "\tleaq gPortCtxStack+262144-32(%rip), %rsp\n"
+        "\tcall port_boundary_body\n"
+        "\tmovq gPortCtxEsp(%rip), %rsp\n"
+        "\tpopq %r15\n"
+        "\tpopq %r14\n"
+        "\tpopq %r13\n"
+        "\tpopq %r12\n"
+        "\tpopq %rsi\n"
+        "\tpopq %rdi\n"
+        "\tpopq %rbx\n"
+        "\tpopq %rbp\n"
+        "\tret\n");
+#elif defined(__x86_64__)
 /* x86-64 (TTT_CC=clang64): rbp, rbx, r12-r15 */
 __asm__(".text\n"
         ".globl Port_StateBoundary\n"
@@ -383,7 +416,28 @@ __asm__(".text\n"
 #define OFF_STACK 262144
 uint8_t gPortOffStack[OFF_STACK] __attribute__((aligned(16)));
 uint32_t gPortOffEeEsp;
-#if defined(__x86_64__)
+#if defined(_WIN32)
+/* Windows x64: fn in rcx, arg in rdx; 32 bytes of shadow space under the call */
+__asm__(".text\n"
+        ".globl Port_OffEe\n"
+        ".def Port_OffEe; .scl 2; .type 32; .endef\n"
+        "Port_OffEe:\n"
+        "\tpushq %rbp\n"
+        "\tmovq %rsp, %rbp\n"
+        "\tcmpq $0x02000000, %rsp\n"
+        "\tjae 1f\n"
+        "\tmovl %esp, gPortOffEeEsp(%rip)\n"
+        "\tleaq gPortOffStack+262144(%rip), %rsp\n"
+        "1:\n"
+        "\tandq $-16, %rsp\n"
+        "\tsubq $32, %rsp\n"
+        "\tmovq %rcx, %rax\n"
+        "\tmovq %rdx, %rcx\n"
+        "\tcall *%rax\n"
+        "\tmovq %rbp, %rsp\n"
+        "\tpopq %rbp\n"
+        "\tret\n");
+#elif defined(__x86_64__)
 __asm__(".text\n"
         ".globl Port_OffEe\n"
         ".type Port_OffEe, @function\n"
@@ -1341,7 +1395,20 @@ static uint64_t buf_hash(const void *p, uint32_t n) {
 
 /* The round trip runs on the EE stack, as the game does: a state holds that stack (not the host's). */
 void port_call_on_ee(void (*fn)(void));
-#if defined(__x86_64__)
+#if defined(_WIN32)
+__asm__(".text\n" /* Windows x64: fn in rcx; shadow space under the call */
+        ".globl port_call_on_ee\n"
+        ".def port_call_on_ee; .scl 2; .type 32; .endef\n"
+        "port_call_on_ee:\n"
+        "\tpushq %rbp\n"
+        "\tmovq %rsp, %rbp\n"
+        "\tmovl $0x01FFFF00, %esp\n"
+        "\tsubq $32, %rsp\n"
+        "\tcall *%rcx\n"
+        "\tmovq %rbp, %rsp\n"
+        "\tpopq %rbp\n"
+        "\tret\n");
+#elif defined(__x86_64__)
 __asm__(".text\n"
         ".globl port_call_on_ee\n"
         ".type port_call_on_ee, @function\n"
@@ -1374,6 +1441,19 @@ __asm__(".text\n"
 #define LOW_STACK (1u << 20)
 static uint8_t sLowStack[LOW_STACK] __attribute__((aligned(16)));
 void port_call_on_stack(void (*fn)(void), void *top);
+#if defined(_WIN32)
+__asm__(".text\n" /* Windows x64: fn in rcx, top in rdx */
+        ".def port_call_on_stack; .scl 3; .type 32; .endef\n"
+        "port_call_on_stack:\n"
+        "\tpushq %rbp\n"
+        "\tmovq %rsp, %rbp\n"
+        "\tmovq %rdx, %rsp\n"
+        "\tsubq $32, %rsp\n"
+        "\tcall *%rcx\n"
+        "\tmovq %rbp, %rsp\n"
+        "\tpopq %rbp\n"
+        "\tret\n");
+#else
 __asm__(".text\n"
         ".type port_call_on_stack, @function\n"
         "port_call_on_stack:\n"
@@ -1385,6 +1465,7 @@ __asm__(".text\n"
         "\tpopq %rbp\n"
         "\tret\n"
         ".size port_call_on_stack, .-port_call_on_stack\n");
+#endif
 void Port_OnLowStack(void (*fn)(void)) {
     if ((uint64_t)(uintptr_t)__builtin_frame_address(0) >> 32) {
         port_call_on_stack(fn, sLowStack + LOW_STACK);

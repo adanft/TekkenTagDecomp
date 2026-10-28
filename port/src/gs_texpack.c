@@ -75,6 +75,9 @@ PORT_NOPLT(clock_gettime);
 #define XXH_INLINE_ALL
 #define XXH_NO_STDLIB
 #define XXH_FORCE_MEMORY_ACCESS 2 /* x86: unaligned loads are fine */
+#ifdef _WIN32
+#define XXH_VECTOR 0 /* XXH_SCALAR, as on Linux (-mno-sse); xxhash takes _M_X64 for SSE2 */
+#endif
 #include "../../third_party/xxhash/xxhash.h"
 
 /* stb (third_party/stb, public domain / MIT): PNG only, from memory, every function static (the unused ones, HDR and

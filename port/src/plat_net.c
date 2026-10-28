@@ -1338,14 +1338,14 @@ static void open_match_socket(void) {
         }
         bl = sizeof *s;
     }
-    sSock = PlatOs_NetInit() == 0 ? socket(sServer.ss_family, SOCK_DGRAM, 0) : PLAT_SOCK_NONE;
+    sSock = PlatOs_NetInit() == 0 ? PlatOs_Socket(sServer.ss_family, SOCK_DGRAM) : PLAT_SOCK_NONE;
     if (sSock == PLAT_SOCK_NONE || bind(sSock, (struct sockaddr *)&b, bl) != 0) {
         FATAL(2, "cannot open a UDP socket for the matchmaking (TTT_NET_PORT %u in use?)", port);
     }
     bl = sizeof sLocalAddr;
     getsockname(sSock, (struct sockaddr *)&sLocalAddr, &bl);
     if (!is_loopback(&sServer)) { /* the address the system sends to the server from, with our port */
-        PlatOsSock t = socket(sServer.ss_family, SOCK_DGRAM, 0);
+        PlatOsSock t = PlatOs_Socket(sServer.ss_family, SOCK_DGRAM);
         struct sockaddr_storage l;
         socklen_t ll = sizeof l;
         if (t != PLAT_SOCK_NONE && connect(t, (struct sockaddr *)&sServer, sServerLen) == 0 &&
@@ -1646,7 +1646,7 @@ static void open_socket(void) {
         fatal(2, sJoin ? "TTT_NET_JOIN: cannot resolve the address (<addr>:<port>)" :
                          "TTT_NET_HOST: cannot resolve the address ([<addr>:]<port>)");
     }
-    sSock = PlatOs_NetInit() == 0 ? socket(a.ss_family, SOCK_DGRAM, 0) : PLAT_SOCK_NONE;
+    sSock = PlatOs_NetInit() == 0 ? PlatOs_Socket(a.ss_family, SOCK_DGRAM) : PLAT_SOCK_NONE;
     if (sSock == PLAT_SOCK_NONE) {
         FATAL(2, "cannot make a UDP socket");
     }

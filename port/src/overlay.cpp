@@ -25,6 +25,10 @@
 #include "imgui_internal.h" /* the focused item for the screen reader (ImGui's test engine hooks) */
 #include "backends/imgui_impl_opengl3.h"
 #include "backends/imgui_impl_opengl3_loader.h"
+#ifdef _WIN32 /* (the loader's windows.h: scroll-bar codes of the names plat_settings.h gives the pad buttons) */
+#undef SB_LEFT
+#undef SB_RIGHT
+#endif
 #include "overlay.h"
 #include "plat_settings.h"
 #include "plat_lang.h"
