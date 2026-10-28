@@ -421,10 +421,12 @@ s32 func_003ADFC0(void) {
     return r;
 }
 
-/* NON_MATCHING: 21 lines, the original keeps a second copy of the matrix pointer in s2 (frame 0xA0) for the Z rotation */
+/* NON_MATCHING: 12 lines, the matrix pointer copy (mp, from decomp-permuter) gives the s2 copy of the original; the
+ * frame and the order of the first stores still differ */
 #if 0
 void func_003ADFF0(McView *v) {
     McV4 p = { { -v->pos[0], -v->pos[1], -v->pos[2], 1.0f } };
+    f32 (*mp)[4];
     McV4 q;
     f32 m[4][4] __attribute__((aligned(16)));
     s32 a;
@@ -437,19 +439,20 @@ void func_003ADFF0(McView *v) {
     } else {
         r = 9.58738e-05f * (f32)(a - 0x10000);
     }
-    sceVu0RotMatrixX(m, m, r);
+    mp = m;
+    sceVu0RotMatrixX(mp, mp, r);
     a = -v->rot[2] & 0xFFFF;
     if (a <= 0x7FFF) {
         r = 9.58738e-05f * (f32)a;
     } else {
         r = 9.58738e-05f * (f32)(a - 0x10000);
     }
-    sceVu0RotMatrixZ(m, m, r);
-    sceVu0ApplyMatrix(q.v, m, p.v);
+    sceVu0RotMatrixZ(mp, mp, r);
+    sceVu0ApplyMatrix(q.v, mp, p.v);
     m[3][0] = q.v[0];
     m[3][1] = q.v[1];
     m[3][2] = q.v[2];
-    sceVu0CopyMatrix(D_00433400, m);
+    sceVu0CopyMatrix(D_00433400, mp);
     sceVu0MulMatrix(D_004334C0, D_00433440, D_00433400);
 }
 #else
@@ -565,25 +568,22 @@ void func_003AE440(McGame *g) {
     func_0035A1E8(g);
 }
 
-/* NON_MATCHING: 10 lines, r=0 register and the s16 test's slti/xori */
-#if 0
 s32 func_003AE608(s32 ch, s32 kind) {
     s32 r = 0;
+    s32 o;
+    s8 zero; /* compared as a variable: slti / xori, where a constant 0 gives nor / srl 31 (decomp-permuter) */
 
     if (kind == 4) {
         if (ch == 0x1A) {
             r = func_003BFE58() != 0;
-        } else if (D_004FF690[ch].unk8 < 0) {
-            r = 0;
         } else {
-            r = 1;
+            zero = 0;
+            o = ch << 4 | 8; /* D_004FF690[ch].unk8 as an offset (ori), added to the table after */
+            r = !(*(s16 *)((u8 *)D_004FF690 + o) < zero);
         }
     }
     return r;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/menu_common", func_003AE608);
-#endif
 
 void func_003AE668(void) {
     func_003B0350(0);
@@ -1086,21 +1086,17 @@ void func_003AF7D0(Fighter *f, s32 b) {
     }
 }
 
-/* NON_MATCHING: 15 lines, the +0x8730 slot base is computed once where the original builds it twice */
-#if 0
 void func_003AF9D8(Fighter *f, s32 a, s32 b) {
     s16 *t = D_00439A80[f->unk2A];
+    s32 o = b * 4 + 0x8730; /* slot[b] as an offset added to f, as the original builds it */
 
-    ((McFighter *)f)->slot[b] = &((McFighter *)f)->part[b];
+    *(McPart **)((u8 *)f + o) =&((McFighter *)f)->part[b];
     func_00366B68(((McFighter *)f)->slot[a], &((McFighter *)f)->part[b]);
     ((McFighter *)f)->part[b].unk18 = t[b * 4 + 0];
     ((McFighter *)f)->part[b].unk1C = t[b * 4 + 1];
     ((McFighter *)f)->part[b].unk20 = t[b * 4 + 2];
     func_0034E640(b, f);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/menu_common", func_003AF9D8);
-#endif
 
 RODATA_ALIGN16();
 INCLUDE_RODATA("asm/nonmatchings/menu_common", D_0051DE50);

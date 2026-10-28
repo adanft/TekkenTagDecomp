@@ -266,283 +266,178 @@ s32 func_003E08D8(f32 *p, f32 *v);
 
 INCLUDE_RODATA("asm/nonmatchings/demo", D_00522B90);
 #if 0
-/* NON_MATCHING: 311 lines: m2c draft in gotos-only form (irreducible flow graph) */
-#define M2C_UNK u8
-#define M2C_FIELD(expr, type, offset) (*(type)((u8 *)(expr) + (offset)))
-#define M2C_BITWISE(type, expr) ((type)(s32)(expr))
-extern u8 D_01FC4930[];
-void Snd_PlaySe(s32, s32);
-s32 func_003DB9A0(u8 *);
-void func_003DBAA8(s32, s32, s32, s32);
+/* NON_MATCHING: 204 lines: typed from the asm (T19 F02; the m2c draft in gotos-only form passed uninitialised
+ * locals as the text, the window x and the entry count, dropped func_003DFA00 arguments and bit-cast the scroll
+ * bar's float quotient); same structure and calls, other saved registers (s8 / s3 / s4 / s5) and stack slots for the spilled locals */
+extern u32 D_00415718[];
+extern u32 D_00415728[];
+extern u8 D_00522B90[];
+extern u8 D_005F6910[];
+void Snd_PlaySe(s32 id, s32 side);
+s32 func_003DB9A0(u8 *s);
+void func_003DBAA8(s32 x0, s32 x1, s32 y0, s32 y1);
 void func_003DC188(u32 x, u32 y, u32 w, u32 h, u32 z);
-extern u8 D_00415718[];
-extern u8 D_00415728[];
-extern u8 D_00522B90;
-extern u8 D_005F6910;
 
-void func_003DC9C8(s32 arg0, s32 arg1) {
-    u8 sp[0x200];
-    s32 subroutine_arg0, subroutine_arg1, subroutine_arg2, subroutine_arg3, subroutine_arg4, subroutine_arg5;
-    s32 sp10;
-    s32 sp14;
-    s32 sp18;
-    s32 temp_a0;
-    s32 temp_a0_2;
-    s32 temp_a1;
-    s32 temp_a1_2;
-    s32 temp_a2;
-    s32 temp_fp;
-    s32 temp_s0;
-    s32 temp_s0_2;
-    s32 temp_s0_3;
-    s32 temp_s1;
-    s32 temp_s3;
-    s32 temp_s3_2;
-    s32 temp_s3_3;
-    s32 temp_s5;
-    s32 temp_v0;
-    s32 temp_v1_2;
-    s32 temp_v1_3;
-    s32 var_a0;
-    s32 var_a3;
-    s32 var_s1;
-    s32 var_s1_2;
-    s32 var_s3;
-    s32 var_s3_2;
-    s32 var_s4;
-    s32 var_s5;
-    s32 var_s5_2;
-    s32 var_s5_3;
-    s32 var_v0;
-    s32 var_v0_2;
-    s64 temp_a3;
-    u32 temp_lo;
-    u32 temp_v1;
-    u8 *temp_s2_2;
-    u8 *var_s2;
-    u8 temp_s6;
-    u8 temp_v0_2;
-    u8 var_v0_3;
-    void *temp_s2;
-    void *temp_s7;
+/* The practice command list window of `side` (pad `port`): title, up to four entries of two rows scrolled by the
+ * pad (unk8 the first entry, unkC the scroll offset in pixels easing to 0), and a scroll bar past four entries. */
+void func_003DC9C8(s32 side, s32 port) {
+    Fighter *f;
+    PracCmdText *t;
+    TeamMember *m;
+    u8 *text;
+    u8 *s;
+    u32 n;
+    u32 trig;
+    u32 held;
+    s32 x;
+    s32 y;
+    s32 top;
+    s32 few;
+    s32 col;
+    s32 d;
+    s32 v;
+    s32 off;
+    s32 neg;
+    s32 k;
+    s32 e;
+    s32 yy;
+    s32 bar;
+    s32 q;
+    s32 cnt;
+    s32 i;
 
-    /* Flowgraph is not reducible, falling back to gotos-only mode. */
-    temp_s2 = (arg0 * 0xB8A0) + (u8 *)gFighters;
-    temp_a1 = arg1 * 4;
-    temp_s7 = (M2C_FIELD(temp_s2, s16 *, 0x22) * 0x10) + ((u8 *)&D_01FC4930);
-    sp10 = 0x59;
-    temp_a0 = ((D_0043B7F8[0] ^ 7) == 0) ? 0x3B : sp10;
-    sp10 = temp_a0;
-    temp_fp = temp_a0 + 0x32;
-    temp_s6 = *M2C_FIELD(temp_s7, u8 **, 0);
-    temp_s0 = *(temp_a1 + ((u8 *)&D_00415728));
-    temp_s3 = *(temp_a1 + ((u8 *)&D_00415718));
-    if (temp_s6 == 0) {
-        goto block_58;
+    f = &gFighters[side];
+    t = &gPracCmdText[f->unk22];
+    y = 0x59;
+    if (D_0043B7F8[0] == 7) {
+        y = 0x3B;
     }
-    temp_v0 = ((arg0 == 0) ? 0x14 : 0x150) - 8;
-    sp14 = temp_v0;
-    func_003DBCF0(temp_v0, sp10 - 8, 0x12C, 0x3AU, 0, 0);
-    temp_a0_2 = temp_s6 < 5U;
-    sp18 = temp_a0_2;
-    func_003DFA00(((u8 *)&D_00522B90), 0x60606080, 0x118, subroutine_arg1);
-    func_003DFA00(((u8 *)&D_005F6910), subroutine_arg1 + 0x33, sp10, 0x60606080);
-    func_003DFA00(subroutine_arg0 + 1);
-    temp_a2 = arg0 * 0x60;
-    temp_a3 = (0x8080 << 0x10) | 0x8080;
-    D_005F6738 = temp_a3;
-    temp_a1_2 = (M2C_FIELD(temp_s2, s16 *, 0) * 0x30) + temp_a2;
+    text = t->text;
+    top = y + 0x32;
+    n = text[0];
+    trig = D_00415728[port];
+    held = D_00415718[port];
+    x = 0x150;
+    if (side == 0) {
+        x = 0x14;
+    }
+    col = 0;
+    if (n == 0) {
+        return;
+    }
+    func_003DBCF0(x - 8, y - 8, 0x12C, 0x3A, 0xFFFE, 0x40405073);
+    few = n < 5;
+    func_003DFA00(D_00522B90, 0x60606080, 0x118, x, y + 0x20, 0);
+    func_003DFA00(D_005F6910, x + 0x33, y, 0x60606080);
+    text = func_003DFA00(text + 1);
+    m = &D_00440940[side][f->unk0];
+    D_005F6738 = 0x80808080;
     D_005F6730 = 0xFFFF0;
-    func_003CBFB8(func_003CF230(*(temp_a1_2 + ((u8 *)&D_00440940)), M2C_FIELD((((u8 *)&D_00440940) + temp_a1_2), s32 *, 4)), subroutine_arg1 - 3, sp10 - 4, 0);
-    if (temp_a0_2 != 0) {
-        goto block_12;
+    func_003CBFB8(func_003CF230(m->unk0, m->unk4), x - 3, y - 4, 0);
+    if (!few) {
+        d = 0;
+        if (trig == 0x4000) {
+            Snd_PlaySe(0x103F, 0);
+            d = 1;
+        }
+        if (trig == 0x1000) {
+            Snd_PlaySe(0x103F, 0);
+            d = -1;
+        }
+        if (!(held & 0x5000)) {
+            if (trig == 0x2000) {
+                Snd_PlaySe(0x103F, 0);
+                d = 4;
+            } else if (trig == 0x8000) {
+                Snd_PlaySe(0x103F, 0);
+                d = -4;
+            }
+        }
+        t->unkC += d * 0x48;
+        v = ((u32)t->unk8 < n) * t->unk8 + d;
+        if (v < 0) {
+            v += n;
+        }
+        if ((u32)v >= n) {
+            v -= n;
+        }
+        t->unk8 = v;
     }
-    var_a3 = 0;
-    if (temp_s0 != 0x4000) {
-        goto block_4;
+    off = t->unkC;
+    neg = 0;
+    if (off != 0) {
+        if (off < 0) {
+            neg = 1;
+            off = -off;
+        }
+        off -= (off + 3) / 3;
+        if (off <= 0) {
+            off = 0;
+        }
+        if (neg) {
+            off = -off;
+        }
     }
-    Snd_PlaySe(0x103F, 0);
-    var_a3 = 1;
-block_4:
-    var_v0 = temp_s3 & 0x5000;
-    if (temp_s0 != 0x1000) {
-        goto block_6;
+    t->unkC = off;
+    k = off / 72 + (off > 0);
+    e = t->unk8 - k;
+    yy = off + (top - k * 0x48);
+    bar = top + 0x120;
+    while (e < 0) {
+        e += n;
     }
-    Snd_PlaySe(0x103F, 0);
-    var_a3 = -1;
-    var_v0 = temp_s3 & 0x5000;
-block_6:
-    if (var_v0 != 0) {
-        goto block_11;
+    while ((u32)e >= n) {
+        e -= n;
     }
-    if (temp_s0 != 0x2000) {
-        goto block_9;
+    s = text;
+    for (i = 0; i < e * 2; i++) {
+        if (s[0] == 0xFC && s[1] < 0xFE) {
+            col = s[1] - 1;
+        }
+        s = Str_Next(s);
     }
-    Snd_PlaySe(0x103F, 0);
-    var_a3 = 4;
-    goto block_11;
-block_9:
-    if (temp_s0 != 0x8000) {
-        goto block_11;
+    func_003DBAA8(0, 0x27F, top, bar);
+    if (!few) {
+        q = 0x480 / n;
+        bar = (t->unk8 * 0x48 - t->unkC) * 4;
+        if (bar != 0) {
+            bar = (f32)bar / (f32)n;
+        }
+        func_003DBCF0(x + 0x11E, top, 6, 0x120, 0xFFFD, 0xFFFFFF80);
+        bar += top;
+        cnt = 5;
+        func_003DBCF0(x + 0x11E, bar, 6, q, 0xFFFF, 0xB0B0B080);
+        func_003DBCF0(x + 0x11E, bar - 0x120, 6, q, 0xFFFF, 0xB0B0B080);
+    } else {
+        cnt = n;
+        func_003DBCF0(x - 8, n * 0x48 + yy, 0x12C, (4 - n) * 0x48, 0xFFFE, D_004564F0[0].c1);
     }
-    Snd_PlaySe(0x103F, 0);
-    var_a3 = -4;
-block_11:
-    temp_v1 = M2C_FIELD(temp_s7, u32 *, 8);
-    M2C_FIELD(temp_s7, s32 *, 0xC) = (s32) (M2C_FIELD(temp_s7, s32 *, 0xC) + (var_a3 * 0x48));
-    temp_v1_2 = ((temp_v1 < temp_s6) * temp_v1) + var_a3;
-    temp_v1_3 = (temp_v1_2 <= -1) ? (temp_v1_2 + temp_s6) : temp_v1_2;
-    M2C_FIELD(temp_s7, u32 *, 8) = (u32) (((u32) temp_v1_3 >= temp_s6) ? (temp_v1_3 - temp_s6) : temp_v1_3);
-block_12:
-    var_s3 = M2C_FIELD(temp_s7, s32 *, 0xC);
-    var_s5 = 0;
-    if (var_s3 == 0) {
-        goto block_18;
+    for (i = 0; i < cnt; i++) {
+        if (s[0] == 0xFC && s[1] < 0xFE) {
+            col = s[1] - 1;
+            s += 2;
+        }
+        if (func_003DB9A0(s) > 0) {
+            func_003DBCF0(x - 8, yy, 0x12C, 0x12, 0xFFFE, D_004564F0[col].c0);
+            func_003DBCF0(x - 8, yy + 0x12, 0x12C, 0x36, 0xFFFE, D_004564F0[col].c1);
+        } else {
+            func_003DBCF0(x - 8, yy, 0x12C, 0x48, 0xFFFE, D_004564F0[col].c1);
+        }
+        e++;
+        func_003DFA00(D_005F6918, x, yy);
+        s = func_003DFA00(s);
+        func_003DFA00(D_005F6918, x + 2, yy + 0x18);
+        s = func_003DFA00(s);
+        if ((u32)e >= n) {
+            s = text;
+            e = 0;
+            col = 0;
+        }
+        yy += 0x48;
     }
-    var_a0 = var_s3 + 3;
-    if (var_s3 >= 0) {
-        goto block_15;
-    }
-    var_s5 = 1;
-    var_s3 = -var_s3;
-    var_a0 = var_s3 + 3;
-block_15:
-    if (3 != 0) {
-        goto block_17;
-    }
-    /* break 7 */;
-block_17:
-    temp_s3_2 = var_s3 - (var_a0 / 3);
-    temp_s3_3 = (temp_s3_2 <= 0) ? 0 : temp_s3_2;
-    var_s3 = (var_s5 != 0) ? -temp_s3_3 : temp_s3_3;
-block_18:
-    M2C_FIELD(temp_s7, s32 *, 0xC) = var_s3;
-    temp_s5 = (var_s3 / 72) + (var_s3 > 0);
-    var_s4 = M2C_FIELD(temp_s7, u32 *, 8) - temp_s5;
-    var_s3_2 = var_s3 + (temp_fp - (temp_s5 * 0x48));
-    if (var_s4 >= 0) {
-        goto block_22;
-    }
-    var_s1 = temp_fp + 0x120;
-loop_20:
-    var_s4 += temp_s6;
-    if (var_s4 < 0) {
-        goto loop_20;
-    }
-    var_v0_2 = (u32) var_s4 < temp_s6;
-    goto block_24;
-block_22:
-    var_s1 = temp_fp + 0x120;
-block_23:
-    var_v0_2 = (u32) var_s4 < temp_s6;
-block_24:
-    if (var_v0_2 != 0) {
-        goto block_26;
-    }
-    var_s4 -= temp_s6;
-    goto block_23;
-block_26:
-    var_s2 = subroutine_arg0;
-    temp_s0_2 = var_s4 * 2;
-    var_s5_2 = 0;
-    if (temp_s0_2 <= 0) {
-        goto block_35;
-    }
-    var_v0_3 = *var_s2;
-loop_29:
-    if (var_v0_3 != 0xFC) {
-        goto block_32;
-    }
-    if ((u8) M2C_FIELD(var_s2, u8 *, 1) >= 0xFEU) {
-        goto block_32;
-    }
-block_32:
-    var_s5_2 += 1;
-    var_s2 = Str_Next(var_s2);
-    if (var_s5_2 >= temp_s0_2) {
-        goto block_34;
-    }
-    var_v0_3 = *var_s2;
-    goto loop_29;
-block_34:
-block_35:
-    func_003DBAA8(0, 0x27F, temp_fp, var_s1);
-    if (sp18 == 0) {
-        goto block_37;
-    }
-    goto block_44;
-block_37:
-    temp_lo = 0x480U / temp_s6;
-    var_s1_2 = ((M2C_FIELD(temp_s7, u32 *, 8) * 0x48) - M2C_FIELD(temp_s7, s32 *, 0xC)) * 4;
-    if (var_s1_2 == 0) {
-        goto block_43;
-    }
-    if ((s32) temp_s6 < 0) {
-        goto block_41;
-    }
-    goto block_42;
-block_41:
-block_42:
-    var_s1_2 = M2C_BITWISE(s32, (f32) var_s1_2);
-block_43:
-    temp_s0_3 = subroutine_arg1 + 0x11E;
-    temp_s1 = temp_fp + var_s1_2;
-    func_003DBCF0(temp_s0_3, temp_fp, 6, 0x120U, 0, 0);
-    func_003DBCF0(temp_s0_3, temp_s1, 6, temp_lo, 0, 0);
-    func_003DBCF0(temp_s0_3, temp_s1 - 0x120, 6, temp_lo, 0, 0);
-    goto block_45;
-block_44:
-    func_003DBCF0(sp14, (temp_s6 * 0x48) + var_s3_2, 0x12C, (4 - temp_s6) * 0x48, 0, 0);
-block_45:
-    var_s5_3 = 0;
-    if (subroutine_arg2 == 0) {
-        goto block_56;
-    }
-loop_47:
-    if (M2C_FIELD(var_s2, u8 *, 0) != 0xFC) {
-        goto block_50;
-    }
-    if ((u8) M2C_FIELD(var_s2, u8 *, 1) >= 0xFEU) {
-        goto block_50;
-    }
-    temp_v0_2 = M2C_FIELD(var_s2, u8 *, 1);
-    var_s2 += 2;
-block_50:
-    if (func_003DB9A0(var_s2) <= 0) {
-        goto block_52;
-    }
-    func_003DBCF0(sp14, var_s3_2, 0x12C, 0x12U, 0, 0);
-    func_003DBCF0(sp14, var_s3_2 + 0x12, 0x12C, 0x36U, 0, 0);
-    goto block_53;
-block_52:
-    func_003DBCF0(sp14, var_s3_2, 0x12C, 0x48U, 0, 0);
-block_53:
-    var_s4 += 1;
-    func_003DFA00(((u8 *)&D_005F6918), subroutine_arg1, var_s3_2);
-    temp_s2_2 = func_003DFA00(var_s2);
-    func_003DFA00(((u8 *)&D_005F6918), subroutine_arg1 + 2, var_s3_2 + 0x18);
-    var_s2 = func_003DFA00(temp_s2_2);
-    if ((u32) var_s4 < temp_s6) {
-        goto block_55;
-    }
-    var_s2 = subroutine_arg0;
-    var_s4 = 0;
-block_55:
-    var_s5_3 += 1;
-    var_s3_2 += 0x48;
-    if (var_s5_3 < subroutine_arg2) {
-        goto loop_47;
-    }
-block_56:
     func_003DBAA8(0, 0x27F, 0, 0x1BF);
-    func_003DC188(subroutine_arg1, sp10, 0x11C, 0x14A, 0xFFFF);
-    return;
-block_58:
-    return;
+    func_003DC188(x, y, 0x11C, 0x14A, 0xFFFF);
 }
-#undef M2C_UNK
-#undef M2C_FIELD
-#undef M2C_BITWISE
 #else
 INCLUDE_ASM("asm/nonmatchings/demo", func_003DC9C8);
 #endif
