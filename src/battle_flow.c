@@ -1114,13 +1114,14 @@ s32 Cmd_CheckThrowCondition(MoveCmd *c, Fighter *o, Fighter *f) {
 }
 
 #if 0
-/* NON_MATCHING: 4 lines: the loop is entered at its test after a first load; a goto form with `c = *list` gets that layout but swaps all registers */
+/* NON_MATCHING: 2 lines: `i = 0` before the `v` test gives the original's loop entered at its test (with `i = 0`
+ * inside the `if` the test is copied in front of the loop instead), but the original clears i in the delay slot of
+ * that branch, after the test of v, and loads the first byte before it */
 s32 func_0036A008(u8 *list, u16 v) {
+    s16 i = 0;
     s32 r = 0;
-    s16 i;
 
     if (v != 0) {
-        i = 0;
         while (*list++ != v) {
             i++;
             if (i >= 4) {
@@ -2316,9 +2317,6 @@ s32 func_0036BEC0(Fighter *f) {
     return r;
 }
 
-#if 0
-/* NON_MATCHING: the separate `return 1` block for unk2C == 0 is merged with the final one (2 instructions short;
- * decomp-permuter keeps them apart only with a fake `if (f) return 1; else return 1;`) */
 s32 func_0036BF00(Fighter *f) {
     struct FighterMove *m = f->unk188;
 
@@ -2326,16 +2324,13 @@ s32 func_0036BF00(Fighter *f) {
         return 0;
     }
     if (m->unk2C != 0) {
-        if (m->unk18 >= m->unk2C && m->unk2D >= f->unkC4) {
-            return 1;
+        if (m->unk18 < m->unk2C || m->unk2D < f->unkC4) {
+            return 0;
         }
-        return 0;
+        return 1;
     }
     return 1;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036BF00);
-#endif
 
 /* The frame before the one the pending move starts on, by the kind of the move step unk17A: unk178 for the kinds that
  * keep the frame running (2, 0x12-0x16, 0x19, 0x1A, 0x1D, 0x2E), else 0 (func_003737B0) [V code]. */
@@ -2917,31 +2912,28 @@ s32 Cmd_MatchInput(Fighter *f, u16 code, u16 dir, u16 held, u16 pressed) {
     return func_0036CDD8(f, (s16 *)&D_004EFD44[code], held, pressed);
 }
 
-#if 0
-/* NON_MATCHING: the shared `return 1` block is placed after the second test; the original keeps it after the first */
 s32 func_0036CD10(u16 cmd, u16 held, u16 pressed) {
     u16 dir;
+    u16 btn;
     s32 r;
 
     if ((cmd & 0x401F) == 0x10) {
         return 1;
     }
-    if (!(cmd & 0x10)) {
-        dir = cmd & 0x400F;
-        if (dir != 0 || pressed != 0) {
-            r = 0;
-            if (dir & pressed) {
-                r = dir == (dir & held);
-            }
-            return r;
-        }
+    if (cmd & 0x10) {
+        btn = pressed & 0x400F;
+        return cmd & btn;
+    }
+    if ((cmd & 0x400F) == 0 && pressed == 0) {
         return 1;
     }
-    return cmd & (pressed & 0x400F);
+    dir = cmd & 0x400F;
+    r = 0;
+    if (dir & pressed) {
+        r = dir == (dir & held);
+    }
+    return r;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036CD10);
-#endif
 
 s32 func_0036CD78(u16 a, u16 b) {
     u16 hi;
@@ -5019,7 +5011,7 @@ void Battle_UpdateMovement(Fighter *a, Fighter *b) {
                     cc = 0x2829;
                     goto set;
                 }
-                k = m->unk4;
+                k = (s16)m->unk4;
                 p->unkCC = k;
                 p->unkD2 = p->unkCC & 0x18;
                 if ((k & 0x100) && p->unk12C == 0) {

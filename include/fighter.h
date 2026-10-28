@@ -428,8 +428,8 @@ typedef struct {
     /* 0x1BF0 */ f32 unk1BF0[4][4];             /* a matrix (func_00378760) */
     /* 0x1C30 */ u8 pad1C30[0x9420];
     /* 0xB050 */ s16 unkB050;                 /* joint count when above 18 (Skel_ComputeWorld) */
-    /* 0xB052 */ u8 unkB052;                  /* set while juggled and unkF7 is clear (Battle_UpdateMovement) */
-    /* 0xB053 */ u8 padB053[0x19];
+    /* 0xB052 */ s16 unkB052;                 /* set while juggled and unkF7 is clear (Battle_UpdateMovement) */
+    /* 0xB054 */ u8 padB054[0x18];
     /* 0xB06C */ s32 unkB06C[2];             /* frame in the clip unkB074 (func_00364390) */
     /* 0xB074 */ s32 unkB074[2];             /* clip of a second motion bank, 0 = the character's own (func_00364390) */
     /* 0xB07C */ u8 padB07C[0x8];

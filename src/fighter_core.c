@@ -1862,24 +1862,28 @@ end:
     return f->unk430 == 0;
 }
 
-#if 0
-/* NON_MATCHING: the original places the func_00368218 call block at the end of the function and branches back; ours keeps it inline. */
+/* The original places the Fighter_GetMove test (func_00368218 call and flag test) at the end and branches back into
+ * the body: the layout of a loop entered at its test, hence the `while` that runs at most once. */
 s32 func_0037DEE0(Fighter *f) {
     Fighter *o = &gFighters[(f->unk1E + 1) & 1];
 
-    if (!(Fighter_GetMove(f)->unk4 & 0x204) && f->unk42 == 0 && D_005F5C28 <= 0xC80) {
-        if (o->unkD0 != 0x412 || o->unkC0->unk2D < o->unkC4) {
-            if (f->unk10C != 0x3A) {
-                return (f->unkC0->unk24 & 0xC0) != 0;
-            }
-            return 1;
+    while (!(Fighter_GetMove(f)->unk4 & 0x204)) {
+        if (f->unk42 != 0) {
+            return 0;
         }
+        if (D_005F5C28 > 0xC80) {
+            break;
+        }
+        if (o->unkD0 != 0x412 || o->unkC0->unk2D < o->unkC4) {
+            if (f->unk10C == 0x3A) {
+                return 1;
+            }
+            return (f->unkC0->unk24 & 0xC0) != 0;
+        }
+        break;
     }
     return 0;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0037DEE0);
-#endif
 
 s32 func_0037DFC8(Fighter *f) {
     do { /* fake: the loop label aligns the second return like the original's nop */
@@ -2327,8 +2331,9 @@ s32 func_0037EE18(Fighter *f) {
 
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", D_00506E08);
 
-/* NON_MATCHING: 13 lines differ: the constant 60 of the three divisions lives in t4 (and a second copy in v1)
- * where the original keeps one copy in v1. */
+/* NON_MATCHING: 1 line: `li a3, 10` (the third argument) is scheduled after the format address in the original, before
+ * it here. The four divisors are variables: the original keeps one zero-divide check (for the first division) and two
+ * dead `li a0 / a1, 60`, which only separate variables of value 60 give. */
 #if 0
 extern const char D_00506E08[];
 s32 Text_Printf(const char *fmt, ...);
@@ -2338,14 +2343,18 @@ void func_0037EE68(s32 frames) {
     s32 t = 0x57E40;
     s32 s;
     s32 f;
+    s32 d = 60;
+    s32 e = 60;
+    s32 g = 60;
+    s32 h = 60;
 
     if (frames < 0x57E40) {
         t = frames;
     }
-    s = t / 60;
-    f = t % 60;
+    s = t / d;
+    f = t % d;
 
-    Text_Printf(D_00506E08, 0xF0, 0x50, 0xA, 4, 0x13, s / 60, s % 60, f * 100 / 60);
+    Text_Printf(D_00506E08, 0xF0, 0x50, 0xA, 4, 0x13, s / e, s % g, f * 100 / h);
 }
 #else
 INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0037EE68);
@@ -2504,7 +2513,7 @@ INCLUDE_RODATA("asm/nonmatchings/fighter_core", jtbl_00507270);
 #if 0
 void func_0037EFB0(void) {
     Unk8B8068 *s = &D_008B8068;
-    s32 x = s->unk0;
+    s32 x = (u16)s->unk0;
     s32 n;
     const PracMenuItem *items;
     s32 cnt;
@@ -4037,9 +4046,9 @@ s32 func_00381D30(void) {
     temp_a2_2 = ((D_005F5C28 - gCpu->unk3DA) + temp_v0_3) - 0x80;
     gCpu->unk28 = temp_v0_3;
     if (temp_a2_2 < gCpu->unk3C4) {
-        if (gCpuSelf->unk3E8 == 0) {
+        if (gCpuSelf->unk3E8 == 0 && gCpuSelf->unk3EC == 0) { /* one 64-bit load of unk3E8 / unk3EC */
             if (gCpuSelf->unk3F0 == 0) {
-                if ((gCpuOpponent->unk3E8 != 0) || (gCpuOpponent->unk3F0 != 0)) {
+                if ((gCpuOpponent->unk3E8 != 0) || (gCpuOpponent->unk3EC != 0) || (gCpuOpponent->unk3F0 != 0)) {
                     goto block_43;
                 }
                 gCpu->unk20 = 1;
@@ -4386,8 +4395,12 @@ s32 func_00381D30(void) {
         if (temp_v0_11->unk2C != 0) {
             var_a0_2 = 0x14;
             if (!(temp_v0_11->unk8 & 0x400000)) {
+                /* The original shifts 21 slots: the last store, [0x14], lands on unk320 (written through a plain
+                 * pointer here, so no compiler takes the index past the array's bound for undefined behaviour). */
+                struct FighterMove **hist = gCpu->unk2D0;
+
                 for (; var_a0_2 > 0; var_a0_2--) {
-                    gCpu->unk2D0[var_a0_2] = gCpu->unk2D0[var_a0_2 - 1];
+                    hist[var_a0_2] = hist[var_a0_2 - 1];
                 }
                 gCpu->unk2D0[0] = gCpuOpponent->unkC0;
             }
@@ -6100,13 +6113,13 @@ s32 func_003865A0(s32 wait) {
                         block_142:
                             var_s0_2 = D_00507620[gCpuSelf->unk28].unkC;
                             if ((gCpu->unk60 < 0) && (var_s0_2 != NULL) && (gCpu->unk7C == 0) &&
-                                !(gCpu->unk330.w & 1) && (gCpuSelf->unk10C != var_s0_2[1])) {
+                                !(gCpu->unk330.w & 1) && (gCpuSelf->unk10C != (s16)var_s0_2[1])) {
                                 var_a0_4 = 0;
-                                if ((gCpuSelf->unk40 < 0x2001) && (gCpuSelf->unk135 == 0) && (gCpu->unk20 < 3) &&
+                                if (((s16)gCpuSelf->unk40 < 0x2001) && (gCpuSelf->unk135 == 0) && (gCpu->unk20 < 3) &&
                                     (gCpu->unk2A4 == 0)) {
                                 loop_152:
                                     if ((s16) var_s0_2[0] < (rand() & 0xFFF)) {
-                                        var_s0_2 += 8;
+                                        var_s0_2 += 4; /* the 8-byte entries {chance, move id, command} */
                                         var_a0_4 = 0;
                                         if ((s16) *var_s0_2 < 0) {
 
@@ -6114,7 +6127,7 @@ s32 func_003865A0(s32 wait) {
                                             goto loop_152;
                                         }
                                     } else if (func_00385DF8(var_s0_2[1]) != 0) {
-                                        Cpu_SetCommand(var_s0_2 + 2);
+                                        Cpu_SetCommand(*(u16 **)(var_s0_2 + 2) + 1);
                                         gCpu->unk14C = 1;
                                         var_a0_4 = 1;
                                         gCpu->unk60 = (rand() & 0xF) + 0x1C;
