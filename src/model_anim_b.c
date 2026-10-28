@@ -1053,8 +1053,6 @@ void func_003D3F48(WindGen *g, f32 *out, f32 *pos) {
     sceVu0ScaleVectorXYZ(out, g->unk10, g->unk30 * g->unk5C[n]);
 }
 
-#if 0
-/* NON_MATCHING: 10 order of the 1500.0f / unk4 / -0.1f loads around the inline sqrt.s (scheduling) */
 /* The push of one gust at a point: away from its centre, fading with distance (1500) and age (2^(-0.1 t)). */
 void func_003D3FF8(WindGust *g, f32 *out, f32 *pos) {
     FVec4 v;
@@ -1073,22 +1071,16 @@ void func_003D3FF8(WindGust *g, f32 *out, f32 *pos) {
                 v[0] = v[2] = 0.1f;
             }
             func_0034A868(v, v);
+            t = Sqrt((pos[0] - g->unk20[0]) * (pos[0] - g->unk20[0])
+                     + (pos[2] - g->unk20[2]) * (pos[2] - g->unk20[2]));
             range = 1500.0f;
             e = g->unk4;
-            t = 1.0f - Sqrt((pos[0] - g->unk20[0]) * (pos[0] - g->unk20[0])
-                             + (pos[2] - g->unk20[2]) * (pos[2] - g->unk20[2])) / range;
+            t = 1.0f - t / range;
             sceVu0ScaleVector(v, v, g->unk10 * powf(2.0f, e * -0.1f) * t);
         }
     }
     *(u128 *)out = *(u128 *)v;
 }
-#else
-LIT4_WORD(D_005F53A8, 0x44BB8000);
-LIT4_WORD(D_005F53AC, 0x3DCCCCCD);
-LIT4_WORD(D_005F53B0, 0x44BB8000);
-LIT4_WORD(D_005F53B4, 0xBDCCCCCD);
-INCLUDE_ASM("asm/nonmatchings/model_anim_b", func_003D3FF8);
-#endif
 
 /* Steps a generator once: one or more attractor steps, or an extrapolation between steps; stores the sample and
  * returns the next sample index (0 after a wrap). */
