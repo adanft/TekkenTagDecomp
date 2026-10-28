@@ -943,18 +943,19 @@ void Sprite_SendImagePacket(u64 *pk, s32 qwc) {
     Dma_Wait((volatile u32 *)0x1000A000);
 }
 
-/* NON_MATCHING: the original keeps a dead `li v0, 0x3B` from an `img == 0x39 || img == 0x3B` test and addresses TRXPOS through pk + 4 in a3, 18 lines */
+/* NON_MATCHING: the original keeps a dead `li v0, 0x3B` from an `img == 0x39 || img == 0x3B` test and addresses TRXPOS through pk + 4 in a3, 21 lines */
 #if 0
 void func_003CEEC8(s32 img, s32 bank, u64 *data) {
     s32 i = func_003CF4C8(img, bank);
     u32 *buf = D_00440F60[img].buf;
     u64 *pk = func_003CEB08(data, i);
     s32 qwc = func_003CEAC8(pk);
-    u64 *p = pk + 4;
     u64 a, b;
     s32 x;
 
     if (D_00440F60[img].y != 1234) {
+        u64 *p = pk + 4;
+
         pk[2] = ((u64)buf[2] << 24) | ((u64)buf[0] << 32) | ((u64)buf[1] << 48) | ((u64)buf[2] << 56);
         if (img == 0x3B || img == 0x39) {
             if (img == 0x39) {
@@ -1354,12 +1355,14 @@ void NameEntry_Init(S2bName *p, u16 a, u16 b, u16 c) {
 
 INCLUDE_RODATA("asm/nonmatchings/sprite2d", D_00520BE8);
 
-/* NON_MATCHING: first draft of the name-entry step (switch layout and the pad direction sum), 43 lines */
+/* NON_MATCHING: 41 lines: the pad direction sum branches on bit 0x1000 as in the original; the pad words load in
+ * another order and the registers differ */
 #if 0
 s32 NameEntry_Step(S2bName *p, s32 mode) {
     u16 held;
     u16 trig;
     s32 d;
+    s32 b;
     u8 c;
 
     p->unk6 = 0;
@@ -1370,9 +1373,12 @@ s32 NameEntry_Step(S2bName *p, s32 mode) {
     case 0:
         held = (u16)D_00415738[p->pad0] | (u16)D_00415738[p->pad1];
         trig = (u16)D_00415728[p->pad1] | (u16)D_00415728[p->pad0];
-        d = ((held >> 13) & 1) - (held >> 15) + ((held >> 14) & 1);
+        d = ((held >> 13) & 1) - (held >> 15);
+        b = (held >> 14) & 1;
         if (held & 0x1000) {
-            d--;
+            d = d - 1 + b;
+        } else {
+            d = d + b;
         }
         if (d != 0) {
             p->unk7 = 1;
