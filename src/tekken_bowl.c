@@ -534,7 +534,7 @@ void func_003EA978(void);
 void func_003EAF78(Fighter *arg0, s16 *arg1, s16 arg2, s16 arg3);
 void func_003EBC98(void *arg0);
 void func_003EEF00(void);
-void func_003EF8B0(s8 *arg0);
+void func_003EF8B0(BowlPlayer *p);
 s32 func_003EFB00(s32 arg0);
 s32 func_003F0008(void);
 void func_003F0FF0(s32 arg0, s32 arg1, s32 arg2);
@@ -1367,8 +1367,6 @@ void Bowl_PinHomePos(f32 *p, u32 i) {
 }
 LIT4_KEEP(0);
 
-#if 0
-/* NON_MATCHING: 21 lines: store order of the vector resets and register choice of the zero loops */
 void Bowl_ResetPins(void) {
     BowlBody *p = D_01FC5260;
     s32 i;
@@ -1377,10 +1375,10 @@ void Bowl_ResetPins(void) {
 
     for (i = 0; i < 10; i++) {
         Bowl_PinHomePos(p->unk0.v, i);
-        p->unk40.v[3] = p->unk40.v[0] = p->unk40.v[2] = 0.0f; 
-        p->unk40.v[1] = 3.1415927f; 
-        p->unk10.v[3] = p->unk10.v[0] = p->unk10.v[1] = p->unk10.v[2] = 0.0f; 
-        p->unk50.v[3] = p->unk50.v[0] = p->unk50.v[1] = p->unk50.v[2] = 0.0f; 
+        p->unk40.v[0] = p->unk40.v[2] = p->unk40.v[3] = 0.0f;
+        p->unk40.v[1] = 3.1415927f;
+        p->unk10.v[0] = p->unk10.v[1] = p->unk10.v[2] = p->unk10.v[3] = 0.0f;
+        p->unk50.v[0] = p->unk50.v[1] = p->unk50.v[2] = p->unk50.v[3] = 0.0f;
         p->unk20.q = p->unk0.q;
         p->unk60.q = p->unk40.q;
         func_003ECAD8(p);
@@ -1393,22 +1391,18 @@ void Bowl_ResetPins(void) {
                 p->unk100[j].v[k] = 0.0f;
             }
         }
-        for (k = 0; k < 4; k++) {
-            p->unk160.v[k] = 0.0f;
+        for (j = 0; j < 4; j++) {
+            p->unk160.v[j] = 0.0f;
         }
-        p->unk17C = 0;
         p->unk170 = p->unk174 = p->unk178 = 1;
         p->unk17E = 0;
+        p->unk17C = 0;
         p++;
     }
     D_005F70D2 = 0;
     D_005F70B4 = 10;
     D_005F70D0 = 0;
 }
-#else
-LIT4_WORD(D_005F59CC, 0x40490FDB);
-INCLUDE_ASM("asm/nonmatchings/tekken_bowl", Bowl_ResetPins);
-#endif
 
 void Bowl_NextBall(BowlPlayer *p) {
     s32 r = 2;
@@ -1777,49 +1771,45 @@ void Bowl_DrawSpeed(void) {
 }
 
 #if 0
-/* NON_MATCHING: 49 lines: register allocation (t1/t2) and byte store order of the hand set-up */
+/* NON_MATCHING: 36 lines: register allocation (the character in a0, the table index added first, the 4 / 5 bytes
+   of the second branch); the stores are in reverse source order as in the original */
 s32 func_003EAE08(Fighter *f, s16 *out) {
-    BowlHold *h;
-    s32 c;
-
     if (f->unk2A == 0x21) {
         return 0;
     }
-    c = f->unk28;
-    if (c == 6 || c == 0x1E || c == 0x16 || c == 0xB || c == 2) {
-        h = &D_01FC6350;
-        if (h->unk12 == 1) {
-            h->unkD = 1;
-            h->unkF = 3;
-            h->unkE = 2;
-            h->unkC = 0;
+    if (f->unk28 == 6 || f->unk28 == 0x1E || f->unk28 == 0x16 || f->unk28 == 0xB || f->unk28 == 2) {
+        if (D_01FC6350.unk12 == 1) {
+            D_01FC6350.unkC = 0;
+            D_01FC6350.unkE = 2;
+            D_01FC6350.unkF = 3;
+            D_01FC6350.unkD = 1;
             if (D_00523618[f->unk2A][3]) {
-                h->unk11 = 0x70;
-                h->unk10 = 0x6C;
+                D_01FC6350.unk10 = 0x6C;
+                D_01FC6350.unk11 = 0x70;
             } else {
-                h->unk11 = 0x6E;
-                h->unk10 = 0x6A;
+                D_01FC6350.unk10 = 0x6A;
+                D_01FC6350.unk11 = 0x6E;
             }
-            h->m[0] = (f32 *)((u8 *)f + 0x2BB0);
-            h->m[2] = (f32 *)((u8 *)f + 0x3330);
-            h->m[1] = (f32 *)((u8 *)f + 0x30F0);
-            h->unk12 = 0;
+            D_01FC6350.m[0] = (f32 *)((u8 *)f + 0x2BB0);
+            D_01FC6350.m[1] = (f32 *)((u8 *)f + 0x30F0);
+            D_01FC6350.m[2] = (f32 *)((u8 *)f + 0x3330);
+            D_01FC6350.unk12 = 0;
         } else {
-            h->unkD = 5;
-            h->unkC = 4;
-            h->unkE = 6;
-            h->unkF = 7;
+            D_01FC6350.unkC = 4;
+            D_01FC6350.unkD = 5;
+            D_01FC6350.unkE = 6;
+            D_01FC6350.unkF = 7;
             if (D_00523618[f->unk2A][3]) {
-                h->unk11 = 0x71;
-                h->unk10 = 0x6D;
+                D_01FC6350.unk10 = 0x6D;
+                D_01FC6350.unk11 = 0x71;
             } else {
-                h->unk11 = 0x6F;
-                h->unk10 = 0x6B;
+                D_01FC6350.unk10 = 0x6B;
+                D_01FC6350.unk11 = 0x6F;
             }
-            h->m[0] = (f32 *)((u8 *)f + 0x3E70);
-            h->m[2] = (f32 *)((u8 *)f + 0x45F0);
-            h->unk12 = 1;
-            h->m[1] = (f32 *)((u8 *)f + 0x43B0);
+            D_01FC6350.m[0] = (f32 *)((u8 *)f + 0x3E70);
+            D_01FC6350.m[1] = (f32 *)((u8 *)f + 0x43B0);
+            D_01FC6350.unk12 = 1;
+            D_01FC6350.m[2] = (f32 *)((u8 *)f + 0x45F0);
         }
         *out = 0;
         D_005F70BE = 0x78;
@@ -2452,19 +2442,17 @@ INCLUDE_ASM("asm/nonmatchings/tekken_bowl", func_003EBC98);
 #endif
 
 #if 0
-/* NON_MATCHING: 28 lines: one shared SE call site here (the original duplicates the last one) and the timer is sign-extended at the decrement where the original keeps it unextended in a1 */
+/* NON_MATCHING: 4 lines, delay slots: the original fills the `hit` branch's slot from the fall-through (slti) and the
+   sum < 5 branch's with ld ra, the reverse here. The timer D_005F70D0 stays in a1 unextended because the global is
+   used directly; s32 with a bare `return;` keeps the original's jal (no tail call). */
 s32 func_003EC200(void) {
     BowlBody *p = D_01FC5260;
     s32 hit = 0;
     s32 sum = 0;
     s32 i;
-    s16 t = D_005F70D0;
-    s32 id;
-    s32 n;
 
-    if (t > 0) {
-        t--;
-        D_005F70D0 = t;
+    if (D_005F70D0 > 0) {
+        D_005F70D0--;
     }
     if (D_005F70D2 > 0) {
         D_005F70D2--;
@@ -2485,26 +2473,24 @@ s32 func_003EC200(void) {
     }
     if (hit && sum >= 5) {
         if (sum < 15) {
-            if (t > 0) {
+            if (D_005F70D0 > 0) {
                 return;
             }
-            id = 0x10AE;
-            n = 8;
+            D_005F70D0 = 8;
+            Snd_PlaySe(0x10AE, 0);
         } else if (sum < 30) {
-            if (t >= 7) {
+            if (D_005F70D0 >= 7) {
                 return;
             }
-            id = 0x10AD;
-            n = 14;
+            D_005F70D0 = 14;
+            Snd_PlaySe(0x10AD, 0);
         } else {
-            if (t >= 13) {
+            if (D_005F70D0 >= 13) {
                 return;
             }
-            id = 0x10AC;
-            n = 30;
+            D_005F70D0 = 30;
+            Snd_PlaySe(0x10AC, 0);
         }
-        D_005F70D0 = n;
-        Snd_PlaySe(id, 0);
     }
 }
 #else
@@ -3190,173 +3176,127 @@ f32 func_003EDB98(f32 *u, f32 *v, f32 r, f32 def) {
     return s;
 }
 
-#if 0
-/* NON_MATCHING: 121 lines (190 instructions, draft 205): m2c draft, only made to compile (stack copies as struct copies, VU0 and unknown instructions as inline asm) */
+/* The ball b against pin p: the earliest contact with the pin's four spheres (radius D_00523570[k] + 150) within the
+ * step, both bodies moved to it, the impulse along the normal, then the rest of the step. */
 void func_003EDC90(BowlBall *b, BowlBody *p) {
-    f32 sp[64]; /* m2c stack */
-    /* the m2c draft's vector locals (each 16 bytes on the EE stack) as vectors: as separate floats the vector
-       routines' 16-byte stores ran over the neighbouring locals, wherever the compiler put them */
-    f32 sp10[4];
-    f32 sp20[4];
-    f32 sp30[4];
-    f32 sp40[4];
-    f32 temp_f0;
-    f32 temp_f0_2;
-    f32 temp_f20;
-    f32 temp_f21;
-    f32 temp_f21_2;
-    f32 temp_f3;
-    f32 var_f22;
-    s32 temp_a1;
-    s32 var_s0;
-    s32 var_s1;
-    s32 var_s5;
-    u8 *temp_s6;
+    f32 d0[4];
+    f32 d1[4];
+    f32 hit[4];
+    f32 v[4];
+    f32 n[4];
+    f32 t;
+    f32 u;
+    f32 r;
+    f32 dot;
+    f32 e;
+    s32 best;
+    s32 i;
 
-    temp_s6 = &b->pad30[0x10];
-    var_s5 = -1;
-    var_s1 = 0;
-    var_f22 = 1.0f;
-    var_s0 = 0 * 0x10;
-    do {
-        sceVu0SubVector(sp10, (f32 *) b->pad30, p + (var_s0 + 0xC0));
-        sceVu0SubVector(sp, (f32 *) temp_s6, p + (var_s0 + 0x100));
-        temp_f0 = func_003EDB98(sp, sp10, D_00523570[var_s1] + 150.0f, var_f22);
-        if (temp_f0 < var_f22) {
-            var_f22 = temp_f0;
-            var_s5 = var_s1;
+    best = -1;
+    t = 1.0f;
+    for (i = 0; i < 4; i++) {
+        sceVu0SubVector(d1, (f32 *) b->pad30, p->unkC0.m[i].v);
+        sceVu0SubVector(d0, (f32 *) &b->pad30[0x10], p->unk100[i].v);
+        r = func_003EDB98(d0, d1, D_00523570[i] + 150.0f, t);
+        if (r < t) {
+            t = r;
+            best = i;
         }
-        var_s1 += 1;
-        var_s0 = var_s1 * 0x10;
-    } while (var_s1 < 4);
-    if (var_s5 >= 0) {
-        func_003EC970((BowlBody *) b, var_f22);
-        func_003ECA38(p, var_f22);
-        temp_a1 = var_s5 * 0x10;
-        func_003E92C0(sp20, p + (temp_a1 + 0xC0), p + (temp_a1 + 0x100), var_f22);
-        sceVu0SubVector(sp40, &b->unk0, sp20);
-        temp_f0_2 = D_00523570[var_s5];
-        func_003E92C0(sp20, sp20, sp40, temp_f0_2 / (temp_f0_2 + 150.0f));
-        func_003ECBF0(sp30, p, var_s5, var_f22);
-        sceVu0SubVector(sp30, sp30, (f32 *) temp_s6);
-        temp_f21 = (sp30[0] * sp40[0]) + (sp30[1] * sp40[1]) + (sp30[2] * sp40[2]);
-        if (temp_f21 > 0.0f) {
-            temp_f3 = D_00523580[var_s5];
+    }
+    if (best >= 0) {
+        func_003EC970((BowlBody *) b, t);
+        func_003ECA38(p, t);
+        func_003E92C0(hit, p->unkC0.m[best].v, p->unk100[best].v, t);
+        sceVu0SubVector(n, &b->unk0, hit);
+        r = D_00523570[best];
+        func_003E92C0(hit, hit, n, r / (r + 150.0f));
+        func_003ECBF0(v, p, best, t);
+        sceVu0SubVector(v, v, (f32 *) &b->pad30[0x10]);
+        dot = v[0] * n[0] + v[1] * n[1] + v[2] * n[2];
+        if (dot > 0.0f) {
+            e = D_00523580[best];
             p->unk178 = 0;
             p->unk17C = 1;
-            temp_f21_2 = (2.0f * temp_f21 * temp_f3) / ((temp_f3 + 30.0f) * ((sp40[0] * sp40[0]) + (sp40[1] * sp40[1]) + (sp40[2] * sp40[2])));
-            func_003E92C0(&b->unk10, (f32 *) temp_s6, sp40, temp_f21_2);
+            dot = (2.0f * dot * e) / ((e + 30.0f) * (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]));
+            func_003E92C0(&b->unk10, (f32 *) &b->pad30[0x10], n, dot);
             b->unk14 = 0.0f;
-            sceVu0ScaleVector(sp30, sp40, -temp_f21_2 * 30.0f);
-            func_003ECDE8(p, sp30, sp20);
+            sceVu0ScaleVector(v, n, -dot * 30.0f);
+            func_003ECDE8(p, v, hit);
         }
-        temp_f20 = 1.0f - var_f22;
-        func_003EC980((BowlBody *) b, temp_f20);
-        func_003ECA80(p, temp_f20);
+        u = 1.0f - t;
+        func_003EC980((BowlBody *) b, u);
+        func_003ECA80(p, u);
         func_003EC990((BowlBody *) b);
         func_003ECAD8(p);
         if (D_005F70BC == 0) {
-            func_003BB228(D_005F70AC, 5);
+            func_003BB228((u8) D_005F70AC, 5);
         }
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/tekken_bowl", func_003EDC90);
-#endif
 
-#if 0
-/* NON_MATCHING: 265 lines (220 instructions, draft 238): m2c draft, only made to compile (stack copies as struct copies, VU0 and unknown instructions as inline asm) */
+/* Pin p against pin q: the earliest contact between any of their spheres within the step, both moved to it, the
+ * impulse along the normal, then the rest of the step. */
 void func_003EDF88(BowlBody *p, BowlBody *q) {
-    f32 sp[64]; /* m2c stack */
-    /* the m2c draft's vector locals (each 16 bytes on the EE stack) as vectors: as separate floats the vector
-       routines' 16-byte stores ran over the neighbouring locals, wherever the compiler put them */
-    f32 sp10[4];
-    f32 sp20[4];
-    f32 sp30[4];
-    f32 sp40[4];
-    f32 sp50[4];
-    s32 sp60;
-    s32 sp64;
-    s32 sp68;
-    f32 temp_f0;
-    f32 temp_f0_2;
-    f32 temp_f0_3;
-    f32 temp_f20;
-    f32 temp_f20_2;
-    f32 temp_f20_3;
-    f32 temp_f3;
-    f32 var_f21;
-    s32 temp_a1;
-    s32 temp_a1_2;
-    s32 temp_v1;
-    s32 var_s0;
-    s32 var_s1;
-    s32 var_s2;
+    f32 d0[4];
+    f32 d1[4];
+    f32 hq[4];
+    f32 v[4];
+    f32 n[4];
+    f32 hp[4];
+    f32 t;
+    f32 u;
+    f32 r;
+    f32 dot;
+    s32 bi;
+    s32 bj;
+    s32 i;
+    s32 j;
 
-    var_s2 = 0;
-    var_f21 = 1.0f;
-    sp60 = -1;
-    sp64 = -1;
-    do {
-        temp_v1 = var_s2 * 0x10;
-        sp68 = var_s2 + 1;
-        var_s1 = 0;
-        var_s0 = 0 * 0x10;
-loop_2:
-        sceVu0SubVector(sp10, p + (temp_v1 + 0xC0), q + (var_s0 + 0xC0));
-        sceVu0SubVector(sp, p + (temp_v1 + 0x100), q + (var_s0 + 0x100));
-        temp_f0 = func_003EDB98(sp, sp10, D_00523570[var_s2] + D_00523570[var_s1], var_f21);
-        if (temp_f0 < var_f21) {
-            sp60 = var_s2;
-            var_f21 = temp_f0;
-            sp64 = var_s1;
-        }
-        var_s1 += 1;
-        var_s0 = var_s1 * 0x10;
-        if (var_s1 < 4) {
-            goto loop_2;
-        }
-        var_s2 = sp68;
-    } while (var_s2 < 4);
-    if (sp64 >= 0) {
-        if (sp60 >= 0) {
-            func_003ECA38(p, var_f21);
-            func_003ECA38(q, var_f21);
-            temp_a1 = sp60 * 0x10;
-            func_003E92C0(sp50, p + (temp_a1 + 0xC0), p + (temp_a1 + 0x100), var_f21);
-            temp_a1_2 = sp64 * 0x10;
-            func_003E92C0(sp20, q + (temp_a1_2 + 0xC0), q + (temp_a1_2 + 0x100), var_f21);
-            sceVu0SubVector(sp40, sp50, sp20);
-            temp_f0_2 = D_00523570[sp64];
-            func_003E92C0(sp20, sp20, sp40, temp_f0_2 / (temp_f0_2 + D_00523570[sp60]));
-            func_003ECBF0(sp50, p, sp60, var_f21);
-            func_003ECBF0(sp30, q, sp64, var_f21);
-            sceVu0SubVector(sp30, sp30, sp50);
-            temp_f20 = (sp30[0] * sp40[0]) + (sp30[1] * sp40[1]) + (sp30[2] * sp40[2]);
-            if (temp_f20 > 0.0f) {
-                temp_f0_3 = D_00523580[sp60];
-                temp_f3 = D_00523580[sp64];
-                q->unk17C = 1;
-                p->unk17C = 1;
-                q->unk178 = 0;
-                p->unk178 = 0;
-                temp_f20_2 = (2.0f * temp_f20 * temp_f0_3 * temp_f3) / ((temp_f0_3 + temp_f3) * ((sp40[0] * sp40[0]) + (sp40[1] * sp40[1]) + (sp40[2] * sp40[2])));
-                sceVu0ScaleVector(sp30, sp40, temp_f20_2);
-                func_003ECDE8(p, sp30, sp20);
-                sceVu0ScaleVector(sp30, sp40, -temp_f20_2);
-                func_003ECDE8(q, sp30, sp20);
+    bi = -1;
+    bj = -1;
+    t = 1.0f;
+    for (i = 0; i < 4; i++) {
+        for (j = 0; j < 4; j++) {
+            sceVu0SubVector(d1, p->unkC0.m[i].v, q->unkC0.m[j].v);
+            sceVu0SubVector(d0, p->unk100[i].v, q->unk100[j].v);
+            r = func_003EDB98(d0, d1, D_00523570[i] + D_00523570[j], t);
+            if (r < t) {
+                bi = i;
+                t = r;
+                bj = j;
             }
-            temp_f20_3 = 1.0f - var_f21;
-            func_003ECA80(p, temp_f20_3);
-            func_003ECA80(q, temp_f20_3);
-            func_003ECAD8(p);
-            func_003ECAD8(q);
         }
     }
+    if (bj >= 0 && bi >= 0) {
+        func_003ECA38(p, t);
+        func_003ECA38(q, t);
+        func_003E92C0(hp, p->unkC0.m[bi].v, p->unk100[bi].v, t);
+        func_003E92C0(hq, q->unkC0.m[bj].v, q->unk100[bj].v, t);
+        sceVu0SubVector(n, hp, hq);
+        r = D_00523570[bj];
+        func_003E92C0(hq, hq, n, r / (r + D_00523570[bi]));
+        func_003ECBF0(hp, p, bi, t);
+        func_003ECBF0(v, q, bj, t);
+        sceVu0SubVector(v, v, hp);
+        dot = v[0] * n[0] + v[1] * n[1] + v[2] * n[2];
+        if (dot > 0.0f) {
+            q->unk17C = 1;
+            p->unk17C = 1;
+            q->unk178 = 0;
+            p->unk178 = 0;
+            dot = (2.0f * dot * D_00523580[bi] * D_00523580[bj]) / ((D_00523580[bi] + D_00523580[bj]) * (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]));
+            sceVu0ScaleVector(v, n, dot);
+            func_003ECDE8(p, v, hq);
+            sceVu0ScaleVector(v, n, -dot);
+            func_003ECDE8(q, v, hq);
+        }
+        u = 1.0f - t;
+        func_003ECA80(p, u);
+        func_003ECA80(q, u);
+        func_003ECAD8(p);
+        func_003ECAD8(q);
+    }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/tekken_bowl", func_003EDF88);
-#endif
 
 #if 0
 /* NON_MATCHING: 47 lines: the original keeps 0.0f in f24 (a variable used by the left test and the right y bound) */
@@ -3428,210 +3368,140 @@ INCLUDE_ASM("asm/nonmatchings/tekken_bowl", func_003EE2F8);
 #endif
 
 #if 0
-/* NON_MATCHING: 408 lines (408 instructions, draft 431): m2c draft, only made to compile (stack copies as struct copies, VU0 and unknown instructions as inline asm) */
+/* NON_MATCHING: 174 lines, register allocation (the original keeps every bound in its own callee-saved float register,
+   frame 0xC0 against 0xB0); written from the asm (F02: the m2c draft stepped its BowlBody pointer by 0x180-byte elements,
+   p + (i * 0x10 + 0xC0), and read far outside the pin). Pin p against the lane's walls: the back wall (z 9585), the
+   plane y -1176 and the two sides (x -2700 / 2700); each sphere k (radius D_00523570[k]) that crossed one in the step
+   inside the wall's box is pushed back by the deepest crossing and its velocity on that axis bounced at 0.4. */
 void func_003EE598(BowlBody *p) {
-    f32 sp[64]; /* m2c stack */
-    f32 sp0; /* m2c stack */
-    f32 sp4; /* m2c stack */
-    f32 sp8; /* m2c stack */
-    f32 *temp_s0;
-    f32 *temp_s0_2;
-    f32 *temp_s0_3;
-    f32 *temp_s0_4;
-    f32 temp_f1;
-    f32 temp_f1_2;
-    f32 temp_f1_3;
-    f32 temp_f1_4;
-    f32 temp_f20;
-    f32 temp_f20_2;
-    f32 temp_f20_3;
-    f32 temp_f20_4;
-    f32 temp_f21;
-    f32 temp_f21_2;
-    f32 temp_f21_3;
-    f32 temp_f21_4;
-    f32 temp_f22;
-    f32 temp_f22_2;
-    f32 temp_f22_3;
-    f32 temp_f22_4;
-    f32 temp_f23;
-    f32 temp_f23_2;
-    f32 temp_f23_3;
-    f32 temp_f25;
-    f32 temp_f25_2;
-    f32 temp_f25_3;
-    f32 temp_f25_4;
-    f32 temp_f26;
-    f32 temp_f28;
-    f32 temp_f29;
-    f32 temp_f29_2;
-    f32 temp_f29_3;
-    f32 temp_f29_4;
-    f32 temp_f2;
-    f32 temp_f2_2;
-    f32 temp_f2_3;
-    f32 temp_f2_4;
-    f32 temp_f30;
-    f32 temp_f30_2;
-    f32 temp_f30_3;
-    f32 temp_f30_4;
-    f32 temp_f31;
-    f32 temp_f31_2;
-    f32 temp_f31_3;
-    f32 var_f24;
-    f32 var_f24_2;
-    f32 var_f24_3;
-    f32 var_f24_4;
-    s32 temp_a1;
-    s32 temp_a1_2;
-    s32 temp_a1_3;
-    s32 temp_a1_4;
-    s32 var_s2;
-    s32 var_s2_2;
-    s32 var_s2_3;
-    s32 var_s2_4;
-    s32 var_v0;
-    s32 var_v0_2;
-    void *temp_v1;
-    void *temp_v1_2;
+    f32 v[4];
+    f32 best;
+    f32 w;
+    f32 r;
+    f32 a;
+    f32 b;
+    f32 k;
+    f32 x0;
+    f32 x1;
+    f32 y0;
+    f32 y1;
+    f32 z0;
+    f32 z1;
+    f32 c;
+    s32 i;
 
-    if (!(p->unk0.v[2] < 9255.658f)) {
-        var_f24 = -1.0f;
-        temp_f30 = -2700.0f;
-        temp_f25 = 2700.0f;
-        var_s2 = 0;
-        temp_f28 = -3528.0f;
-        temp_f31 = 9585.0f;
-        temp_f29 = 0.70710677f;
-        var_v0 = 0 * 4;
-loop_2:
-        temp_a1 = var_s2 * 0x10;
-        temp_f2 = *(var_v0 + D_00523570);
-        temp_f23 = temp_f31 - temp_f2;
-        temp_f22 = p->unk80.m[var_s2].v[2] - temp_f23;
-        temp_f20 = temp_f23 - p->unkC0.m[var_s2].v[2];
-        if ((temp_f22 >= 0.0f) && (temp_f20 > 0.0f)) {
-            temp_f21 = temp_f2 * temp_f29;
-            temp_s0 = p + (temp_a1 + 0xC0);
-            sceVu0SubVector(sp, p + (temp_a1 + 0x80), temp_s0);
-            func_003E92C0(sp, temp_s0, sp, temp_f20 / (temp_f20 + temp_f22));
-            if (((temp_f30 - temp_f21) < sp0) && (sp0 < (temp_f25 + temp_f21)) && ((temp_f28 - temp_f21) < sp4) && (sp4 < (-1176.0f + temp_f21)) && (var_f24 < temp_f22)) {
-                var_f24 = temp_f22;
+    if (p->unk0.v[2] < 9255.658f) {
+        return;
+    }
+    best = -1.0f;
+    x0 = -2700.0f;
+    x1 = 2700.0f;
+    y0 = -3528.0f;
+    y1 = -1176.0f;
+    z0 = 9585.0f;
+    c = 0.70710677f;
+    for (i = 0; i < 4; i++) {
+        r = D_00523570[i];
+        w = z0 - r;
+        a = p->unk80.m[i].v[2] - w;
+        b = w - p->unkC0.m[i].v[2];
+        if (a >= 0.0f && b > 0.0f) {
+            k = r * c;
+            sceVu0SubVector(v, p->unk80.m[i].v, p->unkC0.m[i].v);
+            func_003E92C0(v, p->unkC0.m[i].v, v, b / (b + a));
+            if (x0 - k < v[0] && v[0] < x1 + k && y0 - k < v[1] && v[1] < y1 + k && best < a) {
+                best = a;
             }
         }
-        var_s2 += 1;
-        if (var_s2 < 4) {
-            var_v0 = var_s2 * 4;
-            goto loop_2;
+    }
+    if (best >= 0.0f) {
+        p->unk0.v[2] -= best;
+        if (p->unk10.v[2] > 0.0f) {
+            p->unk10.v[2] = -p->unk10.v[2] * 0.4f;
         }
-        if (var_f24 >= 0.0f) {
-            temp_f1 = p->unk10.v[2];
-            p->unk0.v[2] -= var_f24;
-            if (temp_f1 > 0.0f) {
-                p->unk10.v[2] = -temp_f1 * 0.4f;
-            }
-            goto block_45;
-        }
-        var_f24_2 = 1.0f;
-        temp_f30_2 = -2700.0f;
-        temp_f25_2 = 2700.0f;
-        var_s2_2 = 0;
-        temp_f31_2 = 9585.0f;
-        temp_f23_2 = 12585.0f;
-        temp_f29_2 = 0.70710677f;
-        do {
-            temp_a1_2 = var_s2_2 * 0x10;
-            temp_f2_2 = D_00523570[var_s2_2];
-            temp_f26 = -1176.0f + temp_f2_2;
-            temp_f22_2 = p->unk80.m[var_s2_2].v[1] - temp_f26;
-            temp_f20_2 = temp_f26 - p->unkC0.m[var_s2_2].v[1];
-            if ((temp_f22_2 <= 0.0f) && (temp_f20_2 < 0.0f)) {
-                temp_f21_2 = temp_f2_2 * temp_f29_2;
-                temp_s0_2 = p + (temp_a1_2 + 0xC0);
-                sceVu0SubVector(sp, p + (temp_a1_2 + 0x80), temp_s0_2);
-                func_003E92C0(sp, temp_s0_2, sp, temp_f20_2 / (temp_f20_2 + temp_f22_2));
-                if (((temp_f30_2 - temp_f21_2) < sp0) && (sp0 < (temp_f25_2 + temp_f21_2)) && ((temp_f31_2 - temp_f21_2) < sp8) && (sp8 < (temp_f23_2 + temp_f21_2)) && (temp_f22_2 < var_f24_2)) {
-                    var_f24_2 = temp_f22_2;
-                }
-            }
-            var_s2_2 += 1;
-        } while (var_s2_2 < 4);
-        if (var_f24_2 <= 0.0f) {
-            temp_f1_2 = p->unk10.v[1];
-            p->unk0.v[1] -= var_f24_2;
-            if (temp_f1_2 < 0.0f) {
-                p->unk10.v[1] = -temp_f1_2 * 0.4f;
-            }
-            func_003ECAD8(p);
-        }
-        var_f24_3 = 1.0f;
-        temp_f30_3 = -2700.0f;
-        var_s2_3 = 0;
-        temp_f31_3 = 9585.0f;
-        temp_f23_3 = 12585.0f;
-        temp_f29_3 = 0.70710677f;
-        var_v0_2 = 0 * 4;
-loop_31:
-        temp_a1_3 = var_s2_3 * 0x10;
-        temp_v1 = p + temp_a1_3;
-        temp_f2_3 = *(var_v0_2 + D_00523570);
-        temp_f25_3 = temp_f30_3 + temp_f2_3;
-        temp_f22_3 = (*(f32 *)((u8 *)(temp_v1) + 0x80)) - temp_f25_3;
-        temp_f20_3 = temp_f25_3 - (*(f32 *)((u8 *)(temp_v1) + 0xC0));
-        if ((temp_f22_3 <= 0.0f) && (temp_f20_3 < 0.0f)) {
-            temp_f21_3 = temp_f2_3 * temp_f29_3;
-            temp_s0_3 = p + (temp_a1_3 + 0xC0);
-            sceVu0SubVector(sp, p + (temp_a1_3 + 0x80), temp_s0_3);
-            func_003E92C0(sp, temp_s0_3, sp, temp_f20_3 / (temp_f20_3 + temp_f22_3));
-            if (((-1176.0f - temp_f21_3) < sp4) && (sp4 < (0.0f + temp_f21_3)) && ((temp_f31_3 - temp_f21_3) < sp8) && (sp8 < (temp_f23_3 + temp_f21_3)) && (temp_f22_3 < var_f24_3)) {
-                var_f24_3 = temp_f22_3;
+        func_003ECAD8(p);
+        return;
+    }
+    best = 1.0f;
+    x0 = -2700.0f;
+    x1 = 2700.0f;
+    y1 = -1176.0f;
+    z0 = 9585.0f;
+    z1 = 12585.0f;
+    c = 0.70710677f;
+    for (i = 0; i < 4; i++) {
+        r = D_00523570[i];
+        w = y1 + r;
+        a = p->unk80.m[i].v[1] - w;
+        b = w - p->unkC0.m[i].v[1];
+        if (a <= 0.0f && b < 0.0f) {
+            k = r * c;
+            sceVu0SubVector(v, p->unk80.m[i].v, p->unkC0.m[i].v);
+            func_003E92C0(v, p->unkC0.m[i].v, v, b / (b + a));
+            if (x0 - k < v[0] && v[0] < x1 + k && z0 - k < v[2] && v[2] < z1 + k && a < best) {
+                best = a;
             }
         }
-        var_s2_3 += 1;
-        if (var_s2_3 < 4) {
-            var_v0_2 = var_s2_3 * 4;
-            goto loop_31;
+    }
+    if (best <= 0.0f) {
+        p->unk0.v[1] -= best;
+        if (p->unk10.v[1] < 0.0f) {
+            p->unk10.v[1] = -p->unk10.v[1] * 0.4f;
         }
-        if (var_f24_3 <= 0.0f) {
-            temp_f1_3 = p->unk10.v[0];
-            p->unk0.v[0] -= var_f24_3;
-            if (temp_f1_3 < 0.0f) {
-                p->unk10.v[0] = -temp_f1_3 * 0.4f;
-            }
-block_45:
-            func_003ECAD8(p);
-        } else {
-            var_f24_4 = -1.0f;
-            temp_f30_4 = 2700.0f;
-            temp_f29_4 = 0.70710677f;
-            var_s2_4 = 0;
-            do {
-                temp_a1_4 = var_s2_4 * 0x10;
-                temp_v1_2 = p + temp_a1_4;
-                temp_f2_4 = D_00523570[var_s2_4];
-                temp_f25_4 = temp_f30_4 - temp_f2_4;
-                temp_f22_4 = (*(f32 *)((u8 *)(temp_v1_2) + 0x80)) - temp_f25_4;
-                temp_f20_4 = temp_f25_4 - (*(f32 *)((u8 *)(temp_v1_2) + 0xC0));
-                if ((temp_f22_4 >= 0.0f) && (temp_f20_4 > 0.0f)) {
-                    temp_f21_4 = temp_f2_4 * temp_f29_4;
-                    temp_s0_4 = p + (temp_a1_4 + 0xC0);
-                    sceVu0SubVector(sp, p + (temp_a1_4 + 0x80), temp_s0_4);
-                    func_003E92C0(sp, temp_s0_4, sp, temp_f20_4 / (temp_f20_4 + temp_f22_4));
-                    if (((-1176.0f - temp_f21_4) < sp4) && (sp4 < (0.0f + temp_f21_4)) && ((temp_f31_3 - temp_f21_4) < sp8) && (sp8 < (temp_f23_3 + temp_f21_4)) && (var_f24_4 < temp_f22_4)) {
-                        var_f24_4 = temp_f22_4;
-                    }
-                }
-                var_s2_4 += 1;
-            } while (var_s2_4 < 4);
-            if (var_f24_4 >= 0.0f) {
-                temp_f1_4 = p->unk10.v[0];
-                p->unk0.v[0] -= var_f24_4;
-                if (temp_f1_4 > 0.0f) {
-                    p->unk10.v[0] = -temp_f1_4 * 0.4f;
-                }
-                func_003ECAD8(p);
+        func_003ECAD8(p);
+    }
+    best = 1.0f;
+    x0 = -2700.0f;
+    y0 = -1176.0f;
+    y1 = 0.0f;
+    z0 = 9585.0f;
+    z1 = 12585.0f;
+    c = 0.70710677f;
+    for (i = 0; i < 4; i++) {
+        r = D_00523570[i];
+        w = x0 + r;
+        a = p->unk80.m[i].v[0] - w;
+        b = w - p->unkC0.m[i].v[0];
+        if (a <= 0.0f && b < 0.0f) {
+            k = r * c;
+            sceVu0SubVector(v, p->unk80.m[i].v, p->unkC0.m[i].v);
+            func_003E92C0(v, p->unkC0.m[i].v, v, b / (b + a));
+            if (y0 - k < v[1] && v[1] < y1 + k && z0 - k < v[2] && v[2] < z1 + k && a < best) {
+                best = a;
             }
         }
+    }
+    if (best <= 0.0f) {
+        p->unk0.v[0] -= best;
+        if (p->unk10.v[0] < 0.0f) {
+            p->unk10.v[0] = -p->unk10.v[0] * 0.4f;
+        }
+        func_003ECAD8(p);
+        return;
+    }
+    best = -1.0f;
+    x1 = 2700.0f;
+    c = 0.70710677f;
+    for (i = 0; i < 4; i++) {
+        r = D_00523570[i];
+        w = x1 - r;
+        a = p->unk80.m[i].v[0] - w;
+        b = w - p->unkC0.m[i].v[0];
+        if (a >= 0.0f && b > 0.0f) {
+            k = r * c;
+            sceVu0SubVector(v, p->unk80.m[i].v, p->unkC0.m[i].v);
+            func_003E92C0(v, p->unkC0.m[i].v, v, b / (b + a));
+            if (y0 - k < v[1] && v[1] < y1 + k && z0 - k < v[2] && v[2] < z1 + k && best < a) {
+                best = a;
+            }
+        }
+    }
+    if (best >= 0.0f) {
+        p->unk0.v[0] -= best;
+        if (p->unk10.v[0] > 0.0f) {
+            p->unk10.v[0] = -p->unk10.v[0] * 0.4f;
+        }
+        func_003ECAD8(p);
     }
 }
 #else
@@ -3985,97 +3855,48 @@ INCLUDE_RODATA("asm/nonmatchings/tekken_bowl", D_005239E8);
 INCLUDE_RODATA("asm/nonmatchings/tekken_bowl", D_005239F8);
 INCLUDE_RODATA("asm/nonmatchings/tekken_bowl", D_00523A08);
 INCLUDE_RODATA("asm/nonmatchings/tekken_bowl", D_00523A18);
-#if 0
-/* NON_MATCHING: 126 lines (147 instructions, draft 132): m2c draft, only made to compile (stack copies as struct copies, VU0 and unknown instructions as inline asm) */
-void func_003EF8B0(s8 *arg0) {
-    f32 sp[64]; /* m2c stack */
-    s16 temp_v1;
-    s16 temp_v1_2;
-    s16 var_a1;
-    s16 var_v0_2;
-    s32 temp_v0_2;
-    s32 temp_v0_3;
-    s32 var_a0;
-    s32 var_v0;
-    s32 var_v0_3;
-    u8 temp_v0;
+/* The message after a throw (D_005239C8 x, D_00523A18 text, the colour of each): the number of strikes in a row
+ * from the first frame (D_005F6A12, 12 for a perfect game) picks it and its sounds once; then it is drawn each frame. */
+typedef struct { s32 v[6]; } BowlI6;
+typedef struct { s16 v[6]; } BowlS6;
+typedef struct { const char *v[6]; } BowlP6;
+void func_003EF8B0(BowlPlayer *p) {
+    BowlI6 col = { { 2, 9, 0x12, 0xB, 0x12, (gFrameCount & 2) ? 0xB : 2 } };
+    BowlS6 x;
+    BowlP6 msg;
 
-    /* The colours (built at sp+0x20, copied to sp+0), the x of each message (D_005239C8), the messages (D_00523A18). */
-    ((s32 *)sp)[0] = 2;
-    ((s32 *)sp)[1] = 9;
-    ((s32 *)sp)[2] = 0x12;
-    ((s32 *)sp)[3] = 0xB;
-    ((s32 *)sp)[4] = 0x12;
-    ((s32 *)sp)[5] = (gFrameCount & 2) ? 0xB : 2;
-    BOWL_SP(0x20, BowlB12) = *(BowlB12 *)D_005239C8; BOWL_SP(0x40, BowlB24) = *(BowlB24 *)D_00523A18;
-    temp_v1 = D_005F6A10;
+    x = *(BowlS6 *) D_005239C8;
+    msg = *(BowlP6 *) D_00523A18;
     if (D_005F70CE == 0) {
         D_005F6A12 = 0;
-        var_a1 = 0;
-loop_2:
-        temp_v0 = *(arg0 + 1 + var_a1);
-        if (!(temp_v0 & 1)) {
-            var_v0 = var_a1 << 0x10;
-            if (*(arg0 + 0xD + (s8) temp_v0) == 0xA) {
-                temp_v1_2 = var_a1 + 1;
-                temp_v0_2 = temp_v1_2 << 0x10;
-                var_a1 = temp_v1_2;
-                D_005F6A12 = temp_v1_2;
-                if ((temp_v0_2 >> 0x10) >= 0xC) {
-                    goto block_5;
-                }
-                goto loop_2;
-            }
+        do {
+            if (p->unk1[D_005F6A12] & 1) break;
+            if (p->unkD[p->unk1[D_005F6A12]] != 0xA) break;
+            D_005F6A12++;
+        } while (D_005F6A12 < 12);
+        if (D_005F6A12 == 0) return;
+        if (D_005F6A12 == 12) {
+            D_005F6A10 = 5;
+        } else if (D_005F6A12 >= 3 && (p->unk1[0] >> 1) == 12) {
+            D_005F6A10 = 4;
         } else {
-block_5:
-            var_v0 = var_a1 << 0x10;
+            D_005F6A10 = D_005F6A12 < 4 ? D_005F6A12 - 1 : 3;
         }
-        temp_v0_3 = var_v0 >> 0x10;
-        if (temp_v0_3 != 0) {
-            if (temp_v0_3 == 0xC) {
-                var_v0_2 = 5;
-            } else {
-                var_v0_3 = var_a1 << 0x10;
-                if ((temp_v0_3 >= 3) && (var_v0_3 = var_a1 << 0x10, (((s32) ((*(u8 *)((u8 *)(arg0) + 1)) << 0x18) >> 0x19) == 0xC))) {
-                    var_v0_2 = 4;
-                } else {
-                    var_v0_2 = var_a1 - 1;
-                    if ((var_v0_3 >> 0x10) >= 4) {
-                        var_v0_2 = 3;
-                    }
-                }
-            }
-            D_005F6A10 = var_v0_2;
-            switch (var_a1) {                       /* irregular */
-            case 1:
-                var_a0 = 0x10B2;
-block_22:
-                Snd_PlaySe(var_a0, 0);
-                break;
-            case 3:
-                var_a0 = 0x1046;
-                goto block_22;
-            case 12:
-                var_a0 = 0x1058;
-                goto block_22;
-            default:
-                Snd_PlaySe(0x1057, 0);
-                break;
-            }
-            Snd_PlaySe(0x10B5, 0);
-            goto block_25;
+        if (D_005F6A12 == 1) {
+            Snd_PlaySe(0x10B2, 0);
+        } else if (D_005F6A12 == 3) {
+            Snd_PlaySe(0x1046, 0);
+        } else if (D_005F6A12 == 12) {
+            Snd_PlaySe(0x1058, 0);
+        } else {
+            Snd_PlaySe(0x1057, 0);
         }
-    } else {
-block_25:
-        Text_Printf(D_005239A8, BOWL_SP(0x20 + temp_v1 * 2, s16), 0x168, 0xA, BOWL_SP(temp_v1 * 4, s32),
-                    BOWL_SP(0x40 + temp_v1 * 4, s32));
-        func_003EF818((s32) D_005F6A12);
-        D_005F70CE = (u16) D_005F70CE + 1;
+        Snd_PlaySe(0x10B5, 0);
     }
+    Text_Printf(D_005239A8, x.v[D_005F6A10], 0x168, 0xA, col.v[D_005F6A10], msg.v[D_005F6A10]);
+    func_003EF818(D_005F6A12);
+    D_005F70CE++;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/tekken_bowl", func_003EF8B0);
-#endif
 
 #if 0
 /* NON_MATCHING: written from the asm (T41 b1; the m2c draft stepped its BowlBody pointers by 0x180 elements, not
@@ -4815,106 +4636,75 @@ void func_003F1408(s32 n, s32 side) {
 
 INCLUDE_RODATA("asm/nonmatchings/tekken_bowl", D_00523B40);
 #if 0
-/* NON_MATCHING: 118 lines (178 instructions, draft 171): m2c draft, only made to compile (stack copies as struct copies, VU0 and unknown instructions as inline asm) */
+/* NON_MATCHING: 14 lines, delay slots: the original leaves three branches of the perfect-game / 200 checks with a nop
+   where this fills them from the target (lh of D_005F70F0 / D_005F70F2); the jump table is the compiler's. Written
+   from the asm (F02: the m2c draft tested D_005F70E8 after its decrement in state 3, a frame early). The bowling
+   result screen: state 0 the perfect game (300) / 200 bonuses of the two players that made the high-score table,
+   1 the score sheet until a button, 2 the name entry, 3 the table until its timer runs out or a button, 4 the fade. */
 s32 func_003F1570(void) {
-    BowlPlayer *temp_s0;
-    s16 temp_a0;
-    s16 temp_a0_2;
-    s16 var_v0;
-    s32 temp_s3;
-    u16 temp_a1;
-    u8 temp_s2;
+    BowlPlayer *p;
+    u8 side;
+    s32 pad;
 
-    temp_s2 = (*(u8 *)((u8 *)(D_0043B7F8) + 0x20));
-    temp_s0 = func_003E9438(0);
-    temp_s3 = func_003712C0() & 0x8F4;
+    side = D_0043B7F8[0x20];
+    p = func_003E9438(0);
+    pad = func_003712C0() & 0x8F4;
     func_003CD728();
     Text_Printf(D_00523B40, 0x70, 0x28, 0xA, 5, 0xF);
-    temp_a1 = (u16) D_005F70EC;
-    switch (D_005F70EC) {                           /* switch 1 */
-    case 0:                                         /* switch 1 */
-        if (temp_s0->unk42[0xA] != 0x12C) {
-            if ((*(s16 *)((u8 *)(temp_s0) + 0xB4)) == 0x12C) {
-                goto block_5;
-            }
-        } else {
-block_5:
-            if ((*D_005F70F0 >= 5) || (func_003F2418((u32) *D_005F70F0) == 0) || (temp_s0->unk42[0xA] != 0x12C)) {
-                if ((D_005F70F2 < 5) && (func_003F2418((u32) D_005F70F2) != 0)) {
-                    if ((*(s16 *)((u8 *)(temp_s0) + 0xB4)) == 0x12C) {
-                        goto block_12;
-                    }
-                }
-            } else {
-block_12:
+    switch (D_005F70EC) {
+    case 0:
+        if (p[0].unk42[0xA] == 300 || p[1].unk42[0xA] == 300) {
+            if ((D_005F70F0[0] < 5 && func_003F2418(D_005F70F0[0]) != 0 && p[0].unk42[0xA] == 300)
+                || (D_005F70F2 < 5 && func_003F2418(D_005F70F2) != 0 && p[1].unk42[0xA] == 300)) {
                 D_005F70F6 = 1;
             }
             Snd_PlaySe(0x1058, 0);
         }
-        if ((*D_005F70F0 >= 5) || (temp_s0->unk42[0xA] < 0xC8)) {
-            var_v0 = temp_a1 + 1;
-            if (D_005F70F2 < 5) {
-                var_v0 = temp_a1 + 1;
-                if ((*(s16 *)((u8 *)(temp_s0) + 0xB4)) >= 0xC8) {
-                    goto block_20;
-                }
-            }
-        } else {
-block_20:
+        if ((D_005F70F0[0] < 5 && p[0].unk42[0xA] >= 200) || (D_005F70F2 < 5 && p[1].unk42[0xA] >= 200)) {
             D_005F70F4 = 1;
-            var_v0 = temp_a1 + 1;
         }
-        D_005F70EC = var_v0;
-        /* fallthrough */
-    case 1:                                         /* switch 1 */
-        switch ((*(u8 *)((u8 *)(D_0043B7F8) + 0x1A))) { /* switch 2; irregular */
-        case 2:                                     /* switch 2 */
-            func_003F0FF0(temp_s2, (*(u8 *)((u8 *)(D_0043B7F8) + 0x1F)) == 3, temp_s0);
+        D_005F70EC++;
+    case 1:
+        switch (D_0043B7F8[0x1A]) {
+        case 1:
+            func_003F0F40(side, p);
             break;
-        case 1:                                     /* switch 2 */
-            func_003F0F40((s32) temp_s2, temp_s0);
+        case 2:
+            func_003F0FF0(side, D_0043B7F8[0x1F] == 3, (s32) p);
             break;
         }
         func_003F0D10();
-        if (temp_s3 != 0) {
-            D_005F70E8 = 0xBB8;
-            if ((*D_005F70F0 < 5) || (D_005F70F2 < 5)) {
+        if (pad != 0) {
+            D_005F70E8 = 3000;
+            if (D_005F70F0[0] < 5 || D_005F70F2 < 5) {
                 Bgm_Play(5);
             } else {
                 Bgm_SetVolumeFade(0, 0xF0);
             }
-block_39:
-block_40:
-            D_005F70EC = (u16) D_005F70EC + 1;
+            D_005F70EC++;
         }
-block_43:
-        return 0;
-    case 2:                                         /* switch 1 */
-        temp_a0_2 = (s16) (u16) D_005F70E8;
-        D_005F70E8 = (u16) D_005F70E8 - 1;
-        if (func_003F12A0((s32) temp_a0_2) != 0) {
-            D_005F70E8 = 0x12C;
-            goto block_40;
+        break;
+    case 2:
+        if (func_003F12A0(D_005F70E8--) != 0) {
+            D_005F70E8 = 300;
+            D_005F70EC++;
         }
-        goto block_43;
-    case 3:                                         /* switch 1 */
+        break;
+    case 3:
         func_003F2E58();
-        D_005F70E8 = (u16) D_005F70E8 - 1;
-        if (((u16) D_005F70E8 & 0x8000) || (temp_s3 != 0)) {
+        if (D_005F70E8-- < 0 || pad != 0) {
             D_005F70E8 = 0;
             Bgm_SetVolumeFade(0, 0x3C);
-            goto block_39;
+            D_005F70EC++;
         }
-        /* Duplicate return node #44. Try simplifying control flow for better match */
-        return 0;
-    case 4:                                         /* switch 1 */
+        break;
+    case 4:
         func_003F2E58();
-        temp_a0 = (s16) (u16) D_005F70E8;
-        D_005F70E8 = (u16) D_005F70E8 + 1;
-        return func_003F1370((s32) temp_a0);
-    default:                                        /* switch 1 */
+        return func_003F1370(D_005F70E8++);
+    default:
         return 1;
     }
+    return 0;
 }
 #else
 INCLUDE_RODATA("asm/nonmatchings/tekken_bowl", jtbl_00523B60);

@@ -1816,16 +1816,16 @@ void func_003C6410(f32 a) {
     Sprite_DrawCurrentRotated(1);
 }
 
-/* NON_MATCHING: 16 lines, n and 0xF6 - n swap s1 / s2 and the second store run is ordered differently */
-#if 0
 void func_003C64E8(f32 a) {
     f32 d;
     s32 n, h;
+    u32 k;
 
+    k = 0xF6; /* the bar's height; unsigned, or n and 0xF6 - n swap s1 / s2 */
     D_005F6748 = 0x40;
     d = 100.0f;
     n = (s32)(a * 236.0f / d) + 4;
-    h = 0xF6 - n;
+    h = k - n;
     Sprite_SetTexture(0x121, 0x122);
     D_00440F20.x = 0x226;
     D_00440F20.w = 0x40;
@@ -1834,17 +1834,14 @@ void func_003C64E8(f32 a) {
     D_00440F20.y = 0x8C;
     func_003CDC10(1);
     Sprite_SetTexture(0x123, 0x124);
-    D_00440F20.th = n;
     D_00440F20.x = 0x226;
     D_00440F20.w = 0x40;
     D_00440F20.h = n;
     D_00440F20.y = h + 0x8C;
     D_00440F20.v += h;
+    D_00440F20.th = n;
     func_003CDC10(1);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/select_results_b", func_003C64E8);
-#endif
 
 INCLUDE_RODATA("asm/nonmatchings/select_results_b", D_0051FD30);
 
@@ -3571,17 +3568,13 @@ void func_003CA418(void) {
     D_00440CE8.item[0].unk0 = 0;
 }
 
-/* NON_MATCHING: 8 lines, the 0x5000 test becomes a branch and the 0xA000 test a movn (original: the reverse) */
-#if 0
 s32 func_003CA428(s32 b) {
     if (b & 0x1040F) b |= 4;
     b = ((b & 0x5000) != 0x5000) ? b & 0xF9F4 : b & 0xA9F4;
-    if ((b & 0xA000) == 0xA000) return b & 0x59F4;
+    /* ~0xA000 (not 0x59F4): the wide mask keeps the test a branch instead of a movz */
+    if ((b & 0xA000) == 0xA000) b &= ~0xA000;
     return b;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/select_results_b", func_003CA428);
-#endif
 
 INCLUDE_RODATA("asm/nonmatchings/select_results_b", D_005204B8);
 INCLUDE_RODATA("asm/nonmatchings/select_results_b", jtbl_005204D0);
