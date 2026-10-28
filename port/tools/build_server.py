@@ -27,15 +27,35 @@ WIN64_FLAGS = ["-D_WIN32_WINNT=0x0602", "-static"]
 WIN64_LIBS = ["-lws2_32", "-lbcrypt"]
 
 
+def build_linux(cc, name, exe):
+    """Compiles and links one Linux program. glibc 2.38's headers send strtol / strtoul to __isoc23_* names under
+    _GNU_SOURCE (GLIBC_2.38 symbols): the object calls the plain ones instead, the same functions for the decimal
+    numbers the programs read, so they start on older systems too (T44, docs/port/release.md "Portability")."""
+    obj = exe.with_suffix(".o")
+    r = subprocess.run(cc + FLAGS + ["-c", "-o", str(obj), str(SRC / f"{name}.c")], capture_output=True, text=True)
+    if r.returncode == 0:
+        und = subprocess.run(["nm", "-u", str(obj)], capture_output=True, text=True, check=True).stdout.split()
+        names = sorted({n for n in und if n.startswith("__isoc23_")})
+        if names:
+            r = subprocess.run(["objcopy"] + [f"--redefine-sym={n}={n[len('__isoc23_'):]}" for n in names] + [str(obj)],
+                               capture_output=True, text=True)
+    if r.returncode == 0:
+        r = subprocess.run(cc + ["-o", str(exe), str(obj)], capture_output=True, text=True)
+    obj.unlink(missing_ok=True)
+    return r
+
+
 def build(out, win64=False):
     cc = shlex.split(os.environ.get("CC", "")) or [shutil.which("cc") or shutil.which("gcc") or "cc"]
     cc = [MINGW_CC] if win64 else cc
     out.mkdir(parents=True, exist_ok=True)
     for name in PROGRAMS:
         exe = name + (".exe" if win64 else "")
-        cmd = (cc + FLAGS + (WIN64_FLAGS if win64 else []) + ["-o", str(out / exe), str(SRC / f"{name}.c")] +
-               (WIN64_LIBS if win64 else []))
-        r = subprocess.run(cmd, capture_output=True, text=True)
+        if win64:
+            cmd = cc + FLAGS + WIN64_FLAGS + ["-o", str(out / exe), str(SRC / f"{name}.c")] + WIN64_LIBS
+            r = subprocess.run(cmd, capture_output=True, text=True)
+        else:
+            r = build_linux(cc, name, out / exe)
         if r.returncode != 0:
             sys.stderr.write(r.stdout + r.stderr)
             print(f"build_server: {name} FAILED")

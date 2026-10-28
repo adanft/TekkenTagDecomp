@@ -31,6 +31,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include "plat_lang.h"
 #include "plat_os.h"
 #include "plat_settings.h"
 
@@ -596,4 +597,32 @@ void Port_CrashVBlank(uint32_t n) {
         break;
     }
     }
+}
+
+/* `ttt --version` (T44, docs/port/release.md): the build (git describe of the source, TTT_GIT), the platform and the
+   languages the program finds catalogs for (English, then lang/ beside the program or the player's own); then exits.
+   After Settings_Load and Lang_Init, before the window or the game: needs no disc and writes nothing. */
+void Port_VersionArgs(int argc, char **argv) {
+    LangInfo langs[32];
+    int i, n;
+    for (i = 1; i < argc && strncmp(argv[i], "--version", 10) != 0; i++) {
+    }
+    if (i >= argc) {
+        return;
+    }
+#if defined(_WIN32)
+    fprintf(stdout, "ttt %s (Windows x86-64)\n", TTT_GIT);
+#elif defined(__x86_64__)
+    fprintf(stdout, "ttt %s (Linux x86-64)\n", TTT_GIT);
+#else
+    fprintf(stdout, "ttt %s (Linux x86)\n", TTT_GIT);
+#endif
+    n = Lang_List(langs, 32);
+    fprintf(stdout, "languages:");
+    for (i = 0; i < n; i++) {
+        fprintf(stdout, " %s", langs[i].code);
+    }
+    fprintf(stdout, "\n");
+    fflush(stdout);
+    exit(0);
 }

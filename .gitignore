@@ -11,6 +11,8 @@ SLUS_200.01
 asm/
 assets/
 build/
+# Release archives (T44, port/tools/release.py): never committed, never uploaded from here
+dist/
 *.ld
 !config/*.ld
 undefined_*.txt

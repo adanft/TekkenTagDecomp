@@ -78,10 +78,21 @@ IMGUI_SOURCES = ("imgui.cpp", "imgui_draw.cpp", "imgui_tables.cpp", "imgui_widge
                  "backends/imgui_impl_opengl3.cpp")
 OVERLAY_CXXFLAGS = ["-m32", "-std=c++17", "-O2", "-g", "-fno-pic", "-fno-plt", "-fno-exceptions", "-fno-rtti",
                     "-fno-threadsafe-statics", "-fno-stack-protector", "-fno-strict-aliasing", "-msse2", "-mfpmath=sse",
-                    "-fno-math-errno", "-w", '-DIMGUI_USER_CONFIG="imconfig_ttt.h"', "-Iport/src", f"-I{IMGUI}"]
+                    "-fno-math-errno", "-w", '-DIMGUI_USER_CONFIG="imconfig_ttt.h"', "-Iport/src", f"-I{IMGUI}",
+                    f"-fmacro-prefix-map={ROOT}/="]  # IM_ASSERT's __FILE__ without the checkout's path (T44)
 # ImGui's libGL loader registers a handler with atexit (a new PLT entry through libc_nonshared); the port loads GL
 # through SDL instead, so after compiling, that call is sent to a no-op in overlay.cpp (objcopy arguments).
 IMGUI_OBJCOPY = {"backends/imgui_impl_opengl3.cpp": ["--redefine-sym=atexit=ttt_imgl3w_atexit"]}
+# glibc 2.38's headers send sscanf / strtol / strtoul... to __isoc23_* names (C23's 0b prefix for binary numbers)
+# under _GNU_SOURCE (every C++ file, plat_os_posix.c): GLIBC_2.38 symbols, so the program would not start on an older
+# system. The x86-64 Linux program's objects call the plain names instead, the same functions for everything the port
+# reads (no 0b input), present since glibc 2.2.5 (T44, docs/port/release.md "Portability"). The 32-bit variants keep
+# theirs: their PLT is fixed (48 entries, tests/test_port_clang.py).
+def isoc23_redefine_args(undefined):
+    """objcopy arguments renaming the __isoc23_* names among `undefined` to the plain C library names."""
+    return [f"--redefine-sym={n}={n[len('__isoc23_'):]}" for n in sorted(set(undefined)) if n.startswith("__isoc23_")]
+
+
 # Port C files whose new C library calls must not add PLT entries: all their external calls through the GOT.
 NOPLT_FILES = ("plat_settings.c", "gs_texpack.c", "plat_crash.c")
 

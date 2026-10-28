@@ -17,9 +17,9 @@ import subprocess
 import sys
 
 from toolchain import (BITS64, BUILD, GEN, HOT_CFLAGS, HOT_FILES, IMGUI, IMGUI_OBJCOPY, IMGUI_SOURCES, MPEG2, NEWLIB,
-                       NOPLT_FILES, OBJ, ROOT, SIMD_CFLAGS, SIMD_FILES, VU_FILES, cc, clang_noplt_renames, cxx,
-                       game_cflags, newlib_cflags, noplt_redefine_args, overlay_cxxflags, port_cflags, target, tool,
-                       vu_redefine_args)
+                       NOPLT_FILES, OBJ, ROOT, SIMD_CFLAGS, SIMD_FILES, VU_FILES, WIN64, cc, clang_noplt_renames, cxx,
+                       game_cflags, isoc23_redefine_args, newlib_cflags, noplt_redefine_args, overlay_cxxflags,
+                       port_cflags, target, tool, vu_redefine_args)
 import portsrc
 
 TEXT_START, TEXT_END = 0x340000, 0x415700  # .text of SLUS_200.01; .data and the rest follow
@@ -130,6 +130,9 @@ def compile_one(job):
         und = subprocess.run([tool("nm"), "-u", str(obj)], capture_output=True, text=True, check=True).stdout.split()
         redefine += noplt_redefine_args([n for n in und if n != "U"],
                                         keep=[a.split("=")[1] for a in redefine if a.startswith("--redefine-sym=")])
+    if r.returncode == 0 and BITS64 and not WIN64:  # x86-64 Linux: no GLIBC_2.38 names (toolchain.py)
+        und = subprocess.run([tool("nm"), "-u", str(obj)], capture_output=True, text=True, check=True).stdout.split()
+        redefine += isoc23_redefine_args(und)
     if r.returncode == 0 and redefine:
         r = subprocess.run([tool("objcopy")] + redefine + [str(obj)], cwd=ROOT, capture_output=True, text=True)
     return src, obj, r.returncode, r.stderr

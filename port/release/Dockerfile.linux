@@ -1,0 +1,34 @@
+# The Linux programs built on an older C library (glibc 2.31, Ubuntu 20.04) - T44, docs/port/release.md "Portability".
+#
+# A RECIPE ONLY: it has never been built or run. The release is built natively (port/tools/release.py) and needs
+# glibc 2.34; this image is for a release that must also start on glibc 2.31-2.33 systems. It only builds the
+# programs; package them on the host afterwards with `python3 port/tools/release.py --no-build --targets linux`.
+#
+#   docker build -t ttt-build-focal -f port/release/Dockerfile.linux port/release
+#   docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/src" -w /src ttt-build-focal \
+#       sh -c 'python3 port/tools/build.py && python3 port/tools/build_server.py'
+#   python3 port/tools/release.py --no-build --targets linux        (on the host: package and check)
+#
+# The checkout is mounted, not copied: nothing of the game is in the image (the build needs no game file: build.py).
+# Tools: clang / clang++ / llc of LLVM 18 (apt.llvm.org), libclang's Python bindings for port/tools/ptr32.py (the
+# `libclang` wheel, which brings its own libclang), Python 3.11 (deadsnakes: the tools use Python 3.9+ features),
+# gcc for the matchmaking server, binutils (nm, objcopy, objdump, readelf).
+
+FROM ubuntu:20.04
+
+ARG LLVM=18
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates wget gnupg lsb-release software-properties-common git gcc g++ binutils make \
+    && add-apt-repository -y ppa:deadsnakes/ppa \
+    && apt-get update && apt-get install -y --no-install-recommends python3.11 python3.11-venv \
+    && wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh && bash /tmp/llvm.sh "$LLVM" \
+    && rm -rf /var/lib/apt/lists/* /tmp/llvm.sh
+
+# clang, clang++ and llc under their plain names (port/tools/toolchain.py calls them so).
+RUN for t in clang clang++ llc; do ln -sf "/usr/bin/$t-$LLVM" "/usr/local/bin/$t"; done
+
+# python3 = 3.11 with libclang's bindings (ptr32.py imports clang.cindex).
+RUN python3.11 -m venv /opt/py && /opt/py/bin/pip install --no-cache-dir "libclang==$LLVM.1.1"
+ENV PATH=/opt/py/bin:$PATH

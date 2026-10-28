@@ -1,0 +1,19 @@
+Code from other projects in this release
+========================================
+
+The programs include code from these projects. Each licence is in this folder.
+
+  Project                         Licence                     File                        In
+  Dear ImGui (v1.92.9)            MIT                         imgui.txt                   ttt (settings overlay)
+  pl_mpeg2 (MPEG-2 video)         MIT                         pl_mpeg2.txt                ttt (the game's movies)
+  stb (stb_image, stb_vorbis)     MIT or public domain        stb.txt                     ttt (texture packs, mod music)
+  xxHash                          BSD 2-clause                xxhash.txt                  ttt (state hashes)
+  TweetNaCl (Ed25519)             public domain               tweetnacl.txt               ttt, ttt-sign
+  newlib libm (fdlibm)            BSD-style (see file)        newlib.txt                  ttt (the PS2's maths library)
+{windows_rows}
+SDL 3 is not part of this release: the program loads the SDL 3 library
+installed on the system ({sdl}) when it opens its window.
+
+The game itself is not in this release. The program reads your own disc of
+Tekken Tag Tournament (USA, SLUS-20001); the data it makes from it stays on
+your computer.

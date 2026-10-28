@@ -23,6 +23,8 @@ ttt --setup /path/to/disc-or-image     # exit code 0 done, 2 no disc there / can
 ```
 
 `ttt --setup` with no path opens the setup screen again (to point the program at another copy of the disc).
+`ttt --version` prints the build (`git describe` of its source) and the languages it found catalogs for, and
+exits (T44).
 
 ## Where files go
 

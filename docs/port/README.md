@@ -3,7 +3,8 @@
 The PC port is built from the same C as the matching decompilation. Nothing of the game is committed or linked in:
 the build needs neither your `SLUS_200.01` nor its split, and the program takes the game's data from **your own
 disc** when it runs (`ttt.dat`, [data.md](data.md)). Everything is written under `build/port/`, which git ignores.
-Players: [install.md](install.md) (the setup screen, `ttt --setup <disc>`, where the files go).
+Players: [install.md](install.md) (the setup screen, `ttt --setup <disc>`, where the files go). Releases (the
+Linux and Windows archives, with no game data): [release.md](release.md).
 
 ## Status (T27, 2026-10-24)
 
@@ -137,6 +138,9 @@ Players: [install.md](install.md) (the setup screen, `ttt --setup <disc>`, where
   builds give the same state hashes, pictures and sound.
 - `TTT_CC=win64` (T42 b7, [windows.md](windows.md)): the x86-64 program for Windows, cross-built on Linux with clang
   and mingw-w64 into `build/port-win64/ttt.exe`. It compiles and links; it has not been run yet (no Windows, no Wine).
+- Releases (T44, [release.md](release.md)): `port/tools/release.py` packages the Linux and Windows programs, the
+  translations, the licences and a player README into `dist/`, checks that no archive holds game data, and writes
+  `SHA256SUMS`; `ttt --version` prints the build and the languages found.
 
 ## Build
 

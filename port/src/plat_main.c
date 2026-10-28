@@ -28,6 +28,7 @@ void Port_CrashInstall(void); /* plat_crash.c: the crash report handlers, with t
 void Port_SetupArgs(int argc, char **argv); /* plat_setup.c: `--setup <disc>` (exits) or `--setup` (the screen) */
 void Port_SetupRun(void); /* plat_setup.c: the setup screen when the game's data is not loaded yet (T43) */
 void Port_NetMain(int argc, char **argv); /* plat_net.c: TTT_SELFTEST=net, TTT_UPDATE_CHECK=1 (T46) */
+void Port_VersionArgs(int argc, char **argv); /* plat_crash.c: `--version` (prints and exits, T44) */
 #ifdef _WIN32
 void PlatOs_StackWide(void); /* plat_os_win32.c */
 #endif
@@ -37,6 +38,7 @@ int __wrap_main(int argc, char **argv) {
        game's clock */
     Settings_Load();
     Lang_Init();
+    Port_VersionArgs(argc, argv);
     Speech_Init();
     A11y_Init();
     Settings_SelfTest();
