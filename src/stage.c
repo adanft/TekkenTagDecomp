@@ -494,8 +494,6 @@ s32 func_0038C048(s32 a0) {
     return a0;
 }
 
-/* NON_MATCHING: 4 lines: the D_005F6140 / unkC0 / unkC4 stores are scheduled earlier than in the original (D_00433334 is the unk4 array's own symbol) */
-#if 0
 extern s32 D_00433334[]; /* D_00433330.unk4, read by its own symbol */
 
 void Cam_Reset(void) {
@@ -507,26 +505,25 @@ void Cam_Reset(void) {
         a[i] = b[i] = 0;
     }
     D_00433330.unk4[0] = 0x1000;
-    D_00433330.unkC8 = 4;
-    D_00433330.unk0 = 1;
     D_00433330.unk38 = -1;
     D_00433330.unk44 = -1;
     D_00433330.unk40 = -1;
     D_00433330.unk3C = -1;
     D_00433330.unk50 = -1;
     D_00433330.unk4C = -1;
-    D_00433330.unkC0 = -1;
-    D_00433330.unkBC = -1;
-    D_005F6140 = 1;
     D_00433330.unk2C = 0;
     D_00433330.unkB8 = 0;
-    D_00433330.unk7C[1] = 0;
-    D_00433330.unkC4 = 0;
-    D_00433330.unk7C[0] = 0;
+    D_00433330.unkC0 = -1;
+    D_00433330.unkC8 = 4;
+    D_00433330.unk0 = 1;
+    D_00433330.unkBC = -1;
+    D_005F6140 = 1;
+    do { /* fake: a scheduling barrier that keeps the last three stores in this order */
+        D_00433330.unk7C[1] = 0;
+        D_00433330.unkC4 = 0;
+        D_00433330.unk7C[0] = 0;
+    } while (0);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/stage", Cam_Reset);
-#endif
 
 s32 func_0038C188(void) {
     struct FighterMove *m = gFighters[0].unkC0;
@@ -1132,8 +1129,6 @@ s32 func_0038D1B8(s32 side, Fighter *a1, Fighter *a2) {
     return 0;
 }
 
-/* NON_MATCHING: 2 lines: the store of r to unk3C is scheduled after the unkB8 store instead of first (as func_0038D3D0); no order of the five stores and the else block's four fixes it */
-#if 0
 void func_00392B38(s32 a0);
 
 s32 func_0038D290(s32 side, Fighter *a1, Fighter *f) {
@@ -1154,10 +1149,10 @@ s32 func_0038D290(s32 side, Fighter *a1, Fighter *f) {
         D_00433330.unk84 = 0;
         func_00392B38(-D_00433330.unk58);
         D_00433330.unk40 = r;
-        D_00433330.unk3C = r;
-        D_00433330.unk38 = -1;
-        D_00433330.unk0 = 6;
         D_00433330.unkB8 = 1;
+        D_00433330.unk38 = -1;
+        D_00433330.unk3C = r;
+        D_00433330.unk0 = 6;
     } else {
         D_00433330.unk38 = 0x10;
         D_00433330.unk0 = 2;
@@ -1172,11 +1167,8 @@ s32 func_0038D290(s32 side, Fighter *a1, Fighter *f) {
     D_00433330.unk4[1] = 0;
     return 0;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/stage", func_0038D290);
-#endif
 
-/* NON_MATCHING: 2 lines: the store of r to unk3C is scheduled after the mode store (unk0 = 6) instead of before the unkB8 store; every other store matches */
+/* NON_MATCHING: 2 lines: the store of r to unk3C is scheduled after the mode store (unk0 = 6) instead of before the unkB8 store; every other store matches. The order of func_0038D290 (unk40, unkB8, unk38, unk3C, unk0) gives the right store order but swaps v0 / v1 for the constants 1 and 6 (4 lines) */
 #if 0
 s32 func_0038D3D0(s32 side, Fighter *a1, Fighter *f) {
     s32 r;
@@ -1691,12 +1683,14 @@ s32 func_0038E460(Unk8B90B8 *src, s32 i) {
     return 0;
 }
 
-/* NON_MATCHING: one instruction long, frame 0x80 for 0x90 (57 lines): the original copies the key through a larger stack block and other saved registers */
+/* NON_MATCHING: one instruction long (46 lines), same frame (0x90, a 48-byte local block): the original keeps
+ * the key copy in s1-s4 and the three element pointers in a1 / t0 / v1, and schedules the D_00415808 stores before the
+ * stack copies */
 #if 0
 /* Makes camera key i (D_008B90B8[i]) current: copies it to key 3 and writes the camera angles D_00415808 (pitch and yaw
  * in 1/4096 turns, roll 0, position) that the simulation reads (Battle_UpdateFacing uses D_00415808[1]) [V code]. */
 s32 Cam_SetKey(s32 i) {
-    s32 s[8];
+    s32 s[12]; /* only words 0-2 and 5-7 are written; the frame has 48 bytes of locals */
 
     D_00415808[2] = 0;
     s[0] = D_008B90B8[i].unk0[3];
@@ -2618,9 +2612,8 @@ s32 func_0038FD90(s32 a0, s32 a1, s32 pitch, s32 yaw, s32 roll, s32 reset, s32 d
 INCLUDE_ASM("asm/nonmatchings/stage", func_0038FD90);
 #endif
 
-/* NON_MATCHING: one store short (24 lines): the original frame has 0x30 bytes of other locals below the key c (it clears a word at sp+0x20 between the dist and x stores); the loop's two field addresses are swapped */
-#if 0
 s32 func_00390E08(Fighter *a, Fighter *b) {
+    s32 w[12]; /* a 48-byte local below c; only w[8] is written */
     Unk8B90B8 c;
     s32 i;
 
@@ -2634,8 +2627,7 @@ s32 func_00390E08(Fighter *a, Fighter *b) {
         D_008B9148[i].unk34 = 0;
         D_008B9148[i].unk38 = 0;
         D_008B9148[i].unk28 = 0;
-        D_008B9148[i].unk2C = 0;
-        D_008B9148[i].unk30 = 0;
+        D_008B9148[i].unk2C = D_008B9148[i].unk30 = 0;
         D_008B9148[i].unk24 = 0;
     }
     c.unk0[1] = -0x4B0;
@@ -2643,6 +2635,7 @@ s32 func_00390E08(Fighter *a, Fighter *b) {
     c.unk0[6] = D_00433330.unkA4;
     D_005F6C18 = 0;
     D_005F6C1A = 0;
+    w[8] = 0;
     c.unk0[0] = 0;
     c.unk0[3] = 0;
     c.unk0[4] = 0;
@@ -2652,9 +2645,6 @@ s32 func_00390E08(Fighter *a, Fighter *b) {
     func_0038F768();
     return 0;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/stage", func_00390E08);
-#endif
 
 s32 func_00390F48(Fighter *f) {
     u32 k = f->unkC0->unk24 >> 23;
@@ -4747,8 +4737,6 @@ s32 func_003954E8(void) {
 INCLUDE_ASM("asm/nonmatchings/stage", func_003954E8);
 #endif
 
-/* NON_MATCHING: `sd ra` is scheduled after the store to unk8 instead of before it */
-#if 0
 s32 func_00395718(s32 a0, s32 a1, s32 a2) {
     Unk8BC6B8 *p = &D_008BC6B8;
 
@@ -4759,9 +4747,6 @@ s32 func_00395718(s32 a0, s32 a1, s32 a2) {
     func_0035BB58(a0, a1); /* the PS2 call keeps a1 in $a1, and func_0035BB58 reads it */
     return 0;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/stage", func_00395718);
-#endif
 
 s32 func_00395750(void) {
     Unk8BC6B8 *p = &D_008BC6B8;
