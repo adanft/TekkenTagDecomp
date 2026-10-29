@@ -1362,6 +1362,11 @@ void Bowl_PinHomePos(f32 *p, u32 i) {
         p[2] = 394.04156f;
         break;
     }
+#ifdef PORT
+    /* The original adds the offsets at run time (add.s, cut toward zero: 394.04156 + 8000 is 0x4603282A); without
+       this the host compiler folds the sums at build time, rounded to nearest (0x4603282B). */
+    __asm__ volatile("" ::: "memory");
+#endif
     p[0] += 0.0f;
     p[2] += 8000.0f;
 }
@@ -3338,6 +3343,11 @@ void func_003EE2F8(BowlBall *ball) {
     if (0.0f <= e && 0.0f < d) {
         sceVu0SubVector(v, b->unk0.v, b->unk30.v);
         r = 106.066017f;
+#ifdef PORT
+        /* The original adds / subtracts the radius here at run time (sub.s / add.s, cut toward zero: -1176 - r is
+           0xC4A0421C, 12585 + r 0x46464C43); without this the host compiler folds the bounds, rounded to nearest. */
+        __asm__("" : "+m"(r));
+#endif
         func_003E92C0(v, b->unk30.v, v, d / (d + e));
         if (-1176.0f - r < v[1] && v[1] < 0.0f + r && 9585.0f - r < v[2] && v[2] < 12585.0f + r && push < e) {
             push = e;
@@ -3931,8 +3941,8 @@ s32 func_003EFB00(s32 arg0) {
                 for (i = 10, p = (u8 *)D_01FC5260; i > 0; i--, p += 0x180) {
                     any |= *(s32 *)(p + 0x178);
                 }
-                D_005F70BA = t;
-                if (any == 0) {
+                if (any == 0) { /* F02 P4-M: the draft stored the timer before the test, the asm only here */
+                    D_005F70BA = t;
                     return 3;
                 }
             } else {
@@ -4048,7 +4058,6 @@ s32 func_003F0008(void) {
     s16 temp_s4;
     s16 temp_s5;
     s16 temp_v0_3;
-    s32 temp_a0;
     s32 temp_a1;
     s32 temp_s0_2;
     s32 var_a2_2;
@@ -4181,7 +4190,7 @@ block_64:
         case 1:                                     /* switch 1 */
             goto block_11;
         case 2:                                     /* switch 1 */
-            func_003465E0(temp_a0);
+            func_003465E0();
             func_003EF290();
             D_005F70A8 = (u16) D_005F70A8 + 1;
             /* fallthrough */
@@ -4294,7 +4303,7 @@ block_82:
             }
             break;
         case 7:                                     /* switch 1 */
-            func_003ADFA8(temp_a0);
+            func_003ADFA8();
             temp_s2->unk127 = 0;
             temp_a1 = D_005F70AC ^ 1;
             temp_s3->unk127 = 0;
@@ -4305,7 +4314,7 @@ block_82:
             Bgm_SetVolumeFade(0x80, 0x14);
             goto block_82;
         case 8:                                     /* switch 1 */
-            func_003465E0(temp_a0);
+            func_003465E0();
             func_003ADFA8();
             temp_s2->unk127 = 0;
             temp_s3->unk127 = 0;
@@ -4334,7 +4343,7 @@ block_89:
             }
             break;
         case 9:                                     /* switch 1 */
-            if (func_003B6220(temp_a0) == 0) {
+            if (func_003B6220() == 0) {
                 func_003ADFB0();
                 if (D_005F5EE0 == 0) {
                     if (D_005F5F08 != 0) {
@@ -4388,7 +4397,7 @@ block_100:
             }
             break;
         case 10:                                    /* switch 1 */
-            func_003ADFA8(temp_a0);
+            func_003ADFA8();
             if ((*(s16 *)((u8 *)(D_01FC61E0) + 0xB4)) < D_01FC61E0->unk42[0xA]) {
                 var_v0_2 = D_0043B7F8;
                 (*(s8 *)((u8 *)(D_0043B7F8) + 0x21)) = 1;
@@ -4532,7 +4541,7 @@ void func_003F0FF0(s32 winner, s32 draw, s32 scores) {
     s32 c;
     s32 kind;
 
-    D_005F6738 = (0x8080 << 0x10) | 0x8080;
+    D_005F6738 = 0x80808080; /* F02 P4-M: zero-extended (dsll), (0x8080 << 16) | 0x8080 was a negative int */
     for (i = 0; i < 2; i++) {
         y = i * 0xB0;
         *(BowlB24 *)words = *(BowlB24 *)D_00523B00;
@@ -5112,7 +5121,7 @@ void func_003F25D8(BowlPlayer *p, u8 c0, u8 c1, s32 d) {
     }
     func_003C59D8(0x24, 0x64, 1, 1, 0xA, 1, p, NULL, -1);
     Sprite_SetBlend(1, 1);
-    D_005F6738 = (0x8080 << 0x10) | 0x8080;
+    D_005F6738 = 0x80808080; /* F02 P4-M: zero-extended (dsll), (0x8080 << 16) | 0x8080 was a negative int */
     func_003CC078(0xF0, 0xF0, 0);
     func_003CBFB8(c0, 0xF0, 0xF0, 0);
     func_003CF1C0(1, c0, 0xCC, 0x128);
