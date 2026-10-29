@@ -418,8 +418,6 @@ s32 func_00374E00(s32 id, s32 player) {
 
 /* Plays sound effect `id` for `player`: finds its bank and sample, picks a voice of its category and keys it on.
  * `mode` 1 skips the categories 6-7, 2 moves categories other than 8-9 to 10; `scale` (0-0x100) scales the volume. */
-#if 0
-/* NON_MATCHING: register allocation: the sample address and the category swap $s1 / $s2. */
 s32 Snd_PlaySeEx(s32 id, s32 player, s32 mode, u32 scale) {
     s32 se;
     s32 bank;
@@ -453,10 +451,10 @@ s32 Snd_PlaySeEx(s32 id, s32 player, s32 mode, u32 scale) {
             switch (def->kind) {
                 default:
                 case 0:
-                    addr = e->offset + D_00500CB0[0] + 0x5010;
+                    addr = D_00500CB0[0] + 0x5010 + e->offset;
                     break;
                 case 1:
-                    addr = e->offset + D_00500CB4[0] + 0x5010;
+                    addr = D_00500CB4[0] + 0x5010 + e->offset;
                     break;
                 case 2:
                     for (i = 0; i < 4; i++) {
@@ -464,12 +462,13 @@ s32 Snd_PlaySeEx(s32 id, s32 player, s32 mode, u32 scale) {
                             break;
                         }
                     }
-                    addr = gSndBanks[i].addr + e->offset;
+                    addr = gSndBanks[i].addr;
+                    addr += e->offset;
                     break;
             }
             voice = Snd_AllocVoice(category, player);
             addr += 0x40;
-if (voice >= 0) {
+            if (voice >= 0) {
                 volume = e->volume << 8;
                 if (volume != 0) {
                     volume--;
@@ -485,9 +484,6 @@ if (voice >= 0) {
     }
 end:;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/sound", Snd_PlaySeEx);
-#endif
 
 /* Starts `voice` (core 1) on the sample at `addr`. */
 void Snd_KeyOn(s32 voice, u16 volume, u16 pitch, u32 addr) {

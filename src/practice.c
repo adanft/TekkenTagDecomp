@@ -515,7 +515,7 @@ INCLUDE_RODATA("asm/nonmatchings/practice", D_005062D0);
 INCLUDE_RODATA("asm/nonmatchings/practice", D_005062F0);
 INCLUDE_RODATA("asm/nonmatchings/practice", D_00506310);
 INCLUDE_RODATA("asm/nonmatchings/practice", D_00506328);
-/* NON_MATCHING: about 30 real lines (130 with relocations): the signed range test on the u16 page, the unk8E choice chain and register allocation */
+/* NON_MATCHING: 112 fdiff lines with relocations: the signed range test on the u16 page, the unk8E choice chain and register allocation */
 #if 0
 void func_003796B8(void) {
     PracMenu *m = &D_0042F268;
@@ -652,12 +652,12 @@ void func_003796B8(void) {
                 m->unk8E = 0;
             } else if (p->unk28 == 5 && d->unk28 == 1 && slot == 0x76) {
                 m->unk8E = 30;
-            } else if ((u16)(d->unk28 - 1) >= 2 && (d->unk2A == 15 || d->unk2A == 33)) {
-                m->unk8E = 10;
-            } else if ((u16)(d->unk28 - 1) >= 2 && d->unk28 == 8) {
-                m->unk8E = 30;
-            } else {
+            } else if ((u16)(d->unk28 - 1) < 2) {
                 m->unk8E = 5;
+            } else if (d->unk2A == 15 || d->unk2A == 33 || d->unk28 == 8) {
+                m->unk8E = 10;
+            } else {
+                m->unk8E = 30;
             }
             m->page = 4;
         }

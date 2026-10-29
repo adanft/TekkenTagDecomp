@@ -2207,8 +2207,8 @@ void func_003A4370(void) {
     }
 }
 
-/* NON_MATCHING: 13 lines: register allocation only: side shift in v1 (orig a0), f1/f2 swapped for the literals of
- * sub-cases 0 and 2, v0/v1 swapped in sub-case 2. */
+/* NON_MATCHING: 11 lines: register allocation only: f1/f2 swapped for the literals of sub-cases 0 and 2, v0/v1 swapped
+ * in sub-case 2 (the split `side` statements from decomp-permuter fixed the shift's register) */
 #if 0
 void func_003A44F8(Effect *e) {
     FxSparkSub *x = (FxSparkSub *)&e->sub;
@@ -2217,7 +2217,8 @@ void func_003A44F8(Effect *e) {
     s32 side;
     EffectSub *ns;
 
-    side = (e->flags >> 5) & 1;
+    side = e->flags >> 5;
+    side = side & 1;
     if ((e->flags & 0x10) && func_003A3588(side, 0x18) != 0) {
         e->flags &= 0xFFFFFFEF;
     }

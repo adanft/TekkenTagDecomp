@@ -1212,19 +1212,15 @@ s32 func_003AFF08(s32 i) {
     return D_008D7E88[i].s[k & 1];
 }
 
-/* NON_MATCHING: 9 lines, the port table's unk6 base is built as %lo + 6 in the original */
-#if 0
 void func_003AFF40(s32 i) {
     s32 k = D_005F62A8[i];
-    s16 *p = &D_008D7E68[D_008D7E88[i].s[k & 1]].unk6;
+    s32 o = 6; /* unk6's offset in a local: the original adds it to %lo(D_008D7E68) apart */
+    s16 *p = (s16 *)((u8 *)&D_008D7E68[D_008D7E88[i].s[k & 1]] + o);
 
     if (++*p >= 3) {
         *p = 2;
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/menu_common", func_003AFF40);
-#endif
 
 s32 func_003AFFB8(s32 i, s32 a) {
     return D_008D7E88[i].s[a];
@@ -1271,13 +1267,12 @@ s32 func_003B0108(s32 port) {
     return D_008D7E68[port].unk6;
 }
 
-/* NON_MATCHING: 8 lines, the port table's unk6 base is built as %lo + 6 in the original */
-#if 0
 void func_003B0120(s32 i) {
     s32 k;
 
     for (k = func_003B01B0(i); k >= 0; k--) {
-        s16 *p = &D_008D7E68[D_008D7E88[i].s[k]].unk6;
+        s32 o = 6; /* unk6's offset in a local, as in func_003AFF40 */
+        s16 *p = (s16 *)((u8 *)&D_008D7E68[D_008D7E88[i].s[k]] + o);
 
         if (*p > 0) {
             (*p)--;
@@ -1285,18 +1280,13 @@ void func_003B0120(s32 i) {
         }
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/menu_common", func_003B0120);
-#endif
 
 s32 func_003B01B0(s32 i) {
     return D_008D7E88[i].s[2];
 }
 
-/* NON_MATCHING: 19 lines, saved registers (s3 holds the table's %hi) and scheduling */
-#if 0
 void func_003B01D0(s32 a, s32 port, s32 b) {
-    s16 v = -1;
+    s32 v = -1;
 
     if (a != 0) {
         v = b;
@@ -1310,9 +1300,6 @@ void func_003B01D0(s32 a, s32 port, s32 b) {
     D_008D7E68[port].unk4 = 0;
     D_008D7E68[port].unk6 = 0;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/menu_common", func_003B01D0);
-#endif
 
 void func_003B0260(void) {
     s32 i;

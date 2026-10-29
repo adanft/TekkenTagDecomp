@@ -831,7 +831,9 @@ void Input_ResetMapping(s32 player) {
 
 /* OR of every player's input words into D_005F5CD8..D_005F5CEC; opposite directions cancel. */
 #if 0
-/* NON_MATCHING: the globals D_005F5CDC and D_005F5CE0 get swapped registers (t5/t6) inside the loop. */
+/* NON_MATCHING: 3 lines: the three `and`s of the 0xA000 block of the first side are scheduled CDC, CE0, CD8 here
+ * (CE0, CD8, CDC in the original), stores CE0 first. An exhaustive search of the statement orders of the loop and the
+ * four blocks found nothing closer (the original order of the 0xA000 block's statements scores 18). */
 void Input_MergePlayers(void) {
     s32 i;
 
@@ -855,9 +857,9 @@ void Input_MergePlayers(void) {
         D_005F5CE0 &= ~0x5000;
     }
     if ((D_005F5CD8 & 0xA000) == 0xA000) {
+        D_005F5CE0 &= ~0xA000;
         D_005F5CD8 &= ~0xA000;
         D_005F5CDC &= ~0xA000;
-        D_005F5CE0 &= ~0xA000;
     }
     if ((D_005F5CE4 & 0x5000) == 0x5000) {
         D_005F5CE4 &= ~0x5000;
