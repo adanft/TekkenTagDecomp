@@ -80,7 +80,7 @@ starts on GALLERY) and its music player.
 square at the character select (the bowler and the partner); on the lane cross three times (aim, spin, power).
 Start opens the pause window (VBlank 790); down twice and cross open TOP BOWLERS, triangle turns to the score sheet
 (T41 b2). With `TTT_SLOW_TESTS=1`: the draw passes against the original (`TTT_DIFF`), and a whole game (cross every
-40 VBlanks: ten frames, then the results, mode 10, at VBlank 11064).
+40 VBlanks: ten frames, then the results, mode 10, at VBlank 10912).
 
 ## Open
 

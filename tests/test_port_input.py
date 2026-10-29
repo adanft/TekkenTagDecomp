@@ -281,11 +281,11 @@ class Bowl(unittest.TestCase):
     @unittest.skipUnless(os.environ.get("TTT_SLOW_TESTS") == "1", "slow (about seven minutes): TTT_SLOW_TESTS=1")
     def test_a_whole_game(self):
         """Cross every 40 VBlanks from the lane on: ten frames of two balls each (the bowler and the partner take
-        turns), the game's end (func_003F1570) and the results (mode 10) at VBlank 11064."""
+        turns), the game's end (func_003F1570) and the results (mode 10) at VBlank 10912."""
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "in.txt"
-            p.write_text(stream(*TO_THE_BOWL, *((v, CROSS, 4) for v in range(720, 11120, 40))))
-            r = run_ttt(timeout=1800, TTT_FRAMES="11120", TTT_SEED="1", TTT_INPUT_PLAY=str(p), TTT_CHEAT_UNLOCK="1",
+            p.write_text(stream(*TO_THE_BOWL, *((v, CROSS, 4) for v in range(720, 10968, 40))))
+            r = run_ttt(timeout=1800, TTT_FRAMES="10968", TTT_SEED="1", TTT_INPUT_PLAY=str(p), TTT_CHEAT_UNLOCK="1",
                         TTT_AUDIO="0")
         self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
         self.assertNotIn("not implemented yet", r.stdout)
