@@ -149,7 +149,7 @@ These have the same meaning under mingw-w64, so they are not wrapped:
 | Checked (cross-built on Linux, `tests/test_port_win64.py`) | Not checked (needs Windows or Wine) |
 |---|---|
 | All 134 objects compile, the same 43 stubs as Linux; the link succeeds | That the program starts: the relaunch, the fixed maps, the EE stack switch with the TEB bounds |
-| PE32+ console program, ImageBase 0x08000000, no dynamic base, no high-entropy VA, no relocations, code at 0x08001000, bss inside the state hash's window (below 0x09000000) | The self-tests (mem, hw, ee, gs, float, vu1, vu0, state) and the idle run's hash `0x8ba37caeb2bacfa8` (the test runs them when `wine` is on PATH) |
+| PE32+ console program, ImageBase 0x08000000, no dynamic base, no high-entropy VA, no relocations, code at 0x08001000, bss inside the state hash's window (below 0x09000000) | The self-tests (mem, hw, ee, gs, float, vu1, vu0, state) and the idle run's hash `0x61dc0b370ff7019b` (the test runs them when `wine` is on PATH) |
 | Imports: system DLLs and the UCRT only | The window, GL, sound, gamepads (SDL3.dll), the overlay |
 | No x87 or SSE float instruction in a game or port function but the SIMD files and the overlay (the float rule) | Crash reports, sockets / netplay, the matchmaking restart, `RunWait` |
 | The data rewrite table's 615 entries hold the linked addresses; the COFF symbols read as `PlatOs_SelfImage` reads them equal `nm`'s | Real Windows' address space: whether the high-entropy relaunch keeps the low 32 MB free every time; Wine's (which may ignore the policy) |

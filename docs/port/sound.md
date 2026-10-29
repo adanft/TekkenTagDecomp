@@ -80,7 +80,7 @@ Core 1's master volume gives the output.
     the hashed voice (`d[1]`). The other two are kept in `spu2.tail`, saved with the state for rollback but left out
     of the hash. Only the sound depends on them. Samples before a key on count as 0, as PCSX2 resets its decode
     buffer at key on.
-  - So the state hashes did not change: idle run `0xd36c82e9a145875a`, GL fight `0x3c2cd520128fc04d` (measured before T42 b1; `0x8ba37caeb2bacfa8` / `0xcce5eb554fa51395` since). The `TTT_WAV`
+  - So the state hashes did not change: idle run `0xd36c82e9a145875a`, GL fight `0x3c2cd520128fc04d` (measured before T42 b1; `0x61dc0b370ff7019b` / `0xa1623a6d44cb57a6` since). The `TTT_WAV`
     output changed, and is still the same bytes from run to run.
 - **ADSR.** As on the SPU:
   - The step is `(7 - (rate & 3)) << (11 - shift)` going up, or `(-8 + (rate & 3)) << ...` going down.

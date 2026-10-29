@@ -184,9 +184,9 @@ ones cannot be replaced (textures.md, Names).
 ## Determinism and netplay
 
 - Nothing in `plat_mods.c` is in a state (`plat_state.c`): the mod list, the files and the playback are host data. The
-  state hash is unchanged with mods: the idle run (`TTT_FRAMES=2551 TTT_SEED=1`, 17 dumps) gives `0x8ba37caeb2bacfa8`
-  and the scripted fight `0xcce5eb554fa51395`, with music mods for all 28 tracks, headless; the GL fight with those and
-  a texture mod replacing all 403 textures it names gives `0xcce5eb554fa51395` too.
+  state hash is unchanged with mods: the idle run (`TTT_FRAMES=2551 TTT_SEED=1`, 17 dumps) gives `0x61dc0b370ff7019b`
+  and the scripted fight `0xa1623a6d44cb57a6`, with music mods for all 28 tracks, headless; the GL fight with those and
+  a texture mod replacing all 403 textures it names gives `0xa1623a6d44cb57a6` too.
 - Frames the rollback runs again (`gPortResim`) are not mixed again, so a mod file's playback never repeats or skips
   because of a rollback; it follows the track the game plays when the frames are heard.
 - Mods are cosmetic: two netplay peers can use different mods. `Mods_Summary` gives one line, for example

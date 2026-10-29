@@ -202,9 +202,9 @@ Checked: a build with 4 KB of padding in the game's code (every game function mo
 final hashes as the build without, over the idle run and the scripted fight; `TTT_SELFTEST=state` checks the rule on
 the two callbacks. The hash does not depend on the GS thread modes (`TTT_GS_THREADS`, `TTT_GS_ASYNC`).
 
-Values (sw, `TTT_SEED=1 TTT_MOVIES=0`, empty card): the 2551-VBlank idle run ends with `hash 0x8ba37caeb2bacfa8`
+Values (sw, `TTT_SEED=1 TTT_MOVIES=0`, empty card): the 2551-VBlank idle run ends with `hash 0x61dc0b370ff7019b`
 (17 frames unchanged), the scripted fight of `tests/test_port_input.py` (1451 VBlanks, software and GL) with
-`0xcce5eb554fa51395`. Before T42 b1 they were `0xd36c82e9a145875a` and `0x3c2cd520128fc04d` (`0xaeed4a40f6029792` for
+`0xa1623a6d44cb57a6`. Before T42 b1 they were `0xd36c82e9a145875a` and `0x3c2cd520128fc04d` (`0xaeed4a40f6029792` for
 1450 VBlanks at T27): two values the game reads from uninitialised stack bytes (`dma_spr.c` `func_0035D790`'s DMA
 tag and its stack address, `Light_StartFlash`'s fourth float) followed the compiler's frame layout; they are fixed
 under `PORT` now, and the gcc and clang builds give the same hashes ([README.md](README.md) gotcha 32; since T42 b2
