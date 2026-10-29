@@ -50,9 +50,11 @@ MINGW = "x86_64-w64-mingw32"
 MAX_GLIBC = (2, 34)
 BASELINE_GLIBC = (2, 31)
 LINUX_LIBS = {"libc.so.6", "libm.so.6", "libpthread.so.0", "libdl.so.2", "ld-linux-x86-64.so.2"}
-# Windows: the system's DLLs and the Universal C Runtime only (winpthreads and libgcc are linked in; SDL3.dll is
-# loaded at run time and is not an import).
-WINDOWS_DLLS = {"kernel32.dll", "user32.dll", "shell32.dll", "ws2_32.dll", "bcrypt.dll", "advapi32.dll"}
+# Windows: the system's DLLs and a C runtime only: the Universal C Runtime, or msvcrt.dll (part of every Windows) when
+# the mingw-w64 toolchain targets it, as Ubuntu's does in CI. winpthreads and libgcc are linked in; SDL3.dll is loaded
+# at run time and is not an import.
+WINDOWS_DLLS = {"kernel32.dll", "user32.dll", "shell32.dll", "ws2_32.dll", "bcrypt.dll", "advapi32.dll",
+                "msvcrt.dll"}
 
 # Documentation for players, bundled as docs/<name>.md (the rest of docs/port is about the decompilation).
 DOCS = ("install.md", "settings.md", "input.md", "video.md", "sound.md", "netplay.md", "matchmaking.md", "mods.md",
