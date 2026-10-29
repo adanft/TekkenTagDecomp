@@ -131,6 +131,7 @@ Release archives are made by `port/tools/release.py`, locally or by the GitHub A
 
 - **The port's own code** (the platform layer, tools, server, tests and documentation written for this project) is
   licensed under the **GNU Affero General Public License v3.0 only** ([LICENSE](LICENSE)).
+  Copyright (C) 2026 adanft.
 - **The game's code** in `src/` and `include/` is a decompilation of the original executable. It is the work of the
   original rights holders and is **not licensed by this project**.
 - **`third_party/`** keeps the licences of its projects:
@@ -156,7 +157,3 @@ interoperability.
 No game assets are distributed: no disc image, executable, data file, texture, sound or movie of the game is in this
 repository or in its releases. To play you need your own legally obtained copy of the game. Never commit or share
 game data, including the data file and memory cards the program creates from your disc.
-
-## Author
-
-adanft
