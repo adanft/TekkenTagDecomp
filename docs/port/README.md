@@ -1427,10 +1427,11 @@ must come before `plat_os.h`'s inline functions first call them. The matchmaking
 `build_server.py`) is an ordinary separate program.
 
 So the 64-bit program became the default (T42 b5). Left: Windows (b6, the operating system layer, and b7, the
-mingw-w64 build, are done but the program has not run on Windows or Wine yet: [windows.md](windows.md)); m2c drafts
-elsewhere that treat
-neighbouring scalar locals as one array (`menu_bg.c` `func_003E1C68` / `func_003E38F0`: their pictures depend on the
-compiler's frame layout in every build).
+mingw-w64 build, are done but the program has not run on Windows or Wine yet: [windows.md](windows.md)). The m2c
+drafts that treated neighbouring scalar locals as one array, `menu_bg.c` `func_003E1C68` / `func_003E38F0` (the bowl
+HUD), no longer depend on the compiler's frame layout: they were rewritten from the asm with one shared
+`s32 pts[24][4]` like the original frame, float pin coordinates and the original colours and signs, and `TTT_DIFF`
+shows them equal to the original on all HUD kinds 0-3.
 
 ## Crash reports
 

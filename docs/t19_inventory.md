@@ -1,7 +1,7 @@
 # T19 inventory: game functions not in C
 
 T19 needs every game function in C with the SHA-1 intact. This page lists what was left at the start of T19 and what
-is left after batch 1. Regenerate the tables after a build:
+is left after each batch since. Regenerate the tables after a build:
 
 ```sh
 .venv/bin/python scripts/inventory.py          # summary tables
@@ -197,6 +197,34 @@ What was tried:
   - `func_00343340` needs the run without the rest of its file (the `__asm__` fallback).
 - **Callee return-type sweep**: one `void` callee at a time was declared `s32` for every register-allocation draft
   (804 compiles). No other draft came within reach. The best gain was 20 points on a draft above 3000.
+
+## After the F02 polishing batches (2475 / 2813 in C)
+
+The F02 polishing batches matched 34 more drafts and fixed behaviour bugs found in drafts the port runs (bowl pin
+collision strides, the bowl HUD frames and five more). 338 drafts remain, all with C in `#if 0`.
+
+| Draft cause (338) | Functions | Change since batch 4 |
+|---|---:|---:|
+| register allocation / scheduling | 186 | -15 |
+| m2c rough draft | 62 | -10 |
+| store order | 38 | -4 |
+| block layout / alignment | 31 | -4 |
+| data layout / `.lit4` pool | 8 | 0 |
+| hand-written assembly (VU0 routines of `geometry_b`) | 7 | 0 |
+| other | 5 | -1 |
+| gas hazard | 1 | 0 |
+
+Drafts per module changed only in these modules (batch 4 -> now):
+
+| Module (C file) | Drafts | Module | Drafts |
+|---|---:|---|---:|
+| `movie` | 19 -> 12 | `battle_flow` | 21 -> 19 |
+| `geometry_b` | 16 -> 11 | `menu_common` | 9 -> 7 |
+| `stage` | 40 -> 36 | `select_results_b` | 29 -> 27 |
+| `tekken_bowl` | 28 -> 24 | `fighter_core` | 28 -> 27 |
+| `loading_title` | 6 -> 4 | `model_anim_b` | 16 -> 15 |
+| `scene3d` | 5 -> 4 | `pause_results` | 6 -> 5 |
+| `select_results` | 7 -> 6 | `gallery_jpeg` | 7 -> 6 |
 
 ## Per-cause notes for the next batches (written after batch 1)
 
