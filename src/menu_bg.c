@@ -46,7 +46,13 @@ typedef struct {
     u16 unk2;   /* frame counter */
     s16 unk4;   /* background kind */
     s16 unk6;   /* window height */
-    u8 pad8[0x2E];
+    u8 pad8[8];
+    s32 unk10[2]; /* bowl aim: the target's screen x, y (pixels from the GS offset 0x6C0, 0x720) */
+    u8 pad18[8];
+    f32 unk20;    /* bowl aim: the target's screen radius */
+    f32 unk24[2]; /* bowl aim: the scales' x, y, following unk10 */
+    f32 unk2C[2]; /* their speeds */
+    u16 unk34;    /* bit 0 / 1: x / y reached */
     s16 unk36;  /* timer */
     u8 pad38[8];
     f32 unk40;
@@ -169,404 +175,273 @@ LIT4_WORD(D_005F5838, 0x3DCCCCCD);
 LIT4_WORD(D_005F583C, 0x3FA66666);
 LIT4_WORD(D_005F5840, 0x3FC90FDC);
 #if 0
-/* NON_MATCHING: rough m2c-based draft (target scope rings / grid of the bowl HUD), not tuned */
-#define M32(p, o) (*(s32 *)((u8 *)(p) + (o)))
-void Gfx_DrawTriangle(f32 *, s32);
+/* NON_MATCHING: written from the asm (F02 P2-G; the old draft read the pins' float positions as integers and kept the
+ * screen points in scalar locals whose neighbours it indexed, so its picture followed the compiler's frame); register
+ * allocation and scheduling differ. The frame: the box sp+0 (min, max, middle), the screen points sp+0x30, the
+ * projected box sp+0x1B0. */
+void Gfx_DrawTriangle(s32 *v, u32 col);
 void sceVu0AddVector(f32 *v0, f32 *v1, f32 *v2);
 void sceVu0ScaleVector(f32 *v0, f32 *v1, f32 s);
-extern u8 D_00522FC0[];
-void func_003E1C68(MbgObj *arg0) {
-    u8 spbuf[0x400];
-    f32 box[12] __attribute__((aligned(16)));
-    s32 scr[12] __attribute__((aligned(16)));
-    s32 k;
-    s32 sp1B4;
-    s32 sp1C0;
-    s32 sp1C4;
-    s32 sp1D0;
-    s32 sp1D4;
-    f32 sp10;
-    f32 sp18;
-    f32 sp20;
-    f32 sp28;
-    f32 sp30;
-    f32 sp34;
-    s32 sp38;
-    s32 sp3C;
-    f32 sp40;
-    f32 sp44;
-    s32 sp48;
-    f32 sp50;
-    f32 sp54;
-    s32 sp58;
-    f32 sp60;
-    f32 sp64;
-    s32 sp1B0;
-    f32 temp_a0;
-    f32 temp_f0;
-    f32 temp_f0_2;
-    f32 temp_f0_3;
-    f32 temp_f0_4;
-    f32 temp_f0_5;
-    f32 temp_f0_6;
-    f32 temp_f0_7;
-    f32 temp_f0_8;
-    f32 temp_f1;
-    f32 temp_f1_2;
-    f32 temp_f1_3;
-    f32 temp_f20;
-    f32 temp_f20_2;
-    f32 temp_f20_3;
-    f32 temp_f20_4;
-    f32 temp_f20_5;
-    f32 temp_f20_6;
-    f32 temp_f21;
-    f32 temp_f22;
-    f32 temp_f22_2;
-    f32 temp_f22_3;
-    f32 temp_f23;
-    f32 temp_f23_2;
-    f32 temp_f25;
-    f32 temp_f26;
-    f32 temp_f26_2;
-    f32 temp_f26_3;
-    f32 temp_f26_4;
-    f32 temp_f26_5;
-    f32 temp_f26_6;
-    f32 temp_f26_7;
-    f32 temp_f2;
-    f32 temp_f4;
-    f32 temp_f4_2;
-    f32 temp_f6;
-    f32 temp_f8;
-    f32 var_f0;
-    f32 var_f0_2;
-    f32 var_f1;
-    f32 var_f1_2;
-    f32 var_f1_3;
-    f32 var_f27;
-    f32 var_f27_2;
-    f32 var_f27_3;
-    f32 var_f2;
-    f32 var_f2_2;
-    f32 var_f2_3;
-    f32 var_f3;
-    f32 var_f3_2;
-    f32 var_f3_3;
-    f32 var_f4;
-    f32 var_f5;
-    f32 var_f5_2;
-    s16 temp_s0_3;
-    s16 temp_s0_5;
-    s32 temp_a0_2;
-    s32 temp_s0;
-    s32 temp_s0_2;
-    s32 temp_s2;
-    s32 temp_s3;
-    s32 temp_s4;
-    s32 temp_s4_2;
-    s32 temp_s5;
-    s32 var_hi;
-    s32 var_s0;
-    s32 var_s2;
-    s32 var_s2_2;
-    s32 var_s2_3;
-    s32 var_s2_4;
-    s32 var_s5;
-    s32 var_s6;
-    s32 var_s6_2;
-    s32 var_s6_3;
-    s32 var_s6_4;
-    s32 var_v0;
-    s32 var_v0_2;
-    s32 var_v1;
-    u16 temp_a2;
-    u16 temp_a2_2;
-    u16 temp_a2_3;
-    u16 temp_a3;
-    u32 temp_s0_4;
-    u32 temp_s1;
-    u8 *temp_v0;
-    u8 *temp_v0_2;
-    u8 *temp_v1;
-    u8 *temp_v1_2;
+typedef struct {
+    MbgVec4 v[3];
+} MbgBox;
+extern const MbgBox D_00522FC0;
+void func_003E1C68(MbgObj *o) {
+    MbgBox box;
+    s32 pts[24][4] __attribute__((aligned(16)));
+    s32 scr[3][4] __attribute__((aligned(16)));
+    s32 i;
+    s32 j;
+    s32 n;
+    s32 dx;
+    s32 dy;
+    u32 x0;
+    u32 y0;
+    u32 x1;
+    u32 y1;
+    u32 color;
+    f32 minx;
+    f32 minz;
+    f32 maxx;
+    f32 maxz;
+    f32 x;
+    f32 z;
+    f32 hw;
+    f32 hh;
+    f32 t;
+    f32 k;
+    f32 r;
+    f32 nr;
+    f32 a;
+    f32 a1;
+    f32 a2;
+    f32 sn;
+    f32 cs;
+    f32 fi;
+    f32 half;
+    f32 sx;
+    f32 sy;
+    f32 w;
 
-    var_s6 = 0;
-    /* The pins' bounding box on the floor (sp+0: min, sp+0x10: max, sp+0x20: their middle; D_00522FC0 the start),
-     * projected (sp+0x1B0) to size the target (T41 b0: the m2c draft kept the three vectors as scalars and wrote the
-     * vector results over its other locals). */
-    for (k = 0; k < 12; k++) {
-        box[k] = ((f32 *)D_00522FC0)[k];
-    }
-    var_f1 = box[0];
-    var_f2 = box[2];
-    var_f5 = box[4];
-    var_f3 = box[6];
-    var_v0 = 0 * 0x180;
-    do {
-        temp_v1 = var_v0 + (u8 *)arg0;
-        if (M32(temp_v1, 0x170) == 0) {
-            var_s6 += 1;
-        } else {
-            temp_f0 = M32(temp_v1, 0x0);
-            if (temp_f0 < var_f1) {
-                box[0] = temp_f0;
-                var_f1 = temp_f0;
+    /* The pins' bounding box on the floor, 200 units wider on each side, its middle, projected. */
+    box = D_00522FC0;
+    minx = box.v[0][0];
+    minz = box.v[0][2];
+    maxx = box.v[1][0];
+    maxz = box.v[1][2];
+    for (i = 0; i < 10; i++) {
+        if (o[i].active != 0) {
+            x = o[i].x;
+            if (x < minx) {
+                box.v[0][0] = x;
+                minx = x;
             }
-            temp_f0_2 = -M32(temp_v1, 0x8);
-            if (temp_f0_2 < var_f2) {
-                box[2] = temp_f0_2;
-                var_f2 = temp_f0_2;
+            z = -o[i].z;
+            if (z < minz) {
+                box.v[0][2] = z;
+                minz = z;
             }
-            if (var_f5 < temp_f0) {
-                box[4] = temp_f0;
-                var_f5 = temp_f0;
+            if (maxx < x) {
+                box.v[1][0] = x;
+                maxx = x;
             }
-            var_s6 += 1;
-            if (var_f3 < temp_f0_2) {
-                box[6] = temp_f0_2;
-                var_f3 = temp_f0_2;
+            if (maxz < z) {
+                box.v[1][2] = z;
+                maxz = z;
             }
         }
-        var_v0 = var_s6 * 0x180;
-    } while (var_s6 < 0xA);
-    box[6] = var_f3 + 200.0f;
-    box[0] = var_f1 - 200.0f;
-    box[2] = var_f2 - 200.0f;
-    box[4] = var_f5 + 200.0f;
-    sceVu0AddVector(&box[8], box, &box[4]);
-    sceVu0ScaleVector(&box[8], &box[8], 0.5f);
-    sceVu0RotTransPersN((void *)scr, D_004334C0, (void *)box, 3, 0);
-    sp1B0 = scr[0];
-    sp1B4 = scr[1];
-    sp1C0 = scr[4];
-    sp1C4 = scr[5];
-    sp1D0 = scr[8];
-    sp1D4 = scr[9];
-    var_v0_2 = sp1B0 - sp1C0;
-    if (var_v0_2 < 0) {
-        var_v0_2 = -var_v0_2;
     }
-    var_v1 = sp1B4 - sp1C4;
-    if (var_v1 < 0) {
-        var_v1 = -var_v1;
+    box.v[1][2] = maxz + 200.0f;
+    box.v[0][0] = minx - 200.0f;
+    box.v[0][2] = minz - 200.0f;
+    box.v[1][0] = maxx + 200.0f;
+    sceVu0AddVector(box.v[2], box.v[0], box.v[1]);
+    sceVu0ScaleVector(box.v[2], box.v[2], 0.5f);
+    sceVu0RotTransPersN(scr, D_004334C0, box.v, 3, 0);
+    dx = scr[0][0] - scr[1][0];
+    if (dx < 0) {
+        dx = -dx;
     }
-    temp_f1 = (f32) var_v0_2 * 0.5f;
-    var_f0 = (f32) var_v1 * 0.5f;
-    M32(((u8 *)&D_01FC4A40), 0x10) = (s32) ((sp1D0 >> 4) - 0x6C0);
-    M32(((u8 *)&D_01FC4A40), 0x14) = (s32) ((sp1D4 >> 4) - 0x720);
-    var_f2_2 = var_f0;
-    sp18 = var_f0;
-    if (var_f0 < temp_f1) {
-        var_f2_2 = temp_f1;
+    dy = scr[0][1] - scr[1][1];
+    if (dy < 0) {
+        dy = -dy;
     }
-    M32(((u8 *)&D_01FC4A40), 0x20) = var_f2_2;
-    temp_a3 = (u16) M32(((u8 *)&D_01FC4A40), 0x4);
-    if (M32(((u8 *)&D_01FC4A40), 0x4) != 2) {
-        if (M32(((u8 *)&D_01FC4A40), 0x4) >= 3) {
-            if (M32(((u8 *)&D_01FC4A40), 0x4) != 3) {
-                return;
+    D_01FC4A40.unk10[0] = (scr[2][0] >> 4) - 0x6C0;
+    D_01FC4A40.unk10[1] = (scr[2][1] >> 4) - 0x720;
+    hw = (f32)dx * 0.5f;
+    hh = (f32)dy * 0.5f;
+    box.v[0][2] = hw; /* dead stores the original makes */
+    box.v[1][2] = hh;
+    r = hh;
+    if (hh < hw) {
+        r = hw;
+    }
+    D_01FC4A40.unk20 = r;
+
+    switch (D_01FC4A40.unk4) {
+    case 0:
+    case 1:
+        /* Square rings turning in as the aim starts, then the target's label. */
+        n = (s16)D_01FC4A40.unk2;
+        if (n >= 0x25) {
+            n = 1;
+        }
+        if (n >= 0x11) {
+            n = 0x10;
+        }
+        for (i = n - 1; i >= 0; i--) {
+            t = (f32)(0x14 - (s16)D_01FC4A40.unk2) + (f32)i * 0.5f;
+            k = t * 0.300000012f + 1.0f;
+            if (!(1.0f <= k)) {
+                k = 1.0f;
             }
-            temp_a2 = M32(((u8 *)&D_01FC4A40), 0x2);
-            var_f5_2 = var_f2_2;
-            var_s6_2 = 3;
-            temp_s0 = (s32) ((s16) temp_a2 + ((u32) (temp_a2 << 0x10) >> 0x1F)) >> 1;
-            temp_s0_2 = (temp_s0 >= 0xA) ? 9 : temp_s0;
-            do {
-                var_s2 = 0;
-                var_f27 = (f32) ((s16) temp_a2 - var_s6_2) * 0.0500000007f;
-                if (temp_s0_2 > 0) {
-                    var_s5 = var_s6_2 - 1;
-loop_62:
-                    temp_f23 = 0.200000003f;
-                    temp_f21 = (f32) var_s6_2 * 0.5f;
-                    temp_f26 = (((f32) (0x14 - (s16) temp_a2) + temp_f21) * temp_f23) + 1.0f;
-                    var_f1_2 = 1.0f;
-                    if (temp_f26 >= 1.0f) {
-                        var_f1_2 = temp_f26;
-                    }
-                    temp_f0_3 = func_0034A570(var_f27);
-                    temp_f20 = sinf(temp_f0_3);
-                    temp_f0_4 = (cosf(temp_f0_3) * (var_f1_2 * var_f5_2) * 480.0f) / 480.0f;
-                    temp_f26_2 = (((f32) ((var_s2 * 2) - ((s16) M32(((u8 *)&D_01FC4A40), 0x2) - 0x14)) + temp_f21) * temp_f23) + 1.0f;
-                    temp_a0 = temp_f0_4;
-                    sp38 = 0xFFFFF;
-                    var_f1_3 = 1.0f;
-                    sp3C = 0;
-                    sp30 = temp_a0;
-                    sp34 = temp_f0_4;
-                    if (temp_f26_2 >= 1.0f) {
-                        var_f1_3 = temp_f26_2;
-                    }
-                    var_f0_2 = var_f1_3 * M32(((u8 *)&D_01FC4A40), 0x20) * 80.0f;
-                    temp_f26_3 = var_f0_2 / 756.0f;
-                    if (temp_f26_3 < 80.0f) {
-                        var_f0_2 = (80.0f - temp_f26_3) * 0.5f;
-                    }
-                    var_s2 += 1;
-                    func_003E0460(temp_a0, temp_f0_4, var_f0_2, var_f0_2, 0, 0);
-                    var_f27 = temp_f0_3 + 0.6981318f;
-                    if (var_s2 < temp_s0_2) {
-                        var_f5_2 = M32(((u8 *)&D_01FC4A40), 0x20);
-                        goto loop_62;
-                    }
-                    var_f5_2 = M32(((u8 *)&D_01FC4A40), 0x20);
-                } else {
-                    var_s5 = var_s6_2 - 1;
+            r = D_01FC4A40.unk20 * k;
+            a = 0.0f;
+            if (0.0f <= t) {
+                a = t;
+            }
+            a = func_0034A570(a * 3.14159298f / 40.0f);
+            sn = sinf(a);
+            cs = cosf(a);
+            nr = -r;
+            color = D_0046B320[D_01FC4A40.unk4] | (0x80 - i * 7);
+            sx = (f32)scr[2][0];
+            sy = (f32)scr[2][1];
+            /* The corners (-r, -r), (r, -r), (-r, r), (r, r) turned by a. */
+            pts[0][0] = sx + (cs * nr - sn * nr);
+            pts[0][1] = sy + (sn * nr + cs * nr) * 480.0f / 480.0f;
+            pts[1][0] = sx + (cs * r - sn * nr);
+            pts[1][1] = sy + (sn * r + cs * nr) * 480.0f / 480.0f;
+            pts[2][0] = sx + (cs * nr - sn * r);
+            pts[2][1] = sy + (sn * nr + cs * r) * 480.0f / 480.0f;
+            pts[3][0] = sx + (cs * r - sn * r);
+            pts[3][1] = sy + (sn * r + cs * r) * 480.0f / 480.0f;
+            Gfx_DrawRect(pts[0][0], pts[0][1], pts[1][0], pts[1][1], color);
+            Gfx_DrawRect(pts[1][0], pts[1][1], pts[3][0], pts[3][1], color);
+            Gfx_DrawRect(pts[3][0], pts[3][1], pts[2][0], pts[2][1], color);
+            Gfx_DrawRect(pts[2][0], pts[2][1], pts[0][0], pts[0][1], color);
+        }
+        color = D_0046B320[D_01FC4A40.unk4] | 0x80;
+        if ((s16)D_01FC4A40.unk2 >= 0x15) {
+            r = D_01FC4A40.unk20;
+            x0 = scr[2][0] + (u32)(r * 0.699999988f);
+            x1 = x0 + 0x180;
+            y0 = scr[2][1] - (u32)(r * 0.800000012f);
+            y1 = y0 - 0x100;
+            Gfx_DrawRect(x0, y0, x1, y1, color);
+            Gfx_DrawRect(x1, y1, x0 + 0x4C0, y1, color);
+            Text_Printf(D_00522FF0, (x0 >> 4) - 0x6A8, (y0 >> 4) - 0x728, 0xB, 6, 6);
+        }
+        break;
+    case 2:
+        /* Circles of 24 points closing in; the last one as lines, the others as dashes outside the target. */
+        n = (s16)D_01FC4A40.unk2;
+        if (n >= 0x21) {
+            n = 1;
+        }
+        if (n >= 0xD) {
+            n = 0xC;
+        }
+        for (i = n - 1; i >= 0; i--) {
+            k = ((f32)(0x14 - (s16)D_01FC4A40.unk2) + (f32)i * 0.5f) * 0.400000006f + 1.0f;
+            if (!(1.0f <= k)) {
+                k = 1.0f;
+            }
+            color = D_0046B320[D_01FC4A40.unk4] | (0x80 - i * 7);
+            r = D_01FC4A40.unk20 * k;
+            a = -0.130899712f;
+            for (j = 0; j < 24; j++) {
+                sn = sinf(a);
+                cs = cosf(a);
+                pts[j][0] = (f32)scr[2][0] + cs * r;
+                pts[j][3] = 0;
+                pts[j][2] = 0xFFFFF;
+                pts[j][1] = (f32)scr[2][1] + sn * r * 480.0f / 480.0f;
+                a += 0.261799425f;
+            }
+            for (j = 1; j < 23; j++) {
+                if (j % 6 == 0) {
+                    continue;
                 }
-                var_s6_2 = var_s5;
-            } while (var_s5 >= 0);
-            var_f27_2 = (f32) (0x14 - (s16) temp_a2) * (-0.0500000007f);
-            if (var_f27_2 > 0.0f) {
-                var_f27_2 = 0.0f;
+                if (i == 0) {
+                    Gfx_DrawLine(pts[j], pts[j + 1], color, 1);
+                } else if (D_01FC4A40.unk20 < r) {
+                    Gfx_DrawRect(pts[j][0], pts[j][1], pts[j + 1][0], pts[j + 1][1], color);
+                }
             }
-            var_s2_2 = 0;
-            sp38 = 0xFFFFF;
-            sp58 = 0xFFFFF;
-            sp48 = 0xFFFFF;
-loop_77:
-            temp_f26_4 = (((f32) (0x14 - (s16) temp_a2) + ((f32) var_s5 * 0.5f)) * 0.200000003f) + 1.0f;
-            var_f4 = 1.0f;
-            if (temp_f26_4 >= 1.0f) {
-                var_f4 = temp_f26_4;
-            }
-            var_s2_2 += 1;
-            temp_f22 = 0.100000001f;
-            temp_f26_5 = var_f5_2 * var_f4 * 1.39999998f;
-            temp_f25 = 1.29999995f;
-            temp_f23_2 = var_f27_2 + temp_f22;
-            sp30 = cosf(var_f27_2) * temp_f26_5;
-            temp_f22_2 = var_f27_2 - temp_f22;
-            sp34 = (sinf(var_f27_2) * temp_f26_5 * 480.0f) / 480.0f;
-            sp40 = cosf(temp_f23_2) * temp_f26_5 * temp_f25;
-            sp44 = (sinf(temp_f23_2) * temp_f26_5 * temp_f25 * 480.0f) / 480.0f;
-            sp50 = cosf(temp_f22_2) * temp_f26_5 * temp_f25;
-            sp54 = (sinf(temp_f22_2) * temp_f26_5 * temp_f25 * 480.0f) / 480.0f;
-            Gfx_DrawTriangle(&sp30, *((M32(((u8 *)&D_01FC4A40), 0x4) * 4) + ((u8 *)&D_0046B320)) | 0x40);
-            var_f0 = 1.57079649f;
-            var_f27_2 += var_f0;
-            if (var_s2_2 < 4) {
-                var_f5_2 = M32(((u8 *)&D_01FC4A40), 0x20);
-                goto loop_77;
-            }
-            goto block_80;
         }
-        if (M32(((u8 *)&D_01FC4A40), 0x4) >= 0) {
-            temp_s0_3 = ((s16) M32(((u8 *)&D_01FC4A40), 0x2) >= 0x25) ? 1 : (s16) M32(((u8 *)&D_01FC4A40), 0x2);
-            var_s6_3 = ((temp_s0_3 >= 0x11) ? 0x10 : temp_s0_3) - 1;
-            temp_a2_2 = M32(((u8 *)&D_01FC4A40), 0x2);
-            if (var_s6_3 >= 0) {
-                do {
-                    temp_f4 = (f32) (0x14 - (s16) temp_a2_2) + ((f32) var_s6_3 * 0.5f);
-                    temp_f20_2 = (temp_f4 * 0.300000012f) + 1.0f;
-                    var_f3_2 = 1.0f;
-                    if (temp_f20_2 >= 1.0f) {
-                        var_f3_2 = temp_f20_2;
+        break;
+    case 3:
+        /* Three arcs of up to nine marks (D_01FC4A30[1]: their characters), then four arrow heads. */
+        w = D_01FC4A40.unk20;
+        n = (s16)D_01FC4A40.unk2 / 2;
+        if (n >= 10) {
+            n = 9;
+        }
+        for (i = 3; i >= 0; i--) {
+            a = (f32)((s16)D_01FC4A40.unk2 - i) * 0.0500000007f;
+            if (n > 0) {
+                fi = (f32)i;
+                for (j = 0; j < n; j++) {
+                    half = fi * 0.5f;
+                    k = ((f32)(0x14 - (s16)D_01FC4A40.unk2) + half) * 0.200000003f + 1.0f;
+                    if (!(1.0f <= k)) {
+                        k = 1.0f;
                     }
-                    var_f2_3 = 0.0f;
-                    temp_f26_6 = M32(((u8 *)&D_01FC4A40), 0x20) * var_f3_2;
-                    if (temp_f4 >= 0.0f) {
-                        var_f2_3 = temp_f4;
+                    r = k * w;
+                    a = func_0034A570(a);
+                    sn = sinf(a);
+                    cs = cosf(a);
+                    k = ((f32)(j * 2 - ((s16)D_01FC4A40.unk2 - 0x14)) + half) * 0.200000003f + 1.0f;
+                    color = D_0046B320[D_01FC4A40.unk4] | (0x80 - i * 0x18);
+                    pts[0][2] = 0xFFFFF;
+                    pts[0][3] = 0;
+                    pts[0][0] = (f32)scr[2][0] + sn * r;
+                    pts[0][1] = (f32)scr[2][1] - cs * r * 480.0f / 480.0f;
+                    if (!(1.0f <= k)) {
+                        k = 1.0f;
                     }
-                    temp_f0_5 = func_0034A570((var_f2_3 * 3.14159298f) / 40.0f);
-                    temp_f20_3 = sinf(temp_f0_5);
-                    temp_f0_6 = cosf(temp_f0_5);
-                    temp_f2 = -temp_f26_6;
-                    temp_f4_2 = temp_f20_3 * temp_f2;
-                    temp_f0_7 = temp_f0_6 * temp_f2;
-                    temp_s4 = *((M32(((u8 *)&D_01FC4A40), 0x4) * 4) + ((u8 *)&D_0046B320)) | (0x80 - (var_s6_3 * 7));
-                    var_s6_3 -= 1;
-                    temp_f8 = ((temp_f4_2 + (temp_f0_6 * temp_f26_6)) * 480.0f) / 480.0f;
-                    temp_f6 = (f32) sp1D0;
-                    temp_f1_2 = temp_f6 + (temp_f0_7 - temp_f4_2);
-                    temp_f0_8 = temp_f6 + (temp_f0_7 - (temp_f20_3 * temp_f26_6));
-                    sp30 = temp_f8;
-                    sp50 = temp_f1_2;
-                    sp34 = temp_f1_2;
-                    sp40 = temp_f1_2;
-                    sp44 = temp_f1_2;
-                    sp54 = temp_f0_8;
-                    sp60 = temp_f0_8;
-                    sp64 = temp_f0_8;
-                    Gfx_DrawRect(temp_f8, temp_f1_2, temp_f1_2, temp_f1_2, 0);
-                    Gfx_DrawRect(sp40, sp44, sp60, sp64, 0);
-                    Gfx_DrawRect(sp60, sp64, sp50, sp54, 0);
-                    Gfx_DrawRect(sp50, sp54, sp30, sp34, 0);
-                } while (var_s6_3 >= 0);
-            }
-            if ((s16) temp_a2_2 >= 0x15) {
-                temp_f20_4 = M32(((u8 *)&D_01FC4A40), 0x20);
-                temp_s1 = sp1D0 + (s32)(temp_f20_4 * 0.699999988f);
-                temp_s3 = temp_s1 + 0x180;
-                temp_s0_4 = sp1D4 - (s32)(temp_f20_4 * 0.800000012f);
-                temp_s2 = temp_s0_4 - 0x100;
-                Gfx_DrawRect((f32) temp_s1, (f32) temp_s0_4, (f32) temp_s3, (f32) temp_s2, 0);
-                Gfx_DrawRect((f32) temp_s3, (f32) temp_s2, (f32) (temp_s1 + 0x4C0), (f32) temp_s2, 0);
-                Text_Printf(D_00522FF0, ((u32)temp_s1 >> 4) - 0x6A8, ((u32)temp_s0_4 >> 4) - 0x728, 0xB, 6, 6);
+                    r = k * D_01FC4A40.unk20;
+                    r = r * 80.0f / 756.0f;
+                    if (r < 80.0f) {
+                        r = 80.0f - (80.0f - r) * 0.5f;
+                    }
+                    func_003E0460(pts[0][0], pts[0][1], (s32)r, (s32)r, D_01FC4A30[1][j], color);
+                    a += 0.6981318f;
+                    w = D_01FC4A40.unk20;
+                }
             }
         }
-        goto block_80;
+        /* i is -1 here: the arrow heads' size uses it. */
+        a = (f32)(0x14 - (s16)D_01FC4A40.unk2) * -0.0500000007f;
+        if (0.0f < a) {
+            a = 0.0f;
+        }
+        fi = (f32)i;
+        pts[0][2] = 0xFFFFF;
+        pts[2][2] = 0xFFFFF;
+        pts[1][2] = 0xFFFFF;
+        for (j = 0; j < 4; j++) {
+            k = ((f32)(0x14 - (s16)D_01FC4A40.unk2) + fi * 0.5f) * 0.200000003f + 1.0f;
+            if (!(1.0f <= k)) {
+                k = 1.0f;
+            }
+            r = w * k * 1.39999998f;
+            a1 = a + 0.100000001f;
+            a2 = a - 0.100000001f;
+            pts[0][0] = (f32)scr[2][0] + cosf(a) * r;
+            pts[0][1] = (f32)scr[2][1] - sinf(a) * r * 480.0f / 480.0f;
+            pts[1][0] = (f32)scr[2][0] + cosf(a1) * r * 1.29999995f;
+            pts[1][1] = (f32)scr[2][1] - sinf(a1) * r * 1.29999995f * 480.0f / 480.0f;
+            pts[2][0] = (f32)scr[2][0] + cosf(a2) * r * 1.29999995f;
+            pts[2][1] = (f32)scr[2][1] - sinf(a2) * r * 1.29999995f * 480.0f / 480.0f;
+            Gfx_DrawTriangle(pts[0], D_0046B320[D_01FC4A40.unk4] | 0x40);
+            a += 1.57079649f;
+            w = D_01FC4A40.unk20;
+        }
+        break;
     }
-    temp_s0_5 = ((s16) M32(((u8 *)&D_01FC4A40), 0x2) >= 0x21) ? 1 : (s16) M32(((u8 *)&D_01FC4A40), 0x2);
-    var_s6_4 = ((temp_s0_5 >= 0xD) ? 0xC : temp_s0_5) - 1;
-    temp_a2_3 = M32(((u8 *)&D_01FC4A40), 0x2);
-    if (var_s6_4 >= 0) {
-loop_39:
-        temp_f20_5 = (((f32) (0x14 - (s16) temp_a2_3) + ((f32) var_s6_4 * 0.5f)) * 0.400000006f) + 1.0f;
-        var_f3_3 = 1.0f;
-        if (temp_f20_5 >= 1.0f) {
-            var_f3_3 = temp_f20_5;
-        }
-        temp_f26_7 = M32(((u8 *)&D_01FC4A40), 0x20) * var_f3_3;
-        var_f27_3 = (-0.130899712f);
-        temp_s4_2 = *(((s32) (temp_a3 << 0x10) >> 0xE) + ((u8 *)&D_0046B320)) | (0x80 - (var_s6_4 * 7));
-        temp_f22_3 = 0.261799425f;
-        var_s2_3 = 0;
-        temp_s5 = var_s6_4 - 1;
-        do {
-            temp_f20_6 = sinf(var_f27_3);
-            temp_v0 = &sp30 + (var_s2_3 * 0x10);
-            var_s2_3 += 1;
-            M32(temp_v0, 0x0) = (f32) (cosf(var_f27_3) * temp_f26_7);
-            temp_f1_3 = (temp_f20_6 * temp_f26_7 * 480.0f) / 480.0f;
-            M32(temp_v0, 0xC) = 0;
-            M32(temp_v0, 0x8) = 0xFFFFF;
-            var_f0 = (f32) sp1D4 + temp_f1_3;
-            M32(temp_v0, 0x4) = temp_f1_3;
-            var_f27_3 += temp_f22_3;
-        } while (var_s2_3 < 0x18);
-        var_s2_4 = 1;
-        var_hi = 1 % 6;
-loop_44:
-        if (var_hi == 0) {
-            var_s0 = var_s2_4 + 1;
-        } else if (var_s6_4 != 0) {
-            var_f0 = M32(((u8 *)&D_01FC4A40), 0x20);
-            var_s0 = var_s2_4 + 1;
-            if (var_f0 < temp_f26_7) {
-                temp_v0_2 = &sp30 + (var_s2_4 * 0x10);
-                temp_v1_2 = &sp30 + (var_s0 * 0x10);
-                Gfx_DrawRect(M32(temp_v0_2, 0x0), M32(temp_v0_2, 0x4), M32(temp_v1_2, 0x0), M32(temp_v1_2, 0x4), 0);
-            }
-        } else {
-            temp_a0_2 = var_s2_4 * 0x10;
-            Gfx_DrawLine((s32 *)(spbuf + temp_a0_2), (s32 *)(spbuf + temp_a0_2 + 0x10), temp_s4_2, 1);
-            var_s0 = var_s2_4 + 1;
-        }
-        var_s2_4 = var_s0;
-        if (var_s2_4 < 0x17) {
-            var_hi = var_s2_4 % 6;
-            goto loop_44;
-        }
-        var_s6_4 = temp_s5;
-        if (temp_s5 >= 0) {
-            goto loop_39;
-        }
-    }
-block_80:
-    return;
 }
-#undef M32
 #else
 INCLUDE_ASM("asm/nonmatchings/menu_bg", func_003E1C68);
 #endif
@@ -840,331 +715,151 @@ LIT4_WORD(D_005F5884, 0xBED70A3D);
 LIT4_WORD(D_005F5888, 0x40490FDB);
 LIT4_WORD(D_005F588C, 0x3DCCCCCD);
 #if 0
-/* NON_MATCHING: rough m2c-based draft (scales, dial and wave of the bowl HUD), not tuned */
-#define M32(p, o) (*(s32 *)((u8 *)(p) + (o)))
+/* NON_MATCHING: written from the asm (F02 P2-G; the old draft read the background kind and the scales as one 32-bit
+ * word, drew the scales in colour 0 and gave the needles' second point its own local, whose z the original takes from
+ * the dial's points: their pictures followed the compiler's frame); register allocation and scheduling differ. The
+ * frame: the points sp+0 (13 x 16 bytes). */
 void func_003DFF30(f32 a, u32 x, u32 y, u32 size, u32 tile, u32 col);
-extern u8 D_01FC4A50[];
-extern u8 D_01FC4A6C[];
 void func_003E38F0(void) {
-    u8 spbuf[0x400];
-    s32 temp_x;
-    s32 temp_y;
-    s32 sp10;
-    s32 sp14;
-    s32 sp20;
-    s32 sp24;
-    s32 sp30;
-    s32 sp34;
-    f32 *temp_v0;
-    f32 *temp_v0_2;
-    f32 *temp_v1;
-    f32 *var_v0_2;
-    f32 temp_f12;
-    f32 temp_f1;
-    f32 temp_f20;
-    f32 temp_f20_2;
-    f32 temp_f21;
-    f32 temp_f21_2;
-    f32 temp_f23;
-    f32 temp_f23_2;
-    f32 temp_f24;
-    f32 temp_f24_2;
-    f32 temp_f25;
-    f32 temp_f25_2;
-    f32 temp_f27;
-    f32 temp_f27_2;
-    f32 temp_f29;
-    f32 temp_f2;
-    f32 temp_f2_2;
-    f32 var_f0;
-    f32 var_f0_2;
-    f32 var_f0_3;
-    f32 var_f24;
-    f32 var_f24_2;
-    f32 var_f26;
-    s32 temp_a0;
-    s32 temp_a0_2;
-    s32 temp_a0_3;
-    s32 temp_a0_4;
-    s32 temp_a0_5;
-    s32 temp_a1;
-    s32 temp_a1_2;
-    s32 temp_a1_3;
-    s32 temp_a1_4;
-    s32 temp_a2;
-    s32 temp_a3;
-    s32 temp_a3_2;
-    s32 temp_s0;
-    s32 temp_s2;
-    s32 temp_s2_2;
-    s32 temp_s2_3;
-    s32 var_a0;
-    s32 var_f1;
-    s32 var_f1_2;
-    s32 var_s1;
-    s32 var_s1_2;
-    s32 var_s1_3;
-    s32 var_s1_4;
-    s32 var_s1_5;
-    s32 var_s1_6;
-    s32 var_s1_7;
-    s32 var_s1_8;
-    s32 var_s1_9;
-    s32 var_v0;
-    s8 temp_a3_3;
-    u8 *temp_s0_2;
-    u8 *var_fp;
+    s32 p[13][4] __attribute__((aligned(16)));
+    s32 i;
+    s32 k;
+    s32 n;
+    u32 x;
+    u32 x1;
+    u32 color;
+    f32 step;
+    f32 a;
+    f32 a1;
+    f32 a2;
+    f32 d;
+    f32 v;
+    f32 *pos;
 
-    /* Flowgraph is not reducible, falling back to gotos-only mode. */
-    var_f26 = 0.200000003f;
-    if (M32(((u8 *)&D_01FC4A40), 0x4) == 2) {
-        goto block_12;
+    step = 0.200000003f;
+    switch (D_01FC4A40.unk4) {
+    case 0:
+    case 1:
+        /* The scales: x along the top, y down the right. */
+        color = D_0046B320[D_01FC4A40.unk4] | 0x80;
+        Gfx_DrawRect(0x6D40, 0x72A0, 0x9180, 0x72A0, color);
+        for (i = 0; i < 0x1D; i++) {
+            n = (s32)D_01FC4A40.unk24[0] + i * 20;
+            if (n <= 0x13) {
+                n += 0x244;
+            }
+            if (n >= 0x258) {
+                n -= 0x244;
+            }
+            n = (n + 0x6C0) << 4;
+            Gfx_DrawRect(n, 0x72A0, n, (i & 3) == 0 ? 0x7380 : 0x7320, color);
+        }
+        Gfx_DrawRect(0x9360, 0x73E0, 0x9360, 0x8C40, color);
+        for (i = 0; i < 0x13; i++) {
+            n = (s32)D_01FC4A40.unk24[1] + i * 20;
+            if (n <= 0x1D) {
+                n += 0x186;
+            }
+            if (n >= 0x1A4) {
+                n -= 0x186;
+            }
+            n = (n + 0x720) << 4;
+            Gfx_DrawRect((i & 3) == 0 ? 0x9280 : 0x92E0, n, 0x9360, n, color);
+        }
+        break;
+    case 2:
+        /* Cross hairs. */
+        step = 0.400000006f;
+        color = D_0046B320[2] | 0x40;
+        x = ((u32)D_01FC4A40.unk24[1] + 0x720) << 4;
+        Gfx_DrawRect(0x6C00, x, 0x9400, x, color);
+        x = ((u32)D_01FC4A40.unk24[0] + 0x6C0) << 4;
+        x1 = ((u32)D_01FC4A40.unk24[0] + 0x6C0) << 4;
+        Gfx_DrawRect(x, 0x7200, x1, 0x8E00, color);
+        break;
+    case 3:
+        /* The dial: twelve marks (D_01FC4A30[2]: their characters), the pointer, four rings, four needles. */
+        color = D_0046B320[3] | 0x80;
+        for (i = 0; i < 12; i++) {
+            a = ((f32)i + (f32)i + 1.0f) * 3.14159298f / 36.0f + -1.0471977f;
+            x = 0x8000 + (s32)(sinf(a) * 2460.0f);
+            func_003DFF30(-a, x, (s32)(cosf(a) * 2460.0f) + 0x7DE0, 0x50, D_01FC4A30[2][i], color);
+        }
+        n = (s32)((D_01FC4A40.unk24[0] - 320.0f) * 0.200000003f) % 12;
+        while (n >= 6) {
+            n -= 12;
+        }
+        while (n < -6) {
+            n += 12;
+        }
+        a = (f32)n * 3.14159298f / 18.0f + 0.087266475f;
+        a1 = a - 0.0700000003f;
+        a2 = a + 0.0700000003f;
+        p[0][0] = 0x8000 + (s32)(sinf(a1) * 2320.0f);
+        p[0][1] = (s32)(cosf(a1) * 2320.0f) + 0x7DE0;
+        p[1][0] = 0x8000 + (s32)(sinf(a1) * 2600.0f);
+        p[1][1] = (s32)(cosf(a1) * 2600.0f) + 0x7DE0;
+        p[2][0] = 0x8000 + (s32)(sinf(a2) * 2320.0f);
+        p[2][1] = (s32)(cosf(a2) * 2320.0f) + 0x7DE0;
+        p[3][0] = 0x8000 + (s32)(sinf(a2) * 2600.0f);
+        p[3][1] = (s32)(cosf(a2) * 2600.0f) + 0x7DE0;
+        func_003E1700(p, 0x80808080, 0x84);
+        for (k = 0; k < 4; k++) {
+            a = (f32)k * 3.14159298f * 0.5f;
+            for (i = 0; i < 13; i++) {
+                p[i][0] = 0x8000 + (s32)(cosf(a) * 2600.0f);
+                a1 = a;
+                a += 0.130899712f;
+                p[i][3] = 0;
+                p[i][2] = 0xFFFFF;
+                p[i][1] = (s32)(sinf(a1) * 2600.0f) + 0x7DE0;
+            }
+            for (i = 0; i < 12; i++) {
+                Gfx_DrawLine(p[i], p[i + 1], color, 1);
+            }
+        }
+        /* The needles keep the rings' z (0xFFFFF) in p[0] / p[1]. */
+        for (i = 0; i < 4; i++) {
+            a = 3.14159274f;
+            if (i < 2) {
+                a = 0.0f;
+            }
+            if (i & 1) {
+                a += 0.419999987f;
+            } else {
+                a += -0.419999987f;
+            }
+            p[0][0] = 0x8000 + (s32)(cosf(a) * 2400.0f);
+            p[0][1] = (s32)(sinf(a) * 1200.0f) + 0x7DE0;
+            p[1][0] = 0x8000 + (s32)(cosf(a) * 3200.0f);
+            p[1][1] = (s32)(sinf(a) * 1600.0f) + 0x7DE0;
+            Gfx_DrawLine(p[0], p[1], 0x80000080, 1);
+        }
+        break;
     }
-    if (M32(((u8 *)&D_01FC4A40), 0x4) < 3) {
-        goto block_4;
+
+    /* The scales follow the target (D_01FC4A40.unk10, set by func_003E1C68). */
+    pos = D_01FC4A40.unk24;
+    for (i = 0; i < 2; i++) {
+        d = (f32)D_01FC4A40.unk10[i] - pos[i];
+        if (d < 0.0f) {
+            v = D_01FC4A40.unk2C[i];
+            D_01FC4A40.unk2C[i] = (0.0f < v) ? v - step : v - step * 0.100000001f;
+        } else {
+            v = D_01FC4A40.unk2C[i];
+            D_01FC4A40.unk2C[i] = (v < 0.0f) ? v + step : v + step * 0.100000001f;
+        }
+        if (fabsf(d) < step && fabsf(D_01FC4A40.unk2C[i]) < step) {
+            D_01FC4A40.unk2C[i] = 0.0f;
+            D_01FC4A40.unk34 |= 1 << i;
+        }
+        if (D_01FC4A40.unk4 == 2 && (s16)D_01FC4A40.unk34 == 3) {
+            pos[i] = (f32)D_01FC4A40.unk10[i];
+        } else {
+            pos[i] = pos[i] + D_01FC4A40.unk2C[i];
+        }
     }
-    var_fp = ((u8 *)&D_01FC4A40) + 0x24;
-    if (M32(((u8 *)&D_01FC4A40), 0x4) == 3) {
-        goto block_13;
-    }
-    goto block_40;
-block_4:
-    if (M32(((u8 *)&D_01FC4A40), 0x4) < 0) {
-        goto block_39;
-    }
-    var_s1 = 0;
-    temp_s2 = D_0046B320[M32(((u8 *)&D_01FC4A40), 0x4)] | 0x80;
-    var_fp = ((u8 *)&D_01FC4A40) + 0x24;
-    Gfx_DrawRect(0x6D40, 0x72A0, 0x9180, 0x72A0, 0);
-    var_f1 = 0;
-loop_6:
-    temp_a2 = var_s1 * 0x14;
-    temp_a3 = !(var_s1 & 3) ? 0x7380 : 0x7320;
-    var_s1 += 1;
-    temp_a0 = var_f1 + temp_a2;
-    temp_a0_2 = (temp_a0 <= 0x13) ? (temp_a0 + 0x244) : temp_a0;
-    temp_a0_3 = (((temp_a0_2 >= 0x258) ? (temp_a0_2 - 0x244) : temp_a0_2) + 0x6C0) * 0x10;
-    Gfx_DrawRect(temp_a0_3, 0x72A0, temp_a0_3, temp_a3, 0);
-    var_f1 = 0;
-    if (var_s1 >= 0x1D) {
-        goto block_8;
-    }
-    goto loop_6;
-block_8:
-    var_s1_2 = 0;
-    Gfx_DrawRect(0x9360, 0x73E0, 0x9360, 0x8C40, 0);
-    var_f1_2 = 0;
-loop_10:
-    temp_a3_2 = var_s1_2 * 0x14;
-    temp_a0_4 = !(var_s1_2 & 3) ? 0x9280 : 0x92E0;
-    var_s1_2 += 1;
-    temp_a1 = var_f1_2 + temp_a3_2;
-    temp_a1_2 = (temp_a1 <= 0x1D) ? (temp_a1 + 0x186) : temp_a1;
-    temp_a1_3 = (((temp_a1_2 >= 0x1A4) ? (temp_a1_2 - 0x186) : temp_a1_2) + 0x720) * 0x10;
-    Gfx_DrawRect(temp_a0_4, temp_a1_3, 0x9360, temp_a1_3, 0);
-    var_f1_2 = 0;
-    if (var_s1_2 < 0x13) {
-        goto loop_10;
-    }
-    goto block_40;
-block_12:
-    var_fp = ((u8 *)&D_01FC4A40) + 0x24;
-    var_f26 = 0.400000006f;
-    temp_s2_2 = D_0046B320[2] | 0x40;
-    temp_a1_4 = ((s32)(M32(((u8 *)&D_01FC4A40), 0x28)) + 0x720) * 0x10;
-    Gfx_DrawRect(0x6C00, temp_a1_4, 0x9400, temp_a1_4, 0);
-    temp_s0 = ((s32)(M32(((u8 *)&D_01FC4A40), 0x24)) + 0x6C0) * 0x10;
-    Gfx_DrawRect(temp_s0, 0x7200, ((s32)(M32(((u8 *)&D_01FC4A40), 0x24)) + 0x6C0) * 0x10, 0x8E00, 0);
-    goto block_40;
-block_13:
-    temp_f23 = 3.14159298f;
-    temp_s2_3 = D_0046B320[3] | 0x80;
-    var_s1_3 = 0;
-    temp_f21 = (-1.0471977f);
-    temp_f20 = 2460.0f;
-loop_14:
-    temp_f24 = ((((2.0f * (f32) var_s1_3) + 1.0f) * temp_f23) / 36.0f) + temp_f21;
-    temp_x = 0x8000 + (s32)(sinf(temp_f24) * temp_f20);
-    temp_y = (s32)(cosf(temp_f24) * temp_f20) + 0x7DE0;
-    temp_a3_3 = D_01FC4A30[2][var_s1_3];
-    var_s1_3 += 1;
-    func_003DFF30(-temp_f24, temp_x, temp_y, 0x50, temp_a3_3, temp_s2_3);
-    if (var_s1_3 < 0xC) {
-        goto loop_14;
-    }
-    var_s1_4 = (s32) 0.200000003f % 12;
-    var_v0 = var_s1_4 < -6;
-    if (var_s1_4 < 6) {
-        goto block_21;
-    }
-loop_17:
-    var_s1_4 -= 0xC;
-    if (var_s1_4 >= 6) {
-        goto loop_17;
-    }
-    var_v0 = var_s1_4 < -6;
-    goto block_22;
-block_20:
-    var_v0 = var_s1_4 < -6;
-block_21:
-block_22:
-    if (var_v0 == 0) {
-        goto block_24;
-    }
-    var_s1_4 += 0xC;
-    goto block_20;
-block_24:
-    temp_f29 = 3.14159298f;
-    var_s1_5 = 0;
-    temp_f23_2 = 2600.0f;
-    temp_f25 = temp_f23_2;
-    temp_f27 = 0.130899712f;
-    temp_f24_2 = (((f32) var_s1_4 * 3.14159298f) / 18.0f) + 0.087266475f;
-    temp_f20_2 = temp_f24_2 - 0.0700000003f;
-    temp_f21_2 = temp_f24_2 + 0.0700000003f;
-    sinf(temp_f20_2);
-    cosf(temp_f20_2);
-    sinf(temp_f20_2);
-    sp10 = 0 + 0x8000;
-    cosf(temp_f20_2);
-    sp14 = 0 + 0x7DE0;
-    sinf(temp_f21_2);
-    sp20 = 0 + 0x8000;
-    cosf(temp_f21_2);
-    sp24 = 0 + 0x7DE0;
-    sinf(temp_f21_2);
-    sp30 = 0 + 0x8000;
-    cosf(temp_f21_2);
-    sp34 = 0 + 0x7DE0;
-    func_003E1700(spbuf, 0x80808080, 0x84);
-loop_26:
-    var_s1_6 = 0;
-    var_f24 = (f32) var_s1_5 * temp_f29 * 0.5f;
-loop_27:
-    temp_s0_2 = spbuf + (var_s1_6 * 0x10);
-    var_s1_6 += 1;
-    cosf(var_f24);
-    temp_f12 = var_f24;
-    var_f24 += temp_f27;
-    M32(temp_s0_2, 0x0) = (s32) (0 + 0x8000);
-    sinf(temp_f12);
-    M32(temp_s0_2, 0xC) = 0;
-    M32(temp_s0_2, 0x8) = 0xFFFFF;
-    M32(temp_s0_2, 0x4) = (s32) (0 + 0x7DE0);
-    if (var_s1_6 < 0xD) {
-        goto loop_27;
-    }
-    var_s1_7 = 0;
-    var_a0 = 0 * 0x10;
-loop_29:
-    Gfx_DrawLine(spbuf + var_a0, spbuf + (var_a0 + 0x10), temp_s2_3, 1);
-    var_s1_7 += 1;
-    var_a0 = var_s1_7 * 0x10;
-    if (var_s1_7 < 0xC) {
-        goto loop_29;
-    }
-    var_s1_5 += 1;
-    if (var_s1_5 < 4) {
-        goto loop_26;
-    }
-    temp_f27_2 = 0.419999987f;
-    var_s1_8 = 0;
-    temp_f25_2 = (-0.419999987f);
-loop_32:
-    var_f0 = 3.14159274f;
-    if (var_s1_8 >= 2) {
-        goto block_34;
-    }
-    var_f0 = 0.0f;
-block_34:
-    var_s1_8 += 1;
-    if (!(var_s1_8 & 1)) {
-        goto block_36;
-    }
-    var_f24_2 = var_f0 + temp_f27_2;
-    goto block_37;
-block_36:
-    var_f24_2 = var_f0 + temp_f25_2;
-block_37:
-    cosf(var_f24_2);
-    sinf(var_f24_2);
-    cosf(var_f24_2);
-    sp10 = 0 + 0x8000;
-    sinf(var_f24_2);
-    sp14 = 0 + 0x7DE0;
-    Gfx_DrawLine(spbuf, &sp10, 0x80000080, 1);
-    if (var_s1_8 < 4) {
-        goto loop_32;
-    }
-    goto block_40;
-block_39:
-    var_fp = ((u8 *)&D_01FC4A40) + 0x24;
-block_40:
-    var_s1_9 = 0;
-loop_41:
-    temp_a0_5 = var_s1_9 * 4;
-    temp_f1 = *(f32 *)((u8 *)&D_01FC4A50 + temp_a0_5) - *(f32 *)(var_fp + temp_a0_5);
-    temp_v0 = ((u8 *)&D_01FC4A6C) + temp_a0_5;
-    if (!(temp_f1 < 0.0f)) {
-        goto block_47;
-    }
-    temp_f2 = *temp_v0;
-    if (temp_f2 > 0.0f) {
-        goto block_44;
-    }
-    goto block_46;
-block_44:
-    var_f0_2 = temp_f2 - var_f26;
-    goto block_52;
-block_46:
-    var_f0_2 = temp_f2 - (var_f26 * 0.100000001f);
-    goto block_52;
-block_47:
-    temp_f2_2 = *temp_v0;
-    if (temp_f2_2 < 0.0f) {
-        goto block_49;
-    }
-    goto block_51;
-block_49:
-    var_f0_2 = temp_f2_2 + var_f26;
-    goto block_52;
-block_51:
-    var_f0_2 = temp_f2_2 + (var_f26 * 0.100000001f);
-block_52:
-    *temp_v0 = var_f0_2;
-    temp_v0_2 = ((u8 *)&D_01FC4A6C) + temp_a0_5;
-    if (!(fabsf(temp_f1) < var_f26)) {
-        goto block_55;
-    }
-    if (!(fabsf(*temp_v0_2) < var_f26)) {
-        goto block_55;
-    }
-    *temp_v0_2 = 0.0f;
-    M32(((u8 *)&D_01FC4A40), 0x34) = (u16) (M32(((u8 *)&D_01FC4A40), 0x34) | (1 << var_s1_9));
-block_55:
-    temp_v1 = var_fp + temp_a0_5;
-    if (M32(((u8 *)&D_01FC4A40), 0x4) != 2) {
-        goto block_58;
-    }
-    var_v0_2 = ((u8 *)&D_01FC4A6C) + temp_a0_5;
-    if ((s16) M32(((u8 *)&D_01FC4A40), 0x34) != 3) {
-        goto block_59;
-    }
-    var_f0_3 = *(f32 *)((u8 *)&D_01FC4A50 + temp_a0_5);
-    goto block_60;
-block_58:
-    var_v0_2 = ((u8 *)&D_01FC4A6C) + temp_a0_5;
-block_59:
-    var_f0_3 = *temp_v1 + *var_v0_2;
-block_60:
-    var_s1_9 += 1;
-    *temp_v1 = var_f0_3;
-    if (var_s1_9 < 2) {
-        goto loop_41;
-    }
-    return;
 }
-#undef M32
 #else
 INCLUDE_ASM("asm/nonmatchings/menu_bg", func_003E38F0);
 #endif

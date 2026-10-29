@@ -2300,11 +2300,10 @@ void func_003AC558(LtFx *e) {
     }
 }
 
-#if 0
-/* NON_MATCHING: 7 lines: the case blocks now share the original's tail; the &D_0043FD10 / 0xFFF00 loads before the draw call are scheduled otherwise */
 void func_003AC5D0(LtFx *e) {
     LtDraw *d = &e->d;
     u16 a;
+    LtQuad *q;
 
     if (e->unk18 == 0) {
         if (e->unk1C == 0) {
@@ -2337,9 +2336,10 @@ void func_003AC5D0(LtFx *e) {
         D_005F6D58 = D_005F6730;
         e->unk18++;
     }
-    D_005F6730 = 0xFFF00;
+    q = &D_0043FD10[(u16)d->unk1A];
     a = d->unk44;
-    func_003BB4E8(&D_0043FD10[(u16)d->unk1A], &a, 1);
+    D_005F6730 = 0xFFF00;
+    func_003BB4E8(q, &a, 1);
     if (func_003AA5E8() == 0) {
         d->unk44 += d->unk48;
         if (128.0f < d->unk44) {
@@ -2354,15 +2354,11 @@ void func_003AC5D0(LtFx *e) {
         }
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/loading_title", func_003AC5D0);
-#endif
 
-#if 0
-/* NON_MATCHING: 1 line: the do-while fake fixes the e + 0x20 register but its loop notes 8-align the epilogue label (one nop) */
 void func_003AC7C0(LtFx *e) {
     LtDraw *d = &e->d;
     u16 a;
+    LtQuad *q;
 
     if (e->unk18 == 0) {
         switch (e->unk1A) {
@@ -2381,21 +2377,17 @@ void func_003AC7C0(LtFx *e) {
         D_005F6D58 = D_005F6730;
         e->unk18++;
     }
-    D_005F6730 = 0xFFF00;
+    q = &D_0043FD10[(u16)d->unk1A];
     a = d->unk44;
-    func_003BB4E8(&D_0043FD10[(u16)d->unk1A], &a, 1);
-    do { /* fake */
-        if (func_003AA5E8() == 0) {
-            if (--e->unk1C <= 0) {
-                D_005F6730 = D_005F6D58;
-                func_003465C8(e);
-            }
+    D_005F6730 = 0xFFF00;
+    func_003BB4E8(q, &a, 1);
+    if (func_003AA5E8() == 0) {
+        if (--e->unk1C <= 0) {
+            D_005F6730 = D_005F6D58;
+            func_003465C8(e);
         }
-    } while (0);
+    }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/loading_title", func_003AC7C0);
-#endif
 
 void func_003AC8B0(LtFx *e) {
     LtDraw *d = &e->d;
