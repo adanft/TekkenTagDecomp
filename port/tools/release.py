@@ -8,6 +8,7 @@ any game data, and writes the archives and SHA256SUMS to dist/. Publishes nothin
     python3 port/tools/release.py --targets linux              one target (linux, windows)
     python3 port/tools/release.py --check ARCHIVE...           the content check alone (exit 1 on a problem)
     python3 port/tools/release.py --portability                the Linux / Windows portability report alone
+    python3 port/tools/release.py --sdl3-dll PATH              ship this SDL3.dll in the Windows archive (CI release)
 
 The version is `git describe --always --dirty` of the checkout, the same text the build embeds (TTT_GIT: `ttt
 --version`, the crash report, the overlay's About); a tree with local changes is refused unless --allow-dirty.
@@ -16,7 +17,11 @@ Archives: dist/ttt-<version>-linux-x86_64.tar.gz (the programs keep their execut
 dist/ttt-<version>-windows-x86_64.zip, the same bytes for the same programs (sorted entries, the commit's time, no
 owner names). The game is never in them: an allowlist of names, a list of forbidden names (disc images, the game's
 executable, data files, saves, dumps, keys), the sizes and SHA-1 of the game's files from port/tools/data_layout.txt,
-and, when the game's files are on this machine, 64-byte samples of them searched for in every archived file."""
+and, when the game's files are on this machine, 64-byte samples of them searched for in every archived file.
+
+SDL3.dll is shipped in the Windows archive only when --sdl3-dll (or TTT_SDL3_DLL) names one: the CI release builds it
+from SDL's source (port/release/Dockerfile.ci). Its zlib licence comes from --sdl3-license (TTT_SDL3_LICENSE), or is
+looked for beside the DLL (../share/licenses/SDL3/LICENSE.txt, LICENSE.txt); without a DLL the archive is as before."""
 
 import argparse
 import fnmatch
@@ -56,6 +61,11 @@ DOCS = ("install.md", "settings.md", "input.md", "video.md", "sound.md", "netpla
 LICENSES = {"imgui.txt": "third_party/imgui/LICENSE.txt", "pl_mpeg2.txt": "third_party/pl_mpeg2/LICENSE",
             "stb.txt": "third_party/stb/LICENSE", "xxhash.txt": "third_party/xxhash/LICENSE",
             "tweetnacl.txt": "third_party/tweetnacl/LICENSE", "newlib.txt": "third_party/newlib_libm/COPYING.NEWLIB"}
+# The port's own code (the repository's LICENSE), bundled beside the vendored code's licences.
+PORT_LICENSE = "ttt.txt"
+PORT_LICENSE_NOTE = ("\nThe port's own code (the programs' platform layer, the matchmaking server and\n"
+                     "the notice signer) is licensed under the GNU Affero General Public License\n"
+                     "v3.0 only: ttt.txt.\n")
 # Linked into the Windows programs from the cross compiler: winpthreads and the mingw-w64 run time (notice required),
 # libgcc (GCC Runtime Library Exception). Looked for where distributions install them.
 WINDOWS_LICENSES = {
@@ -70,6 +80,22 @@ WINDOWS_LICENSES = {
 WINDOWS_ROWS = (
     "  mingw-w64 run time, winpthreads  MIT-style / ZPL (see file)  mingw-w64-runtime.txt       ttt.exe, ttt-*.exe\n"
     "  libgcc                          GPL + runtime exception     gcc-runtime-library-exception.txt  ttt.exe, ttt-*.exe\n")
+
+# SDL3.dll in the Windows archive (--sdl3-dll): its name below the top folder, its licence file, and the paragraph of port/release/LICENSES.txt that says SDL 3 is not part of the release, replaced.
+SDL3_DLL = "SDL3.dll"
+SDL3_LICENSE = "sdl3.txt"
+SDL3_ABSENT = re.compile(r"SDL 3 is not part of this release:.*?\n\n", re.S)
+SDL3_PRESENT = ("SDL3.dll is {name}, built unmodified from its source release; the program\n"
+                "loads it from beside ttt.exe when it opens its window.\n\n")
+# The readme's SDL3.dll requirement (port/release/README.windows.txt, {sdl3_dll}).
+SDL3_README_ABSENT = (
+    "- SDL3.dll - NOT included. Download SDL 3's official Windows release\n"
+    "  (SDL3-<version>-win32-x64.zip) from https://github.com/libsdl-org/SDL/releases\n"
+    "  and put the SDL3.dll from it next to ttt.exe. Without it the program runs\n"
+    "  without a window.")
+SDL3_README_PRESENT = (
+    "- SDL3.dll - included in this archive, next to ttt.exe ({name}, zlib\n"
+    "  licence: LICENSES\\sdl3.txt). Keep it beside ttt.exe.")
 
 TARGETS = {
     "linux": {
@@ -213,8 +239,22 @@ def changelog(ver):
     return "\n".join(out) + "\n"
 
 
-def stage(target, ver, top):
-    """Writes the target's files under `top` (the archive's top folder); returns the archive names."""
+def sdl3_license(dll, given):
+    """The licence file of the SDL3.dll being shipped: `given`, or the one installed beside it."""
+    if given:
+        cands = [Path(given)]
+    else:
+        cands = [dll.parent.parent / "share/licenses/SDL3/LICENSE.txt", dll.parent / "LICENSE.txt",
+                 dll.parent / "LICENSE.SDL.txt"]
+    found = next((c for c in cands if c.is_file()), None)
+    if found is None:
+        sys.exit(f"release: the licence of {dll} is not found ({cands[0]}; pass --sdl3-license)")
+    return found
+
+
+def stage(target, ver, top, sdl3=None):
+    """Writes the target's files under `top` (the archive's top folder); returns the archive names. `sdl3`: (dll,
+    licence, version text) of an SDL3.dll to ship in the Windows archive, or None."""
     t = TARGETS[target]
     nl = t["newline"]
     top.mkdir(parents=True)
@@ -241,6 +281,7 @@ def stage(target, ver, top):
     lic.mkdir()
     for name, src in LICENSES.items():
         shutil.copyfile(ROOT / src, lic / name)
+    shutil.copyfile(ROOT / "LICENSE", lic / PORT_LICENSE)
     rows = ""
     if target == "windows":
         for name, choices in WINDOWS_LICENSES.items():
@@ -249,9 +290,24 @@ def stage(target, ver, top):
                 sys.exit(f"release: the licence {name} of the cross compiler's run time is not found ({choices[0]})")
             shutil.copyfile(found, lic / name)
         rows = WINDOWS_ROWS
-    index = (RELEASE / "LICENSES.txt").read_text().replace("{windows_rows}\n", rows).replace("{sdl}", t["sdl"])
+    index = (RELEASE / "LICENSES.txt").read_text()
+    readme = (RELEASE / t["readme"]).read_text().replace("{version}", ver)
+    if target == "windows" and sdl3:
+        dll, dll_lic, sdl_ver = sdl3
+        shutil.copyfile(dll, top / SDL3_DLL)
+        shutil.copyfile(dll_lic, lic / SDL3_LICENSE)
+        name = f"SDL {sdl_ver}" if sdl_ver else "SDL 3"
+        rows += ("  " + f"SDL 3{f' ({sdl_ver})' if sdl_ver else ''}".ljust(32) + "zlib".ljust(28) + SDL3_LICENSE.ljust(28)
+                 + "SDL3.dll (window, sound, input)\n")
+        index, n = SDL3_ABSENT.subn(SDL3_PRESENT.format(name=name), index)
+        if n != 1:
+            sys.exit("release: port/release/LICENSES.txt no longer has the paragraph about SDL 3 to replace")
+        readme = readme.replace("{sdl3_dll}", SDL3_README_PRESENT.format(name=name))
+    else:
+        readme = readme.replace("{sdl3_dll}", SDL3_README_ABSENT)
+    index = index.replace("{windows_rows}\n", rows).replace("{sdl}", t["sdl"]) + PORT_LICENSE_NOTE
     write_text(lic / "README.txt", index, nl)
-    write_text(top / "README.txt", (RELEASE / t["readme"]).read_text().replace("{version}", ver), nl)
+    write_text(top / "README.txt", readme, nl)
     commit = run(["git", "rev-parse", "HEAD"]).stdout.strip()
     when = time.strftime("%Y-%m-%d", time.gmtime(commit_time()))
     write_text(top / "VERSION.txt", f"Tekken Tag Tournament PC port\nversion: {ver}\ntarget: {t['suffix']}\n"
@@ -437,7 +493,7 @@ def check(path, sampled=None):
     if len(tops) != 1:
         problems.append(f"{path.name}: not one top folder ({sorted(tops)})")
     target = "windows" if str(path).endswith(".zip") else "linux"
-    allowed = ALLOWED + tuple(TARGETS[target]["files"])
+    allowed = ALLOWED + tuple(TARGETS[target]["files"]) + ((SDL3_DLL,) if target == "windows" else ())
     known = {(size, sha) for _, size, sha in layout_files()}
     sizes = {size for size, _ in known}
     root = str(ROOT).encode()
@@ -451,7 +507,9 @@ def check(path, sampled=None):
         parts = low.split("/")
         if not any(fnmatch.fnmatchcase(rel, a) and rel.count("/") == a.count("/") for a in allowed):
             problems.append(f"{name}: not an allowed file")
-        if any(fnmatch.fnmatchcase(parts[-1], f) for f in FORBIDDEN) or any(p in FORBIDDEN_DIRS for p in parts[:-1]):
+        sdl3 = target == "windows" and rel == SDL3_DLL  # the one DLL a Windows archive may hold (--sdl3-dll)
+        if (not sdl3 and any(fnmatch.fnmatchcase(parts[-1], f) for f in FORBIDDEN)) or \
+                any(p in FORBIDDEN_DIRS for p in parts[:-1]):
             problems.append(f"{name}: a forbidden name (game data, saves, dumps or keys)")
         if len(data) in sizes and (len(data), hashlib.sha1(data).hexdigest()) in known:
             problems.append(f"{name}: is a file of the game (SHA-1 in data_layout.txt)")
@@ -511,6 +569,12 @@ def main():
     ap.add_argument("--allow-dirty", action="store_true", help="release a tree with local changes (testing)")
     ap.add_argument("--check", nargs="+", type=Path, metavar="ARCHIVE", help="only check these archives")
     ap.add_argument("--portability", action="store_true", help="only print the portability report")
+    ap.add_argument("--sdl3-dll", type=Path, default=os.environ.get("TTT_SDL3_DLL") or None,
+                    help="an SDL3.dll to ship in the Windows archive (default: TTT_SDL3_DLL; none)")
+    ap.add_argument("--sdl3-license", type=Path, default=os.environ.get("TTT_SDL3_LICENSE") or None,
+                    help="its licence file (default: TTT_SDL3_LICENSE, or the one installed beside the DLL)")
+    ap.add_argument("--sdl3-version", default=os.environ.get("TTT_SDL3_VERSION", ""),
+                    help="its version, named in the README and the licence index (default: TTT_SDL3_VERSION)")
     a = ap.parse_args()
 
     if a.check:
@@ -546,6 +610,14 @@ def main():
     if problems:
         sys.exit("release: portability problems:\n  " + "\n  ".join(problems))
 
+    sdl3 = None
+    if a.sdl3_dll and "windows" in targets:
+        dll = Path(a.sdl3_dll).resolve()
+        if not dll.is_file() or dll.read_bytes()[:2] != b"MZ":
+            sys.exit(f"release: --sdl3-dll {dll}: not a Windows DLL")
+        sdl3 = (dll, sdl3_license(dll, a.sdl3_license), a.sdl3_version.strip())
+        print(f"release: shipping {dll.name} ({sdl3[2] or 'version not given'}) in the Windows archive")
+
     out = a.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
     wins = sample_game_files()
@@ -554,7 +626,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="ttt-release-") as tmp:
         for t in targets:
             top = Path(tmp) / f"ttt-{ver}-{TARGETS[t]['suffix']}"
-            names = stage(t, ver, top)
+            names = stage(t, ver, top, sdl3)
             path = archive(t, ver, top, out)
             problems = check(path, wins)
             if problems:

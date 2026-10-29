@@ -33,7 +33,42 @@ refuses (and deletes) an archive in which its check finds any of them.
    the disc in `iso/` it sets up from it and plays the idle run to the reference hash.
 
 Other entry points: `release.py --check <archive>...` (the content check alone, exit 1 on a problem) and
-`release.py --portability` (the report alone).
+`release.py --portability` (the report alone). `--sdl3-dll PATH` (or `TTT_SDL3_DLL`) ships that `SDL3.dll` in the
+Windows archive ([Releases from CI](#releases-from-ci)); without it the archives are as described below.
+
+## Releases from CI
+
+`.github/workflows/release.yml` builds both archives on GitHub Actions. It runs when a `v*` tag is pushed, or by hand
+(Actions > release > Run workflow on any branch or tag). It does not run on every push to `main`: a run builds the
+whole environment (LLVM, mingw-w64, SDL 3) and both targets, and its archives are only needed for a release.
+
+1. **Environment.** `docker build` of `port/release/Dockerfile.ci`: Ubuntu 24.04 with clang / clang++ / llc of
+   LLVM 23 (apt.llvm.org) under their plain names, libclang and its Python bindings (`ptr32.py`), gcc and binutils,
+   mingw-w64 with POSIX threads, and **SDL 3 cross-built for Windows from its source release** (the exact tag is the
+   `SDL3` argument, `3.4.18`, the version the port is tested with on Linux), installed with its `LICENSE.txt`. The
+   Linux programs load SDL 3 at run time and are built without it, so no Linux SDL 3 is built.
+2. **Build.** The checkout is mounted at its own path (the content check refuses an archive holding the checkout's
+   path, and a short one such as `/src` would match ordinary text) and `port/release/ci_build.sh` runs inside the
+   container as the runner's user. On a tag it makes the tag annotated locally if it is not (`git describe`, the
+   version, names annotated tags only, and the checkout may fetch a tag without its tag object) and refuses to go on
+   unless `git describe` gives exactly the tag. Then `release.py --targets linux,windows` builds, checks the
+   portability limits and the content, and writes `dist/` as locally, with `SDL3.dll` and `LICENSES/sdl3.txt` in the
+   Windows archive (`TTT_SDL3_DLL`, `TTT_SDL3_LICENSE`, `TTT_SDL3_VERSION` from the image).
+3. **Artifacts.** The two archives, `SHA256SUMS` and the portability report are uploaded as the run's artifact
+   `ttt-<tag>` (`ttt-dev` for a run that is not on a tag). Archive names inside follow `git describe` as always:
+   `ttt-v0.1.0-...` on a tag, `ttt-<describe>-...` otherwise.
+4. **Draft release.** On a tag only: `gh release create <tag> --draft --generate-notes` with the archives and
+   `SHA256SUMS` attached (the job has `contents: write`). Publishing the draft is a human decision. Nothing is
+   signed: the program has no updater that would check a signature.
+
+The workflow uses only the repository: no disc, no game file, no secret besides the job's own token. A run on the
+same ref waits for the previous one (`concurrency`). The environment and the workflow have not been run yet (no
+container was built for this change); the first tag build is their test.
+
+When `SDL3.dll` is shipped, the Windows `README.txt` says it is included (instead of the download instructions) and
+`LICENSES/README.txt` lists SDL 3 (zlib) in place of the note that SDL 3 is not part of the release. The content
+check allows exactly one DLL, `SDL3.dll` at the top of a Windows archive; every other `.dll` and any `.so` stays
+forbidden.
 
 The same programs give the same archives, byte for byte: sorted entries, the commit's time on every entry (or
 `SOURCE_DATE_EPOCH`), no owner names, gzip without a timestamp, and the PE programs' link time (which `objcopy` sets
@@ -50,10 +85,11 @@ top folder `ttt-<version>-<target>/`:
 | Its symbol names (crash reports: `<program>.syms` beside it, `plat_crash.c`) | `ttt.syms` | `ttt.exe.syms` |
 | Matchmaking server and notice signer ([matchmaking.md](matchmaking.md)) | `ttt-server`, `ttt-sign` | `ttt-server.exe`, `ttt-sign.exe` |
 | Translations, found beside the program (`lang/`, [translations.md](translations.md)) | `lang/en.json`, `lang/es.json` | same |
-| The player README (`port/release/README.<target>.txt`) | `README.txt` | `README.txt` (CRLF), marked **untested on Windows** with the `SDL3.dll` instructions |
+| The player README (`port/release/README.<target>.txt`) | `README.txt` (tested on Arch Linux only) | `README.txt` (CRLF), marked **untested on Windows**, with the `SDL3.dll` instructions or the note that it is included |
+| `SDL3.dll` (only with `--sdl3-dll`: the CI release) | no | yes, with `LICENSES/sdl3.txt` (zlib) |
 | `VERSION.txt` (version, target, commit), `CHANGELOG.txt` (the port's `feat` / `fix` / `perf` commits since the previous tag) | yes | yes |
 | `docs/`: install, settings, input, video, sound, netplay, matchmaking, mods, textures, translations, accessibility, cheats | yes | yes |
-| `LICENSES/`: an index (`port/release/LICENSES.txt`) and the licences of Dear ImGui, pl_mpeg2, stb, xxHash, TweetNaCl, newlib's libm | yes | yes, plus the mingw-w64 run time's (winpthreads, linked in) and GCC's runtime library exception (libgcc) |
+| `LICENSES/`: an index (`port/release/LICENSES.txt`), the port's own licence (`ttt.txt`, the repository's `LICENSE`: AGPL-3.0-only) and the licences of Dear ImGui, pl_mpeg2, stb, xxHash, TweetNaCl, newlib's libm | yes | yes, plus the mingw-w64 run time's (winpthreads, linked in) and GCC's runtime library exception (libgcc) |
 
 The programs are stripped of their debug sections (`objcopy --strip-debug`): those hold the checkout's paths, and
 `ttt` shrinks from 9 MB to 3.1 MB (`ttt.exe` from 12 MB). The symbol table stays (the state's region names, `plat_state.c`, and
@@ -61,7 +97,8 @@ The programs are stripped of their debug sections (`objcopy --strip-debug`): tho
 `-fmacro-prefix-map=<checkout>/=` (toolchain.py), so no path of the build machine is left in any file; the check
 refuses one that holds it.
 
-`SDL3.dll` is not shipped (the README says where to get it); neither is anything else not built here.
+`SDL3.dll` is shipped only when `--sdl3-dll` names one (the CI release builds it from SDL's source); a local
+release without it says where to get it. Nothing else not built here is shipped.
 
 `ttt --version` prints `ttt <version> (<platform>)` and `languages: en es ...` (the catalogs it found) and exits,
 with no disc and no window (`Port_VersionArgs`, plat_crash.c, after the settings and the language are read).
@@ -76,7 +113,8 @@ lists of its own.
 - **Forbidden names**, in any folder: disc images (`.iso .bin .cue .img .mdf .nrg .chd .cso ...`), `SLUS_*` /
   `SCES_*`, `.elf`, `.irx`, `SYSTEM.CNF`, `ttt.dat*`, `.disc`, memory cards (`.mcd .ps2 .vmc`), `settings.ini`,
   `portable.txt`, keys (`.key`), pictures and sound (`.png .ppm .bmp .tga .dds .wav .ogg .vag ...`), movies
-  (`.pss .ipu .m2v`), states and recordings, shared libraries (`.dll .so`), and folders `saves/ textures/ mods/
+  (`.pss .ipu .m2v`), states and recordings, shared libraries (`.dll .so`; only `SDL3.dll` at the top of a Windows
+  archive is allowed), and folders `saves/ textures/ mods/
   crash/ iso/ frames/ build/ replacements/`.
 - **The game's files by size and SHA-1**, from `port/tools/data_layout.txt` (the executable, 2873728 bytes,
   `c7ad9a02...`; the data payload, `37051598...`).
@@ -148,6 +186,5 @@ been run (no Windows, no Wine here): the README says so in its first lines.
 
 - The Windows archive has never run anywhere; the `SDL3.dll` instructions and the paths in its README are from the
   code, not from a test.
-- The repository states no licence for the port's own code; the archives carry the vendored code's licences only.
-- The container recipe is untested.
+- Neither container recipe (`Dockerfile.linux`, `Dockerfile.ci`) nor the release workflow has been run.
 - `CHANGELOG.txt` is generated from commit subjects: before the first tag it lists the port's whole history.

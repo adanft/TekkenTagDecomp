@@ -1,0 +1,74 @@
+# Builds the PC port's player archives (Linux x86-64 .tar.gz, Windows x86-64 .zip) and, for a version tag, attaches
+# them to a draft GitHub release. docs/port/release.md "Releases from CI".
+#
+# Runs on a pushed `v*` tag, or by hand (Actions > release > Run workflow). It does not run on every push to main: a
+# run builds LLVM's and SDL 3's environment and both programs (tens of minutes) and its archives are only useful
+# for a release; the build itself is checked locally before a tag is pushed.
+#
+# Only the repository is used: the build needs no game file, and the content check refuses any archive holding one.
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build archives
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out (full history and tags, for git describe and the changelog)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Version
+        id: version
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            echo "version=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=dev" >> "$GITHUB_OUTPUT"
+            echo "tag=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build environment (port/release/Dockerfile.ci)
+        run: docker build -t ttt-ci -f port/release/Dockerfile.ci port/release
+
+      - name: Build, package and check both targets
+        env:
+          TTT_RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -e TTT_RELEASE_TAG \
+            -v "$PWD:$PWD" -w "$PWD" ttt-ci bash port/release/ci_build.sh
+
+      - name: Upload archives
+        uses: actions/upload-artifact@v4
+        with:
+          name: ttt-${{ steps.version.outputs.version }}
+          path: |
+            dist/ttt-*.tar.gz
+            dist/ttt-*.zip
+            dist/ttt-*-portability.txt
+            dist/SHA256SUMS
+          if-no-files-found: error
+
+      - name: Draft release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          gh release create "$TAG" --draft --generate-notes --title "$TAG" \
+            dist/ttt-*.tar.gz dist/ttt-*.zip dist/SHA256SUMS

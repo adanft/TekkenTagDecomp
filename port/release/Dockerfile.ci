@@ -1,0 +1,59 @@
+# The release build environment of .github/workflows/release.yml (docs/port/release.md "Releases from CI").
+#
+# It holds the tools only: the checkout is mounted at run time, and nothing of the game is in the image or needed by
+# the build (port/tools/build.py takes no game file). port/release/ci_build.sh runs inside it and calls
+# port/tools/release.py for both targets.
+#
+#   docker build -t ttt-ci -f port/release/Dockerfile.ci port/release
+#   docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:$PWD" -w "$PWD" ttt-ci bash port/release/ci_build.sh
+#
+# The checkout keeps its own path inside the container: release.py refuses an archive holding the checkout's path,
+# and a short one such as /src would match ordinary text (port/src/... in the documentation).
+#
+# Tools:
+# - clang / clang++ / llc of LLVM $LLVM (apt.llvm.org) under their plain names (port/tools/toolchain.py and
+#   undefined.py call them so), and libclang with its Python bindings for port/tools/ptr32.py (clang.cindex);
+# - gcc / g++ and binutils (the matchmaking server, objcopy / objdump / readelf for the release);
+# - mingw-w64 with POSIX threads (winpthreads, linked in by the Windows build) and its binutils / windres;
+# - SDL 3 cross-built for Windows from its source release (SDL3.dll, shipped in the Windows archive with its zlib
+#   licence). The Linux programs load SDL 3 at run time and are built without it, so no Linux SDL 3 is built here.
+
+FROM ubuntu:24.04
+
+ARG LLVM=23
+# The SDL 3 release shipped as SDL3.dll: an exact tag of https://github.com/libsdl-org/SDL.
+ARG SDL3=3.4.18
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates wget gnupg lsb-release software-properties-common git python3 \
+        gcc g++ binutils make cmake ninja-build \
+        gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 binutils-mingw-w64-x86-64 mingw-w64-x86-64-dev \
+    && wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh && bash /tmp/llvm.sh "$LLVM" \
+    && apt-get install -y --no-install-recommends "libclang-$LLVM-dev" "libclang1-$LLVM" "python3-clang-$LLVM" \
+    && rm -rf /var/lib/apt/lists/* /tmp/llvm.sh
+
+# Plain tool names; libclang where clang.cindex looks for it (ctypes loads "libclang.so" through the loader's cache);
+# mingw-w64's POSIX-thread compilers (Ubuntu's default may be the win32-thread variant, which has no winpthreads).
+RUN for t in clang clang++ llc; do ln -sf "/usr/bin/$t-$LLVM" "/usr/local/bin/$t"; done \
+    && ln -sf "/usr/lib/llvm-$LLVM/lib/libclang.so.1" /usr/local/lib/libclang.so && ldconfig \
+    && update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix \
+    && update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix \
+    && python3 -c "import clang.cindex as ci; ci.Index.create()"
+
+# SDL3.dll from SDL's source release, cross-compiled with mingw-w64 (shared library only, no tests or examples).
+RUN git clone --depth 1 --branch "release-$SDL3" https://github.com/libsdl-org/SDL.git /tmp/sdl \
+    && cmake -S /tmp/sdl -B /tmp/sdl/build-mingw -G Ninja \
+        -DCMAKE_TOOLCHAIN_FILE=/tmp/sdl/build-scripts/cmake-toolchain-mingw64-x86_64.cmake \
+        -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/sdl3-mingw \
+        -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF \
+    && cmake --build /tmp/sdl/build-mingw \
+    && cmake --install /tmp/sdl/build-mingw \
+    && install -D -m 644 /tmp/sdl/LICENSE.txt /opt/sdl3-mingw/share/licenses/SDL3/LICENSE.txt \
+    && x86_64-w64-mingw32-strip --strip-unneeded /opt/sdl3-mingw/bin/SDL3.dll \
+    && rm -rf /tmp/sdl
+
+# What ci_build.sh hands to port/tools/release.py.
+ENV TTT_SDL3_DLL=/opt/sdl3-mingw/bin/SDL3.dll \
+    TTT_SDL3_LICENSE=/opt/sdl3-mingw/share/licenses/SDL3/LICENSE.txt \
+    TTT_SDL3_VERSION=$SDL3

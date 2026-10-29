@@ -31,7 +31,7 @@ ELF_SHA1 = "c7ad9a022bdc836827a0cc093f91b4281836f2bb"
 # What an archive may hold below its top folder (independent of release.py's own list).
 LINUX_ALLOWED = re.compile(r"(ttt|ttt\.syms|ttt-server|ttt-sign|README\.txt|VERSION\.txt|CHANGELOG\.txt|"
                            r"lang/[a-z]{2}(_[A-Z]{2})?\.json|LICENSES/[\w.-]+\.txt|docs/[\w-]+\.md)")
-WINDOWS_ALLOWED = re.compile(r"(ttt\.exe|ttt\.exe\.syms|ttt-server\.exe|ttt-sign\.exe|README\.txt|VERSION\.txt|"
+WINDOWS_ALLOWED = re.compile(r"(ttt\.exe|SDL3\.dll|ttt\.exe\.syms|ttt-server\.exe|ttt-sign\.exe|README\.txt|VERSION\.txt|"
                              r"CHANGELOG\.txt|lang/[a-z]{2}(_[A-Z]{2})?\.json|LICENSES/[\w.-]+\.txt|docs/[\w-]+\.md)")
 LINUX_REQUIRED = {"ttt", "ttt.syms", "ttt-server", "ttt-sign", "README.txt", "VERSION.txt", "CHANGELOG.txt",
                   "lang/en.json", "lang/es.json", "LICENSES/README.txt", "LICENSES/imgui.txt", "LICENSES/pl_mpeg2.txt",

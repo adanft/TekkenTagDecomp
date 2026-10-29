@@ -5,6 +5,9 @@ A native PC program that runs Tekken Tag Tournament (PlayStation 2, USA release
 SLUS-20001). This archive contains no part of the game: you need your own disc.
 The first run asks for it.
 
+Tested on Arch Linux only. Other distributions with glibc 2.34 or newer are
+expected to work but have not been tried; reports are welcome.
+
 
 Requirements
 ------------

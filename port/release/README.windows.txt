@@ -3,8 +3,9 @@ Tekken Tag Tournament - PC port {version} (Windows x86-64)
 
 *** UNTESTED ON WINDOWS ***
 This build was cross-compiled on Linux and has not yet been run on Windows.
-It may not start at all. Reports (with the output of "ttt.exe --version" and
-any crash report) are welcome.
+It may not start at all. The port has been tested on Arch Linux only.
+Reports (with the output of "ttt.exe --version" and any crash report) are
+welcome.
 
 A native PC program that runs Tekken Tag Tournament (PlayStation 2, USA release
 SLUS-20001). This archive contains no part of the game: you need your own disc.
@@ -14,10 +15,7 @@ The first run asks for it.
 Requirements
 ------------
 - Windows 10 or 11, 64-bit.
-- SDL3.dll - NOT included. Download SDL 3's official Windows release
-  (SDL3-<version>-win32-x64.zip) from https://github.com/libsdl-org/SDL/releases
-  and put the SDL3.dll from it next to ttt.exe. Without it the program runs
-  without a window.
+{sdl3_dll}
 - A graphics driver with OpenGL 3.3.
 - Your disc of Tekken Tag Tournament, USA (SLUS-20001), in one of these forms:
   the disc in a drive, a folder with its files, or an image (.iso, or
@@ -26,7 +24,8 @@ Requirements
 
 First run
 ---------
-1. Extract the archive to a folder, add SDL3.dll (see above), run ttt.exe.
+1. Extract the archive to a folder (with SDL3.dll next to ttt.exe, see
+   above) and run ttt.exe.
    It is a console program: a console window shows its messages.
 2. The setup screen asks for your disc: type or paste its path (Ctrl+V), or
    press Browse... Then press "Check and install". Only the unmodified USA
@@ -77,6 +76,7 @@ In this archive
 ---------------
   ttt.exe, ttt.exe.syms        the program, and its symbol names for crash reports
   ttt-server.exe, ttt-sign.exe matchmaking server and notice signer (optional)
+  SDL3.dll                     SDL 3 (official releases; zlib licence)
   lang\                        translations (lang\<code>.json)
   docs\                        the documentation (install, settings, netplay...)
   LICENSES\                    licences of the code included from other projects
