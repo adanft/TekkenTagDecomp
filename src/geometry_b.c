@@ -92,8 +92,6 @@ void func_0034A710(Vu0Matrix d, Vu0Matrix s);
 #define LM(o) (*(Vu0Matrix *)((u8 *)L + (o)))
 #define LV(o) ((f32 *)((u8 *)L + (o)))
 
-/* NON_MATCHING: 31 lines: the u128 copy from f + 0x8B80 shares the 0x8000 base with the later float loads (original: its own ori 0x8B80 / addu, loads scheduled after it) */
-#if 0
 /* Builds the local joint matrices of fighter f from its angle table (func_003B87F8): three runs of joints, with
  * the scale word at 0xB090 set between them; stores the fighter's reference vector and a height. */
 void func_00347760(u8 *f) {
@@ -111,16 +109,17 @@ void func_00347760(u8 *f) {
     for (i = 7; i < 0x1D; i++) {
         func_00349D70(*(Vu0Matrix *)(f + ((i << 6) + 0x87D0)), ang + i * 3);
     }
-    D_0046AFD0[*(s16 *)(f + 0x20)] = *(u128 *)(f + 0x8B80);
+    {
+        /* a pointer of its own: the copy gets its own ori 0x8B80 instead of sharing the 0x8000 base below */
+        u128 *ref = (u128 *)(f + 0x8B80);
+
+        D_0046AFD0[*(s16 *)(f + 0x20)] = *ref;
+    }
     h = *(s32 *)(f + 0x500) * 1150.0f;
     h = h * (1.0f / 4096.0f);
     D_01FC49E0[*(s16 *)(f + 0x20)] = h - *(f32 *)(f + 0x9BC0) - *(f32 *)(f + 0x9C40) - *(f32 *)(f + 0x9D00)
         - *(f32 *)(f + 0x9DC0) + *(f32 *)(f + 0x9E04);
 }
-#else
-LIT4_WORD(D_005F573C, 0x448FC000);
-INCLUDE_ASM("asm/nonmatchings/geometry_b", func_00347760);
-#endif
 
 INCLUDE_RODATA("asm/nonmatchings/geometry_b", D_00522DE0);
 /* NON_MATCHING: about 230 lines: m2c-based draft, frame layout and register allocation differ (two inlined joint loops, 98-way switch) */
@@ -585,8 +584,6 @@ void func_00348988(Vu0Matrix d, Vu0Matrix s) {
     func_0034A710(d, d);
 }
 
-/* NON_MATCHING: 12 lines: the weight block keeps |x| from the test in a register; the original recomputes abs.s in the else */
-#if 0
 void func_00348C68(Vu0Matrix d, Vu0Matrix s) {
     Vu0Matrix a;
     Vu0Matrix b;
@@ -627,15 +624,16 @@ void func_00348C68(Vu0Matrix d, Vu0Matrix s) {
     }
     func_0034A868(b[1], b[1]);
     sceVu0OuterProduct(b[2], b[0], b[1]);
-    x = s[0][1];
-    y = s[0][0];
-    if (fabsf(x) < 0.0001f && fabsf(y) < 0.0001f) {
+    if (fabsf(s[0][1]) < 0.0001f && fabsf(s[0][0]) < 0.0001f) {
         k = 1.0f;
         w = 0.0f;
     } else {
-        sum = fabsf(x) + fabsf(y);
-        k = fabsf(x) / sum;
-        w = fabsf(y) / sum;
+        /* re-read from s: the original recomputes both abs.s here instead of reusing the test's */
+        x = fabsf(s[0][1]);
+        y = fabsf(s[0][0]);
+        sum = x + y;
+        k = x / sum;
+        w = y / sum;
     }
     sceVu0ScaleVector(d[0], a[0], k);
     sceVu0ScaleVector(d[1], a[1], k);
@@ -649,15 +647,7 @@ void func_00348C68(Vu0Matrix d, Vu0Matrix s) {
     *(u128 *)d[3] = *(u128 *)s[3];
     func_0034A710(d, d);
 }
-#else
-LIT4_WORD(D_005F5778, 0x3F7FF972);
-LIT4_WORD(D_005F577C, 0x3F7FF972);
-LIT4_WORD(D_005F5780, 0x38D1B717);
-INCLUDE_ASM("asm/nonmatchings/geometry_b", func_00348C68);
-#endif
 
-/* NON_MATCHING: 12 lines: as func_00348C68 (|x| reused from the test where the original recomputes it) */
-#if 0
 void func_00348F20(Vu0Matrix d, Vu0Matrix s) {
     Vu0Matrix a;
     Vu0Matrix b;
@@ -698,15 +688,16 @@ void func_00348F20(Vu0Matrix d, Vu0Matrix s) {
     }
     func_0034A868(b[1], b[1]);
     sceVu0OuterProduct(b[2], b[0], b[1]);
-    x = s[0][1];
-    y = s[0][0];
-    if (fabsf(x) < 0.0001f && fabsf(y) < 0.0001f) {
+    if (fabsf(s[0][1]) < 0.0001f && fabsf(s[0][0]) < 0.0001f) {
         k = 1.0f;
         w = 0.0f;
     } else {
-        sum = fabsf(x) + fabsf(y);
-        k = fabsf(x) / sum;
-        w = fabsf(y) / sum;
+        /* re-read from s: the original recomputes both abs.s here instead of reusing the test's */
+        x = fabsf(s[0][1]);
+        y = fabsf(s[0][0]);
+        sum = x + y;
+        k = x / sum;
+        w = y / sum;
     }
     sceVu0ScaleVector(d[0], a[0], k);
     sceVu0ScaleVector(d[1], a[1], k);
@@ -720,15 +711,7 @@ void func_00348F20(Vu0Matrix d, Vu0Matrix s) {
     *(u128 *)d[3] = *(u128 *)s[3];
     func_0034A710(d, d);
 }
-#else
-LIT4_WORD(D_005F5784, 0x3F7FF972);
-LIT4_WORD(D_005F5788, 0x3F7FF972);
-LIT4_WORD(D_005F578C, 0x38D1B717);
-INCLUDE_ASM("asm/nonmatchings/geometry_b", func_00348F20);
-#endif
 
-/* NON_MATCHING: 12 lines: as func_00348C68 (|x| reused from the test where the original recomputes it) */
-#if 0
 void func_003491D8(Vu0Matrix d, Vu0Matrix s) {
     Vu0Matrix a;
     Vu0Matrix b;
@@ -769,15 +752,16 @@ void func_003491D8(Vu0Matrix d, Vu0Matrix s) {
     }
     func_0034A868(b[1], b[1]);
     sceVu0OuterProduct(b[2], b[0], b[1]);
-    x = s[0][2];
-    y = s[0][1];
-    if (fabsf(x) < 0.0001f && fabsf(y) < 0.0001f) {
+    if (fabsf(s[0][2]) < 0.0001f && fabsf(s[0][1]) < 0.0001f) {
         k = 1.0f;
         w = 0.0f;
     } else {
-        sum = fabsf(x) + fabsf(y);
-        k = fabsf(x) / sum;
-        w = fabsf(y) / sum;
+        /* re-read from s: the original recomputes both abs.s here instead of reusing the test's */
+        x = fabsf(s[0][2]);
+        y = fabsf(s[0][1]);
+        sum = x + y;
+        k = x / sum;
+        w = y / sum;
     }
     sceVu0ScaleVector(d[0], a[0], k);
     sceVu0ScaleVector(d[1], a[1], k);
@@ -791,15 +775,7 @@ void func_003491D8(Vu0Matrix d, Vu0Matrix s) {
     *(u128 *)d[3] = *(u128 *)s[3];
     func_0034A710(d, d);
 }
-#else
-LIT4_WORD(D_005F5790, 0x3F7FF972);
-LIT4_WORD(D_005F5794, 0x3F7FF972);
-LIT4_WORD(D_005F5798, 0x38D1B717);
-INCLUDE_ASM("asm/nonmatchings/geometry_b", func_003491D8);
-#endif
 
-/* NON_MATCHING: 12 lines: as func_00348C68 (|x| reused from the test where the original recomputes it) */
-#if 0
 void func_00349490(Vu0Matrix d, Vu0Matrix s) {
     Vu0Matrix a;
     Vu0Matrix b;
@@ -840,15 +816,16 @@ void func_00349490(Vu0Matrix d, Vu0Matrix s) {
     }
     func_0034A868(b[1], b[1]);
     sceVu0OuterProduct(b[2], b[0], b[1]);
-    x = s[0][1];
-    y = s[0][2];
-    if (fabsf(x) < 0.0001f && fabsf(y) < 0.0001f) {
+    if (fabsf(s[0][1]) < 0.0001f && fabsf(s[0][2]) < 0.0001f) {
         k = 1.0f;
         w = 0.0f;
     } else {
-        sum = fabsf(x) + fabsf(y);
-        k = fabsf(x) / sum;
-        w = fabsf(y) / sum;
+        /* re-read from s: the original recomputes both abs.s here instead of reusing the test's */
+        x = fabsf(s[0][1]);
+        y = fabsf(s[0][2]);
+        sum = x + y;
+        k = x / sum;
+        w = y / sum;
     }
     sceVu0ScaleVector(d[0], a[0], k);
     sceVu0ScaleVector(d[1], a[1], k);
@@ -862,12 +839,6 @@ void func_00349490(Vu0Matrix d, Vu0Matrix s) {
     *(u128 *)d[3] = *(u128 *)s[3];
     func_0034A710(d, d);
 }
-#else
-LIT4_WORD(D_005F579C, 0x3F7FF972);
-LIT4_WORD(D_005F57A0, 0x3F7FF972);
-LIT4_WORD(D_005F57A4, 0x38D1B717);
-INCLUDE_ASM("asm/nonmatchings/geometry_b", func_00349490);
-#endif
 
 /* NON_MATCHING: 60 lines: the weights are constant (k 0, w 1) in both arms; the original keeps the dead compare and f20 / f21, this compiles the test away */
 #if 0

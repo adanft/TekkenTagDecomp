@@ -83,7 +83,7 @@ typedef struct {
 typedef struct {
     /* 0x00 */ u8 *data;   /* 0x118000 bytes per frame */
     /* 0x04 */ u8 *tag;    /* 0x85740 bytes per frame; the first word is the status */
-    /* 0x08 */ s32 write;
+    /* 0x08 */ volatile s32 write;
     /* 0x0C */ volatile s32 count;
     /* 0x10 */ s32 size;
     /* 0x14 */ s32 pad14;
@@ -427,13 +427,12 @@ void func_0039C7B8(void) {
     VOL16(D_005F6CC4) = 0;
 }
 
-/* NON_MATCHING: 8 lines: the original if-converts the clamp as move zero / movn after sltiu; every form tried gives movz or the swapped order */
+/* NON_MATCHING: 2 lines: the D_005F6CC2 store is scheduled first (the original keeps it after the unk24 store; a fake
+ * barrier before it fixes that but swaps the li 2 / lui pair) */
 #if 0
 void func_0039C7D8(u32 movie) {
-    s32 n = movie;
-
     if (movie >= 3) {
-        n = 0;
+        movie = 0;
     }
     Bgm_Stop();
     Snd_Flush();
@@ -441,7 +440,7 @@ void func_0039C7D8(u32 movie) {
     D_00436568.unk1C = 0;
     D_00436568.unk20 = 0;
     D_00436568.unk24 = 0;
-    D_005F6CC2 = n;
+    D_005F6CC2 = movie;
     D_00436568.unk28 = 0;
     D_005F6CC4 = 0;
     D_005F6CC6 = 0;
@@ -821,8 +820,6 @@ s32 Snd_WaitStreamIdle(void) {
     return r;
 }
 
-/* NON_MATCHING: 1 line: the volatile read of D_005F6CC6 after the wait is lhu (the original has lh and still keeps it out of the delay slots) */
-#if 0
 s32 Movie_ReadChunk(u8 *dst, s32 size) {
     u32 tries = 0;
     s32 r;
@@ -854,7 +851,8 @@ read:
         }
     }
 done:
-    if (VOL16(D_005F6CC6) != 0) {
+    __asm__ volatile(""); /* fake: keeps the lh of D_005F6CC6 out of the delay slots (a volatile read is lhu) */
+    if (D_005F6CC6 != 0) {
         return 0;
     }
     FlushCache(0);
@@ -866,9 +864,6 @@ done:
     D_00436568.remain -= n;
     return n;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/movie", Movie_ReadChunk);
-#endif
 
 /* NON_MATCHING: 12 lines: scheduling of the prologue stores and the D_005F6208 store around the fbp mult */
 #if 0
@@ -1567,19 +1562,17 @@ s32 func_0039F1B0(MovieViBuf *f) {
     return 1;
 }
 
-/* NON_MATCHING: 24 lines: register allocation and order of the ring position / size computation (dmaN + 2 computed first in the original) */
-#if 0
 void func_0039F318(MovieViBuf *f, u8 **ptr1, s32 *size1, u8 **ptr2, s32 *size2) {
     s32 pos;
     s32 size;
 
     WaitSema(f->sema);
     {
-        s32 dmaN = f->dmaN;
-        s32 rd = f->readBytes;
+        s32 end = f->dmaN + 2;
+        s32 free = f->n - end;
 
-        pos = (((f->dmaStart + dmaN) << 11) + rd) % f->buffSize;
-        size = ((f->n - (dmaN + 2)) << 11) - rd;
+        pos = (((f->dmaStart + f->dmaN) << 11) + f->readBytes) % f->buffSize;
+        size = (free << 11) - f->readBytes;
     }
     if (f->buffSize - pos >= size) {
         *ptr1 = f->data + pos;
@@ -1594,9 +1587,6 @@ void func_0039F318(MovieViBuf *f, u8 **ptr1, s32 *size1, u8 **ptr2, s32 *size2) 
     }
     SignalSema(f->sema);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/movie", func_0039F318);
-#endif
 
 void func_0039F408(MovieViBuf *f, s32 size) {
     WaitSema(f->sema);
@@ -1605,8 +1595,6 @@ void func_0039F408(MovieViBuf *f, s32 size) {
     SignalSema(f->sema);
 }
 
-/* NON_MATCHING: 25 lines: register allocation around the dmaN / dmaStart updates and the tag loop arguments */
-#if 0
 s32 func_0039F458(MovieViBuf *f) {
     s32 consume;
     s32 readStart;
@@ -1616,6 +1604,7 @@ s32 func_0039F458(MovieViBuf *f) {
     s32 i;
     s32 isNew = 0;
     u32 chcr;
+    s32 m;
 
     WaitSema(f->sema);
     if (f->isActive == 0) {
@@ -1624,19 +1613,22 @@ s32 func_0039F458(MovieViBuf *f) {
     func_0039F0A0(5);
     chcr = *(volatile u32 *)0x1000B400;
     consume = ((s32)func_0039EFF0(f, *(volatile u32 *)0x1000B410) + f->n - f->dmaStart) % f->n;
-    f->dmaN -= consume;
     f->dmaStart = (f->dmaStart + consume) % f->n;
+    f->dmaN -= consume;
     readStart = (f->dmaStart + f->dmaN) % f->n;
     readN = f->readBytes / 2048;
     f->readBytes -= readN * 2048;
     if (readN > 0) {
-        last = (readStart + (f->n - 1)) % f->n;
+        m = f->n - 1;
+        last = (f->dmaStart + f->dmaN + m) % f->n; /* (readStart - 1) mod n, from the unreduced sum */
         func_0039F110((u64 *)(f->tag + last), (u32)f->data + (last << 11), 3, 0x80);
         isNew = 1;
     }
     id = readStart;
     for (i = 0; i < readN; i++) {
-        func_0039F110((u64 *)(f->tag + id), (u32)f->data + (id << 11), i == readN - 1 ? 0 : 3, 0x80);
+        s32 c = i == readN - 1 ? 0 : 3;
+
+        func_0039F110((u64 *)(f->tag + id), (u32)f->data + (id << 11), c, 0x80);
         id = (id + 1) % f->n;
     }
     f->dmaN += readN;
@@ -1649,9 +1641,6 @@ s32 func_0039F458(MovieViBuf *f) {
     SignalSema(f->sema);
     return 1;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/movie", func_0039F458);
-#endif
 
 s32 func_0039F638(MovieViBuf *f) {
     WaitSema(f->sema);
@@ -1849,7 +1838,8 @@ s32 func_0039FCE8(MovieViBuf *f, MovieTs *ts) {
     return r;
 }
 
-/* NON_MATCHING: 28 lines: the original reloads f->ts for each store and keeps the index expression; loop entry differs */
+/* NON_MATCHING: 8 lines: the original loads wtTs and computes wtTs - count after the count > 0 test (loop pre-header); here
+ * they are computed before it (written inside the loop, the load is not hoisted: the ts stores may alias it) */
 #if 0
 s32 func_0039FDF8(MovieViBuf *f, MovieTs *ts) {
     s32 isEnd = 0;
@@ -1860,22 +1850,24 @@ s32 func_0039FDF8(MovieViBuf *f, MovieTs *ts) {
     s32 count;
     s32 i;
     u32 pos;
-    MovieTs *t;
+    s32 start;
 
     madr -= (((bp >> 16) & 3) + ((bp >> 8) & 0xF)) * 16;
     WaitSema(f->sema);
-    ts->dts = -1;
     ts->pts = -1;
+    ts->dts = -1;
     count = f->countTs;
     pos = (madr + (last >> 3) + size - (u32)f->data) % size;
+    start = f->wtTs - count;
     for (i = 0; i < count && isEnd == 0; i++) {
-        t = f->ts + (f->wtTs - count + f->nTs + i) % f->nTs;
-        if ((s32)(pos + size - t->pos) % (s32)size < t->len) {
+        s32 j = (start + f->nTs + i) % f->nTs;
+
+        if ((s32)(pos + size - f->ts[j].pos) % (s32)size < f->ts[j].len) {
             isEnd = 1;
-            ts->pts = t->pts;
-            ts->dts = t->dts;
-            t->pts = -1;
-            t->dts = -1;
+            ts->pts = f->ts[j].pts;
+            ts->dts = f->ts[j].dts;
+            f->ts[j].pts = -1;
+            f->ts[j].dts = -1;
             f->countTs -= f->countTs < 2 ? f->countTs : 1;
         }
     }
@@ -1886,38 +1878,31 @@ s32 func_0039FDF8(MovieViBuf *f, MovieTs *ts) {
 INCLUDE_ASM("asm/nonmatchings/movie", func_0039FDF8);
 #endif
 
-/* NON_MATCHING: 12 lines: order of the field stores against the loop counter */
-#if 0
 void func_0039FFA0(MovieVoBuf *f, u8 *data, u8 *tag, s32 size) {
     s32 i;
 
     f->count = 0;
-    f->tag = tag;
     f->data = data;
+    f->tag = tag;
     f->size = size;
     f->write = 0;
     for (i = 0; i < size; i++) {
         *(s32 *)(f->tag + i * 0x85740) = 0;
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/movie", func_0039FFA0);
-#endif
 
 void func_0039FFF0(MovieVoBuf *f) {
 }
 
 void func_0039FFF8(MovieVoBuf *f) {
-    f->write = 0;
     f->count = 0;
+    f->write = 0;
 }
 
 s32 func_003A0008(MovieVoBuf *f) {
     return f->count == f->size;
 }
 
-/* NON_MATCHING: 13 lines: the original reloads write after the count store; register allocation of the DI section */
-#if 0
 void func_003A0020(MovieVoBuf *f) {
     u8 *tag = f->tag;
     u32 status;
@@ -1929,12 +1914,9 @@ void func_003A0020(MovieVoBuf *f) {
     } while (status & 0x10000);
     *(s32 *)(tag + f->write * 0x85740) = 2;
     f->count++;
-    EE_EI();
     f->write = (f->write + 1) % f->size;
+    EE_EI();
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/movie", func_003A0020);
-#endif
 
 u8 *func_003A00A0(MovieVoBuf *f) {
     return func_003A0008(f) ? NULL : f->data + f->write * 0x118000;
@@ -1944,14 +1926,9 @@ s32 func_003A00E8(MovieVoBuf *f) {
     return f->count == 0;
 }
 
-/* NON_MATCHING: scheduling, 4 lines: the volatile count load goes before the write load here (rtl order is write, count); operand orders and a non-volatile count read do not change it */
-#if 0
 u8 *func_003A00F8(MovieVoBuf *f) {
     return func_003A00E8(f) ? NULL : f->tag + (f->write - f->count + f->size) % f->size * 0x85740;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/movie", func_003A00F8);
-#endif
 
 void func_003A0160(MovieVoBuf *f) {
     if (f->count > 0) {
@@ -1970,22 +1947,24 @@ void func_003A01A8(s32 x, s32 y, s32 z, s16 *out) {
     out[0] = func_003A0180(y, func_003A0218(x, z, ry));
 }
 
-/* NON_MATCHING: 42 lines: the original computes both absolute values with movn before the test and loads the sine in each arm */
+/* NON_MATCHING: 13 lines: register allocation of q / num in the arms (the original: q in a0, num in a1) and the final
+ * absolute value (movn with li -1 next to it; this gives movz with the -1 hoisted) */
 #if 0
 s32 func_003A0218(s32 x, s32 z, s32 ang) {
-    s32 az = z > -1 ? z : -z;
     s32 ax = x > -1 ? x : -x;
+    s32 az = z > -1 ? z : -z;
     s32 num;
     s32 d;
     s32 q;
     s32 r;
 
+    ang &= 0xFFF;
     if (az < ax) {
-        d = gSinTable[ang & 0xFFF];
+        d = gSinTable[ang];
         q = 1;
         num = x << 16;
     } else {
-        d = gSinTable[(ang & 0xFFF) + 0x400];
+        d = gSinTable[ang + 0x400];
         q = 1;
         num = z << 16;
     }
@@ -2000,8 +1979,6 @@ s32 func_003A0218(s32 x, s32 z, s32 ang) {
 INCLUDE_ASM("asm/nonmatchings/movie", func_003A0218);
 #endif
 
-/* NON_MATCHING: 20 lines: pointer and counter registers of the 9-element loop */
-#if 0
 void func_003A02C0(s32 unused, u8 *f, u16 *base, s16 *delta, s16 *out) {
     s16 tmp[9];
     s16 *t = tmp;
@@ -2009,13 +1986,11 @@ void func_003A02C0(s32 unused, u8 *f, u16 *base, s16 *delta, s16 *out) {
     s32 i;
 
     for (i = 0; i < 9; i++) {
-        *t++ = *base++ + *delta++ * k / 8192;
+        *t = *base++ + *delta++ * k / 8192;
+        t++;
     }
     func_003A0388(tmp, out);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/movie", func_003A02C0);
-#endif
 
 s16 func_003A0340(u8 *f, s16 v) {
     return v + *(s16 *)((s32)f + 0xB872) * (s16)(*(s16 *)((s32)f + 0xB884) * 2) / 8192;
