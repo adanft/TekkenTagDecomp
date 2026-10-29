@@ -17,7 +17,10 @@ reduces each to its i386 slot layout:
 
 Every declaration whose layout differs from the definition (or, with no C definition, from the other declarations)
 is reported with its source line. A difference only in I/F at the same slot, or in the return type I/F, keeps the
-stack layout and is listed apart as "class" differences (value reinterpretation, also wrong on the EE).
+stack layout and is listed apart as "class" differences (value reinterpretation, also wrong on the EE). A 64/128-bit
+value on one side against 32-bit halves on the other (`u64 v` against `u32 lo, u32 hi`) keeps the i386 stack layout
+but not the x86-64 one, where every argument has a register of its own: it is reported by default as "halves" (the
+default build is x86-64; commit 8f5fd1e fixed such a pair in plat_pkt.c, the snow stage's slowdown).
 
 It also checks the calls of `Text_Printf` (the game's variadic printer: `%Z %H %V %F %S %c %s %d %x %D %C %h %v %f
 %p %b` read one 4-byte argument each) whose format is a rodata string of the split (asm/**/D_XXXXXXXX.s `.asciz`):
@@ -310,7 +313,9 @@ def compare(ref, d):
                for x, y in zip(fa, fb)):
             return ("class", f"{fmt_lay(b)} against {fmt_lay(a)} (structure types)")
     if set(fa) <= {"I", "L", "Q"} and set(fb) <= {"I", "L", "Q"} and stack_bytes(fa) == stack_bytes(fb):
-        return ("class", f"{fmt_lay(b)} against {fmt_lay(a)} (64/128-bit values as 32-bit halves)")
+        # the same i386 stack bytes, but x86-64 passes each I, L and Q in registers of their own: a u64/u128 split
+        # into 32-bit halves on one side reads the wrong registers there (commit 8f5fd1e, plat_pkt.c's GIF tags)
+        return ("halves", f"{fmt_lay(b)} against {fmt_lay(a)} (64/128-bit values as 32-bit halves: wrong on x86-64)")
     if len(fb) < len(fa) or stack_bytes(fb) < stack_bytes(fa):
         return ("fewer", f"{fmt_lay(b)} against {fmt_lay(a)}")
     if len(fb) > len(fa) and fb[:len(fa)] == fa:
@@ -330,7 +335,7 @@ def fmt_lay(lay):
     return "(" + ",".join(c[:1] if not c.startswith("S:") else c for c in lay) + ")" if lay else "(void)"
 
 
-SEVERITY = ["fewer", "swap", "layout", "unprototyped", "variadic", "return", "extra", "class"]
+SEVERITY = ["fewer", "swap", "halves", "layout", "unprototyped", "variadic", "return", "extra", "class"]
 
 
 def main():
@@ -388,6 +393,8 @@ def main():
     total = 0
     for kind in SEVERITY:
         rows = findings.get(kind, [])
+        if kind == "halves" and not rows:
+            print("== halves: 0 (64/128-bit values as 32-bit halves, wrong on x86-64)")
         if not rows or (kind == "class" and not verbose):
             continue
         print(f"== {kind}: {len(rows)}")

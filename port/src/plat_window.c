@@ -10,7 +10,7 @@
  * into the game's .bss, too small and too precious for a video driver. Gs_VBlank (gs_core.c) hands each finished
  * picture over (Port_WindowPresent copies it); the window thread uploads it to a texture and presents it, with the
  * renderer's vsync (TTT_VSYNC=0: without). The game's pace is the platform clock's (plat_hw.c): 59.94 Hz in real
- * time, as fast as it goes headless. Closing the window or Escape ends the program (Port_WindowClosed).
+ * time, as fast as it goes headless. Closing the window or Escape ends the program (quit_now).
  *
  * Input (T34): the window thread keeps the keyboard's state (pads 1 and 2) and the first four SDL gamepads' (pads 1-4,
  * in the order they connect) raw; plat_pad.c takes the pads at each VBlank (Port_WindowPads), made there into libpad's
@@ -27,8 +27,8 @@
  * TTT_WINDOW_HIDDEN=1 keeps the window hidden (tests, measurements); SDL_VIDEO_DRIVER=offscreen also works with GL
  * where SDL has EGL.
  *
- * Closing the window or Escape ends the program from the window thread (the GL / renderer objects are released there
- * first, then _exit): the game's thread may be anywhere, even waiting for the back end. Since T36 they first ask
+ * Closing the window or Escape ends the program from the window thread (_exit at once, quit_now: no other thread is
+ * told, no SDL / GL teardown): the game's thread may be anywhere, even waiting for the back end. Since T36 they first ask
  * "Quit?" in the overlay (Escape again or Yes quits; TTT_NO_QUIT_CONFIRM=1: at once, as before).
  *
  * The settings overlay (T36, overlay.cpp, docs/port/settings.md): F1 opens it over the picture, drawn on this thread
@@ -202,7 +202,6 @@ static pthread_cond_t sCond = PTHREAD_COND_INITIALIZER;
 static uint8_t *sFrame;
 static uint32_t sW, sH, sSeq, sShown;
 static int sState;  /* 0 not tried, 1 starting, 2 open, -1 not available */
-static int sClosed; /* the user closed the window */
 static int sGlMode;  /* the window draws with the GL back end (gs_gl.c) */
 static int sQuitReq; /* the game's thread asks the window thread to release the window (end of a TTT_FRAMES run) */
 static void *sWindow, *sRenderer, *sGlContext;
@@ -563,13 +562,21 @@ static void release(void) {
     sdl.Quit();
 }
 
-/* The end of the program, from this thread (the window closed and confirmed). */
+/* The end of the program, from this thread (the window closed and confirmed): _exit at once, without release() and
+   without telling the other threads (Port_WindowClosed stays 0).
+   - Telling them was the crash on close: the GS VBlank thread saw Port_WindowClosed() and called exit(0), whose
+     exit handlers (the libraries SDL loaded: the GL / EGL driver, Wayland) ran while this thread was still inside
+     SDL_DestroyWindow / SDL_Quit, which then jumped through a driver pointer already cleared (rip 0, release+0x8f:
+     the return from sdl.DestroyWindow; both threads printed "window closed"). tests/test_port_window.py Close.
+   - The release itself was sound without that race, but it is not needed before _exit (and at 8x took seconds, see
+     Port_WindowExit), so it is skipped: fewer driver calls on the way out. The kernel closes the GPU, compositor and
+     audio connections of a process that ends, and the server side frees what they held. Nothing is waiting to be written: the settings file and the
+     memory cards are written (and closed) when they change, the overlay keeps no ini file, the port registers no exit
+     handlers, and fflush(NULL) below empties the C library's buffers. Full-screen is borderless (no display mode to
+     restore). The end of a TTT_FRAMES run (Port_WindowExit) still releases first, as before. */
 static void quit_now(void) {
-    __atomic_store_n(&sClosed, 1, __ATOMIC_RELEASE);
     printf("ttt: window closed\n");
-    fflush(stdout);
-    release();
-    fflush(stdout);
+    fflush(NULL);
     _exit(0);
 }
 
@@ -675,8 +682,9 @@ static void events(void) {
 
 /* TTT_OVERLAY_TEST=1 (tests, with TTT_FRAMES): made-up key events through the window's own handling, at the overlay's
    frames (nothing reaches the desktop): F1 opens the settings, Return pressed while they are open does not reach the
-   pads, Escape asks "Quit?" instead of quitting. overlay.cpp's own steps visit every page and bind a key. */
-static int sTestFrame = -1, sTestF1, sTestBlocked, sTestAsked;
+   pads, Escape asks "Quit?" instead of quitting. overlay.cpp's own steps visit every page and bind a key.
+   TTT_OVERLAY_TEST=2 then presses Escape a second time, which confirms: the window's own close path (quit_now). */
+static int sTestFrame = -1, sTestF1, sTestBlocked, sTestAsked, sTestQuit;
 static void test_key(int down, uint32_t sc, uint32_t key) {
     uint8_t ev[128] = {0};
     uint32_t type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
@@ -693,6 +701,7 @@ static void test_step(void) {
         if (e == NULL || *e == 0 || *e == '0') {
             return;
         }
+        sTestQuit = atoi(e) == 2;
     }
     switch (++sTestFrame) {
     case 1:
@@ -710,7 +719,14 @@ static void test_step(void) {
     case 30:
         test_key(1, SDL_SCANCODE_ESCAPE, SDLK_ESCAPE);
         test_key(0, SDL_SCANCODE_ESCAPE, SDLK_ESCAPE);
-        sTestAsked = Overlay_QuitAsked() && !__atomic_load_n(&sClosed, __ATOMIC_RELAXED);
+        sTestAsked = Overlay_QuitAsked(); /* still running: the first Escape did not quit */
+        break;
+    case 40:
+        if (sTestQuit) {
+            printf("ttt: window: overlay test: F1 opens %d, presses blocked %d, Escape asks %d\n", sTestF1, sTestBlocked,
+                   sTestAsked);
+            test_key(1, SDL_SCANCODE_ESCAPE, SDLK_ESCAPE); /* the second Escape confirms: quit_now, no return */
+        }
         break;
     default:
         break;
@@ -1092,8 +1108,10 @@ void Port_WindowPresent(const uint8_t *rgb, uint32_t w, uint32_t h) {
     pthread_mutex_unlock(&sLock);
 }
 
+/* Always 0 now: a confirmed close ends the program from the window thread at once (quit_now), and no other thread
+   may start its own exit meanwhile (that race was the crash on close). Kept for gs_core.c and plat_hw.c. */
 int Port_WindowClosed(void) {
-    return __atomic_load_n(&sClosed, __ATOMIC_ACQUIRE);
+    return 0;
 }
 
 /* The TTT_FRAMES report line (only when a window is open); then the window thread releases the window before the

@@ -391,9 +391,13 @@ class ProtoAuditTest(unittest.TestCase):
         ref = self.decl("const char *fmt, ...")
         self.assertEqual(proto_audit.compare(ref, self.decl("void *, s32, s32, s32"))[0], "variadic")
 
-    def test_64_bit_halves_keep_the_layout(self):
+    def test_64_bit_halves_are_reported(self):
+        """Same i386 stack bytes, but wrong on x86-64 (commit 8f5fd1e): its own kind, listed without -v."""
         ref = self.decl("u32 a, u32 b, u32 lo, u32 hi")
-        self.assertEqual(proto_audit.compare(ref, self.decl("u32 a, u32 b, u64 v"))[0], "class")
+        self.assertEqual(proto_audit.compare(ref, self.decl("u32 a, u32 b, u64 v"))[0], "halves")
+        ref = self.decl("u128 tag, u32 n")
+        self.assertEqual(proto_audit.compare(ref, self.decl("u32 a, u32 b, u32 c, u32 d, u32 n"))[0], "halves")
+        self.assertLess(proto_audit.SEVERITY.index("halves"), proto_audit.SEVERITY.index("class"))
 
     def test_same_layout_agrees(self):
         self.assertIsNone(proto_audit.compare(self.decl("s32 a, u8 *p"), self.decl("u32, void *")))
