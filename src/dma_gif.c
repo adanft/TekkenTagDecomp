@@ -1476,7 +1476,7 @@ void func_00344A28(Unk344A28 *o) {
 
 void func_00344BE0(void);
 
-/* NON_MATCHING: 23 lines: the loop counter and the 0x60 stride constant are in swapped registers (a1/a2). */
+/* NON_MATCHING: 21 lines: the loop counter and the 0x60 stride constant are in swapped registers (a1/a2). */
 #if 0
 /* The two fighters' entries of D_00440940 (0x60 bytes each). */
 typedef struct {
@@ -1501,7 +1501,7 @@ void func_00344BE0(void) {
     u32 mask;
     s32 i;
     s32 t;
-    u32 n;
+    s32 n;
     s32 k;
 
     D_008BF350[9].unk0 = NULL;
@@ -1539,7 +1539,7 @@ void func_00344BE0(void) {
         }
         if (mask & 5) {
             n = func_00364550(D_008BF33C[0]);
-            if (n >= 2) {
+            if ((u32)n >= 2) {
                 n = 0;
             }
             for (k = 0; k < n; k++) {
