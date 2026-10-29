@@ -338,8 +338,8 @@ s32 func_003CD1E8(s32 time, s32 c0, s32 c1);
 s32 Sort_PairsByValue(S2aPair *a, s32 n, s32 desc);
 /* ---- end part A ---- */
 
-/* NON_MATCHING: register allocation in the search loop (j / 12 / entry pointer in a1 / a2 / v1, original a0 / a1 /
- * a2) and the last store out of the Str_Copy delay slot, 28 lines */
+/* NON_MATCHING: register allocation in the search and shift loops (j / 12 / entry pointer in a1 / a2 / v1, original
+ * a0 / a1 / a2), 24 lines */
 #if 0
 s32 func_003CD298(void) {
     S2aScoreReq r;
@@ -385,9 +385,9 @@ s32 func_003CD298(void) {
     t->unk115 = func_003AFFB8(r.side, 0);
     t->unk116 = func_003AFFB8(r.side, 1);
     t->unk114 = c0;
-    e->score = r.score;
     e->c0 = c0;
     e->c1 = c1;
+    e->score = r.score;
     Str_Copy(e->name, D_005F6728);
     return 1;
 }

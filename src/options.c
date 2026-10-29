@@ -216,13 +216,11 @@ s32 func_003B15E8(void) {
 
 INCLUDE_RODATA("asm/nonmatchings/options", D_0051E0B8);
 
-/* NON_MATCHING: 26 lines, colour store order of the second quad copy */
-#if 0
 void func_003B15F8(s32 s, s32 row, s32 color) {
     OptQuad q;
     u8 *c = &D_0043A148[color * 3];
-    s32 y = row << 4;
     s32 x = (Text_Printf(D_0051E0B8, 10, 4, s) + 0xA0) << 4;
+    s32 y = row << 4;
     u8 r = c[0], g = c[1], b = c[2];
 
     q = D_0043FD10[21];
@@ -241,19 +239,16 @@ void func_003B15F8(s32 s, s32 row, s32 color) {
     g = c[1];
     b = c[2];
     q = D_0043FD10[21];
+    q.v[0].r = q.v[1].r = q.v[2].r = q.v[3].r = r;
+    q.v[0].g = q.v[1].g = q.v[2].g = q.v[3].g = g;
+    q.v[0].b = q.v[1].b = q.v[2].b = q.v[3].b = b;
     q.v[0].y += y;
     q.v[1].y += y;
     q.v[2].y += y;
     q.v[3].y += y;
-    q.v[0].r = q.v[1].r = q.v[2].r = q.v[3].r = r;
-    q.v[0].g = q.v[1].g = q.v[2].g = q.v[3].g = g;
-    q.v[0].b = q.v[1].b = q.v[2].b = q.v[3].b = b;
-    q.v[1].x = q.v[3].x = 0x6C00;
+    q.v[3].x = q.v[1].x = 0x6C00;
     func_003BB680(&q, 0xFFEF0, 0);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/options", func_003B15F8);
-#endif
 
 void func_003B1820(void) {
     u32 i;
@@ -745,14 +740,15 @@ s32 func_003B2B30(s32 i, s32 v) {
     return D_005F6D98[i] == v ? 11 : 5;
 }
 
-/* NON_MATCHING: 27 lines, order of the x / y stores and the quad copy registers */
+/* NON_MATCHING: 13 lines, col << 4 is kept in a0 (the original computes it in v0 and copies it to a0), zero-extends x0 / x1
+ * and stores the x fields in another order */
 #if 0
 void func_003B2B58(s32 col, s32 row) {
     OptQuad q;
     s32 c = col << 4;
-    s32 x1 = c + 0x7900;
+    u16 x1 = c + 0x7900;
     s32 y = row << 4;
-    s32 x0 = c + 0x6C00;
+    u16 x0 = c + 0x6C00;
     q = D_0043FD10[21];
     q.v[0].y += y;
     q.v[1].y += y;
@@ -766,18 +762,18 @@ void func_003B2B58(s32 col, s32 row) {
 INCLUDE_ASM("asm/nonmatchings/options", func_003B2B58);
 #endif
 
-/* NON_MATCHING: 31 lines, order of the x / y adds and the alpha register */
-#if 0
 void func_003B2C28(s32 col, s32 row, s32 color, s32 on) {
     OptQuad q;
     u8 *c = &D_0043A168[color * 3];
     u8 r = c[0], g = c[1], b = c[2];
     s32 x = col << 4;
     s32 y = row << 4;
-    u8 a;
+    u8 a = 0x38;
 
     q = D_0043FD10[32];
-    a = on ? 0x80 : 0x38;
+    if (on) {
+        a = 0x80;
+    }
     q.v[0].x += x;
     q.v[1].x += x;
     q.v[2].x += x;
@@ -792,9 +788,6 @@ void func_003B2C28(s32 col, s32 row, s32 color, s32 on) {
     q.v[0].a = q.v[1].a = q.v[2].a = q.v[3].a = a;
     func_003BB680(&q, 0xFFEE0, 0);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/options", func_003B2C28);
-#endif
 
 void func_003B2D78(void) {
     s32 i;
@@ -859,7 +852,7 @@ extern const OptStrOff D_0051E318;
 extern const OptXY4 D_0051E338;
 extern const OptXY2 D_0051E358;
 extern const OptXY8 D_0051E368;
-extern const OptXY4 D_0051E428;
+extern const OptXY2 D_0051E428; /* two entries (0x10 bytes); D_0051E438 follows */
 extern const char D_0051E3A8[];
 extern const char D_0051E3B8[];
 extern const char D_0051E3C8[];
@@ -910,7 +903,7 @@ s32 Options_ControllerSetup(void) {
     OptXY4 pos4;
     OptXY2 pos2;
     OptXY8 bpos;
-    OptXY4 wpos;
+    OptXY2 wpos;
     s32 slot, port;
     s32 i, p, k, id, sel, state, kind, flag, ret, all, drawn, nready, yoff;
     s32 trig, rep, d, dd, skip, v, col, x, y, x2, y2, n;
