@@ -35,9 +35,12 @@ __pycache__/
 .idea/
 *.swp
 
-# Local planning notes
+# Local planning notes and agent/tool state
 odd/
 .atl/
+.claude/
+.codegraph/
+.engram/
 saves/
 
 # Texture packs (T39): dumps and replacements made from your own game (docs/port/textures.md)
