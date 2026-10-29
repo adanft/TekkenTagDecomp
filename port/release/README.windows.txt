@@ -17,7 +17,7 @@ Requirements
 - Windows 10 or 11, 64-bit.
 {sdl3_dll}
 - A graphics driver with OpenGL 3.3.
-- Your disc of Tekken Tag Tournament, USA (SLUS-20001), in one of these forms:
+- Your disc of Tekken Tag Tournament, USA v2.00 (SLUS-20001), in one of these forms:
   the disc in a drive, a folder with its files, or an image (.iso, or
   .bin + .cue).
 

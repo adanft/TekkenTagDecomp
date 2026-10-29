@@ -50,7 +50,7 @@ are welcome.
 
 ## The disc you need
 
-**Tekken Tag Tournament for PlayStation 2, USA release (SLUS-20001)**, in any of these forms:
+**Tekken Tag Tournament for PlayStation 2, USA release, version 2.00 (SLUS-20001)**, in any of these forms:
 
 - the disc itself, mounted;
 - a folder with the disc's files copied into it;
@@ -58,7 +58,8 @@ are welcome.
 
 The program checks the disc before using it: `SLUS_200.01` must be the unmodified USA executable, 2,873,728 bytes
 with SHA-1 `c7ad9a022bdc836827a0cc093f91b4281836f2bb`, and the game's other files must match that release too. Other
-regions (for example the European release), other games and modified discs are refused. Details:
+regions (for example the European release), other versions of the USA disc, other games and modified discs are refused.
+Disc databases list this disc as "Tekken Tag Tournament (USA) (v2.00)". Details:
 [docs/port/install.md](docs/port/install.md).
 
 ## Installing a release

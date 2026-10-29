@@ -16,7 +16,7 @@ Requirements
 - SDL 3 (libSDL3.so.0): your distribution's SDL 3 package, or SDL 3 built from
   https://libsdl.org. Without it the program runs without a window.
 - A graphics driver with OpenGL 3.3.
-- Your disc of Tekken Tag Tournament, USA (SLUS-20001), in one of these forms:
+- Your disc of Tekken Tag Tournament, USA v2.00 (SLUS-20001), in one of these forms:
   the disc mounted, a folder with its files, or an image (.iso, or .bin + .cue).
 
 
