@@ -5,6 +5,7 @@ SDL3 library of the program's word size is not installed. The SDL runs use SDL's
 hidden window: no window appears, and no input reaches the desktop (the key mapping is checked on made-up events,
 TTT_SELFTEST=window)."""
 
+import os
 import re
 import subprocess
 import tempfile
@@ -185,6 +186,44 @@ class Overlay(unittest.TestCase):
     def test_overlay_sw(self):
         """The software renderer through SDL's renderer (dummy video driver)."""
         self.check("sw", "dummy", "400")
+
+
+@unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")
+@unittest.skipUnless(disc() is not None, "no disc data (TTT_DISC or iso/TEKKEN.BIN)")
+@unittest.skipUnless(any(p.exists() for p in SDL_LIBS), NO_SDL)
+class Close(unittest.TestCase):
+    """Closing the window (R3): TTT_OVERLAY_TEST=2 runs the overlay test's keys, then presses Escape a second time,
+    which confirms "Quit?" and ends the program from the window thread (quit_now), long before TTT_FRAMES. Before the
+    fix the GS thread saw the close too and called exit(), whose library exit handlers ran while the window thread was
+    still tearing SDL / GL down: a SIGSEGV through a cleared driver pointer (NVIDIA, Wayland: every run), with a crash
+    report and "window closed" printed twice. Now: exit status 0, one "window closed", no crash report."""
+
+    def check(self, renderer, driver):
+        with tempfile.TemporaryDirectory(prefix="ttt-close-") as d:
+            r = run_ttt(TTT_FRAMES="5000", TTT_SEED="1", TTT_WINDOW="1", TTT_WINDOW_HIDDEN="1", TTT_RENDERER=renderer,
+                        TTT_AUDIO="0", SDL_VIDEO_DRIVER=driver, TTT_OVERLAY_TEST="2",
+                        TTT_CONFIG=str(Path(d) / "settings.ini"))
+            out = r.stdout[-2000:] + r.stderr[-2000:]
+            if renderer == "gl" and "OpenGL renderer" not in r.stdout:
+                self.skipTest("no OpenGL 3.3 context here: " + r.stdout[-500:])
+            self.assertEqual(r.returncode, 0, out)
+            self.assertIn(WINDOW_TEST, r.stdout)
+            self.assertEqual(r.stdout.count("ttt: window closed"), 1, out)
+            self.assertNotIn("ttt: crash", r.stdout + r.stderr)
+            self.assertFalse((Path(d) / "crash").exists(), out)
+            self.assertIsNone(state(r), "ended before TTT_FRAMES")
+
+    def test_close_gl(self):
+        self.check("gl", "offscreen")
+
+    def test_close_sw(self):
+        self.check("sw", "dummy")
+
+    @unittest.skipUnless(os.environ.get("WAYLAND_DISPLAY"), "no Wayland session")
+    def test_close_gl_wayland(self):
+        """GL on SDL's Wayland driver, the window hidden (never mapped: nothing shows, no input is sent): the driver
+        where the crash was reported."""
+        self.check("gl", "wayland")
 
 
 @unittest.skipUnless(EXE.exists(), "build/port/ttt not built (port/tools/build.py)")

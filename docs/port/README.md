@@ -177,7 +177,9 @@ Shared modules: `toolchain.py` (paths, compiler flags, `TTT_CC`), `portsrc.py` (
 
 Check, not part of the build: `python3 port/tools/proto_audit.py [-v] [name ...]` lists the declarations whose
 argument layout on i386 differs from the definition and the `Text_Printf` calls whose format reads another number of
-arguments ([gotcha 29](#porting-gotchas-found-so-far)); about 2 s.
+arguments ([gotcha 29](#porting-gotchas-found-so-far)); about 2 s. Its `halves` section (always printed, 0 expected)
+lists 64/128-bit values passed as 32-bit halves on the other side: the same i386 stack, but wrong on the default
+x86-64 build (the snow stage's GIF tags, commit 8f5fd1e).
 
 ## Architecture
 
@@ -656,6 +658,16 @@ throttles the whole slice when hot, so wall times move by 10-20% between runs; C
     likely an exit handler of a library `SDL_Quit` was unloading). The report now waits up to 30 s, and a run with a
     window ends with `_exit` after flushing (`Port_WindowExit`; the port registers no exit handlers): 16 of 16 8x
     fight runs exit cleanly (4 of 8 crashed before).
+  - The crash on closing the window (R3, reported on NVIDIA under Wayland: SIGSEGV through a null pointer, the
+    window thread at `release+0x8f`, the return from `SDL_DestroyWindow`). The confirmed close set the closed flag,
+    then released the window; the GS VBlank thread saw the flag (`Port_WindowClosed`) and called `exit(0)`, whose
+    library exit handlers (the GL / EGL driver) ran while the window thread was still inside SDL, and both printed
+    "window closed". Now the close ends the program from the window thread at once with `_exit` (`quit_now`): no
+    other thread is told and nothing is released, since the kernel closes the GPU, compositor and audio connections
+    and nothing waits to be written (the settings and the memory cards are written when they change).
+    `tests/test_port_window.py` (`Close`, `TTT_OVERLAY_TEST=2`: a second Escape confirms the quit) closes a hidden
+    window with GL (offscreen, and Wayland when there is a session) and with the software renderer; before the fix
+    the GL runs crashed on every try here.
   - Stage drafts (T38 batch 1). The stage depends on the boot seed (the spin generator in real time, so it varies
     from run to run there; `TTT_SEED` pins it headless). Running the scripted fight headless with `TTT_SEED=1..32`
     found every failure the real-time runs had shown, now repeatable:
