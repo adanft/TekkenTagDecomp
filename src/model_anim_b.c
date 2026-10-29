@@ -926,8 +926,6 @@ s32 func_003D3988(f32 *dir, s32 rate, f32 len, f32 amp) {
     }
 }
 
-#if 0
-/* NON_MATCHING: 25 the original reloads D_005F6F34 / D_005F6F3C after the 16-byte ring store (alias), the build reuses them */
 /* Starts a gust at pos (also written to the record ring while recording); 0 and gusts blocked when all 4 are
  * busy [I]. */
 s32 func_003D3B80(f32 *pos, f32 amp) {
@@ -950,16 +948,14 @@ s32 func_003D3B80(f32 *pos, f32 amp) {
     g->unk10 = amp;
     *(u128 *)g->unk20 = v = *(u128 *)pos;
     if (D_005F6F30 != 0) {
-        u128 *r = (u128 *)D_01FBE6F0[D_005F6F34][D_005F6F3C];
-        *r = v;
-        D_01FBE6F0[D_005F6F34][D_005F6F3C][3] = amp;
+        /* byte offsets into the [0x78][2] ring of FVec4: row * 32 + slot * 16 */
+        *(u128 *)((u8 *)D_01FBE6F0 + (D_005F6F3C * 16 + D_005F6F34 * 32)) = v;
+        __asm__ volatile("" ::: "memory"); /* fake: the original reloads both indices after the store */
+        (*(FVec4 *)((u8 *)D_01FBE6F0 + (D_005F6F34 * 32 + D_005F6F3C * 16)))[3] = amp;
         D_005F6F3C = (D_005F6F3C + 1) % 2;
     }
     return 1;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/model_anim_b", func_003D3B80);
-#endif
 
 /* A gust from a fighter's landing / hit (battle_flow): strength (w / 300 clamped to 0-1) squared x 30 [I]. */
 void func_003D3C68(f32 x, f32 y, f32 z, f32 w) {
@@ -1732,9 +1728,6 @@ void func_003D5998(StgObj *o) {
 }
 
 INCLUDE_RODATA("asm/nonmatchings/model_anim_b", D_00521BC0);
-INCLUDE_RODATA("asm/nonmatchings/model_anim_b", jtbl_00521BD0);
-#if 0
-/* NON_MATCHING: 69 loop 3 addresses: compiler hoists &row[0].item (wk + 12) as an invariant, original recomputes row + 12 */
 /* Sets up the lanes stage: 40 parts copied from templates 0, 8 and 9, ten lanes with a position and a random speed
  * (either way), and each part put at a random free place of a random lane (z in (-20000, 20000], 4000 apart; at
  * most one of a lane near z = 20000) [I]. */
@@ -1749,6 +1742,8 @@ void func_003D5B58(StgObj *o) {
     s32 k;
     s32 ok;
     f32 z;
+    struct Unk444CD0Row *q; /* loop 3's lane: a pointer of its own, not kept across calls like r */
+    s32 m;
 
     for (i = 0; i < 40; i++) {
         n = func_003D1A80();
@@ -1790,18 +1785,21 @@ void func_003D5B58(StgObj *o) {
             list[i]->pos[2] = 20000.0f - func_003D8128() * 40000.0f;
             for (j = 0; j < wk->row[k].count; j++) {
                 z = list[i]->pos[2];
-                if (fabsf(wk->row[k].item[j]->pos[2] - z) < 4000.0f) {
+                if (fabsf((&wk->row[k])->item[j]->pos[2] - z) < 4000.0f) {
                     ok = 0;
                     break;
                 }
-                if (fabsf(20000.0f - wk->row[k].item[j]->pos[2]) < 4000.0f && fabsf(20000.0f - z) < 4000.0f) {
+                if (fabsf(20000.0f - (&wk->row[k])->item[j]->pos[2]) < 4000.0f && fabsf(20000.0f - z) < 4000.0f) {
                     ok = 0;
                     break;
                 }
             }
             if (ok) {
-                wk->row[k].item[wk->row[k].count++] = list[i];
-                if (wk->row[k].speed < 0.0f) {
+                q = &wk->row[k];
+                m = q->count;
+                q->count++;
+                q->item[m] = list[i];
+                if (q->speed < 0.0f) {
                     list[i]->rot[1] = 3.14159274f;
                 }
             } else {
@@ -1810,18 +1808,10 @@ void func_003D5B58(StgObj *o) {
         }
     }
 }
-#else
-LIT4_WORD(D_005F546C, 0xC69C4000);
-LIT4_WORD(D_005F5470, 0x451C4000);
-LIT4_WORD(D_005F5474, 0x471C4000);
-LIT4_WORD(D_005F5478, 0x469C4000);
-LIT4_WORD(D_005F547C, 0x469C4000);
-LIT4_WORD(D_005F5480, 0x40490FDB);
-INCLUDE_ASM("asm/nonmatchings/model_anim_b", func_003D5B58);
-#endif
 
 #if 0
-/* NON_MATCHING: 81 same hoisting of wk + 4 / wk + 12 out of the lane loops */
+/* NON_MATCHING: 24 diff lines: the lane loops now address each row as (&wk->row[i])->field like the original (no hoisted wk + 4 /
+ * wk + 12); left: o + 448 / o + 560 take s8 / s7 the other way round and p6 / p7 swap their stack slots */
 /* Moves the lanes stage: each lane and part wraps round the camera within 20000 along X / Z, the parts move along Z at
  * their lane's speed and are drawn; then the scene entries nearer than 11000 that name parts 4-7 are handed to
  * Model_QueueDraw [I]. */
@@ -1829,10 +1819,10 @@ void func_003D5E80(StgObj *o) {
     Vu0Matrix m;
     Unk5F6780Ent e;
     StgObj *list[4];
-    StgObj *p4 = &o[4];
-    StgObj *p5 = &o[5];
     StgObj *p6 = &o[6];
     StgObj *p7 = &o[7];
+    StgObj *p5 = &o[5];
+    StgObj *p4 = &o[4];
     struct Unk444CD0Rw *wk = &D_00444CD0.rw;
     StgObj *p;
     f32 cx;
@@ -1841,27 +1831,28 @@ void func_003D5E80(StgObj *o) {
     s32 i;
     s32 j;
     s32 n;
+    s32 k;
 
     func_00366EB8(m);
     cx = m[3][0];
     cz = m[3][2];
     for (i = 0; i < 10; i++) {
-        if (20000.0f < wk->row[i].unk4 - cx) {
-            wk->row[i].unk4 -= 40000.0f;
-        } else if (wk->row[i].unk4 - cx < -20000.0f) {
-            wk->row[i].unk4 += 40000.0f;
+        if (20000.0f < (&wk->row[i])->unk4 - cx) {
+            (&wk->row[i])->unk4 -= 40000.0f;
+        } else if ((&wk->row[i])->unk4 - cx < -20000.0f) {
+            (&wk->row[i])->unk4 += 40000.0f;
         }
-        for (j = 0; j < wk->row[i].count; j++) {
-            p = wk->row[i].item[j];
+        for (j = 0; j < (&wk->row[i])->count; j++) {
+            p = (&wk->row[i])->item[j];
             if (func_003D2110() == 0) {
-                p->pos[2] += wk->row[i].speed;
+                p->pos[2] += (&wk->row[i])->speed;
             }
             if (20000.0f < p->pos[2] - cz) {
                 p->pos[2] -= 40000.0f;
             } else if (p->pos[2] - cz < -20000.0f) {
                 p->pos[2] += 40000.0f;
             }
-            p->pos[0] = wk->row[i].unk4;
+            p->pos[0] = (&wk->row[i])->unk4;
             Mtx_Unit(m);
             func_003D1160(p, m, 1.0f);
         }
@@ -1872,21 +1863,21 @@ void func_003D5E80(StgObj *o) {
     list[1] = p5;
     list[2] = p6;
     list[3] = p7;
-    for (i = 0; i < D_005F6780->count; i++) {
-        e = D_005F6780->ent[D_005F6780->ref[i].index];
-        if (D_005F6780->ref[i].dist < 11000.0f) {
+    for (k = 0; k < D_005F6780->count; k++) {
+        e = D_005F6780->ent[D_005F6780->ref[k].index];
+        if (D_005F6780->ref[k].dist < 11000.0f) {
             n = e.unk144;
             e.unk144 = 0;
             e.unk148 = 0;
             e.unk140 = list[n]->unk34;
-            f = ((7000.0f - D_005F6780->ref[i].dist) + 3500.0f) / 3500.0f;
+            f = ((7000.0f - D_005F6780->ref[k].dist) + 3500.0f) / 3500.0f;
             f = f * f;
             if (1.0f < f) {
                 f = 1.0f;
             } else if (f < 0.0f) {
                 f = 0.0f;
             }
-            Model_QueueDraw(&e, list[n]->unk38, 4, f, list[n]->unk10, D_005F6780->ref[i].dist);
+            Model_QueueDraw(&e, list[n]->unk38, 4, f, list[n]->unk10, D_005F6780->ref[k].dist);
         }
     }
 }
@@ -2735,7 +2726,7 @@ f32 func_003D8128(void) {
 }
 
 #if 0
-/* NON_MATCHING: 59 same structure and instruction count +2; register allocation of mode/n/base differs and gcc hoists base+0x20 into the first loop preheader */
+/* NON_MATCHING: 70 diff lines (106 before): p = base; p += 0x20 keeps base + 0x20 out of the first loop's preheader as in the original; left: mode and cnt take t4 / t3 the other way round and the register choice of the masks follows */
 /* Relocates the GS image records of a model file by `off` (TBP / CBP fields) and patches them for a draw mode: 1-3
  * set the register word appended after each last record (0x320 / 0x2BC / 0x258, mode 3 then acts as 2), mode 2 also
  * sets fixed alpha values, mode 0 the 0x100000 flag (except stage type 3) [I]. */
@@ -2777,7 +2768,8 @@ void func_003D8158(u8 *p, s32 off, u32 mode) {
         skip[i] = ((Unk3D8158 *)p)->unk14[i * 2 + 1];
     }
     cnt = ((Unk3D8158 *)p)->unk6C;
-    for (p = base + 0x20; cnt >= 0; cnt--) {
+    p = base;
+    for (p += 0x20; cnt >= 0; cnt--) {
         if (p - base == acc + size[k] - skip[k]) {
             acc += size[k];
             p += skip[k];
@@ -3341,8 +3333,6 @@ void func_003D91D8(StageObjSetup *o) {
     }
 }
 
-#if 0
-/* NON_MATCHING: 21 everything matches except the 4x8 qword copy loop: the original keeps three register copies of the destination address (move t1/a3/a0,a1) with constant displacements; tried index, byte-offset and per-row pointer forms */
 /* Builds a stage object list from a definition array (ends at the first unused definition): every definition whose
  * models are loaded becomes an object (at most 0x24); then copies the list's GS / colour set-up. Returns 0 if no
  * object was made [I]. */
@@ -3374,18 +3364,18 @@ s32 func_003D9280(StageObjSetupList *l, StageObjDef *d) {
     for (i = 0; i < 0x12; i++) {
         l->unk1660[i] = D_00454360[i];
     }
-    for (i = 0; i < 8; i++) {
-        s32 k = i * 16;
-        *(u128 *)((u8 *)l->unk1440[0] + k) = *(u128 *)((u8 *)D_00454140[0] + k);
-        *(u128 *)((u8 *)l->unk1440[1] + k) = *(u128 *)((u8 *)D_00454140[1] + k);
-        *(u128 *)((u8 *)l->unk1440[2] + k) = *(u128 *)((u8 *)D_00454140[2] + k);
-        *(u128 *)((u8 *)l->unk1440[3] + k) = *(u128 *)((u8 *)D_00454140[3] + k);
+    for (i = 0; i < 8; i++) { /* one destination pointer per row: the original keeps four copies of l + i * 16 */
+        u128 *d0 = &l->unk1440[0][i];
+        u128 *d1 = &l->unk1440[1][i];
+        u128 *d2 = &l->unk1440[2][i];
+        u128 *d3 = &l->unk1440[3][i];
+        *d0 = D_00454140[0][i];
+        *d1 = D_00454140[1][i];
+        *d2 = D_00454140[2][i];
+        *d3 = D_00454140[3][i];
     }
     return 1;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/model_anim_b", func_003D9280);
-#endif
 
 /* 1 while the game is paused (as the effects test it) or, with D_0043B800 set, in mode 5 [I]. */
 s32 func_003D9410(void) {
@@ -3884,7 +3874,7 @@ void func_003DA138(StageObjList *list) {
     pass = 0;
     while (node != NULL) {
         o = node->obj;
-        k = (pass == 0) ? o->unk82 : 0;
+        k = (pass == 0) ? (s8)o->unk82 : 0; /* lb: the bank index is read signed */
         bank = D_01FC2380[k];
         ofs = (u8 *)bank + 0x70;
         sceVu0MulMatrix(spr->clip, *vm, o->mtx);
@@ -4045,7 +4035,7 @@ void func_003DAA80(StageObjList *list) {
     pass = 0;
     while (node != NULL) {
         o = node->obj;
-        k = (pass == 0) ? o->unk82 : 0;
+        k = (pass == 0) ? (s8)o->unk82 : 0; /* lb: the bank index is read signed */
         bank = D_01FC2380[k];
         ofs = (u8 *)bank + 0x70;
         sceVu0MulMatrix(spr->clip, *vm, o->mtx);
