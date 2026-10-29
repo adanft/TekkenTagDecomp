@@ -845,12 +845,9 @@ LIT4_WORD(D_005F5354, 0x3E4CCCCD);
 INCLUDE_ASM("asm/nonmatchings/scene3d", func_0034D258);
 #endif
 
-/* NON_MATCHING: 18 lines: address computations and store order after the sqrt (SqrtS, the file being built without
- * -ffast-math); the empty loop is a fake */
 /* Wind of the fighter's side, once per frame (start of Skel_Update) unless gMode 5 [V]: Wind_Sample turns the
  * fighter's unk4 / unk8 / unkC into the float vector D_01FAB740[side]; its length goes to D_005F6E20[side] (float) and
  * D_005F6E18[side] (x 4096), the vector x 4096 with y and z negated to D_01FAB6D0[side] (GTE space). */
-#if 0
 void func_0034E018(Fighter *f) {
     s16 side = f->unk1E;
     f32 *v;
@@ -859,19 +856,14 @@ void func_0034E018(Fighter *f) {
     if (gMode != 5) {
         v = D_01FAB740[side];
         Wind_Sample(f->unk4, f->unk8, f->unkC, v);
-        len = SqrtS(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]); /* fake: SqrtS */
-        do {
-        } while (0); /* fake */
-        D_005F6E18[side] = len * 4096.0f;
+        len = SqrtS(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+        D_005F6E20[side] = len;
         D_01FAB6D0[side].vx = v[0] * 4096.0f;
+        D_005F6E18[side] = len * 4096.0f;
         D_01FAB6D0[side].vy = -(s32)(v[1] * 4096.0f);
         D_01FAB6D0[side].vz = -(s32)(v[2] * 4096.0f);
-        D_005F6E20[side] = len;
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/scene3d", func_0034E018);
-#endif
 
 /* Marks a part record as the end of the list [V]. */
 void func_0034E130(PartRec *p) {
