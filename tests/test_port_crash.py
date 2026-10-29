@@ -65,7 +65,7 @@ class CrashReport(unittest.TestCase):
             self.assertRegex(text, r"\n {11}r14 0x[0-9a-f]{16} r15 0x[0-9a-f]{16}\n")
         self.assertEqual(f["last vblank"], "30")
         self.assertIn("thread", f)
-        self.assertRegex(f["build"], r"^[0-9a-f]{7,}(-dirty)?$|^unknown$")
+        self.assertRegex(f["build"], r"^(v[0-9][\w.]*(-[0-9]+-g[0-9a-f]{7,})?|[0-9a-f]{7,})(-dirty)?$|^unknown$")
         self.assertTrue(f["renderer"].startswith("no window"), f["renderer"])
         self.assertIn("video.renderer=gl", f["settings"])
         self.assertIn("game.movies=0 (env)", f["settings"])
