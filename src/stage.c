@@ -537,11 +537,6 @@ s32 func_0038C188(void) {
     return (gFighters[1].unkC0->unk24 >> 23) == 0xAE ? 1 : -1;
 }
 
-INCLUDE_RODATA("asm/nonmatchings/stage", jtbl_00507EE0);
-INCLUDE_RODATA("asm/nonmatchings/stage", jtbl_00507F20);
-
-/* NON_MATCHING: same size (2 lines): in case 11's end block the store of 5 to unk3C is scheduled ahead of the mode store (unk0 = 5) instead of after unk40, as in func_0038D290 / func_0038D3D0 */
-#if 0
 extern s32 D_005F6150[2];
 extern s32 D_005F6158[2];
 s32 func_00393E08(Fighter *a, Fighter *b, s32 which, s32 side);
@@ -963,9 +958,10 @@ s32 func_0038C1E8(Fighter *a, Fighter *b) {
             D_00433330.unk4[4] = 0x1000;
             D_00433330.unk4[0] = 0;
             D_00433330.unk40 = 5;
-            D_00433330.unk4[2] = 0;
-            D_00433330.unk4[1] = 0;
+            __asm__ volatile(""); /* fake: keeps unk3C after unk40 */
             D_00433330.unk3C = 5;
+            D_00433330.unk4[1] = 0;
+            D_00433330.unk4[2] = 0;
         }
         break;
     case 5:
@@ -1043,9 +1039,6 @@ s32 func_0038C1E8(Fighter *a, Fighter *b) {
     }
     return 0;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/stage", func_0038C1E8);
-#endif
 
 s32 func_0038CFC0(Fighter *a, Fighter *b) {
     Unk8B90B8 c0;
@@ -1168,8 +1161,6 @@ s32 func_0038D290(s32 side, Fighter *a1, Fighter *f) {
     return 0;
 }
 
-/* NON_MATCHING: 2 lines: the store of r to unk3C is scheduled after the mode store (unk0 = 6) instead of before the unkB8 store; every other store matches. The order of func_0038D290 (unk40, unkB8, unk38, unk3C, unk0) gives the right store order but swaps v0 / v1 for the constants 1 and 6 (4 lines) */
-#if 0
 s32 func_0038D3D0(s32 side, Fighter *a1, Fighter *f) {
     s32 r;
     s16 a;
@@ -1190,10 +1181,11 @@ s32 func_0038D3D0(s32 side, Fighter *a1, Fighter *f) {
         D_00433330.unk94 = f->unk524;
         D_00433330.unk84 = 0;
         func_00392B38(-D_00433330.unk58);
+        D_00433330.unk40 = r;
+        D_00433330.unkB8 = 1;
         D_00433330.unk38 = -1;
         D_00433330.unk0 = 6;
-        D_00433330.unk3C = D_00433330.unk40 = r;
-        D_00433330.unkB8 = 1;
+        D_00433330.unk3C = r;
     } else {
         D_00433330.unk38 = 0x10;
         D_00433330.unk0 = 2;
@@ -1208,9 +1200,6 @@ s32 func_0038D3D0(s32 side, Fighter *a1, Fighter *f) {
     D_00433330.unk4[0] = 0;
     return 0;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/stage", func_0038D3D0);
-#endif
 
 s32 func_0038D508(void) {
     D_005F6134 = 0;
@@ -4787,16 +4776,17 @@ void func_003957A0(Fighter *a, Fighter *b) {
     s = gSinTable[ang];
     D_008BC6C8.unk0[1] = -0x4B0;
     dist = D_00433330.unkA4 * 0x1B58 / 0x3BB + D_00433330.unkA4 * 0x258 / 0x3BB;
-    D_008BC6C8.unk0[0] = (a->unk51C + pb[0]) / 2 + dist * c / 4096;
-    D_008BC6C8.unk0[2] = (pa[2] + pb[2]) / 2 + dist * s / 4096;
-    D_008BC6C8.unk0[3] = (a->unk51C + pb[0]) / 2;
-    D_008BC6C8.unk10[0] = (ja[1] + jb[1]) / 2;
+    /* the midpoints are sra 1 in the asm (rounding down), not a signed / 2 */
+    D_008BC6C8.unk0[0] = ((a->unk51C + pb[0]) >> 1) + dist * c / 4096;
+    D_008BC6C8.unk0[2] = ((pa[2] + pb[2]) >> 1) + dist * s / 4096;
+    D_008BC6C8.unk0[3] = (a->unk51C + pb[0]) >> 1;
+    D_008BC6C8.unk10[0] = (ja[1] + jb[1]) >> 1;
     if (D_008BC6C8.unk10[0] >= -0x590) {
         D_008BC6C8.unk10[0] = -0x591;
     }
     D_008BC6C8.unk10[3] = 0;
     D_008BC6C8.unk10[2] = 0;
-    D_008BC6C8.unk10[1] = (pa[2] + pb[2]) / 2;
+    D_008BC6C8.unk10[1] = (pa[2] + pb[2]) >> 1;
 }
 #else
 INCLUDE_ASM("asm/nonmatchings/stage", func_003957A0);
