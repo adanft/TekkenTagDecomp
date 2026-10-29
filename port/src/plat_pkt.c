@@ -134,14 +134,19 @@ void sceVif1PkOpenDirectCode(Packet *pk, int irq) { open_direct(pk, 0x50000000u,
 void sceVif1PkCloseDirectCode(Packet *pk) { close_direct(pk); }
 void sceVif1PkOpenDirectHLCode(Packet *pk, int irq) { open_direct(pk, 0x51000000u, irq); }
 void sceVif1PkCloseDirectHLCode(Packet *pk) { close_direct(pk); }
-/* The GIF tag is passed by value (u128: four words on the stack). */
-void sceVif1PkOpenGifTag(Packet *pk, uint32_t t0, uint32_t t1, uint32_t t2, uint32_t t3) {
+/* The GIF tag is passed by value, with the game's u128 type (port_compat.h): four words on the stack on i386, two
+   registers on x86-64. Taking it as four 32-bit words worked on i386 only: on x86-64 the tag's words 1 and 3 were lost
+   and words 2 and 3 came from whatever the other argument registers held (runtime bug R1: the snow stage's particle
+   texture upload, func_00344150 -> Gfx_PkAddImage, sent a broken GIF tag on PATH2, which then read the following
+   packets as GIF data and drew garbage until the game slowed to about 1 VBlank/s). */
+typedef unsigned _BitInt(128) u128 __attribute__((aligned(16)));
+void sceVif1PkOpenGifTag(Packet *pk, u128 tag) {
     uint32_t *p = pk->pCurrent;
 
-    p[0] = t0;
-    p[1] = t1;
-    p[2] = t2;
-    p[3] = t3;
+    p[0] = (uint32_t)tag;
+    p[1] = (uint32_t)(tag >> 32);
+    p[2] = (uint32_t)(tag >> 64);
+    p[3] = (uint32_t)(tag >> 96);
     pk->pCurrent = p + 4;
     pk->pGifTag = p;
 }
@@ -158,11 +163,12 @@ void sceVif1PkCloseGifTag(Packet *pk) {
     pk->pGifTag = NULL;
     pk->pCurrent = pad_qw(p);
 }
-void sceVif1PkAddGsAD(Packet *pk, uint32_t addr, uint32_t lo, uint32_t hi) {
+/* The data is the game's u64 (one register on x86-64; its high half was a stale register before R1). */
+void sceVif1PkAddGsAD(Packet *pk, uint32_t addr, uint64_t data) {
     uint32_t *p = pk->pCurrent;
 
-    p[0] = lo;
-    p[1] = hi;
+    p[0] = (uint32_t)data;
+    p[1] = (uint32_t)(data >> 32);
     p[2] = addr;
     p[3] = 0;
     pk->pCurrent = p + 4;

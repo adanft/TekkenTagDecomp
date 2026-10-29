@@ -1342,6 +1342,25 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
     the hash counts as one constant), and the scripted fight `0xcce5eb554fa51395` -> `0xa1623a6d44cb57a6` (its 100
     frames of forward walk no longer end in Yoshimitsu's fall). `TTT_DIFF` on `Battle_UpdateFrame` agrees with the
     original over the fixed walk (VBlanks 1715-1744).
+34. **A 64-bit or 128-bit value taken as 32-bit halves (runtime bug R1, x86-64).** libpkt's
+    `sceVif1PkOpenGifTag(pk, u128 tag)` and `sceVif1PkAddGsAD(pk, addr, u64 data)` were defined in `plat_pkt.c` with
+    the tag as four `uint32_t` and the data as `lo, hi`: the i386 stack layout, so the 32-bit builds were right. On
+    x86-64 (the default build since T42 b5) a u128 travels in two registers and a u64 in one, so the tag lost its
+    words 1 and 3 and took words 2 and 3 from other argument registers, and the A+D data's high half was a stale
+    register (a scratchpad address). The game's only caller is `Gfx_PkAddImage`, from `func_00344150`, the snow
+    particles' texture upload that `func_003E7270` makes every frame on stages 2 (the snowy forest), 19 and 22. Its
+    broken GIF tag (no NREG) made PATH2 read the next VIF codes as GIF data: a 27648-loop tag swallowed the following
+    VIF1 packets for hundreds of VBlanks, drawing garbage over the stage (no fighters, no HUD) and slowing GL at
+    scale 6 to about 1 VBlank/s: its primitives landed on random frame buffers, and the GL back end made (and loaded)
+    a new render target for each, 2,000,180 of them in VBlanks 640-700 (seed 32, GL in a hidden window, scale 6, no
+    vsync: 335 s for those 60 VBlanks, the window thread's CPU 344 s; after the fix 1.6 s, 13 targets; VBlanks
+    1101-1451 of the fight at 78 VBlanks/s against 102 on seed 1's stage 12). The state hash moved too (seed 32's
+    scripted fight, before gotcha 33's fix: `0xbc45b69dab8d52ba` on x86-64 against `0x5d5ff1d003d73341` on gcc i386;
+    with both fixes both builds give `0x7b9186e0af772f88`). Both functions take the game's
+    types now (`unsigned _BitInt(128)` as in `port_compat.h`, `uint64_t`), on every target; `TTT_SELFTEST=hw` calls
+    them as the game does, and `tests/test_port_input.py` (`test_snow_stage_path2_stays_in_step`) checks that PATH2
+    sees no `bad tag` on stage 2. `port/tools/proto_audit.py -v` lists such pairs as "64/128-bit values as 32-bit
+    halves" (a class difference on i386, a real one on x86-64): these two were the only ones.
 
 ## 64-bit
 

@@ -796,9 +796,12 @@ void sceVif1PkRef(uint32_t *pk, void *addr, uint32_t size, uint32_t opt1, uint32
 uint32_t *sceVif1PkReserve(uint32_t *pk, uint32_t count);
 void sceVif1PkOpenDirectCode(uint32_t *pk, int irq);
 void sceVif1PkCloseDirectCode(uint32_t *pk);
-void sceVif1PkOpenGifTag(uint32_t *pk, uint32_t t0, uint32_t t1, uint32_t t2, uint32_t t3);
+/* The game's prototypes (src/font_tex.c, src/dma_gif.c): the GIF tag by value as a u128 and the A+D data as a u64, so
+   the calls below pass them as the game does (in registers on x86-64, not as 32-bit halves). */
+typedef unsigned _BitInt(128) u128 __attribute__((aligned(16)));
+void sceVif1PkOpenGifTag(uint32_t *pk, u128 tag);
 void sceVif1PkCloseGifTag(uint32_t *pk);
-void sceVif1PkAddGsAD(uint32_t *pk, uint32_t addr, uint32_t lo, uint32_t hi);
+void sceVif1PkAddGsAD(uint32_t *pk, uint32_t addr, uint64_t data);
 uint32_t *sceVif1PkTerminate(uint32_t *pk);
 uint32_t sceVif1PkSize(uint32_t *pk);
 void sceGifPkInit(uint32_t *pk, void *base);
@@ -824,16 +827,20 @@ static void pkt_self_test(void) {
     sceVif1PkOpenDirectCode(pk, 2);
     expect(buf[2] == 0 && buf[3] == 0xD0000000u && pk[3] == Port_Addr(buf + 3), "PkOpenDirectCode at word 3, irq 2");
     /* OpenGifTag (pGifTag at 0x14); an IMAGE tag with NLOOP preset and closed at once keeps NLOOP */
-    sceVif1PkOpenGifTag(pk, 0x00000005u, 0x08000000u, 0, 0);
+    sceVif1PkOpenGifTag(pk, (u128)0x0800000000000005ull);
     g = buf + 4;
     expect(pk[5] == Port_Addr(g) && pk[4] == 0xAAAAAAAAu, "PkOpenGifTag keeps the tag pointer at 0x14");
     sceVif1PkCloseGifTag(pk);
     expect(g[0] == 5u && pk[5] == 0, "PkCloseGifTag adds to a preset NLOOP (IMAGE, no data: + 0)");
     /* PACKED, NREG 1, NLOOP 0 + two A+D quadwords */
-    sceVif1PkOpenGifTag(pk, 0, 0x10000000u, 0x0E, 0);
+    sceVif1PkOpenGifTag(pk, (u128)0x1000000000000000ull | (u128)0xCAFE00000000000Eull << 64);
     g = (uint32_t *)Port_Ptr(pk[0]) - 4;
-    sceVif1PkAddGsAD(pk, 0x3F, 1, 0);
-    sceVif1PkAddGsAD(pk, 0x3F, 2, 0);
+    expect(g[0] == 0 && g[1] == 0x10000000u && g[2] == 0x0E && g[3] == 0xCAFE0000u,
+           "PkOpenGifTag writes the u128 tag's four words (x86-64 passes it in two registers)");
+    sceVif1PkAddGsAD(pk, 0x3F, 1);
+    sceVif1PkAddGsAD(pk, 0x50, 0x7654321000000002ull);
+    expect(g[8] == 2u && g[9] == 0x76543210u && g[10] == 0x50 && g[11] == 0,
+           "PkAddGsAD writes the u64 data's both halves and the address");
     sceVif1PkCloseGifTag(pk);
     expect(g[0] == 2u, "PkCloseGifTag PACKED NLOOP = quadwords / NREG");
     sceVif1PkReserve(pk, 1); /* one word: the code's count is rounded down */

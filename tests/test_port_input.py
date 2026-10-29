@@ -335,6 +335,26 @@ class Fight(unittest.TestCase):
                 self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
                 self.assertEqual(peek(r, MODE), [0x00080004])
 
+    def test_snow_stage_path2_stays_in_step(self):
+        """Seed 32 fights on stage 2, the snowy forest, whose snow particles (func_003E7270) upload their texture every
+        frame through func_00344150 -> Gfx_PkAddImage, the game's only caller of libpkt's sceVif1PkOpenGifTag (a u128
+        GIF tag) and sceVif1PkAddGsAD (a u64). The port took both as 32-bit words, right on i386 only: the x86-64
+        build wrote a broken GIF tag and A+D data, PATH2 then read the following VIF1 packets as GIF data (`bad tag`,
+        a tag of 27648 loops) and drew garbage for hundreds of VBlanks, about 1 VBlank/s with GL at scale 6 (runtime
+        bug R1). PATH2 must see no bad tag and end each VBlank between packets."""
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "in.txt"
+            p.write_text(stream(*TO_THE_FIGHT))
+            r = run_ttt(timeout=900, TTT_FRAMES="1000", TTT_SEED="32", TTT_INPUT_PLAY=str(p), TTT_GS_TRACE="1",
+                        TTT_PEEK=f"{MODE},5F5CB4")
+        self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
+        self.assertEqual(peek(r, MODE), [0x00080004])
+        self.assertEqual(peek(r, "5F5CB4")[0] >> 16, 2)  # D_005F5CB6, the stage
+        self.assertNotIn("gs-trace bad tag", r.stdout)
+        path2 = re.findall(r"gs-trace (\d+) path 2 tags \d+ loops (\d+)", r.stdout)
+        self.assertGreater(len(path2), 900)
+        self.assertEqual([v for v, loops in path2 if loops != "0"], [])
+
 
 if __name__ == "__main__":
     unittest.main()
