@@ -151,9 +151,9 @@ Release archives are made by `port/tools/release.py`, locally or by the GitHub A
 
 ## Legal
 
-This project is not affiliated with, endorsed by or sponsored by Bandai Namco Entertainment. Tekken and Tekken Tag
-Tournament are trademarks of their respective owners. The project exists for preservation, study and
-interoperability.
+This project is not affiliated with, endorsed by or sponsored by Bandai Namco Entertainment or Sony Interactive
+Entertainment. Tekken and Tekken Tag Tournament are trademarks of their respective owners; PlayStation is a trademark
+of Sony Interactive Entertainment. The project exists for preservation, study and interoperability.
 
 No game assets are distributed: no disc image, executable, data file, texture, sound or movie of the game is in this
 repository or in its releases. To play you need your own legally obtained copy of the game. Never commit or share
