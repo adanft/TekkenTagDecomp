@@ -555,8 +555,6 @@ void func_003BECC0(void) {
     D_005F6730 = save;
 }
 
-/* NON_MATCHING: 53 lines, colour store order and the u16 adds of the four quads */
-#if 0
 void func_003BF080(s32 x, s32 y, s32 c) {
     SelQuad q;
     s32 i;
@@ -577,22 +575,20 @@ void func_003BF080(s32 x, s32 y, s32 c) {
     q.v[2].a = 0x80;
     q.v[3].a = 0x80;
     for (i = 0; i < 4; i++) {
-        s32 x0 = D_00440688[i].x + (x << 4);
-        s32 y0 = D_00440688[i].y + (y << 4);
+        SelRect *p = &D_00440688[i];
+        s32 x0 = p->x + (x << 4);
+        s32 y0 = p->y + (y << 4);
         q.v[0].x = x0;
+        q.v[1].x = x0 + p->w;
         q.v[0].y = y0;
-        q.v[1].x = x0 + D_00440688[i].w;
         q.v[1].y = y0;
         q.v[2].x = x0;
-        q.v[2].y = y0 + D_00440688[i].h;
-        q.v[3].x = x0 + D_00440688[i].w;
-        q.v[3].y = y0 + D_00440688[i].h;
+        q.v[2].y = y0 + p->h;
+        q.v[3].x = x0 + p->w;
+        q.v[3].y = y0 + p->h;
         func_003BB680(&q, 0xFFEE0, 0);
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/select_results", func_003BF080);
-#endif
 
 void func_003BF180(u8 *p) {
     SelQuad q;
