@@ -225,7 +225,8 @@ checks). The layout it loads by is made by the developer tools below.
   make, such as `D_00437A50` inside `.data`, and every data label the C uses), and so does a name outside the
   program image (hardware registers like `D_11000010`, the end of `.bss` `D_1FCDEF0`, constants splat took for
   addresses such as `D_100000`). Everything left becomes a stub. A word of the layout whose name lands at its own
-  PS2 address keeps the disc's value; the others (273: functions, and names the port defines) are rewritten.
+  PS2 address keeps the disc's value; the others (273: functions, and names the port defines) are rewritten,
+  except the integers that only look like a function's address (gotcha 33).
 
 ### Stubs
 
@@ -992,6 +993,8 @@ port replacement. `port/src/ee_diff.c` compares such C with the original directl
   (0x307350-0x3074BC, not traced further) and, in `func_00357B28`, one DMA interrupt count (`gSprDma`, byte
   0x415FC2: 3 after the C, 2 after the original; the port's DMA keeps state outside the saved regions).
 - **Limits.** The check covers the hooked calls in the frames asked for (a path not taken there is not covered).
+  Both runs read the same game data from the running memory, so data the port loaded wrong is invisible to it: the
+  fall of gotcha 33 agreed with the original in every frame.
   About 0.3 s per checked call (two 32 MB copies); a whole fight frame (about 440,000 instructions) takes about 1 s;
   the stage load of VBlank 617 (256 million instructions, the wind generator's warm-up) about two minutes.
 
@@ -1317,6 +1320,28 @@ Smaller hooks (all `#ifdef PORT` / `#ifndef PORT`, matching objects unchanged):
     (`tests/test_port_float.py`'s rules), the self-tests pass, a crash report is written, and the idle run and the
     scripted fight give the same state line, the reference hashes, the same region hashes and the same pictures on
     both builds.
+33. **Integers the split took for function pointers (R2, 2026-10-29).** Reported while playing: a fighter walking
+    forward falls face down to the floor, unhit. Reproduced headless in a 1-on-1 VS battle with an idle second pad:
+    Yoshimitsu's forward walk 0x3F (20 frames) went on to move 0x813 instead of the walk loop 0x40, a fall (0x119,
+    0x100, getting up 0x10D / 0x112), every time forward was held past 20 frames; another character fell too, the
+    others did not. `TTT_DIFF` on `Battle_UpdateFrame` agreed with the original in all 90 frames around it: the code
+    was right, the data was not. The walk's command list ends with the entry `8000 ... unk4 0, move 0x40` at
+    0x485C24; its second word, 0x00400000, is `StartThread`'s address, so splat wrote it `.word StartThread`,
+    `make_layout.py` listed it and the port filled it with the host function's address (0x0813AB70: unk4 0xAB70,
+    next move 0x813, the move map's last record). 91 words of the layout are such integers: 24 command entries
+    (`D_00482248`), 50 move records' flags `unk24` (`D_00531EA0`), and words in `D_00457380` (packed bytes),
+    `D_0044C190` (between floats), `D_004EFD44` and `D_00508B60`, named after the kernel calls at 0x400000-0x400520
+    (`StartThread`, `SleepThread`, `ExitThread`, `iTerminateThread`, `SignalSema`, `WaitSema`, `GsPutIMR`,
+    `_iWakeupThread`, `DisableDispatchThread`) and `func_00340000`, `func_003A0020`, `func_00403240`. None of them
+    is ever stored as a pointer, so `plat_data.c` (`fill`) leaves the disc's word wherever the layout names one of
+    them; the other function words (the CPU deciders, the stage effects, libmpeg's tables) are real pointers.
+    `tests/test_port_data.py` (`test_integer_words_keep_the_disc_value`) compares those words with the disc's
+    executable. The reference hashes moved: the idle run `0x8ba37caeb2bacfa8` -> `0x61dc0b370ff7019b` and with
+    `TTT_CHEAT_UNLOCK=1` `0x700be073c8bac18e` -> `0xd33f2c637319e696` (the same spin, cycles and 17 pictures; a
+    save at VBlank 2550 differs from the old one in those 94 words and in host return addresses on the stack, which
+    the hash counts as one constant), and the scripted fight `0xcce5eb554fa51395` -> `0xa1623a6d44cb57a6` (its 100
+    frames of forward walk no longer end in Yoshimitsu's fall). `TTT_DIFF` on `Battle_UpdateFrame` agrees with the
+    original over the fixed walk (VBlanks 1715-1744).
 
 ## 64-bit
 

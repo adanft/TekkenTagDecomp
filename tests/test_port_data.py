@@ -22,8 +22,10 @@ LAYOUT = ROOT / "port/tools/data_layout.txt"
 # from uninitialised stack bytes (dma_spr.c func_0035D790's DMA tag, Light_StartFlash's fourth float) are now fixed
 # under PORT, so gcc and clang builds end alike (tests/test_port_clang.py). The pictures changed with the field
 # placement (docs/port/video.md: an odd field's picture one raster line lower; the state hash did not):
-# d9e628faa2fc1641224b77af0ad0f13da8a0f6f1 before.
-IDLE_HASH = "0x8ba37caeb2bacfa8"
+# d9e628faa2fc1641224b77af0ad0f13da8a0f6f1 before. R2 (2026-10-29): 0x8ba37caeb2bacfa8 before; the 94 data words that
+# are integers equal to a function's address (test_integer_words_keep_the_disc_value) keep the disc's value instead of
+# a host address, the only words of EE RAM that changed (same spin, cycles and pictures; docs/port/README.md gotcha 33).
+IDLE_HASH = "0x61dc0b370ff7019b"
 IDLE_PICTURES = "ad85b47ca328ddc43b05d2a1f1158219aee67b6e"
 
 
@@ -118,6 +120,23 @@ class DataFileTest(unittest.TestCase):
         want = b"".join(elf[0x1000 + int(a, 16) - 0x340000:][:int(n, 16)] for a, n in layout("range"))
         self.assertEqual(header(self.dat)["data"], want)
 
+    def test_integer_words_keep_the_disc_value(self):
+        """R2: the layout lists the data words the split named after a function because they equal its address; for
+        the kernel calls at 0x400000-0x400520 and three game functions those words are integers (command entries,
+        move flags, packed bytes), never pointers, and must keep the disc's value. With StartThread's host address in
+        the command entry at 0x485C28 (move 0x40), Yoshimitsu's forward walk went on to a fall (move 0x813)."""
+        names = {"StartThread", "SleepThread", "ExitThread", "iTerminateThread", "SignalSema", "WaitSema", "GsPutIMR",
+                 "_iWakeupThread", "DisableDispatchThread", "func_00340000", "func_003A0020", "func_00403240"}
+        addrs = [int(a, 16) for a, name, _ in layout("word") if name in names]
+        self.assertGreater(len(addrs), 80)
+        self.assertIn(0x485C28, addrs)
+        r = run_ttt(TTT_FRAMES="2", TTT_SEED="1", TTT_DATA=str(self.dat), TTT_PEEK=",".join(f"{a:X}" for a in addrs))
+        self.assertEqual(r.returncode, 0, (r.stdout + r.stderr)[-3000:])
+        got = {int(a, 16): int(w, 16) for a, w in re.findall(r"ttt: peek ([0-9A-F]{8}): ([0-9A-F]{8})", r.stdout)}
+        elf = disc_file("SLUS_200.01")
+        for a in addrs:
+            self.assertEqual(got.get(a), struct.unpack_from("<I", elf, 0x1000 + a - 0x340000)[0], f"word 0x{a:08X}")
+
     def test_damaged_file_made_again(self):
         """A data file whose payload does not match its SHA-1 is made again from the disc."""
         with tempfile.TemporaryDirectory(prefix="ttt-data-") as d:
@@ -132,7 +151,7 @@ class DataFileTest(unittest.TestCase):
 
     def test_idle_run_from_the_data_file(self):
         """The idle run on the data loaded from the data file: the same pictures and state hash as with the data
-        linked into the program before T25."""
+        linked into the program before T25 (the hash as moved by T42 b1 and R2, IDLE_HASH)."""
         with tempfile.TemporaryDirectory(prefix="ttt-dump-") as d:
             r = run_ttt(timeout=900, TTT_FRAMES="2551", TTT_SEED="1", TTT_DUMP=d, TTT_DUMP_EVERY="150",
                         TTT_DATA=str(self.dat))

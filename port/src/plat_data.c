@@ -662,6 +662,32 @@ static int extract(uint8_t *payload, uint8_t elfSha1[20]) {
     return 0;
 }
 
+/* Functions whose PS2 address is only ever an integer in the game's data, never a pointer (R2). The split names every
+ * data word equal to a function's address after that function (`.word StartThread`), and data_layout.txt lists those
+ * words for the linker to fill in with the host address; for these the word is two 16-bit fields or packed bytes that
+ * happen to equal the address: 0x00400000 (StartThread) is a command entry's unk4 = 0 / move 0x40 in the command lists
+ * D_00482248 (24 words) and a move record's flags unk24 in D_00531EA0 (49 words, and one 0x00400100 named
+ * SleepThread); the others are in D_00457380 (packed bytes), D_0044C190 (between floats), D_004EFD44 (packet words)
+ * and D_00508B60. With the host address there, the forward walk 0x3F of the characters whose command list ends with
+ * such an entry (Yoshimitsu among them) went on, after its 20 frames, to move 0x813 (0x0813AB70 read as two halves:
+ * the move map's last record, a fall) instead of the walk loop 0x40, so the fighter fell face down after walking
+ * forward. These words keep the disc's value. */
+extern char StartThread[], SleepThread[], ExitThread[], iTerminateThread[], SignalSema[], WaitSema[], GsPutIMR[],
+    _iWakeupThread[], DisableDispatchThread[], func_00340000[], func_003A0020[], func_00403240[];
+
+static int never_a_pointer(uint32_t v) {
+    const char *const fns[] = {StartThread,   SleepThread,    ExitThread,            iTerminateThread,
+                               SignalSema,    WaitSema,       GsPutIMR,              _iWakeupThread,
+                               DisableDispatchThread, func_00340000, func_003A0020, func_00403240};
+    size_t i;
+    for (i = 0; i < sizeof(fns) / sizeof(fns[0]); i++) {
+        if (v == (uint32_t)(uintptr_t)fns[i]) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* The payload into EE RAM, then the words that hold host addresses. */
 static void fill(const uint8_t *payload) {
     uint32_t r, at = 0;
@@ -671,6 +697,9 @@ static void fill(const uint8_t *payload) {
     }
     for (r = 0; r < gPortDataFixN; r++) {
         uint32_t v = gPortDataFix[r][1];
+        if (v != 0 && never_a_pointer(v)) {
+            continue; /* an integer that equals a function's address: the disc's word stays */
+        }
         memcpy(Port_Ptr(gPortDataFix[r][0]), &v, 4);
     }
 }
