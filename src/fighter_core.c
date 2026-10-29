@@ -7931,9 +7931,6 @@ void func_0038A770(void) {
     Cpu_SetCommand((u16 *)D_0050748A);
 }
 
-/* NON_MATCHING: 3 lines differ: the original loads the constant 0x21 before the character (li v1 / lh v0), ours
- * the other way round. */
-#if 0
 s32 func_00384BB0(CpuCand *c);
 s32 func_00384C70(CpuCand *c);
 
@@ -7949,7 +7946,6 @@ static inline s32 Cpu_IsOpponentBusy(void) {
  * candidate (chance 1/4) and waits 20-39 frames (unk274) [V]. */
 s32 func_0038A780(void) {
     CpuState *c = gCpu;
-    Fighter *f = gCpuSelf;
 
     if (c->unk3E0 != 0) {
         if (c->unk20 >= 2 || Cpu_IsOpponentBusy()) {
@@ -7964,10 +7960,10 @@ s32 func_0038A780(void) {
             }
         }
     } else {
-        if (f->unk2A != 0x21 || c->unk274 >= 0) {
+        if (gCpuSelf->unk2A != 0x21 || c->unk274 >= 0) {
             return 0;
         }
-        if (c->unk278 != 0 && f->unk12B != 1 && Cpu_PickCands(func_00384C70) > 0 && (rand() & 0xFFF) < 0x400) {
+        if (c->unk278 != 0 && gCpuSelf->unk12B != 1 && Cpu_PickCands(func_00384C70) > 0 && (rand() & 0xFFF) < 0x400) {
             gCpu->unk278 = 0;
             gCpu->unk274 = Cpu_RandBelow(20) + 20;
             func_003853E8();
@@ -7976,9 +7972,6 @@ s32 func_0038A780(void) {
     }
     return 0;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0038A780);
-#endif
 
 /* NON_MATCHING: 34 lines: block layout matches; gCpu takes a1 where the original has a2 (and gCpuSelf a2 / a3, f copied to t0), so most lines differ by register */
 #if 0
@@ -8347,7 +8340,7 @@ s32 func_0038B368(void) {
             gCpu->unk94 = -1;
         } else if (ang > 0x1000) {
             r = gCpu->unk24 > 1 ? 0x2000 : -1;
-        } else if (gCpu->unk24 >= 3 && D_005F5C28 < 0xA8D) {
+        } else if (gCpu->unk24 >= 3 && (s32)D_005F5C28 < 0xA8D) { /* slti: a signed compare */
             func_0038A760();
             r = -2;
         } else if (gCpu->unk24 < 2 && dist >= 0xB) {
