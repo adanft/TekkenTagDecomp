@@ -1492,6 +1492,20 @@ were without it.
   TTT's (ee-gcc 2.9-991111 with its assembler) rounds them to nearest like the host compiler: the executable holds
   0.1f as 0x3DCCCCCD, its newlib `__kernel_sinf` S1 as 0xBE2AAAAB (BT3: 0xBE2AAAAA), `(float)0.333...` in
   `__ieee754_logf` as 0x3EAAAAAB, and ee-gcc 2.9 folds 1.0f / 30.0f to 0x3D088889.
+- **Build-time folding** (F08): the game's C runs on the model at run time (each float operation is a call, so the
+  host's MXCSR never reaches it), but the host compiler still folds an operation whose operands it knows, rounded to
+  nearest. Where ee-gcc folded the same expression the executable holds the same constant (`1.0f / 6.0f`, newlib's
+  `pio2_hi + pio2_lo`), and a division agrees either way (div.s rounds to nearest). The two differ only where the
+  host optimiser sees constants ee-gcc did not (a stored constant read back, an unrolled loop) in an add / sub / mul
+  whose exact result needs rounding. Audit (all four variants): every game and newlib object compiled again with
+  `-frounding-math` (which stops inexact folds), the float immediates of each function compared, and each constant
+  that disappears looked up in the original function. Three functions fold where the executable computes:
+  `Bowl_PinHomePos` and `func_003EE2F8` (`tekken_bowl.c`, P4-M: the Bowl results moved from VBlank 11064 to 10912)
+  and `func_003E38F0` (`menu_bg.c`, clang only: the dial needles' angles pi +/- 0.42, the same pixels). Each has an
+  `#ifdef PORT` empty asm barrier (`__asm__("" : "+m"(x))`) that hides the value from the optimiser. A global
+  `-frounding-math` is no fix: it also stops the folds ee-gcc made (acosf's `pio2_hi + pio2_lo` would be cut to
+  0x3FC90FDA where the executable has 0x3FC90FDB), and under clang it changes the code of about 250 game functions
+  (constrained float intrinsics: other inlining, no common subexpressions).
 - **libm** (`third_party/newlib_libm`, newlib 1.10.0's float fdlibm, built in software float through
   `newlib_shim.h`): the sources the reference copied, plus `ef_log.c` and `ef_fmod.c` written after the executable's
   `__ieee754_logf` / `__ieee754_fmodf` (constants as bit patterns), and `wrappers.c`: the executable's wrappers are

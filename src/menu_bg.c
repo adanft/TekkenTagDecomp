@@ -824,6 +824,11 @@ void func_003E38F0(void) {
             if (i < 2) {
                 a = 0.0f;
             }
+#ifdef PORT
+            /* The original adds the offsets at run time (add.s, cut toward zero: pi + 0.42 is 0x4063F122); without
+               this clang unrolls the loop and folds the sums at build time, rounded to nearest (0x4063F123). */
+            __asm__("" : "+m"(a));
+#endif
             if (i & 1) {
                 a += 0.419999987f;
             } else {
