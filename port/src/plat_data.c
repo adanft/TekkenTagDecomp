@@ -672,11 +672,13 @@ static int extract(uint8_t *payload, uint8_t elfSha1[20]) {
  * such an entry (Yoshimitsu among them) went on, after its 20 frames, to move 0x813 (0x0813AB70 read as two halves:
  * the move map's last record, a fall) instead of the walk loop 0x40, so the fighter fell face down after walking
  * forward. These words keep the disc's value. */
-extern char StartThread[], SleepThread[], ExitThread[], iTerminateThread[], SignalSema[], WaitSema[], GsPutIMR[],
-    _iWakeupThread[], DisableDispatchThread[], func_00340000[], func_003A0020[], func_00403240[];
+extern char StartThread[], SleepThread[], iTerminateThread[], SignalSema[], WaitSema[], GsPutIMR[], _iWakeupThread[],
+    DisableDispatchThread[], func_00340000[], func_003A0020[], func_00403240[];
+/* the game's ExitThread, under another C name: windows.h declares a function of that name */
+extern char GameExitThread[] __asm__("ExitThread");
 
 static int never_a_pointer(uint32_t v) {
-    const char *const fns[] = {StartThread,   SleepThread,    ExitThread,            iTerminateThread,
+    const char *const fns[] = {StartThread,   SleepThread,    GameExitThread,            iTerminateThread,
                                SignalSema,    WaitSema,       GsPutIMR,              _iWakeupThread,
                                DisableDispatchThread, func_00340000, func_003A0020, func_00403240};
     size_t i;
