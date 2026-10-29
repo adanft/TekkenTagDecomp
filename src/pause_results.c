@@ -678,37 +678,35 @@ void func_003B5C10(Fighter *f, s32 side) {
     func_00368168(f);
 }
 
-/* NON_MATCHING: 44 lines, the original keeps the %hi of gFighters / D_00884EE0 in s0 / s3 (six saved registers) */
-#if 0
+/* Character slot of a side: two per character (side + chr * 2). Only as an inline function does the sum take the
+ * register of chr, as in the original (written in place, the temporary gets v0). */
+static inline s32 Res_SlotIndex(s32 side, s32 chr) {
+    return side + chr * 2;
+}
+
 s32 func_003B5CA8(void) {
-    Fighter *f0, *f1;
     s32 side, slot, r;
 
-    f1 = &gFighters[1];
-    f0 = &gFighters[0];
     func_003B6218();
-    side = (s16)f0->unk20;
-    func_003B5C10(f0, side);
+    side = (s16)gFighters[0].unk20;
+    func_003B5C10(&gFighters[0], side);
     slot = gFighters[0].unk0;
     Tag_SetCounter(side, 2);
-    slot = side + slot * 2;
+    slot = Res_SlotIndex(side, slot);
     r = func_00367310(slot);
-    func_003AF540(f0, 0, r);
+    func_003AF540(&gFighters[0], 0, r);
     func_003AFDA8(side, slot, r);
 
-    side = (s16)f1->unk20;
-    func_003B5C10(f1, side);
-    slot = gFighters[1].unk0;
+    side = (s16)D_00884EE0.unk20;
+    func_003B5C10(&D_00884EE0, side);
+    slot = D_00884EE0.unk0;
     Tag_SetCounter(side, 2);
-    slot = side + slot * 2;
+    slot = Res_SlotIndex(side, slot);
     r = func_00367310(slot);
-    func_003AF540(f1, 0, r);
+    func_003AF540(&D_00884EE0, 0, r);
     func_003AFDA8(side, slot, r);
     return 1;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/pause_results", func_003B5CA8);
-#endif
 
 extern s16 D_0043AC38[];
 extern s16 D_0043B140[];
@@ -1351,18 +1349,17 @@ void func_003B77B8(void) {
     D_005F5EE0 = 0;
 }
 
-/* NON_MATCHING: 41 lines, registers of the camera pointer and the sine index */
+/* NON_MATCHING: 2 lines: only the scheduling of `li v0, 5000` (before the second sine load in the original) */
 #if 0
 void func_003B7888(void) {
-    u16 a;
+    s32 a;
 
     func_003ADFB0();
     if (D_005F5EE0 == 0 && D_005F5EE4 == 0 && func_003A9698() == 0) {
-        D_005F6DDE -= 3;
         D_00415808.w[1] -= 3;
+        D_005F6DDE -= 3;
     }
-    a = D_005F6DDE & 0xFFF;
-    D_005F6DDE = a;
+    a = D_005F6DDE &= 0xFFF;
     D_00415808.w[5] = gSinTable[a + 0x400] * 5000 / 4096;
     D_00415808.w[7] = gSinTable[a] * 5000 / 4096;
     func_0035B4B0(D_00415808.w, &D_00436530);

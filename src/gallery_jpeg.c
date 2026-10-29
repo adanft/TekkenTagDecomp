@@ -1,5 +1,6 @@
 /* 0x3E55C8-0x3E8AD8 (module gallery_jpeg, docs/game_overview.md section 4; docs/systems/modes.md). */
 #include "common.h"
+#include "ee_asm.h"
 
 extern u32 *D_005F708C;
 extern u8 *D_005F7090;
@@ -599,6 +600,20 @@ void Mode_Gallery(void) {
 INCLUDE_ASM("asm/nonmatchings/gallery_jpeg", Mode_Gallery);
 #endif
 
+/* Shared by the particle drafts below. */
+f32 cosf(f32);
+f32 sqrtf(f32);
+int rand(void);
+u8 *func_00343F08(s32 i);
+extern s32 D_005F706C;
+extern s32 D_005F7070;
+extern u32 *D_005F7074;
+extern f32 *D_005F7078;
+extern f32 *D_005F707C;
+extern u32 *D_005F7080;
+extern u32 *D_005F7084;
+extern f32 *D_005F7088;
+
 void func_003E6AA8(u32 *a) {
     D_005F708C = a;
 }
@@ -616,12 +631,10 @@ void func_003E6AB0(u32 *end, s32 eop, s32 qwc) {
 LIT4_WORD(D_005F58DC, 0x40490FDB);
 LIT4_WORD(D_005F58E0, 0x461C4000);
 #if 0
-/* NON_MATCHING: written from the asm, not tuned. Eight random particles (0x20 bytes of halfwords each) after the
+/* NON_MATCHING: 102 lines: the original hoists 0.0f / 0.5f / 1.0f / 16.0f into f22-f28 for the loop and has a dead
+ * c.lt.s of the cosine; written from the asm. Eight random particles (0x20 bytes of halfwords each) after the
  * VIF code word at p, closed by an UNPACK code: x / z spread over +/-spread / 2, height y, a direction and a speed
  * of up to 12 (x16) in the x-y plane, then a random phase below 0x100 (0x200 when spread > 10000). */
-f32 cosf(f32);
-f32 sqrtf(f32);
-int rand(void);
 u32 *func_003E6B10(u32 *p, f32 spread, f32 y) {
     s16 *q;
     u32 *end;
@@ -643,10 +656,11 @@ u32 *func_003E6B10(u32 *p, f32 spread, f32 y) {
         c = cosf(a);
         q[4] = (s32)(r * c * 16.0f);
         q[5] = -0x181;
-        s = sqrtf(1.0f - c * c);
         if (a > 0.0f) {
+            EE_SQRT_S(s, 1.0f - c * c);
             q[6] = (s32)(r * s * 16.0f);
         } else {
+            EE_SQRT_S(s, 1.0f - c * c);
             q[6] = (s32)(-r * s * 16.0f);
         }
         q[7] = 0;
@@ -694,15 +708,6 @@ LIT4_WORD(D_005F5918, 0x45BB8000);
  * `big ? 130 : 5` batches of 8 far particles (MSCAL 0x708, then MSCNT) and `big ? 70 : 2` batches of near ones,
  * padded with zero words. Records the blocks func_003E7270 updates every frame and returns the size in
  * quadwords. */
-u8 *func_00343F08(s32 i);
-extern s32 D_005F706C;
-extern s32 D_005F7070;
-extern u32 *D_005F7074;
-extern f32 *D_005F7078;
-extern f32 *D_005F707C;
-extern u32 *D_005F7080;
-extern u32 *D_005F7084;
-extern f32 *D_005F7088;
 s32 func_003E6DA0(s32 arg0, s32 big) {
     u32 *base = (u32 *)arg0;
     u32 *p;
@@ -854,24 +859,17 @@ s32 func_003E6DA0(s32 arg0, s32 big) {
 INCLUDE_ASM("asm/nonmatchings/gallery_jpeg", func_003E6DA0);
 #endif
 
-#if 0
 s32 func_003E7210(s32 a) {
-    s32 hi = 0;
-
     switch (D_005F5CB6) {
     case 19:
-        hi = 1;
+        return func_003E6DA0(a, 1) * 16;
     case 2:
     case 22:
-        break;
+        return func_003E6DA0(a, 0) * 16;
     default:
         return 0;
     }
-    return func_003E6DA0(a, hi) * 16;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/gallery_jpeg", func_003E7210);
-#endif
 
 LIT4_WORD(D_005F591C, 0x4688B800);
 LIT4_WORD(D_005F5920, 0x453B8000);
@@ -880,7 +878,8 @@ LIT4_WORD(D_005F5928, 0x38C90FDB);
 LIT4_WORD(D_005F592C, 0x46EA6000);
 LIT4_WORD(D_005F5930, 0x45BB8000);
 #if 0
-/* NON_MATCHING: written from the asm, not tuned. Per frame: when the particle packet exists (func_003678C8), sets
+/* NON_MATCHING: 57 lines: the original keeps only %hi(D_00415808) in s2 (from before func_00344150) and adds %lo at
+ * each use; here the camera pointer is one register. Per frame: when the particle packet exists (func_003678C8), sets
  * its GIF register, view matrix and the far / near emitter positions around the camera (angle from D_00415808[1],
  * position from D_00415808[5] / [7]) and the frame counter, then sends the packet to VIF1 by reference; the counter
  * advances while the game runs (not paused, not mode 5, D_005F5F10 set). */
@@ -916,34 +915,41 @@ void func_003E7270(void *arg0) {
     s32 i;
     s16 ang;
     s32 a;
-    f32 c, s;
+    f32 c, s, x;
+    f32 far, near;
+    s32 *cam;
 
     data = func_003678C8();
+    far = 17500.0f;
+    near = 3000.0f;
     if (data == 0) {
         return;
     }
+    cam = D_00415808;
     func_00344150();
     func_003622F8();
     *(u64 *)D_005F7074 = *(u64 *)((u8 *)func_00343F08(6) + 0x10);
     for (i = 0; i < 16; i++) {
         D_005F7088[i] = mtx[i];
     }
-    ang = (s16)(-(s32)*(u16 *)((u8 *)D_00415808 + 4) * 16);
+    ang = (s16)(-(s32)*(u16 *)((u8 *)cam + 4) * 16);
     a = ang & 0xFFFF;
     if (a <= 0x7FFF) {
-        c = cosf(9.58738019e-05f * (f32)a);
+        x = 9.58738019e-05f * (f32)a;
     } else {
-        c = cosf((f32)(a - 0x10000) * 9.58738019e-05f);
+        x = (f32)(a - 0x10000) * 9.58738019e-05f;
     }
+    c = cosf(x);
     if (ang < 0) {
-        s = -sqrtf(1.0f - c * c);
+        EE_SQRT_S(s, 1.0f - c * c);
+        s = -s;
     } else {
-        s = sqrtf(1.0f - c * c);
+        EE_SQRT_S(s, 1.0f - c * c);
     }
-    D_005F7078[0] = 17500.0f + s * 30000.0f + (f32)D_00415808[5];
-    D_005F7078[2] = 17500.0f - c * 30000.0f - (f32)D_00415808[7];
-    D_005F707C[0] = 3000.0f + s * 6000.0f + (f32)D_00415808[5];
-    D_005F707C[2] = 3000.0f - c * 6000.0f - (f32)D_00415808[7];
+    D_005F7078[0] = far + s * 30000.0f + (f32)cam[5];
+    D_005F7078[2] = far - c * 30000.0f - (f32)cam[7];
+    D_005F707C[0] = near + s * 6000.0f + (f32)cam[5];
+    D_005F707C[2] = near - c * 6000.0f - (f32)cam[7];
     *D_005F7080 = D_005F706C;
     *D_005F7084 = D_005F706C;
     FlushCache(0);
