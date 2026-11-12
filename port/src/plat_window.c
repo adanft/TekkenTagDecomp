@@ -53,6 +53,8 @@
 
 int Port_Headless(void); /* plat_hw.c */
 int Port_NetWindow(void); /* plat_net.c: a netplay session shows a window (on the netplay clock) */
+void Port_GpuPrefer(void); /* plat_gpu.c: before SDL loads a graphics driver */
+int Port_GpuFallback(void); /* undo only our automatic GPU request */
 
 /* SDL3's ABI as used here (values from SDL3's headers). */
 #define SDL_INIT_VIDEO 0x20u
@@ -910,13 +912,18 @@ static void *window_main(void *arg) {
     uint32_t tw = 0, th = 0, seen = 0;
     uint8_t *pic = NULL;
     const char *rs = getenv("TTT_RENDERER"), *hs = getenv("TTT_WINDOW_HIDDEN");
-    int v, vsync = Settings_GetInt("video.vsync"), scale = Settings_GetInt("video.scale"); /* TTT_VSYNC / TTT_SCALE */
+    int v, ready, vsync = Settings_GetInt("video.vsync"), scale = Settings_GetInt("video.scale"); /* TTT_VSYNC / TTT_SCALE */
     int64_t lastEvents = 0;
     uint64_t flags = SDL_WINDOW_RESIZABLE | (hs != NULL && atoi(hs) != 0 ? SDL_WINDOW_HIDDEN : 0);
 
     (void)arg;
     sNoRumble = hs != NULL && atoi(hs) != 0;
-    if (!sdl.Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD) && !sdl.Init(SDL_INIT_VIDEO)) {
+    ready = sdl.Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD) || sdl.Init(SDL_INIT_VIDEO);
+    if (!ready && Port_GpuFallback()) {
+        sdl.Quit();
+        ready = sdl.Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD) || sdl.Init(SDL_INIT_VIDEO);
+    }
+    if (!ready) {
         snprintf(sWhy, sizeof sWhy, "SDL_Init: %s", sdl.GetError());
         set_state(-1);
         return NULL;
@@ -924,13 +931,22 @@ static void *window_main(void *arg) {
     v = sdl.GetVersion();
     Settings_Bindings(sBind);
     Settings_Gamepad(sGpBind);
-    audio_open();
     if (rs != NULL && strcmp(rs, "sw") != 0 && strcmp(rs, "gl") != 0) {
         printf("ttt: window: TTT_RENDERER=%s unknown (gl or sw): gl\n", rs);
     }
     if (rs == NULL || strcmp(rs, "sw") != 0) {
         sGlMode = gl_open(flags, vsync, scale);
+        if (!sGlMode && Port_GpuFallback()) {
+            sdl.Quit(); /* EGL/GLX must reopen the display with the restored environment before retrying GL. */
+            if (!sdl.Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD) && !sdl.Init(SDL_INIT_VIDEO)) {
+                snprintf(sWhy, sizeof sWhy, "SDL_Init after GPU fallback: %s", sdl.GetError());
+                set_state(-1);
+                return NULL;
+            }
+            sGlMode = gl_open(flags, vsync, scale);
+        }
     }
+    audio_open();
     if (sGlMode) {
         printf("ttt: window: SDL %d.%d.%d, OpenGL renderer (TTT_RENDERER=gl)\n", v / 1000000, v / 1000 % 1000, v % 1000);
         fflush(stdout);
@@ -1069,6 +1085,7 @@ int Port_WindowOpen(void) {
         return 0;
     }
     sState = 1;
+    Port_GpuPrefer();
     if (!sdl_load()) {
         sState = -1;
     } else if (pthread_create(&t, NULL, window_main, NULL) != 0) {

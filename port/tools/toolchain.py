@@ -94,7 +94,7 @@ def isoc23_redefine_args(undefined):
 
 
 # Port C files whose new C library calls must not add PLT entries: all their external calls through the GOT.
-NOPLT_FILES = ("plat_settings.c", "gs_texpack.c", "plat_crash.c")
+NOPLT_FILES = ("plat_settings.c", "gs_texpack.c", "plat_crash.c", "plat_gpu.c")
 
 
 def host_float_objects(obj=None):

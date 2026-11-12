@@ -162,6 +162,27 @@ class Win64Build(unittest.TestCase):
         self.assertEqual([d for d in dlls if not ALLOWED_DLLS.match(d)], [])
         self.assertEqual(sorted(NEEDED_DLLS - set(dlls)), [])
 
+    def test_discrete_gpu_preferences_are_exported_with_value_one(self):
+        """Hybrid NVIDIA/AMD drivers inspect 32-bit data exports in the EXE, not just internal symbols or a DLL."""
+        exports = subprocess.run([f"{MINGW}-objdump", "-p", str(WIN_EXE)], capture_output=True, text=True,
+                                 check=True).stdout
+        nm = subprocess.run([f"{MINGW}-nm", str(WIN_EXE)], capture_output=True, text=True, check=True).stdout
+        symbols = {f[2]: int(f[0], 16) for f in map(str.split, nm.splitlines()) if len(f) == 3}
+        data = WIN_EXE.read_bytes()
+        pe = struct.unpack_from("<I", data, 0x3C)[0]
+        optsz = struct.unpack_from("<H", data, pe + 20)[0]
+        for name in ("NvOptimusEnablement", "AmdPowerXpressRequestHighPerformance"):
+            self.assertRegex(exports, rf"(?m)^\s*\[\s*\d+\][^\n]*\b{name}\s*$")
+            rva = symbols[name] - pe_headers(WIN_EXE)["image_base"]
+            for i in range(struct.unpack_from("<H", data, pe + 6)[0]):
+                section = pe + 24 + optsz + 40 * i
+                size, start, rawsize, offset = struct.unpack_from("<IIII", data, section + 8)
+                if start <= rva and rva + 4 <= start + rawsize:
+                    self.assertEqual(struct.unpack_from("<I", data, offset + rva - start)[0], 1, name)
+                    break
+            else:
+                self.fail(f"{name}: exported data not found in a file-backed PE section")
+
     def test_symbols(self):
         """The game's data names are absolute addresses in EE RAM, __executable_start is the code's start, and link.py
         wrote the crash report's table (ttt.exe.syms) with the game's functions."""

@@ -63,6 +63,8 @@ class HostCalls(unittest.TestCase):
                    # the texture packs (T39, gs_texpack.c with stb_image / stb_image_write: the C library functions
                    # only it calls; the others it shares with older code stay among the 48 entries, some now in .plt.got)
                    "opendir", "readdir", "closedir", "stat",
+                   # automatic GPU selection (plat_gpu.c): read-only AMD device-info query
+                   "ioctl", "fscanf", "__isoc99_fscanf", "__isoc23_fscanf", "strspn",
                    # the crash reports and the background check of TEKKEN.BIN (T41, plat_crash.c, plat_data.c)
                    "sigaction", "sigaltstack", "syscall", "raise", "abort", "open", "read", "write", "close", "statx",
                    # the setup (T43, plat_setup.c, plat_file.c, plat_paths.c)

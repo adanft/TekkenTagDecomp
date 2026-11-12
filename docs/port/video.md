@@ -19,6 +19,35 @@ Code: `port/src/gs_gl.c` (everything, and the frame-pacing report of T38: [Frame
 All of them apply at once (at the next picture). A new resolution or aspect writes every target back into GS memory
 and makes it again at the new size, so the picture just after the change is drawn from 1x content once.
 
+## GPU selection at startup
+
+Just run `ttt`: the OpenGL window requests a dedicated GPU by default, without forcing X11 over Wayland. The line
+`ttt: gl: <version>, <renderer>` identifies the GPU actually used, not just the requested preference.
+
+- **Linux:** PCI NVIDIA devices using the proprietary driver request PRIME render offload (EGL/Wayland and GLX/X11).
+  AMD devices using `amdgpu` are checked with the kernel's device-info query: an APU is not considered discrete.
+  A discrete Radeon is selected by PCI address through Mesa's `DRI_PRIME`, never by assuming GPU 1 is discrete.
+  Unrecognized drivers, unavailable render nodes or no detected dedicated GPU leave the system choice unchanged.
+  Intel discrete GPUs and the older `radeon` / `nouveau` drivers are not automatically classified by this policy.
+- **Windows:** the executable exports the NVIDIA Optimus and AMD PowerXpress high-performance preferences. Windows
+  Graphics settings and driver application profiles can override them. This is a driver request, not a guarantee on
+  every hybrid system; it does not change system settings or require either vendor's GPU to be present.
+
+On Linux, `TTT_GPU=system ./ttt` disables the automatic request. Explicit launch-time GPU choices (`DRI_PRIME`,
+NVIDIA offload, EGL vendor overrides, etc.) are preserved. A global `__GLX_VENDOR_LIBRARY_NAME=nvidia` alone does not
+select the NVIDIA GPU on native Wayland, so automatic offload is still allowed in that case. Dummy/offscreen test
+drivers, software-renderer runs and headless runs do not request a dedicated GPU.
+
+If automatic offload prevents SDL or OpenGL from opening, the window removes only the environment variables it added,
+reinitializes SDL and retries with the system GPU before the existing software-renderer fallback. An unsupported or
+broken driver can still prevent hardware rendering. Windows GPU requests are handled by the OS/driver at process
+startup rather than this environment-based retry.
+
+Tests: `python3 -m unittest discover -s tests -p 'test_port_gpu.py'` checks NVIDIA and AMD detection, APU rejection,
+manual overrides and environment restoration on synthetic devices without a GPU. Actual Windows and AMD rendering
+still requires testing on those systems. With a working desktop and game data, `TTT_GPU_TESTS=1` also enables a live
+SDL test that rejects the offloaded context and verifies the retry opens a hardware context with the system choice.
+
 ## What the game does
 
 Found with a trace of the primitives of one fight VBlank (scripted fight, VBlank 1250):

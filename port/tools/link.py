@@ -177,8 +177,12 @@ def link(objs, extra):
 # below it (image.ld, symbols.ld). --wrap as on Linux (the C library: msvcrt.dll). The console subsystem: the
 # program's messages go to the terminal that started it, as on Linux.
 def link_win64(objs, extra):
+    # GNU ld creates .reloc for exported data even with --disable-reloc-section (the hybrid-GPU preferences).
+    # Keep this fixed-address program's existing contract: no base relocations, not merely ASLR disabled.
+    fixed = GEN / "fixed_image.ld"
+    fixed.write_text("SECTIONS { /DISCARD/ : { *(.reloc) } } INSERT AFTER .text;\n")
     cmd = ([f"{MINGW}-gcc", "-w", "-Wl,--wrap=main", f"-Wl,--image-base=0x{TEXT64:X}", "-Wl,--disable-dynamicbase",
-            "-Wl,--disable-high-entropy-va", "-Wl,--disable-reloc-section", "-Wl,--stack,0x800000"] +
+            "-Wl,--disable-high-entropy-va", "-Wl,--disable-reloc-section", "-Wl,--stack,0x800000", f"-Wl,-T,{fixed}"] +
            [f"-Wl,--wrap={f}" for f in ("printf", "sprintf", "memcpy", "memset")] + ["-o", str(EXE)] + extra + objs +
            WIN_LIBS + [f"-Wl,-Map={EXE}.map"])
     return subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)

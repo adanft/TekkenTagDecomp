@@ -120,6 +120,7 @@ class Video(unittest.TestCase):
     def run_gl(self, name, **env):
         r, out = gl_run(self.d, name, **env)
         self.assertEqual(r.returncode, 0, r.stdout[-2000:] + r.stderr[-2000:])
+        self.assertNotIn("OpenGL back end: shader:", r.stdout, r.stdout[-2000:])
         if "OpenGL renderer" not in r.stdout:
             self.skipTest("no OpenGL 3.3 context here: " + r.stdout[-500:])
         return r, out
