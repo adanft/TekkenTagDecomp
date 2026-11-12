@@ -85,7 +85,7 @@ top folder `ttt-<version>-<target>/`:
 | Its symbol names (crash reports: `<program>.syms` beside it, `plat_crash.c`) | `ttt.syms` | `ttt.exe.syms` |
 | Matchmaking server and notice signer ([matchmaking.md](matchmaking.md)) | `ttt-server`, `ttt-sign` | `ttt-server.exe`, `ttt-sign.exe` |
 | Translations, found beside the program (`lang/`, [translations.md](translations.md)) | `lang/en.json`, `lang/es.json` | same |
-| The player README (`port/release/README.<target>.txt`) | `README.txt` (tested on Arch Linux only) | `README.txt` (CRLF), marked **untested on Windows**, with the `SDL3.dll` instructions or the note that it is included |
+| The player README (`port/release/README.<target>.txt`) | `README.txt` (tested on Arch Linux only) | `README.txt` (CRLF), with the maintainer's successful Windows x86-64 test report and the `SDL3.dll` instructions or the note that it is included |
 | `SDL3.dll` (only with `--sdl3-dll`: the CI release) | no | yes, with `LICENSES/sdl3.txt` (zlib) |
 | `VERSION.txt` (version, target, commit), `CHANGELOG.txt` (the port's `feat` / `fix` / `perf` commits since the previous tag) | yes | yes |
 | `docs/`: install, settings, input, video, sound, netplay, matchmaking, mods, textures, translations, accessibility, cheats | yes | yes |
@@ -162,8 +162,10 @@ not packaged by distributions that old; players there build SDL 3 themselves.
 
 Windows: the programs import only system DLLs (`KERNEL32`, `USER32`, `SHELL32`, `WS2_32`, `bcrypt`) and the
 Universal C Runtime (`api-ms-win-crt-*`, part of Windows 10 and later); winpthreads and libgcc are linked in
-(`-static`). The release refuses any other import (for example `libwinpthread-1.dll`). The Windows programs have not
-been run (no Windows, no Wine here): the README says so in its first lines.
+(`-static`). The release refuses any other import (for example `libwinpthread-1.dll`). The maintainer reports
+successful manual testing on Windows x86-64 with this architecture. This is not automated Windows certification or
+a compatibility guarantee for every Windows system. Automated Windows runtime checks remain unrun here (no Windows
+or Wine in the build environment); the README distinguishes that limitation from the maintainer's report.
 
 `dist/ttt-<version>-portability.txt` keeps the report of each release.
 
@@ -173,9 +175,11 @@ been run (no Windows, no Wine here): the README says so in its first lines.
 
 - every run: the checker on made-up archives (forbidden names, links, two top folders, the checkout's path, a
   program embedding 16 KB of the game's executable or data, the executable itself by hash, library tables skipped);
+  synthetic Windows packages staged with and without SDL3.dll, including their README and licence index, plus
+  rejection and deletion of archives with unrelated, differently cased or misplaced DLLs;
 - when `dist/` holds the current version's archives (or always with `TTT_SLOW_TESTS=1`, which packages the programs
   already built into a temporary folder): the allowlist, forbidden names, required files, execute bits, the
-  Windows README's warning, `SHA256SUMS`, the portability limits; the Linux archive extracted and run with an empty
+  Windows README's manual-testing statement and variant-specific SDL instructions, `SHA256SUMS`, the portability limits; the Linux archive extracted and run with an empty
   home, no display and SDL's dummy sound: `--version` (version, `languages: en es`, nothing written), the same
   without `lang/` (English only: the catalogs come from beside the program), `TTT_SELFTEST=hw`, the first run with
   no disc and no window (exit 2, `ttt: no disc: ...`, no data file), `--setup` on an empty folder (exit 2);
@@ -184,7 +188,7 @@ been run (no Windows, no Wine here): the README says so in its first lines.
 
 ## Open
 
-- The Windows archive has never run anywhere; the `SDL3.dll` instructions and the paths in its README are from the
-  code, not from a test.
+- Automated Windows runtime checks have not run in this build environment (no Windows or Wine). The maintainer's
+  successful Windows x86-64 manual test report does not establish compatibility on every Windows system.
 - Neither container recipe (`Dockerfile.linux`, `Dockerfile.ci`) nor the release workflow has been run.
 - `CHANGELOG.txt` is generated from commit subjects: before the first tag it lists the port's whole history.

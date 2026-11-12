@@ -18,7 +18,9 @@ import tarfile
 import tempfile
 import unittest
 import zipfile
+from contextlib import contextmanager, redirect_stdout, redirect_stderr
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "port/tools"))
@@ -39,7 +41,7 @@ LINUX_REQUIRED = {"ttt", "ttt.syms", "ttt-server", "ttt-sign", "README.txt", "VE
                   "docs/install.md", "docs/netplay.md", "docs/matchmaking.md"}
 WINDOWS_REQUIRED = ({n for n in LINUX_REQUIRED if n not in ("ttt", "ttt.syms", "ttt-server", "ttt-sign")} |
                     {"ttt.exe", "ttt.exe.syms", "ttt-server.exe", "ttt-sign.exe", "LICENSES/mingw-w64-runtime.txt"})
-# Never in an archive, in any folder (case ignored).
+# Never in an archive, in any folder (case ignored), except exact Windows top-level SDL3.dll.
 FORBIDDEN = re.compile(r"(^|/)(iso|saves|textures|mods|crash|frames)/|\.(iso|bin|cue|img|elf|irx|dat|disc|mcd|ps2|"
                        r"key|wav|ogg|png|ppm|dll|so)$|(^|/)(slus_|sces_|ttt\.dat|system\.cnf|settings\.ini|portable\.txt)",
                        re.I)
@@ -98,6 +100,77 @@ class TestChecker(unittest.TestCase):
 
     def tearDown(self):
         self.tmp.cleanup()
+
+    @contextmanager
+    def windows_fixture(self):
+        """Use real staging/packaging with tiny stand-ins, not built programs or a cross compiler."""
+        exe = self.dir / "fixture.exe"
+        exe.write_bytes(b"MZ synthetic\0test-version\0")
+        license_file = self.dir / "LICENSE.txt"
+        license_file.write_text("Synthetic licence for test fixtures\n")
+        target = dict(release.TARGETS["windows"], files={
+            name: (str(exe), False) for name in release.TARGETS["windows"]["files"]})
+        licenses = {name: (str(license_file),) for name in release.WINDOWS_LICENSES}
+        with patch.dict(release.TARGETS, windows=target), \
+                patch.object(release, "WINDOWS_LICENSES", licenses), \
+                patch.object(release, "sample_game_files", return_value={}):
+            yield exe, license_file
+
+    def test_windows_packaged_variants(self):
+        for bundled in (True, False):
+            with self.subTest(bundled=bundled), self.windows_fixture() as (dll, license_file):
+                out = self.dir / str(bundled)
+                out.mkdir()
+                top = out / "ttt-test-version-windows-x86_64"
+                sdl3 = (dll, license_file, "3.test") if bundled else None
+                release.stage("windows", "test-version", top, sdl3)
+                archive = release.archive("windows", "test-version", top, out)
+                case = TestArchives("test_windows_contents")
+                with patch.object(case, "archive", return_value=archive):
+                    case.test_windows_contents()
+                files, _ = entries(archive)
+                self.assertEqual("SDL3.dll" in files, bundled)
+                self.assertEqual("LICENSES/sdl3.txt" in files, bundled)
+                index = files["LICENSES/README.txt"][0]
+                if bundled:
+                    self.assertEqual(files["SDL3.dll"][0], dll.read_bytes())
+                    self.assertEqual(files["LICENSES/sdl3.txt"][0], license_file.read_bytes())
+                    self.assertIn(b"sdl3.txt", index)
+                    self.assertNotIn(b"SDL 3 is not part of this release", index)
+                else:
+                    self.assertIn(b"SDL 3 is not part of this release", index)
+
+    def test_windows_rejects_unrelated_and_misplaced_dlls(self):
+        for name in ("other.dll", "sdl3.dll", "SDL3.DLL", "docs/SDL3.dll", "lang/other.DLL"):
+            with self.subTest(name=name), self.windows_fixture():
+                out = self.dir / name.replace("/", "-")
+                original_stage = release.stage
+
+                def stage_with_bad_dll(*args, **kwargs):
+                    names = original_stage(*args, **kwargs)
+                    bad = args[2] / name
+                    bad.parent.mkdir(parents=True, exist_ok=True)
+                    bad.write_bytes(b"MZ unrelated library")
+                    return names + [name]
+
+                stdout, stderr = io.StringIO(), io.StringIO()
+                with patch.object(sys, "argv", ["release.py", "--no-build", "--targets", "windows",
+                                               "--out", str(out)]), \
+                        patch.object(release, "version", return_value="test-version"), \
+                        patch.object(release, "portability", return_value=([], [])), \
+                        patch.object(release, "stage", side_effect=stage_with_bad_dll), \
+                        redirect_stdout(stdout), redirect_stderr(stderr):
+                    with self.assertRaises(SystemExit) as refused:
+                        release.main()
+                message = str(refused.exception)
+                prefix = "ttt-test-version-windows-x86_64"
+                self.assertEqual(message, f"release: {prefix}.zip REFUSED (deleted):\n"
+                                 f"  {prefix}/{name}: not an allowed file\n"
+                                 f"  {prefix}/{name}: a forbidden name (game data, saves, dumps or keys)")
+                self.assertEqual(stdout.getvalue(), "release: portability:\n  \n"
+                                 "release: game files sampled on this machine: 0 (0 samples)\n")
+                self.assertEqual(stderr.getvalue(), "")
+                self.assertEqual(list(out.iterdir()), [])
 
     def test_layout_names_the_games_files(self):
         files = release.layout_files()
@@ -204,7 +277,8 @@ class TestArchives(unittest.TestCase):
         self.assertEqual(tops, {path.name.rsplit(".tar.gz", 1)[0].rsplit(".zip", 1)[0]})
         for name in files:
             self.assertRegex(name, f"^{allowed.pattern}$", f"{path.name}: {name} is not an allowed file")
-            self.assertNotRegex(name, FORBIDDEN, f"{path.name}: {name} is forbidden")
+            if not (target == "windows" and name == "SDL3.dll"):
+                self.assertNotRegex(name, FORBIDDEN, f"{path.name}: {name} is forbidden")
         self.assertEqual(required - set(files), set(), f"{path.name}: missing files")
         for name, (data, _) in files.items():
             self.assertIsNotNone(data, f"{name}: not a regular file")
@@ -224,8 +298,18 @@ class TestArchives(unittest.TestCase):
     def test_windows_contents(self):
         files = self.check_names("windows", WINDOWS_ALLOWED, WINDOWS_REQUIRED)
         readme = files["README.txt"][0]
-        self.assertIn(b"UNTESTED ON WINDOWS", readme)
-        self.assertIn(b"SDL3.dll - NOT included", readme)
+        self.assertIn(b"The maintainer reports successful testing on Windows x86-64.", readme)
+        self.assertIn(b"not an automated Windows certification", readme)
+        self.assertNotIn(b"UNTESTED ON WINDOWS", readme)
+        if "SDL3.dll" in files:
+            self.assertIn("LICENSES/sdl3.txt", files)
+            self.assertIn(b"SDL3.dll - included in this archive", readme)
+            self.assertIn(b"LICENSES\\sdl3.txt", readme)
+            self.assertNotIn(b"SDL3.dll - NOT included", readme)
+        else:
+            self.assertNotIn("LICENSES/sdl3.txt", files)
+            self.assertIn(b"SDL3.dll - NOT included", readme)
+            self.assertIn(b"https://github.com/libsdl-org/SDL/releases", readme)
         self.assertIn(b"\r\n", readme)
         for name in ("ttt.exe", "ttt-server.exe", "ttt-sign.exe"):
             self.assertTrue(files[name][0].startswith(b"MZ"), name)

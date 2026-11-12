@@ -1,9 +1,10 @@
 Tekken Tag Tournament - PC port {version} (Windows x86-64)
 ==============================================================================
 
-*** UNTESTED ON WINDOWS ***
-This build was cross-compiled on Linux and has not yet been run on Windows.
-It may not start at all. The port has been tested on Arch Linux only.
+The maintainer reports successful testing on Windows x86-64.
+This is a manual test report, not an automated Windows certification or a
+compatibility guarantee for every Windows system. Automated Windows runtime
+checks have not been run here (no Windows or Wine in the build environment).
 Reports (with the output of "ttt.exe --version" and any crash report) are
 welcome.
 
@@ -76,7 +77,7 @@ In this archive
 ---------------
   ttt.exe, ttt.exe.syms        the program, and its symbol names for crash reports
   ttt-server.exe, ttt-sign.exe matchmaking server and notice signer (optional)
-  SDL3.dll                     SDL 3 (official releases; zlib licence)
+  SDL3.dll                     only if bundled (see Requirements above; zlib licence)
   lang\                        translations (lang\<code>.json)
   docs\                        the documentation (install, settings, netplay...)
   LICENSES\                    licences of the code included from other projects
