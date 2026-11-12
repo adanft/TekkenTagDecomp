@@ -39,14 +39,19 @@ select the NVIDIA GPU on native Wayland, so automatic offload is still allowed i
 drivers, software-renderer runs and headless runs do not request a dedicated GPU.
 
 If automatic offload prevents SDL or OpenGL from opening, the window removes only the environment variables it added,
-reinitializes SDL and retries with the system GPU before the existing software-renderer fallback. An unsupported or
+releases any partial context and CPU allocations, reinitializes SDL and retries with the system GPU before the
+existing software-renderer fallback. Destroying the failed context also releases its GL objects. An unsupported or
 broken driver can still prevent hardware rendering. Windows GPU requests are handled by the OS/driver at process
 startup rather than this environment-based retry.
 
 Tests: `python3 -m unittest discover -s tests -p 'test_port_gpu.py'` checks NVIDIA and AMD detection, APU rejection,
-manual overrides and environment restoration on synthetic devices without a GPU. Actual Windows and AMD rendering
-still requires testing on those systems. With a working desktop and game data, `TTT_GPU_TESTS=1` also enables a live
-SDL test that rejects the offloaded context and verifies the retry opens a hardware context with the system choice.
+manual overrides and environment restoration on synthetic devices without a GPU. Isolated C harnesses also exercise
+context-creation/current failures, every CPU allocation failure, a late GL setup error, and successful retry/release.
+Actual Windows and AMD rendering still requires testing on those systems. With a working desktop and game data,
+`TTT_GPU_TESTS=1` also enables a live SDL test that rejects the offloaded context and verifies the retry opens the
+OpenGL backend with the system choice and reports its actual renderer. This is not proof of hardware acceleration:
+OpenGL may use Mesa llvmpipe/softpipe. Check the `ttt: gl: <version>, <renderer>` line for the driver actually used;
+a skipped live test provides no hardware evidence.
 
 ## What the game does
 

@@ -1,5 +1,6 @@
 """GPU preference policy on synthetic Linux DRM devices: no display, driver or game data required."""
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -174,10 +175,129 @@ int main(int argc, char **argv) {
         self.assertIn("retrying with the system GPU selection", out)
 
 
+@unittest.skipUnless(sys.platform.startswith("linux") and shutil.which("cc"), "Linux and a host C compiler required")
+class GpuCleanup(unittest.TestCase):
+    def build_run(self, source, argument, stdout):
+        with tempfile.TemporaryDirectory() as d:
+            src, exe = Path(d) / "cleanup.c", Path(d) / "cleanup"
+            src.write_text(source)
+            build = subprocess.run(["cc", "-std=gnu11", "-ffunction-sections", "-fdata-sections",
+                                    "-I", str(ROOT / "port/src"), "-I", str(ROOT / "port/include"),
+                                    str(src), "-Wl,--gc-sections", "-o", str(exe)],
+                                   capture_output=True, text=True, timeout=30)
+            self.assertEqual(build.returncode, 0, build.stdout + build.stderr)
+            r = subprocess.run([str(exe), str(argument)], capture_output=True, text=True, timeout=10)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertEqual(r.stderr, "")
+            self.assertEqual(r.stdout, stdout)
+
+    def test_context_failure_cleanup_and_successful_release(self):
+        self.build_run(r'''
+#include "plat_window.c"
+#include <assert.h>
+static int mode, contexts, windows, inits;
+const char *Port_DataMark(void) { return ""; }
+const char *Tr(const char *key, const char *en) { (void)key; return en; }
+void Settings_GetStr(const char *key, char *v, int n) { (void)key; snprintf(v, n, "4:3"); }
+int Gl_AspectMargin(const char *a) { (void)a; return 0; }
+int Gl_Init(void *(*p)(const char *), char *why, int n) {
+    (void)p; inits++; snprintf(why, n, "injected failure"); return mode == 3;
+}
+int Overlay_InitGl(void *(*p)(const char *)) { (void)p; return 1; }
+void Overlay_Shutdown(void) {}
+void Port_SndRingEnable(int on) { (void)on; }
+static _Bool attribute(int a, int b) { (void)a; (void)b; return 1; }
+static void *window(const char *s, int w, int h, uint64_t f) {
+    (void)s; (void)w; (void)h; (void)f; windows++; return (void *)1;
+}
+static void *context(void *w) { (void)w; if (!mode) return NULL; contexts++; return (void *)2; }
+static _Bool current(void *w, void *c) { (void)w; return c == NULL || mode != 1; }
+static const char *error(void) { return "injected"; }
+static _Bool interval(int v) { (void)v; return 1; }
+static _Bool destroy_context(void *c) { assert(c == (void *)2); contexts--; return 1; }
+static void destroy_window(void *w) { assert(w == (void *)1 && contexts == 0); windows--; }
+static void quit(void) { assert(!contexts && !windows); }
+int main(void) {
+    sHaveGlFuncs = 1;
+    sdl.GL_SetAttribute = attribute; sdl.CreateWindow = window; sdl.GL_CreateContext = context;
+    sdl.GL_MakeCurrent = current; sdl.GetError = error; sdl.GL_SetSwapInterval = interval;
+    sdl.GL_DestroyContext = destroy_context; sdl.DestroyWindow = destroy_window; sdl.Quit = quit;
+    for (mode = 0; mode < 3; mode++) {
+        assert(!gl_open(0, 0, 1));
+        assert(!contexts && !windows && !sGlContext && !sWindow);
+        assert(inits == (mode == 2));
+    }
+    assert(gl_open(0, 0, 1));
+    assert(contexts == 1 && windows == 1);
+    release();
+    assert(!contexts && !windows);
+    return 0;
+}
+''', 0, "ttt: window: no OpenGL 3.3 context (injected): software renderer\n" * 2
+             + "ttt: window: OpenGL back end: injected failure: software renderer\n"
+             + "ttt: window: no settings overlay (F1)\n")
+
+    def test_partial_allocations_and_setup_error_are_freed_before_retry(self):
+        # Typed no-op driver entry points keep this a real Gl_Init call without a display.
+        text = (ROOT / "port/src/gs_gl.c").read_text()
+        table = text.split("static struct {", 1)[1].split("} gl;", 1)[0]
+        stubs, mapping = [], []
+        bodies = {
+            "GetString": 'return (const unsigned char *)"synthetic";',
+            "GetShaderiv": "*a2 = 1;", "GetProgramiv": "*a2 = 1;",
+            "CreateShader": "return 1;", "CreateProgram": "return 1;",
+            "GetError": "return setup_error;", "GetUniformLocation": "return -1;",
+            "CheckFramebufferStatus": "return GL_FRAMEBUFFER_COMPLETE;",
+            "GetIntegerv": "*a1 = 1000000;",
+        }
+        for ret, name, args in re.findall(r"([\w *]+)\(\*(\w+)\)\(([^;]*)\);", table):
+            params = [] if args == "void" else args.split(",")
+            signature = ",".join(f"{p.strip()} a{i}" for i, p in enumerate(params)) or "void"
+            body = bodies.get(name, "" if ret.strip() == "void" else "return 0;")
+            stubs.append(f"static {ret.strip()} fake_{name}({signature}) {{ {body} }}")
+            mapping.append(f'if (!strcmp(name, "gl{name}")) return (void *)fake_{name};')
+        source = r'''
+#include <stdlib.h>
+#include <assert.h>
+static int calls, fail_at, live, setup_error;
+static void *alloc(size_t n) { void *p; if (++calls == fail_at) return NULL; p = calloc(1, n); if (p) live++; return p; }
+static void drop(void *p) { if (p) live--; free(p); }
+#define malloc(n) alloc(n)
+#define calloc(n,s) alloc((n)*(s))
+#define free(p) drop(p)
+#include "gs_gl.c"
+#undef malloc
+#undef calloc
+#undef free
+const uint16_t *Gs_PageTable(int k) { static uint16_t t[16384]; (void)k; return t; }
+uint32_t *Gs_Vram(void) { static uint32_t v[1048576]; return v; }
+''' + "\n".join(stubs) + '\nstatic void *getproc(const char *name) {\n' + "\n".join(mapping) + r'''
+return NULL;
+}
+static void *missing(const char *name) { (void)name; return NULL; }
+int main(int argc, char **argv) {
+    char why[128]; (void)argc;
+    fail_at = atoi(argv[1]); setup_error = fail_at == 7;
+    assert(!Gl_Init(missing, why, sizeof why));
+    assert(!strcmp(why, "no glGetError") && live == 0);
+    assert(!Gl_Init(getproc, why, sizeof why));
+    assert(!strcmp(why, setup_error ? "GL error while setting up" : "out of memory"));
+    assert(live == 0);
+    fail_at = setup_error = calls = 0;
+    assert(Gl_Init(getproc, why, sizeof why));
+    assert(live == 4);
+    return 0;
+}
+'''
+        for failure in range(1, 8):
+            with self.subTest(failure=failure):
+                self.build_run(source, failure, "ttt: gl: synthetic, synthetic\n")
+
+
 @unittest.skipUnless(sys.platform.startswith("linux") and shutil.which("cc") and EXE.exists() and disc() is not None
                      and os.environ.get("TTT_GPU_TESTS") == "1", "live GPU fallback test: set TTT_GPU_TESTS=1")
 class GpuWindowFallback(unittest.TestCase):
-    def test_failed_offload_reinitializes_sdl_and_keeps_hardware_rendering(self):
+    def test_failed_offload_reinitializes_sdl_and_keeps_opengl_backend(self):
         """Reject only the offloaded context through an SDL shim, then let the real driver create the default one."""
         with tempfile.TemporaryDirectory() as d:
             src, lib = Path(d) / "fail-offload.c", Path(d) / "fail-offload.so"
@@ -200,4 +320,8 @@ void *SDL_GL_CreateContext(void *window) {
                 self.skipTest("no automatic discrete GPU request on this host (or an explicit GPU override)")
             self.assertIn("retrying with the system GPU selection", r.stdout)
             self.assertIn("OpenGL renderer", r.stdout)
+            renderer = re.search(r"^ttt: gl: ([^\n]+), ([^\n]+)$", r.stdout, re.MULTILINE)
+            self.assertIsNotNone(renderer, "missing GL version and actual renderer identification")
+            self.assertNotEqual(renderer.group(2).strip(), "?")
+            # OpenGL can be Mesa llvmpipe/softpipe: this proves backend retry, not hardware acceleration.
             self.assertNotIn("TTT_RENDERER=sw", r.stdout)

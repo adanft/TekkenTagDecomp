@@ -540,6 +540,15 @@ static void audio_pump(void) {
     }
 }
 
+/* The context owns all back-end GL objects, including those from an incomplete Gl_Init. */
+static void release_gl_context(void) {
+    if (sGlContext != NULL) {
+        sdl.GL_MakeCurrent(sWindow, NULL);
+        sdl.GL_DestroyContext(sGlContext);
+        sGlContext = NULL;
+    }
+}
+
 /* The window's objects, released on the window thread (GL contexts and renderers belong to it). */
 static void release(void) {
     Overlay_Shutdown();
@@ -548,11 +557,7 @@ static void release(void) {
         sdl.DestroyAudioStream(sAudio);
         sAudio = NULL;
     }
-    if (sGlContext != NULL) {
-        sdl.GL_MakeCurrent(sWindow, NULL);
-        sdl.GL_DestroyContext(sGlContext);
-        sGlContext = NULL;
-    }
+    release_gl_context();
     if (sRenderer != NULL) {
         sdl.DestroyRenderer(sRenderer);
         sRenderer = NULL;
@@ -898,10 +903,8 @@ static int gl_open(uint64_t flags, int vsync, int scale) {
             return 1;
         }
         printf("ttt: window: OpenGL back end: %s: software renderer\n", why);
-        sdl.GL_MakeCurrent(sWindow, NULL);
-        sdl.GL_DestroyContext(sGlContext);
     }
-    sGlContext = NULL;
+    release_gl_context();
     sdl.DestroyWindow(sWindow);
     sWindow = NULL;
     return 0;

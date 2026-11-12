@@ -2901,7 +2901,7 @@ void Gl_Exec(const Cmd *c) {
 int Gl_Init(void *(*getproc)(const char *name), char *why, int whylen) {
     size_t i;
     const unsigned char *ver, *ren;
-    uint16_t *tab, *inv;
+    uint16_t *tab = NULL, *inv = NULL;
     int k;
 
     for (i = 0; i < sizeof kGlFuncs / sizeof kGlFuncs[0]; i++) {
@@ -2983,7 +2983,7 @@ int Gl_Init(void *(*getproc)(const char *name), char *why, int whylen) {
     sB = malloc((size_t)MAX_BATCHES * sizeof *sB);
     if (tab == NULL || inv == NULL || sPal == NULL || sV == NULL || sS == NULL || sB == NULL) {
         snprintf(why, (size_t)whylen, "out of memory");
-        return 0;
+        goto fail;
     }
     {
         static const int kW[5] = {64, 64, 64, 128, 128}, kH[5] = {32, 64, 64, 64, 128}, kRow[5] = {0, 32, 96, 160, 224};
@@ -3011,6 +3011,7 @@ int Gl_Init(void *(*getproc)(const char *name), char *why, int whylen) {
     sInvTex = texture(GL_R16UI, 64, 160, GL_RED_INTEGER, GL_UNSIGNED_SHORT, inv);
     free(tab);
     free(inv);
+    tab = inv = NULL;
     gl.ActiveTexture(GL_TEXTURE0 + U_PAL);
     sPalTex = texture(GL_RGBA8UI, 256, PAL_ROWS, GL_RGBA_INTEGER, GL_UNSIGNED_BYTE, NULL);
     sPalFbo = fbo_of(sPalTex, 0);
@@ -3066,12 +3067,27 @@ int Gl_Init(void *(*getproc)(const char *name), char *why, int whylen) {
     plain_state();
     if (gl.GetError() != 0) {
         snprintf(why, (size_t)whylen, "GL error while setting up");
-        return 0;
+        goto fail;
     }
     printf("ttt: gl: %s, %s\n", ver != NULL ? (const char *)ver : "?", ren != NULL ? (const char *)ren : "?");
     fflush(stdout);
     sReady = 1;
     return 1;
+
+fail:
+    free(tab);
+    free(inv);
+    free(sPal);
+    free(sV);
+    free(sS);
+    free(sB);
+    sPal = NULL;
+    sV = NULL;
+    sS = NULL;
+    sB = NULL;
+    /* The caller destroys this context (and all its GL objects) before retrying. Do not issue GL deletes here:
+       loading entry points may have failed, and no object from this context may be deleted in the next one. */
+    return 0;
 }
 
 static unsigned tenths(uint64_t ns) { return (unsigned)(ns / 100000); } /* in tenths of a millisecond */
