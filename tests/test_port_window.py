@@ -171,6 +171,7 @@ class Overlay(unittest.TestCase):
             self.assertGreater(int(m.group(1)), 40)
             self.assertEqual((m.group(3), m.group(4), m.group(5)), ("9", "1", "Space"))
             self.assertIn(WINDOW_TEST, r.stdout)
+            self.assertIn("ttt: overlay: text input 2/2, null ignored 1", r.stdout)
             self.assertNotIn("ImGui check failed", r.stderr)
             self.assertIn("keys.p1.square = Space\n", cfg.read_text())
             # T34: a gamepad binding through the capture path (a made-up gamepad event), saved by name

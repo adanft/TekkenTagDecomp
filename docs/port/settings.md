@@ -171,7 +171,7 @@ GL context / renderer and the window, then `_exit(0)`). `TTT_NO_QUIT_CONFIRM=1` 
 | `TTT_CONFIG=<file>` | The settings file. |
 | `TTT_NO_QUIT_CONFIRM=1` | Close / Escape quit without asking. |
 | `TTT_SCALE`, `TTT_FULLSCREEN`, `TTT_FPS_METER`, `TTT_VOLUME`, `TTT_MUTE`, `TTT_MUSIC_VOLUME`, `TTT_EFFECTS_VOLUME`, `TTT_SPEED`, `TTT_FAST_FORWARD`, `TTT_CHEAT_UNLOCK`, `TTT_PAUSE_IN_MENU`, `TTT_RESOLUTION`, `TTT_ASPECT`, `TTT_DEFLICKER`, `TTT_SMOOTH`, `TTT_LOW_LATENCY`, `TTT_TEXTURE_REPLACE`, `TTT_TEXTURE_DUMP`, `TTT_TEXTURES`, `TTT_MOD_MUSIC`, `TTT_MOD_TEXTURES`, `TTT_MODS`, `TTT_MOD_ORDER`, `TTT_MOD_DISABLED`, `TTT_VIBRATION`, `TTT_DEADZONE`, `TTT_STICK_DPAD`, `TTT_MULTITAP`, `TTT_LANG`, `TTT_UI_SCALE`, `TTT_HIGH_CONTRAST`, `TTT_SCREEN_READER`, `TTT_ANNOUNCE_GAME` | The settings above, over the file. |
-| `TTT_OVERLAY_TEST=1` | Tests: with a window, the overlay is driven from inside (made-up key events through the window's own handling at fixed frames: F1, a key pressed while open, Escape; every page drawn; a key and a gamepad button bound through the capture paths) and the report adds `ttt: overlay: ...` and `ttt: window: overlay test: ...`. Nothing is sent to the desktop. There are nine pages since T49 (Mods) and T46 (Netplay), and after Escape the arrow keys move the focus in the "Quit?" question; the report adds the language, the font's accented letters and the screen reader's count. |
+| `TTT_OVERLAY_TEST=1` | Tests: with a window, the overlay is driven from inside (made-up key events through the window's own handling at fixed frames: F1, a key pressed while open, Escape; every page drawn; a key and a gamepad button bound through the capture paths; native-layout UTF-8 text and a null text event) and the report adds `ttt: overlay: ...` and `ttt: window: overlay test: ...`. Nothing is sent to the desktop. There are nine pages since T49 (Mods) and T46 (Netplay), and after Escape the arrow keys move the focus in the "Quit?" question; the report adds the language, the font's accented letters and the screen reader's count. |
 | `TTT_SELFTEST=settings` | The file's round trip (comments, sections and unknown keys kept, no temporary file left), the environment's precedence, clamping, key names both ways, rebinding (swaps, F1 / Escape / Tab refused), the gamepads' bindings (defaults, swaps within a pad, guide refused,
 `none`, names both ways, the file's round trip), the `input.*` options, the T40 defaults; T47: the catalog reader (escapes, UTF-8, broken files refused), the English fallback, the placeholder checks, the language's round trip through `ui.language` / `TTT_LANG` to `port/lang/es.json` and back, `es_AR` to `es`, the locale's detection, the picker's list. Needs `TTT_CONFIG` (it writes that file). |
 
@@ -186,7 +186,10 @@ through the GOT: the program's PLT, and so every game function's address, is unc
 (`port/tools/toolchain.py`).
 
 - No SDL3 backend of ImGui: it links SDL, which the port loads at run time. The platform side is in `overlay.cpp`
-  (raw SDL events by offset, as `plat_window.c` reads them).
+  (raw SDL events by offset, as `plat_window.c` reads them). The pointer in
+  [`SDL_TextInputEvent`](https://wiki.libsdl.org/SDL3/SDL_TextInputEvent) is at offset 20 on 32-bit builds and 24 on
+  64-bit builds; its native alignment must be respected before forwarding UTF-8 to ImGui. `TTT_OVERLAY_TEST=1`
+  checks exact ASCII/accented codepoints and that a null text pointer queues nothing (`text input 2/2, null ignored 1`).
 - OpenGL through ImGui's own loader, filled from `SDL_GL_GetProcAddress` (`imgl3wInit2`); its `atexit` call (which
   would add a PLT entry) is renamed after compiling to a no-op in `overlay.cpp` (`toolchain.IMGUI_OBJCOPY`).
 - The software renderer's overlay draws with `SDL_RenderGeometryRaw` (a small backend in `overlay.cpp`).
@@ -194,7 +197,7 @@ through the GOT: the program's PLT, and so every game function's address, is unc
 
 ## Open
 
-- No text input in the overlay (nothing needs it yet). Gamepad navigation is checked on made-up events only.
+- Gamepad navigation is checked on made-up events only.
 - The software renderer's overlay switches SDL's logical presentation off while it draws; checked with SDL's dummy
   driver only (no picture comparison).
 - T37's video options are in [video.md](video.md).

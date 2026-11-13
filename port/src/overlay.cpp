@@ -67,7 +67,7 @@ static const int kScancodeAt = 24, kKeyModAt = 32, kKeyDownAt = 36, kKeyRepeatAt
 static const int kMouseXAt = 28, kMouseYAt = 32, kButtonAt = 24, kButtonDownAt = 25;  /* SDL_Mouse*Event */
 static const int kWheelXAt = 24, kWheelYAt = 28, kWheelDirAt = 32;
 static const int kPadCodeAt = 20, kPadDownAt = 21, kPadAxisValueAt = 24; /* SDL_Gamepad{Button,Axis}Event */
-static const int kTextAt = 20; /* SDL_TextInputEvent.text (a pointer: after windowID on i386) */
+static const int kTextAt = sizeof(const char *) == 8 ? 24 : 20; /* SDL_TextInputEvent.text: native pointer alignment */
 
 static int sMode; /* 0 none, 1 GL, 2 SDL renderer */
 static OverlaySdlRenderer sSw;
@@ -79,6 +79,7 @@ static int64_t sLastNs;
 static int64_t sShown[64]; /* the meter: when the last pictures reached the window */
 static unsigned sShownN;
 static int sTest = -1, sTestFrames, sTestPages, sTestCapture, sTestGpCapture; /* TTT_OVERLAY_TEST */
+static int sTestText, sTestNullText;
 static int sTestTab = -1;
 static unsigned sDrawn;
 static int sStyleScale = -1, sStyleContrast = -1; /* the ui.scale and ui.high_contrast the style has (T48) */
@@ -1609,6 +1610,29 @@ extern "C" void Overlay_TestStep(void) {
             ImGui::GetIO().AddKeyEvent(k <= 3 ? ImGuiKey_RightArrow : ImGuiKey_LeftArrow, (k & 1) == 0);
         }
     }
+    if (n == 4) { /* SDL3's native struct layout, independent of the reader's raw-byte offsets. */
+        struct TextEvent {
+            uint32_t type, reserved;
+            uint64_t timestamp;
+            uint32_t windowID;
+            const char *text;
+        } text = {EV_TEXT_INPUT, 0, 0, 1, "A\xC3\xB1"};
+        uint8_t raw[128] = {0};
+        ImVector<ImGuiInputEvent> &queue = ImGui::GetCurrentContext()->InputEventsQueue;
+        int first = queue.Size;
+        memcpy(raw, &text, sizeof text);
+        Overlay_Event(text.type, raw);
+        if (queue.Size == first + 2 && queue[first].Type == ImGuiInputEventType_Text &&
+            queue[first].Text.Char == 0x41 && queue[first + 1].Type == ImGuiInputEventType_Text &&
+            queue[first + 1].Text.Char == 0xF1) {
+            sTestText = 2;
+        }
+        text.text = nullptr;
+        memcpy(raw, &text, sizeof text);
+        int before_null = queue.Size;
+        Overlay_Event(text.type, raw);
+        sTestNullText = queue.Size == before_null;
+    }
     if (n == 28) { /* bind pad 1's square through the capture path: a made-up key event, as SDL would hand it */
         uint8_t ev[128] = {0};
         uint32_t type = EV_KEY_DOWN, sc = 44; /* Space */
@@ -1667,6 +1691,7 @@ extern "C" void Overlay_Report(void) {
         printf("ttt: overlay: %d frames drawn (%s), pages %d/%d, key capture %d (pad 1 square: %s)\n", sTestFrames,
                sMode == 1 ? "gl" : "sw", pages(), TEST_PAGES, sTestCapture, name);
         printf("ttt: overlay: data mark drawn %u times\n", sMarkDrawn);
+        printf("ttt: overlay: text input %d/2, null ignored %d\n", sTestText, sTestNullText);
         uint8_t g[SETTINGS_PADS][SB_GAMEPAD_COUNT];
         Port_WindowGetGamepad(g);
         printf("ttt: overlay: gamepad capture %d (pad 2 cross: %s)\n", sTestGpCapture,
