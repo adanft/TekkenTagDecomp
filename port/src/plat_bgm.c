@@ -86,6 +86,7 @@ static void stream_voices(void) {
         v->ssa = i == BGM_L ? BUF_L : BUF_R;
         v->adsr1 = 0x000F;
         v->adsr2 = 0x0003;
+        v->lsaSet = 0; /* resident tracks must regain their own ADPCM loop markers */
     }
 }
 
@@ -261,9 +262,25 @@ static void fill_half(int h) {
             memset(d + HALF - 16, 0, 16);
             d[HALF - 16 + 1] = 7;
         }
+        /* SpuSt's DMA-completion callback explicitly restores the buffer's repeat address. */
+        gSpu2[0].v[BGM_L + c].lsa = c == 0 ? BUF_L : BUF_R;
+        gSpu2[0].v[BGM_L + c].lsaSet = 1;
     }
     if (sB.final) {
         sB.finalAddr = BUF_L + (uint32_t)h * HALF + HALF - 16;
+    }
+}
+
+/* Do not point a wrap at the final silent block until playback enters its half: that would skip its payload. */
+static void terminal_lsa(void) {
+    uint32_t nax = gSpu2[0].v[BGM_L].nax;
+    int c;
+    if (!sB.final || nax < sB.finalAddr - (HALF - 16) || nax > sB.finalAddr) {
+        return;
+    }
+    for (c = 0; c < 2; c++) {
+        gSpu2[0].v[BGM_L + c].lsa = sB.finalAddr + (c == 0 ? 0 : BUF_R - BUF_L);
+        gSpu2[0].v[BGM_L + c].lsaSet = 1;
     }
 }
 
@@ -281,6 +298,9 @@ static void key_on(void) {
         sB.half = 0;
     }
     Spu2_KeyOn(0, 3u << BGM_L);
+    if (t->type != 2) {
+        terminal_lsa();
+    }
 }
 
 static void stop_now(void) {
@@ -363,6 +383,7 @@ void Port_BgmService(void) {
     if (sB.state != 4 || sB.tracks[sB.cur].type == 2) {
         return;
     }
+    terminal_lsa();
     if (sB.final && v->nax == sB.finalAddr) {
         stop_now();
         return;

@@ -145,19 +145,26 @@ blocks per half: 6 / 2 / 2 in the first half and 2 / 2 / 3 in the second. The po
 rules (start on load, end and repeat on leaving a block, end without repeat silences) are those of PCSX2's SPU2 and
 psx-spx. `TTT_SELFTEST=spu` plays a two-half buffer with those flags and checks that it loops to its start.
 
-Unresolved: every BGM track carries one block with only the loop-start flag (4), on its first non-silent block.
-- On most tracks that is block 0 of the first sector, which the rewrite overwrites.
-- On tracks 9, 10, 11, 13, 15, 20, 21 and 22 it is in the middle of the first sector's first half (blocks 9-49),
-  after a lead-in of silent blocks. The model moves the voice's loop address there, and it stays there: after each
-  second half the voice jumps back to that block, so the head of every later first half is skipped.
-- The scripted fight's stage track 21 shows it: voice 22's loop address goes to 0x1EE140, which skips 20 of 64
-  blocks of every other sector.
-- No write of the loop address was found in the driver's stream path. Its SpuSetVoiceAttr calls use mask 0xFF93,
-  which has no LSAX bit. PCSX2 and DuckStation also let a loop-start flag move the loop address unless software
-  wrote it.
-- Either the console skips those blocks too, or something not yet found prevents it. This needs the console or a
-  closer reading of libspu2's SpuSt, and is left unchanged. A fix would change the hashed loop address, so the state
-  hashes.
+**Stream repeat-address correction.** Tracks 9, 10, 11, 13, 15, 20, 21 and 22 carry an
+interior loop-start flag (4) in the first sector. In v0.1.2, it redirects later buffer wraps to that block: snow
+track 11 skips blocks 0–48, while track 21 skips 0–19. The payload flags themselves are not incorrect and are retained.
+
+The original driver does write LSAX outside `SpuSetVoiceAttr(0xFF93)`. Static inspection of `RSPU2DRV.IRX` finds the
+DMA-completion callback at module-relative `0x6308`: `0x6394–0x63AC` passes each voice's buffer base to the address
+writer `0x86CC`, whose stores at `0x872C/0x8738` program LSAX. Its terminal path at `0x5F68–0x5F78` programs an
+end-block repeat address. These are module-relative instruction addresses, not a measured runtime IOP load base.
+
+The stream engine restores each stream voice's buffer-base repeat address when filling a half. Once playback enters
+the final half, it pins repetition to the silent end block. Setting that terminal address during an inactive-half
+refill would skip the final payload on the next wrap. New voice setup clears the stream's manual-address latch so
+resident tracks again honor their own markers; the generic SPU decoder and pitch are unchanged.
+
+`python3 -m unittest discover -s tests -p test_port_bgm.py -v` builds a synthetic native fixture with clang, without
+game data or a full port build. It checks block traversal, terminal halves, resident transitions, hold/release,
+stop/fade, independent effects and registered-state replay. This does not establish original-hardware IRQ/DMA timing
+or exact musical tempo. The host still uses NAX polling rather than the original driver's IRQ/DMA callbacks.
+Because loop addresses and their manual-write latches are hashed state, this correction changes stream-era hashes;
+old captures remain historical references, not hashes to silently replace or weaken. No saved fields are added.
 
 **Volume.** Every tick, `v = option * scale * fade >> 14`. In stereo, voice 22 gets (v, 0) and voice 23 gets (0, v).
 In mono, both get v * 65 / 100 on both sides.
