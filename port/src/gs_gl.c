@@ -121,6 +121,7 @@ typedef char GLchar;
 #define GL_INT 0x1404
 #define GL_UNSIGNED_INT 0x1405
 #define GL_FLOAT 0x1406
+#define GL_HALF_FLOAT 0x140B
 #define GL_FRAMEBUFFER 0x8D40
 #define GL_READ_FRAMEBUFFER 0x8CA8
 #define GL_DRAW_FRAMEBUFFER 0x8CA9
@@ -658,7 +659,7 @@ typedef struct Rt {
     int m;                  /* widescreen margin left and right (GS pixels; a 640-wide target only) */
     int tw, th;             /* the texture's size: (w + 2 m) x rows GS pixels, sScale GL pixels each */
     GLuint snap, snapFbo;   /* a copy for texture reads of it at full resolution (snap_update) */
-    int snapDirty, sy0, sy1; /* rows drawn since that copy */
+    int snapDirty, sx0, sx1, sy0, sy1; /* the rectangle drawn since that copy (GS pixels; x from -m) */
     uint32_t snapGen;       /* the copy's serial number */
     uint32_t mgen, snapMgen; /* the window picture its margins were last drawn in (and as of the copy) */
     int copyOf;             /* 1 + the target whose snapshot copyGen it holds, halved vertically (the game's flicker filter) */
@@ -741,6 +742,8 @@ static uint32_t sMemGen;       /* bumped whenever the CPU copy of GS memory chan
 static uint64_t sClutHash;
 static uint32_t sDirtyEpoch, sCheckedEpoch; /* bumped when a target becomes dirty: sDirtyAny is then made again */
 static int sChecked;
+static uint64_t sSnapCopies, sSnapPixels; /* snapshot updates and the target pixels they copied (TTT_FRAMES report) */
+static uint32_t sSnapCheckEvery = UINT32_MAX, sSnapChecks, sSnapMismatch; /* TTT_GS_SNAPCHECK=n: every n-th update compared whole */
 static uint32_t sDirtyAny[16];     /* the CLUT buffer's content (64-bit FNV-1a of its words) */
 static uint16_t sClut[512];   /* the CLUT buffer, loaded in order with the primitives */
 static uint32_t (*sPal)[256];  /* CLUT rows waiting for the next draw call */
@@ -1742,7 +1745,10 @@ static void uv_span(uint32_t wm, int size, int mn, int mx, int cmin, int cmax, i
    the texels its vertices' UV reach (uv_span), as gs_core.c's classify() for sprites: a copy of one buffer into
    another in strips then resolves its source once, not per strip, and glyphs from a font in a frame buffer's top byte
    do not resolve the buffers next to it. */
-static void texture_hazard(const Draw *d, const Cmd *c) {
+/* `snap`: the target whose snapshot the primitive samples (-1: none). Its texels come from that snapshot, not GS
+   memory: it is not resolved for this primitive and stays dirty, so a later reader of GS memory still resolves it. A
+   primitive that draws into the target it samples (the frame read back by triangles) then costs no resolve each. */
+static void texture_hazard(const Draw *d, const Cmd *c, int snap) {
     uint64_t t0 = d->tex0 & 0x3FFFFFFFFull;
     uint64_t cl = (uint64_t)d->wms | (uint64_t)d->wmt << 2 | (uint64_t)d->minu << 4 | (uint64_t)d->maxu << 14 | (uint64_t)d->minv << 24 |
                   (uint64_t)d->maxv << 34;
@@ -1797,20 +1803,24 @@ static void texture_hazard(const Draw *d, const Cmd *c) {
         return;
     }
     for (i = 0; i < MAX_RT; i++) {
-        if (drew_over(i, sTexPages.pages, mask)) {
+        if (i != snap && drew_over(i, sTexPages.pages, mask)) {
             resolve(i);
         }
     }
 }
 
-/* Target i is drawn in rows y0..y1. */
-static void mark(int i, int y0, int y1) {
+/* Target i is drawn in columns x0..x1 (from -m), rows y0..y1. */
+static void mark(int i, int x0, int x1, int y0, int y1) {
     Rt *r = &sRt[i];
     if (!r->snapDirty) {
         r->snapDirty = 1;
+        r->sx0 = x0;
+        r->sx1 = x1;
         r->sy0 = y0;
         r->sy1 = y1;
     } else {
+        r->sx0 = x0 < r->sx0 ? x0 : r->sx0;
+        r->sx1 = x1 > r->sx1 ? x1 : r->sx1;
         r->sy0 = y0 < r->sy0 ? y0 : r->sy0;
         r->sy1 = y1 > r->sy1 ? y1 : r->sy1;
     }
@@ -1840,10 +1850,12 @@ static int snapping(void) { return sScale > 1 || sMarg > 0 || !sDeflicker || sLo
    drawn over a fight's frame) and show black. */
 static int fresh(uint32_t gen) { return gen != 0 && gen + 2 > sFrame; }
 
-/* Target i's snapshot made current: the rows drawn since the last one copied (all of them the first time). */
+/* Target i's snapshot made current: the rectangle drawn since the last one copied (all of it the first time). A
+   primitive reading the target it draws into (the frame bent by a mesh of triangles) then copies only what the
+   primitives before it drew, not whole rows. */
 static void snap_update(int i) {
     Rt *r = &sRt[i];
-    int y0 = 0, y1 = r->th;
+    int x0 = 0, x1 = r->tw, y0 = 0, y1 = r->th;
     if (r->snap != 0 && !r->snapDirty) {
         return;
     }
@@ -1854,6 +1866,10 @@ static void snap_update(int i) {
         gl.ActiveTexture(GL_TEXTURE0 + U_VRAM);
         r->snapFbo = fbo_of(r->snap, 0);
     } else {
+        x0 = (r->sx0 + r->m) * sScale;
+        x1 = (r->sx1 + 1 + r->m) * sScale;
+        x0 = x0 < 0 ? 0 : x0;
+        x1 = x1 > r->tw ? r->tw : x1;
         y0 = r->sy0 * sScale;
         y1 = (r->sy1 + 1) * sScale < r->th ? (r->sy1 + 1) * sScale : r->th;
     }
@@ -1862,7 +1878,31 @@ static void snap_update(int i) {
         gl.BindFramebuffer(GL_READ_FRAMEBUFFER, src);
         gl.ReadBuffer(GL_COLOR_ATTACHMENT0);
         gl.BindFramebuffer(GL_DRAW_FRAMEBUFFER, r->snapFbo);
-        gl.BlitFramebuffer(0, y0, r->tw, y1, 0, y0, r->tw, y1, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        if (x1 > x0) {
+            gl.BlitFramebuffer(x0, y0, x1, y1, x0, y0, x1, y1, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        }
+    }
+    sSnapCopies++;
+    sSnapPixels += x1 > x0 ? (uint64_t)(x1 - x0) * (uint64_t)(y1 - y0) : 0;
+    if (sSnapCheckEvery == UINT32_MAX) {
+        const char *e = getenv("TTT_GS_SNAPCHECK");
+        sSnapCheckEvery = e != NULL && atoi(e) > 0 ? (uint32_t)atoi(e) : 0;
+    }
+    if (sSnapCheckEvery != 0 && sSnapCopies % sSnapCheckEvery == 0) { /* diagnostics: the copy equals the target, all of it */
+        size_t n = (size_t)r->tw * (size_t)r->th * 4;
+        uint16_t *a = malloc(n * 2), *b = malloc(n * 2);
+        if (a != NULL && b != NULL) {
+            gl.BindFramebuffer(GL_READ_FRAMEBUFFER, fbo(i, -1));
+            gl.ReadBuffer(GL_COLOR_ATTACHMENT0);
+            gl.ReadPixels(0, 0, r->tw, r->th, GL_RGBA, GL_HALF_FLOAT, a);
+            gl.BindFramebuffer(GL_READ_FRAMEBUFFER, r->snapFbo);
+            gl.ReadBuffer(GL_COLOR_ATTACHMENT0);
+            gl.ReadPixels(0, 0, r->tw, r->th, GL_RGBA, GL_HALF_FLOAT, b);
+            sSnapChecks++;
+            sSnapMismatch += memcmp(a, b, n * 2) != 0;
+        }
+        free(a);
+        free(b);
     }
     r->snapDirty = 0;
     r->snapGen = ++sSnapGen;
@@ -1881,7 +1921,6 @@ static int snap_source(const Draw *d) {
         const Rt *r = &sRt[i];
         if (r->used && !r->depth && r->bp == d->tbp && r->bw == (d->tbw != 0 ? d->tbw : 1) &&
             (r->psm == d->tpsm || (r->psm == 0x00 && d->tpsm == 0x01))) {
-            snap_update(i);
             return i;
         }
     }
@@ -2163,11 +2202,14 @@ static void prim(const Cmd *c) {
         }
     }
     if (d->tex) {
-        texture_hazard(d, c);
+        src = snap_source(d);
+        texture_hazard(d, c, src);
         if (d->tbits <= 8) {
             palRow = pal_row(d);
         }
-        src = snap_source(d);
+        if (src >= 0) {
+            snap_update(src);
+        }
         if (sTpSlot != NULL && src < 0) {
             repl = tp_lookup(d, palRow, &replS[0], &replS[1]);
         }
@@ -2279,17 +2321,24 @@ static void prim(const Cmd *c) {
     }
     {
         int n = c->type == CMD_TRIANGLE ? 3 : c->type == CMD_POINT ? 1 : 2, i, y0 = v[0].y >> 4, y1 = (v[0].y + 15) >> 4;
+        int x0 = v[0].x >> 4, x1 = (v[0].x + 15) >> 4, m = sRt[rt].m;
+        int sx0 = wide ? -m : d->scx0, sx1 = wide ? sRt[rt].w - 1 + m : d->scx1;
         for (i = 1; i < n; i++) {
             y0 = (v[i].y >> 4) < y0 ? v[i].y >> 4 : y0;
             y1 = ((v[i].y + 15) >> 4) > y1 ? (v[i].y + 15) >> 4 : y1;
+            x0 = (v[i].x >> 4) < x0 ? v[i].x >> 4 : x0;
+            x1 = ((v[i].x + 15) >> 4) > x1 ? (v[i].x + 15) >> 4 : x1;
         }
+        /* one pixel more each side (lines, points and edges at scale), within the scissor */
+        x0 = x0 - 1 < sx0 ? sx0 : x0 - 1;
+        x1 = x1 + 1 > sx1 ? sx1 : x1 + 1;
         y0 = y0 < d->scy0 ? d->scy0 : y0;
         y1 = y1 > d->scy1 ? d->scy1 : y1;
         y1 = y1 >= (int)sRt[rt].rows ? (int)sRt[rt].rows - 1 : y1;
         if (y0 <= y1) {
-            mark(rt, y0, y1);
+            mark(rt, x0, x1, y0, y1);
             if (zrt >= 0 && d->zwrite) {
-                mark(zrt, y0, y1);
+                mark(zrt, x0, x1, y0, y1);
             }
         }
     }
@@ -3119,6 +3168,8 @@ void Gl_Report(void) {
                sGlStat.clutGpu, sGlStat.shows, sGlStat.date, sGlStat.ad, sGlStat.fbmsk, sGlStat.colclamp, sGlStat.pabe, sGlStat.overlapZ);
         printf("ttt: gl: resolves by texture %u clut %u upload %u show %u target %u; read back by texture %u clut %u upload %u show %u target %u\n",
                sResBy[0], sResBy[1], sResBy[2], sResBy[3], sResBy[4], sRbBy[0], sRbBy[1], sRbBy[2], sRbBy[3], sRbBy[4]);
+        printf("ttt: gl: snapshots: %llu copies, %llu target pixels copied; checked whole %u, differing %u\n",
+               (unsigned long long)sSnapCopies, (unsigned long long)sSnapPixels, sSnapChecks, sSnapMismatch);
         if (sStates[0] + sStates[1] != 0) { /* F07 (a save's resolves and read backs count as "target" above) */
             printf("ttt: gl: state: %u saves, %u loads\n", sStates[0], sStates[1]);
         }
