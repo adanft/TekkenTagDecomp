@@ -5064,8 +5064,6 @@ end:
     return r;
 }
 
-#if 0
-/* NON_MATCHING: 3 lines: the func_00383B88 result is copied to v1 for its test (v0 in the original) and the first bne is a bnel */
 s32 func_00384898(CpuCand *c) {
     struct FighterMove *m = c->unk4;
     u32 fl = m->unk4;
@@ -5078,11 +5076,10 @@ s32 func_00384898(CpuCand *c) {
             return 1;
         }
     }
-    return 0;
+    /* Reusing fl for the zero result is what keeps the original register choice. */
+    fl = 0;
+    return fl;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00384898);
-#endif
 
 s32 func_003848F0(CpuCand *c) {
     s32 fl = c->unk4->unk4;
