@@ -2331,34 +2331,36 @@ s32 func_0037EE18(Fighter *f) {
 
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", D_00506E08);
 
-/* NON_MATCHING: 1 line: `li a3, 10` (the third argument) is scheduled after the format address in the original, before
- * it here. The four divisors are variables: the original keeps one zero-divide check (for the first division) and two
- * dead `li a0 / a1, 60`, which only separate variables of value 60 give. */
-#if 0
 extern const char D_00506E08[];
 s32 Text_Printf(const char *fmt, ...);
 
-/* Prints a frame count as minutes, seconds and hundredths, at most 99'59"99 [V]. */
+/* The remainder goes through an inline call: written in place, `li a3, 10` is scheduled before the format address. */
+static inline s32 Rem(s32 a, s32 b) {
+    return a % b;
+}
+
+/* Prints a frame count as minutes, seconds and hundredths, at most 99'59"99 [V].
+ * The four divisors are variables: the original keeps one zero-divide check (for the first division) and two dead
+ * `li a0 / a1, 60`, which only separate variables of value 60 give. */
 void func_0037EE68(s32 frames) {
     s32 t = 0x57E40;
     s32 s;
     s32 f;
     s32 d = 60;
+    s32 clamp;
     s32 e = 60;
     s32 g = 60;
     s32 h = 60;
 
-    if (frames < 0x57E40) {
+    clamp = frames < 0x57E40;
+    if (clamp) {
         t = frames;
     }
     s = t / d;
-    f = t % d;
-
-    Text_Printf(D_00506E08, 0xF0, 0x50, 0xA, 4, 0x13, s / e, s % g, f * 100 / h);
+    f = t;
+    t = 0x50;
+    Text_Printf(D_00506E08, 0xF0, t, 0xA, 4, 0x13, s / e, Rem(s, g), f % d * 100 / h);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0037EE68);
-#endif
 
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", D_00506E28);
 INCLUDE_RODATA("asm/nonmatchings/fighter_core", D_00506E40);
