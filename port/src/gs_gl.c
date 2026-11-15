@@ -8,7 +8,9 @@
  *     1024 x 1024 RGBA8UI texture (one GS word per texel: word w at (w & 1023, w >> 10)). Every texture read decodes
  *     the GS's swizzled layout in the shader from that mirror (the page tables of gs_core.c as small textures), so any
  *     format, any CLUT trick and any reinterpretation reads what the GS would.
- *   - Render targets: FRAME / ZBUF buffers are linear GL textures (RGBA16F, DEPTH32F) the primitives draw into. A target
+ *   - Render targets: FRAME / ZBUF buffers are linear GL textures (RGBA16F, DEPTH32F) the primitives draw into (colour
+ *     0xFF = 1.0, alpha 0x80 = 1.0 as the GS's blend reads it, so that a blend weighed by the source alpha needs one
+ *     colour output, see Key.prog). A target
  *     is loaded from the mirror when it is created or grows (whole pages), and written back into the mirror (a
  *     "resolve": a draw that scatters its pixels to their GS words) only when something reads its pages: a texture, a
  *     CLUT load, the display, an upload or another target over the same memory. A 24-bit target owns only the low 3
@@ -42,6 +44,8 @@
  *     snapshot at full resolution), widescreen margins on 640-wide targets (the full-width draws go on into them, the
  *     HUD's sprites stay 4:3), the game's flicker filter replaced by the frame it copies, low latency (a frame
  *     presented when the game has copied it).
+ *   - Integrated GPUs: a texture from GS memory is decoded once into the texture cache (tc_lookup) and read from there
+ *     with one fetch per tap; batches run the smallest program variant that draws them (Key.prog).
  *   - Texture packs (T39, docs/port/textures.md, gs_texpack.c): a textured primitive's texture is named as PCSX2 names
  *     it (tp_lookup, cached per texture until its pages change), dumped when new, and sampled from a replacement
  *     (uRepl) instead of GS memory when one has its name.
@@ -87,6 +91,8 @@ typedef char GLchar;
 #define GL_ZERO 0
 #define GL_ONE 1
 #define GL_SRC1_ALPHA 0x8589
+#define GL_SRC_ALPHA 0x0302
+#define GL_ONE_MINUS_SRC_ALPHA 0x0303
 #define GL_FUNC_ADD 0x8006
 #define GL_FUNC_SUBTRACT 0x800A
 #define GL_FUNC_REVERSE_SUBTRACT 0x800B
@@ -122,6 +128,9 @@ typedef char GLchar;
 #define GL_UNSIGNED_INT 0x1405
 #define GL_FLOAT 0x1406
 #define GL_HALF_FLOAT 0x140B
+#define GL_MAX_TEXTURE_SIZE 0x0D33
+#define GL_SAMPLES_PASSED 0x8914
+#define GL_QUERY_RESULT 0x8866
 #define GL_FRAMEBUFFER 0x8D40
 #define GL_READ_FRAMEBUFFER 0x8CA8
 #define GL_DRAW_FRAMEBUFFER 0x8CA9
@@ -210,6 +219,10 @@ static struct {
     GLboolean (*UnmapBuffer)(GLenum);
     void (*GetIntegerv)(GLenum, GLint *);
     void (*GenerateMipmap)(GLenum);
+    void (*GenQueries)(GLsizei, GLuint *);
+    void (*BeginQuery)(GLenum, GLuint);
+    void (*EndQuery)(GLenum);
+    void (*GetQueryObjectuiv)(GLuint, GLenum, GLuint *);
 } gl;
 
 static const struct {
@@ -226,14 +239,15 @@ static const struct {
     F(ShaderSource), F(CompileShader), F(GetShaderiv), F(GetShaderInfoLog), F(CreateProgram), F(AttachShader),
     F(LinkProgram), F(GetProgramiv), F(GetProgramInfoLog), F(UseProgram), F(GetUniformLocation), F(Uniform1i),
     F(Uniform2i), F(Uniform4i), F(Uniform1ui), F(Uniform4iv), F(Uniform4uiv), F(DrawArrays), F(Finish),
-    F(MapBufferRange), F(UnmapBuffer), F(GetIntegerv), F(GenerateMipmap),
+    F(MapBufferRange), F(UnmapBuffer), F(GetIntegerv), F(GenerateMipmap), F(GenQueries), F(BeginQuery), F(EndQuery),
+    F(GetQueryObjectuiv),
 #undef F
 };
 
 /* ------------------------------------------------------------------------------------------------ shaders */
 
 /* Texture units */
-enum { U_VRAM, U_TAB, U_INV, U_PAL, U_STATES, U_SRC, U_STAGE, U_CLUT, U_SNAP, U_DSP0, U_DSP1, U_REPL };
+enum { U_VRAM, U_TAB, U_INV, U_PAL, U_STATES, U_SRC, U_STAGE, U_CLUT, U_SNAP, U_DSP0, U_DSP1, U_REPL, U_TCACHE };
 
 /* GS memory in the shader: the mirror and the page tables (gs_core.c's sIn32 / sIn16 / sIn16S / sIn8 / sIn4 at rows
    0 / 32 / 96 / 160 / 224 of a 128-wide R16UI texture), gs_read() = gs_core.c's vram_loc + vloc_read. */
@@ -286,6 +300,16 @@ static const char kLib[] =
     "    return uvec4((c & 31u) << 3, ((c >> 5) & 31u) << 3, ((c >> 10) & 31u) << 3, a);\n"
     "}\n";
 
+/* The draw program comes in variants (sProgDraw[], see Key.prog), so that the GPU runs a small one for most draws: an
+   integrated GPU runs a large program or one with two colour outputs on fewer pixels at a time (Intel: 8 instead of 16,
+   half the speed). CACHED: every texture of the batch is in the texture cache (or none is textured); SNAP: every
+   texture of the batch is a target's snapshot (scale 2 and up, widescreen); neither: any texture. SINGLE: one
+   colour output; the batch does not blend (ABE 0: the destination's weight is 0), or its destination weight is one GL
+   reads from the source alpha the target stores (0x80 = 1.0): 0, 1, As or 1 - As (blend_state). */
+#define PROG_CACHED 1
+#define PROG_SNAP 2
+#define PROG_SINGLE 4
+
 /* The primitives. State record (3 uvec4 per primitive, see state_of()):
    s0.x flags: 0 tex, 1 fst, 2-3 tfx, 4 tcc, 5 gouraud, 6 fog, 7-8 filter, 9 fba, 10 atest, 11-13 atst, 14 lcm,
                15-16 lodl, 17 mmag linear, 18 mmin linear, 19 aem, 20 pabe, 21 blend, 22-29 A / B / C / D selects,
@@ -293,7 +317,8 @@ static const char kLib[] =
    s0.y tbp | tbw << 14 | tpsm << 20 | lw << 26     s0.z lh | wms << 4 | wmt << 6 | CLUT row << 8 | aref << 24
    s0.w minu | maxu << 10 | lodk << 20               s1.x minv | maxv << 10 | afix << 20
    s1.y ta0 | ta1 << 8                               s1.z scissor x0 | x1 << 16   s1.w scissor y0 | y1 << 16
-   s2.x fog colour      s2.y the snapshot's margin
+   s2.x fog colour      s2.y the snapshot's margin; without one, bit 31: the texels are in the texture cache (uTCache), at
+                        texel (u, v) + (bits 0-12, bits 13-25) - 1024 (see tc_lookup)
    s2.z bit 0: a replacement texture (uRepl, T39) instead, of the texels x0 | w << 12 (bits 1-11, 12-23); s2.w y0 | h << 12 */
 static const char kDrawVs[] =
     "#version 330 core\n"
@@ -340,17 +365,23 @@ static const char kDrawFs[] =
     "uniform usampler2D uPal;\n"
     "uniform sampler2D uSnap;\n" /* the snapshot of the target the texture is (scaled / widescreen, T37) */
     "uniform sampler2D uRepl;\n" /* a texture pack's replacement of the texture (T39, docs/port/textures.md) */
+    "uniform usampler2D uTCache;\n" /* the texture cache: textures decoded once (tc_lookup) */
     "uniform int uScale;\n"
-    "uniform int uPass;\n"
+    "uniform int uPass;\n"     /* 3: the texture cache's check (TTT_GS_TEXCHECK): only pixels where it differs pass */
     "noperspective in vec4 vCol;\n"
     "flat in uint vColF;\n"
     "noperspective in vec3 vTex;\n"
     "noperspective in float vFog;\n"
     "flat in uint vFogF;\n"
     "flat in uint vState;\n"
+    "#ifdef SINGLE\n"
+    "layout(location = 0) out vec4 oCol;\n"
+    "#else\n"
     "layout(location = 0, index = 0) out vec4 oCol;\n"
     "layout(location = 0, index = 1) out vec4 oFac;\n"
+    "#endif\n"
     "uvec4 s0, s1, s2;\n"
+    "bool gDirect = false;\n" /* the check: texels from GS memory even when cached */
     "int wrapc(int u, uint wm, int size, int mn, int mx) {\n"
     "    if (wm == 0u) return u & (size - 1);\n"
     "    if (wm == 1u) return u < 0 ? 0 : (u >= size ? size - 1 : u);\n"
@@ -362,12 +393,18 @@ static const char kDrawFs[] =
     "    int tw = 1 << min(lw, 10u), th = 1 << min(lh, 10u);\n"
     "    u = wrapc(u, (s0.z >> 4) & 3u, tw, int(s0.w & 1023u), int((s0.w >> 10) & 1023u));\n"
     "    v = wrapc(v, (s0.z >> 6) & 3u, th, int(s1.x & 1023u), int((s1.x >> 10) & 1023u));\n"
+    "#ifdef CACHED\n"
+    "    return texelFetch(uTCache, ivec2(u + int(s2.y & 8191u) - 1024, v + int((s2.y >> 13) & 8191u) - 1024), 0);\n"
+    "#else\n"
+    "    if (!gDirect && (s2.y & 0x80000000u) != 0u) return texelFetch(uTCache, ivec2(u + int(s2.y & 8191u) - 1024, v + int((s2.y >> 13) & 8191u) - 1024), 0);\n"
     "    uint c = gs_read(s0.y & 0x3FFFu, (s0.y >> 14) & 63u, tpsm, uint(u), uint(v));\n"
     "    if (bits <= 8u) return texelFetch(uPal, ivec2(int(c), int((s0.z >> 8) & 0xFFFFu)), 0);\n"
     "    return expandc(c, bits, s1.y & 255u, (s1.y >> 8) & 255u, (s0.x & (1u << 19)) != 0u);\n"
+    "#endif\n"
     "}\n"
     /* a texel of a target's snapshot at full resolution: (hu, hv) in its GL pixels, its margin in s2.y; the wrap mode
        on the GS texel, the left margin unwrapped; stored as the GS would (16 bits: 5 per channel), then TEXA */
+    "#ifndef CACHED\n"
     "int fdiv(int a, int b) { return a >= 0 ? a / b : -((b - 1 - a) / b); }\n"
     "uvec4 snap_texel(int hu, int hv) {\n"
     "    int S = uScale, m = int(s2.y), u = fdiv(hu, S), v = fdiv(hv, S), su = hu - u * S, sv = hv - v * S;\n"
@@ -377,16 +414,29 @@ static const char kDrawFs[] =
     "    v = wrapc(v, (s0.z >> 6) & 3u, th, int(s1.x & 1023u), int((s1.x >> 10) & 1023u));\n"
     "    ivec2 ts = textureSize(uSnap, 0);\n"
     "    vec4 f = texelFetch(uSnap, clamp(ivec2((u + m) * S + su, v * S + sv), ivec2(0), ts - 1), 0);\n"
-    "    uvec4 b = uvec4(clamp(f, 0.0, 1.0) * 255.0 + 0.5);\n"
+    "    uvec4 b = uvec4(uvec3(clamp(f.rgb, 0.0, 1.0) * 255.0 + 0.5), uint(clamp(f.a * 128.0, 0.0, 255.0) + 0.5));\n"
     "    uint ta0 = s1.y & 255u, ta1 = (s1.y >> 8) & 255u;\n"
     "    bool aem = (s0.x & (1u << 19)) != 0u;\n"
     "    if (bits == 16u) return expandc((b.r >> 3) | ((b.g >> 3) << 5) | ((b.b >> 3) << 10) | (b.a >= 128u ? 0x8000u : 0u), 16u, ta0, ta1, aem);\n"
     "    return expandc(b.r | (b.g << 8) | (b.b << 16) | (b.a << 24), bits, ta0, ta1, aem);\n"
     "}\n"
+    "#ifdef SNAP\n"
+    "uvec4 tap(bool snap, int u, int v) { return snap_texel(u, v); }\n"
+    "#else\n"
     "uvec4 tap(bool snap, int u, int v) { return snap ? snap_texel(u, v) : texel(u, v); }\n"
+    "#endif\n"
+    "#else\n"
+    "uvec4 tap(bool snap, int u, int v) { return texel(u, v); }\n"
+    "#endif\n"
     "uvec4 sample_tex(int u16, int v16, float q) {\n"
     "    uint fl = s0.x, filterMode = (fl >> 7) & 3u;\n"
+    "#if defined(CACHED)\n"
+    "    bool linear = filterMode == 1u, snap = false;\n"
+    "#elif defined(SNAP)\n"
+    "    bool linear = filterMode == 1u, snap = true;\n"
+    "#else\n"
     "    bool linear = filterMode == 1u, snap = (fl & 0x80000000u) != 0u;\n"
+    "#endif\n"
     "    if (filterMode == 2u) {\n"
     "        int lodk = int(s0.w >> 20); if (lodk >= 2048) lodk -= 4096;\n"
     "        int lod = (fl & (1u << 14)) != 0u ? lodk : (int(floor(-log2(max(abs(q), 1e-30)) * 16.0)) << ((fl >> 15) & 3u)) + lodk;\n"
@@ -405,6 +455,7 @@ static const char kDrawFs[] =
     /* T39: the replacement instead of the texture, at its own resolution: the coordinate in texels of the GS texture
        (1/16), wrapped as CLAMP says (REPEAT by the sampler, clamps on the edge texels' centres), then the replacement's
        mip-mapped bilinear filter (TEX1 linear) or its nearest texel; its values are the GS's (alpha 0x80 = 1.0) */
+    "#if !defined(CACHED) && !defined(SNAP)\n"
     "float rwrap(float x, uint wm, float size, uint mn, uint mx, float halfTexel) {\n"
     "    if (wm == 1u) return clamp(x, halfTexel, size - halfTexel);\n"
     "    if (wm == 2u) return clamp(x, float(mn) + halfTexel, float(mx) + 1.0 - halfTexel);\n"
@@ -424,6 +475,7 @@ static const char kDrawFs[] =
     "    vec4 f = linear ? textureGrad(uRepl, c, gx, gy) : textureLod(uRepl, (floor(c * rs) + 0.5) / rs, 0.0);\n"
     "    return uvec4(f * 255.0 + 0.5);\n"
     "}\n"
+    "#endif\n"
     "int stq(float s, float q, uint lsize) {\n"
     "    float r = trunc(s / (q == 0.0 ? 1e-30 : q) * float(16 << lsize));\n"
     "    return int(clamp(r, -1073741823.0, 1073741823.0));\n"
@@ -440,13 +492,26 @@ static const char kDrawFs[] =
     "        int u16, v16;\n"
     "        if ((fl & 2u) != 0u) { u16 = int(floor(vTex.x)); v16 = int(floor(vTex.y)); }\n"
     "        else { u16 = stq(vTex.x, vTex.z, (s0.y >> 26) & 15u); v16 = stq(vTex.y, vTex.z, s0.z & 15u); }\n"
+    "#if defined(CACHED) || defined(SNAP)\n"
+    "        uvec4 tc = sample_tex(u16, v16, vTex.z);\n"
+    "#else\n"
+    "        if (uPass == 3) {\n"
+    "            if ((fl & 0x80000000u) != 0u || (s2.z & 1u) != 0u || (s2.y & 0x80000000u) == 0u) discard;\n"
+    "            uvec4 a = sample_tex(u16, v16, vTex.z);\n"
+    "            gDirect = true;\n"
+    "            if (all(equal(a, sample_tex(u16, v16, vTex.z)))) discard;\n"
+    "            oCol = vec4(1.0);\n"
+    "            return;\n"
+    "        }\n"
     "        uvec4 tc = (s2.z & 1u) != 0u ? repl_sample(u16, v16) : sample_tex(u16, v16, vTex.z);\n"
+    "#endif\n"
     "        uint tfx = (fl >> 2) & 3u;\n"
     "        bool tcc = (fl & 16u) != 0u;\n"
     "        uvec3 rgb = tfx == 0u ? (tc.rgb * c.rgb) >> 7 : (tfx == 1u ? tc.rgb : ((tc.rgb * c.rgb) >> 7) + c.a);\n"
     "        uint a = !tcc ? c.a : (tfx == 0u ? (tc.a * c.a) >> 7 : (tfx == 2u ? tc.a + c.a : tc.a));\n"
     "        c = min(uvec4(rgb, a), uvec4(255u));\n"
     "    }\n"
+    "    if (uPass == 3) discard;\n"
     "    if ((fl & 64u) != 0u) {\n"
     "        uint f = gouraud ? uint(clamp(vFog, 0.0, 255.0)) : min(vFogF, 255u);\n"
     "        uvec3 fc = unpack32(s2.x).rgb;\n"
@@ -466,8 +531,10 @@ static const char kDrawFs[] =
     "        ks = abs((as_ == 0u ? cc : 0.0) - (bs == 0u ? cc : 0.0) + (ds == 0u ? 1.0 : 0.0));\n"
     "        kd = abs((as_ == 1u ? cc : 0.0) - (bs == 1u ? cc : 0.0) + (ds == 1u ? 1.0 : 0.0));\n"
     "    }\n"
-    "    oCol = vec4(min(vec3(c.rgb) * ks, 255.0) / 255.0, float((fl & 512u) != 0u ? sa | 128u : sa) / 255.0);\n"
+    "    oCol = vec4(min(vec3(c.rgb) * ks, 255.0) / 255.0, float((fl & 512u) != 0u ? sa | 128u : sa) / 128.0);\n"
+    "#ifndef SINGLE\n"
     "    oFac = vec4(0.0, 0.0, 0.0, kd);\n"
+    "#endif\n"
     "}\n";
 
 /* A rectangle of a target, for the passes below: (x0, y0)-(x1, y1) in pixels of a uTarget-sized target. */
@@ -500,7 +567,8 @@ static const char kResolveFs[] =
     "        if (psm == 0x01u) return uint(min(d * 16777216.0 + 0.5, 16777215.0));\n"
     "        return uint(min(d * 65536.0 + 0.5, 65535.0));\n"
     "    }\n"
-    "    uvec4 b = uvec4(clamp(texelFetch(uSrc, p, 0), 0.0, 1.0) * 255.0 + 0.5);\n"
+    "    vec4 f = texelFetch(uSrc, p, 0);\n"
+    "    uvec4 b = uvec4(uvec3(clamp(f.rgb, 0.0, 1.0) * 255.0 + 0.5), uint(clamp(f.a * 128.0, 0.0, 255.0) + 0.5));\n"
     "    if (psm == 0x02u || psm == 0x0Au) return (b.r >> 3) | ((b.g >> 3) << 5) | ((b.b >> 3) << 10) | (b.a >= 128u ? 0x8000u : 0u);\n"
     "    return b.r | (b.g << 8) | (b.b << 16) | (b.a << 24);\n"
     "}\n"
@@ -533,8 +601,22 @@ static const char kLoadFs[] =
     "    if (uBuf.w != 0u) { gl_FragDepth = float(v) * exp2(-float(uBuf.w)); oCol = vec4(0.0); return; }\n"
     "    uvec4 c = bits == 16u ? uvec4((v & 31u) << 3, ((v >> 5) & 31u) << 3, ((v >> 10) & 31u) << 3, (v & 0x8000u) != 0u ? 128u : 0u)\n"
     "                          : unpack32(bits == 24u ? v & 0xFFFFFFu : v);\n"
-    "    oCol = vec4(c) / 255.0;\n"
+    "    oCol = vec4(vec3(c.rgb) / 255.0, float(c.a) / 128.0);\n"
     "    gl_FragDepth = gl_FragCoord.z;\n"
+    "}\n";
+
+/* The texture cache (tc_lookup): a texture's texels into its rectangle of the cache, as texel() of kDrawFs reads them
+   from GS memory (CLUT row or TEXA applied). */
+static const char kTexDecodeFs[] =
+    "uniform usampler2D uPal;\n"
+    "uniform uvec4 uTd;\n" /* tbp | tbw << 14 | tpsm << 20, CLUT row, ta0 | ta1 << 8 | aem << 16, the first texel u | v << 16 */
+    "uniform ivec2 uTo;\n" /* where that texel goes in the cache */
+    "out uvec4 oTex;\n"
+    "void main() {\n"
+    "    ivec2 p = ivec2(gl_FragCoord.xy) - uTo;\n"
+    "    uint tpsm = (uTd.x >> 20) & 63u, bits = psm_bits(tpsm);\n"
+    "    uint c = gs_read(uTd.x & 0x3FFFu, (uTd.x >> 14) & 63u, tpsm, (uTd.w & 0xFFFFu) + uint(p.x), (uTd.w >> 16) + uint(p.y));\n"
+    "    oTex = bits <= 8u ? texelFetch(uPal, ivec2(int(c), int(uTd.y)), 0) : expandc(c, bits, uTd.z & 255u, (uTd.z >> 8) & 255u, (uTd.z & 0x10000u) != 0u);\n"
     "}\n";
 
 /* Staged copy into the mirror (only some bytes of the words: the colour mask). */
@@ -608,7 +690,8 @@ static const char kDisplayFs[] =
     "    if (uTex[k].x != 0) {\n"
     "        ivec2 p = ivec2((int(uCa[k].w & 0xFFFFu) + x + uTex[k].y) * uOut.x + f.x,\n"
     "                        int(uCa[k].w >> 16) * uOut.x + (r * uOut.x + f.y) / uTex[k].w);\n"
-    "        uvec4 b = uvec4(clamp(k == 0 ? texelFetch(uDsp0, p, 0) : texelFetch(uDsp1, p, 0), 0.0, 1.0) * 255.0 + 0.5);\n"
+    "        vec4 f = k == 0 ? texelFetch(uDsp0, p, 0) : texelFetch(uDsp1, p, 0);\n"
+    "        uvec4 b = uvec4(uvec3(clamp(f.rgb, 0.0, 1.0) * 255.0 + 0.5), uint(clamp(f.a * 128.0, 0.0, 255.0) + 0.5));\n"
     "        if (bits == 16u) return uvec4(b.rgb & 0xF8u, b.a >= 128u ? 128u : 0u);\n"
     "        return bits == 24u ? uvec4(b.rgb, 128u) : b;\n"
     "    }\n"
@@ -678,6 +761,7 @@ typedef struct Key {
     int kind;               /* 0 triangles, 1 lines, 2 points */
     int blend;              /* 0 off, 1 add, 2 subtract, 3 reverse subtract, 4 zero */
     int dfunc, dwrite;      /* depth (dfunc 0: no depth test) */
+    int prog;               /* the draw program's variant: PROG_CACHED or PROG_SNAP, | PROG_SINGLE */
     int cmask;              /* colour mask r g b a = bits 0..3 */
     int pass;               /* 0 one pass, no alpha test; 1 one pass, failing pixels dropped; 2 two passes */
     int fmask, fdwrite;     /* the second pass's masks */
@@ -718,7 +802,7 @@ static int sCause; /* what asks for a resolve / read back (TTT_FRAMES report): 0
 static uint32_t sResBy[5], sRbBy[5];
 static GLuint sVramTex, sVramFbo, sTabTex, sInvTex, sPalTex, sStateBuf, sStateTex, sStageTex, sDispTex, sDispFbo;
 static GLuint sVbo, sVao, sEmptyVao;
-static GLuint sProgDraw, sProgResolve, sProgLoad, sProgStage, sProgDisplay, sProgClutLoad, sProgClutExpand;
+static GLuint sProgDraw[8], sProgResolve, sProgLoad, sProgStage, sProgDisplay, sProgClutLoad, sProgClutExpand;
 #define CLUT_ROWS 64 /* GPU CLUT buffers per texture; two textures, the rows taking turns (a pass reads the previous row) */
 static GLuint sClutTex[2], sClutFbo[2], sPalFbo;
 static struct { GLint rect, target, row, cpu, unk, arg; } uClutLoad, uClutExpand;
@@ -730,7 +814,7 @@ static uint32_t sMirrorGen; /* bumped whenever the mirror changes (resolves, pus
 /* The last load run on the GPU: the same one again, on the buffer it left and the same mirror, changes nothing (the game
    sends TEX0 with CLD 1 before every batch) */
 static struct { uint64_t key, ktc, after; uint32_t mirrorGen; } sLastGpuLoad;
-static struct { GLint size, zbits, zmax, pass, scale, marg; } uDraw;
+static struct { GLint size, zbits, zmax, pass, scale, marg; } uDraw[8];
 static struct { GLint rect, target, buf, sm; } uResolve, uLoad, uStage;
 static struct { GLint rect, target, ca, cb, mode, main, tex, out; } uDisp;
 static Rt sRt[MAX_RT];
@@ -841,7 +925,30 @@ static uint8_t *sTpGone;    /* per replacement: nothing to upload (failed, or ta
 static int sTpTexN;
 static uint8_t sPalGpu[PAL_ROWS]; /* per CLUT row: made on the GPU (its entries are not known here) */
 static uint64_t sPalXxh[PAL_ROWS]; /* per CLUT row: its entries' XXH3, 0 not computed yet */
+static uint64_t sPalSum[PAL_ROWS]; /* per CLUT row made on the CPU: its entries' 64-bit FNV-1a (the texture cache's key) */
 static struct { uint32_t named, drawn, other, gpuClut, uploads, replaced; } sTpStat;
+/* The texture cache (tc_lookup): textures from GS memory decoded once into rectangles of one RGBA8UI texture (the
+   atlas), each kept until a page it reads changes (sPageGen). The draw shader then reads a texel with one fetch
+   instead of the page table, the mirror and the CLUT row: most of a frame's cost on an integrated GPU. */
+typedef struct TcSlot {
+    uint64_t k0, k1, k2;    /* TEX0's texture fields; the rectangle; the CLUT row's entries (indexed) or TEXA */
+    uint32_t stamp;         /* sGenClock when decoded (or found in a target's pages) */
+    uint32_t checked;       /* sGenClock when last found current */
+    uint32_t flushes;       /* sFlushes when last drawn: queued draws read it until the next flush */
+    uint32_t pages[16];
+    int used, placed, direct; /* placed: it has a rectangle; direct: in a target's pages, read from GS memory */
+    int ax, ay, w, h;       /* its rectangle in the atlas */
+} TcSlot;
+#define TC_SLOTS 4096
+static TcSlot sTcSlot[TC_SLOTS];
+static struct { uint64_t k0, k1, k2; uint32_t clock; int slot; } sTcLast = {0, 0, 0, 0, -1};
+static int sTcOn, sTcCheck, sTcW, sTcH, sTcNextY;
+static struct { int y, x; } sTcShelf[11];  /* per height class (1 << c rows): the open shelf (y < 0: none) */
+static GLuint sTcTex, sTcFbo, sTcQuery, sProgTexDecode;
+static struct { GLint rect, target, arg, org; } uTexDecode;
+static uint32_t sPalEpoch;  /* bumped when the CLUT rows start again from 0 */
+static uint32_t sFlushes;   /* flushes so far */
+static struct { uint32_t decodes, hits, direct, resets, checked, differing; uint64_t texels; } sTcStat;
 
 /* ------------------------------------------------------------------------------------------------ helpers */
 
@@ -891,7 +998,7 @@ static GLuint program(const char *vs, const char *fs, const char *fsLib, char *w
 static void samplers(GLuint p) {
     static const struct { const char *name; int unit; } k[] = {
         {"uVram", U_VRAM}, {"uTab", U_TAB}, {"uInv", U_INV}, {"uPal", U_PAL}, {"uStates", U_STATES}, {"uSrc", U_SRC}, {"uStage", U_STAGE},
-        {"uClut", U_CLUT}, {"uSnap", U_SNAP}, {"uDsp0", U_DSP0}, {"uDsp1", U_DSP1}, {"uRepl", U_REPL},
+        {"uClut", U_CLUT}, {"uSnap", U_SNAP}, {"uDsp0", U_DSP0}, {"uDsp1", U_DSP1}, {"uRepl", U_REPL}, {"uTCache", U_TCACHE},
     };
     size_t i;
     gl.UseProgram(p);
@@ -1265,19 +1372,23 @@ static int rt_get(int depth, uint32_t bp, uint32_t bw, uint32_t psm, uint32_t ro
 
 /* ------------------------------------------------------------------------------------------------ draws */
 
+/* b: the equation (Key.blend, bits 0-3) and the destination's weight (bits 4-6: 0 the shader's second output, then
+   0, 1, As, 1 - As from the source alpha). */
 static void blend_state(int b) {
-    if (b == 0) {
+    static const GLenum kDst[5] = {GL_SRC1_ALPHA, GL_ZERO, GL_ONE, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA};
+    int e = b & 15;
+    if (e == 0) {
         gl.Disable(GL_BLEND);
         return;
     }
     gl.Enable(GL_BLEND);
-    if (b == 4) {
+    if (e == 4) {
         gl.BlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
         gl.BlendFuncSeparate(GL_ZERO, GL_ZERO, GL_ONE, GL_ZERO);
         return;
     }
-    gl.BlendEquationSeparate(b == 1 ? GL_FUNC_ADD : b == 2 ? GL_FUNC_SUBTRACT : GL_FUNC_REVERSE_SUBTRACT, GL_FUNC_ADD);
-    gl.BlendFuncSeparate(GL_ONE, GL_SRC1_ALPHA, GL_ONE, GL_ZERO);
+    gl.BlendEquationSeparate(e == 1 ? GL_FUNC_ADD : e == 2 ? GL_FUNC_SUBTRACT : GL_FUNC_REVERSE_SUBTRACT, GL_FUNC_ADD);
+    gl.BlendFuncSeparate(GL_ONE, kDst[(b >> 4) & 7], GL_ONE, GL_ZERO);
 }
 
 /* The colour and depth masks, each set only when it changes. */
@@ -1349,12 +1460,14 @@ static void ring_write(GLenum target, int fresh, GLintptr at, GLsizeiptr bytes, 
    per batch (two with an alpha test that writes on failure), setting only the GL state that changes between them. */
 static void flush(void) {
     uint32_t i;
-    int curFbo = -1, curRt = -1, curZ = -1, curDf = -1, curBlend = -1, curPass = -1, curCmask = -1, curDmask = -1, curSrc = -1;
+    int curFbo = -1, curRt = -1, curZ = -1, curDf = -1, curBlend = -1, curPass = -1, curCmask = -1, curDmask = -1, curSrc = -1, curProg = -1;
     GLuint curRepl = 0;
+    const __typeof__(uDraw[0]) *u = &uDraw[0];
 
     if (sNv == 0) {
         return;
     }
+    sFlushes++;
     push();
     pal_upload();
     /* Both go after what earlier flushes wrote, unsynchronised (the GPU still reads those parts, never these); a ring
@@ -1371,8 +1484,6 @@ static void flush(void) {
         sVbBase = 0;
     }
     ring_write(GL_ARRAY_BUFFER, sVbBase == 0, (GLintptr)sVbBase * (GLintptr)sizeof(GlVtx), (GLsizeiptr)sNv * (GLsizeiptr)sizeof(GlVtx), sV);
-    gl.UseProgram(sProgDraw);
-    gl.Uniform1i(uDraw.scale, sScale);
     gl.BindVertexArray(sVao);
     for (i = 0; i < sNb; i++) {
         const Key *k = &sB[i].k;
@@ -1381,13 +1492,6 @@ static void flush(void) {
         if (fb != curFbo) {
             gl.BindFramebuffer(GL_FRAMEBUFFER, (GLuint)fb);
             curFbo = fb;
-        }
-        if (k->rt != curRt) {
-            const Rt *r = &sRt[k->rt];
-            curRt = k->rt;
-            gl.Viewport(0, 0, r->tw, r->th);
-            gl.Uniform2i(uDraw.size, r->w + 2 * r->m, (GLint)r->rows);
-            gl.Uniform1i(uDraw.marg, r->m);
         }
         if (k->src != curSrc && k->src >= 0) {
             gl.ActiveTexture(GL_TEXTURE0 + U_SNAP);
@@ -1401,13 +1505,49 @@ static void flush(void) {
             gl.ActiveTexture(GL_TEXTURE0 + U_VRAM);
             curRepl = k->repl;
         }
+        if (sTcCheck) { /* TTT_GS_TEXCHECK: the pixels whose texels differ from GS memory's (counted, nothing drawn), by
+                           the full program whatever the batch's */
+            const Rt *r = &sRt[k->rt];
+            GLuint n = 0;
+            gl.UseProgram(sProgDraw[0]);
+            gl.Uniform1i(uDraw[0].scale, sScale);
+            gl.Viewport(0, 0, r->tw, r->th);
+            gl.Uniform2i(uDraw[0].size, r->w + 2 * r->m, (GLint)r->rows);
+            gl.Uniform1i(uDraw[0].marg, r->m);
+            gl.Uniform1i(uDraw[0].zbits, 0);
+            gl.ColorMask(0, 0, 0, 0);
+            gl.DepthMask(0);
+            gl.Disable(GL_DEPTH_TEST);
+            gl.Uniform1i(uDraw[0].pass, 3);
+            gl.BeginQuery(GL_SAMPLES_PASSED, sTcQuery);
+            gl.DrawArrays(mode, (GLint)(sVbBase + sB[i].first), (GLsizei)sB[i].count);
+            gl.EndQuery(GL_SAMPLES_PASSED);
+            gl.GetQueryObjectuiv(sTcQuery, GL_QUERY_RESULT, &n);
+            sTcStat.checked++;
+            sTcStat.differing += n;
+            curCmask = curDmask = curZ = curPass = curProg = -1;
+        }
+        if (k->prog != curProg) { /* uniforms are the program's: all of them again */
+            curProg = k->prog;
+            u = &uDraw[curProg];
+            gl.UseProgram(sProgDraw[curProg]);
+            gl.Uniform1i(u->scale, sScale);
+            curRt = curZ = curPass = -1;
+        }
+        if (k->rt != curRt) {
+            const Rt *r = &sRt[k->rt];
+            curRt = k->rt;
+            gl.Viewport(0, 0, r->tw, r->th);
+            gl.Uniform2i(u->size, r->w + 2 * r->m, (GLint)r->rows);
+            gl.Uniform1i(u->marg, r->m);
+        }
         if (k->zrt >= 0) {
             uint32_t bits = (uint32_t)Gs_PsmBits(sRt[k->zrt].psm);
             zbits = bits == 32 ? 32 : bits == 24 ? 24 : 16;
         }
         if (zbits != curZ) {
-            gl.Uniform1i(uDraw.zbits, zbits);
-            gl.Uniform1ui(uDraw.zmax, zbits == 32 ? 0xFFFFFFFFu : zbits == 24 ? 0xFFFFFFu : 0xFFFFu);
+            gl.Uniform1i(u->zbits, zbits);
+            gl.Uniform1ui(u->zmax, zbits == 32 ? 0xFFFFFFFFu : zbits == 24 ? 0xFFFFFFu : 0xFFFFu);
             if (zbits != 0 && curZ <= 0) {
                 gl.Enable(GL_DEPTH_TEST);
             } else if (zbits == 0) {
@@ -1428,10 +1568,10 @@ static void flush(void) {
             /* A pixel of the batch's primitives either passes or fails, and they cover different pixels: either order
                draws the same, and starting with the failing ones when the masks already are theirs saves two mask
                changes. Switching depth writes for every batch (an alpha-tested stage) stalls the GPU at 4x. */
-            gl.Uniform1i(uDraw.pass, 2);
+            gl.Uniform1i(u->pass, 2);
             gl.DrawArrays(mode, (GLint)(sVbBase + sB[i].first), (GLsizei)sB[i].count);
             set_masks(k->cmask, k->dwrite, &curCmask, &curDmask);
-            gl.Uniform1i(uDraw.pass, 1);
+            gl.Uniform1i(u->pass, 1);
             curPass = 1;
             gl.DrawArrays(mode, (GLint)(sVbBase + sB[i].first), (GLsizei)sB[i].count);
             sGlStat.draws += 2;
@@ -1440,13 +1580,13 @@ static void flush(void) {
         set_masks(k->cmask, k->dwrite, &curCmask, &curDmask);
         if ((k->pass != 0) != curPass) {
             curPass = k->pass != 0;
-            gl.Uniform1i(uDraw.pass, curPass);
+            gl.Uniform1i(u->pass, curPass);
         }
         gl.DrawArrays(mode, (GLint)(sVbBase + sB[i].first), (GLsizei)sB[i].count);
         sGlStat.draws++;
         if (k->pass == 2) { /* the failing pixels: usually only the depth mask changes (FB_ONLY) */
             set_masks(k->fmask, k->fdwrite, &curCmask, &curDmask);
-            gl.Uniform1i(uDraw.pass, 2);
+            gl.Uniform1i(u->pass, 2);
             curPass = 2;
             gl.DrawArrays(mode, (GLint)(sVbBase + sB[i].first), (GLsizei)sB[i].count);
             sGlStat.draws++;
@@ -1493,6 +1633,7 @@ static int pal_row(const Draw *d) {
             if (sPalNext == PAL_ROWS) {
                 flush();
                 sPalNext = sPalUp = 0;
+                sPalEpoch++;
                 for (i = 0; i < 32; i++) {
                     cache[i].row = -1;
                 }
@@ -1546,11 +1687,16 @@ static int pal_row(const Draw *d) {
     if (sPalNext == PAL_ROWS) {
         flush();
         sPalNext = sPalUp = 0;
+        sPalEpoch++;
         for (i = 0; i < 32; i++) {
             cache[i].row = -1;
         }
     }
     memcpy(sPal[sPalNext], tmp, n * 4);
+    sPalSum[sPalNext] = 14695981039346656037ull;
+    for (i = 0; i < n; i++) {
+        sPalSum[sPalNext] = (sPalSum[sPalNext] ^ tmp[i]) * 1099511628211ull;
+    }
     sPalGpu[sPalNext] = 0;
     sPalXxh[sPalNext] = 0;
     sPalA[sPalNext][0] = 255;
@@ -2139,6 +2285,153 @@ static GLuint tp_lookup(const Draw *d, int palRow, uint32_t *s10, uint32_t *s11)
     return last.tex;
 }
 
+/* The texels texel() of kDrawFs may read along one axis after its wrap mode: start and count. */
+static void tc_axis(uint32_t wm, uint32_t l, uint32_t mn, uint32_t mx, uint32_t *o, uint32_t *n) {
+    uint32_t size = 1u << (l < 10 ? l : 10);
+    if (wm <= 1) { /* REPEAT, CLAMP */
+        *o = 0;
+        *n = size;
+    } else if (wm == 2) { /* REGION_CLAMP: between MIN and MAX (either way round) */
+        *o = mn < mx ? mn : mx;
+        *n = (mn < mx ? mx - mn : mn - mx) + 1;
+    } else { /* REGION_REPEAT: (u & MSK) | FIX */
+        *o = mx;
+        *n = (mn | mx) - mx + 1;
+    }
+}
+
+/* Every entry dropped and the atlas empty again, after the queued draws that read it. */
+static void tc_reset(void) {
+    int c;
+    flush();
+    memset(sTcSlot, 0, sizeof sTcSlot);
+    for (c = 0; c < 11; c++) {
+        sTcShelf[c].y = -1;
+    }
+    sTcNextY = 0;
+    sTcLast.slot = -1;
+}
+
+/* A w x h rectangle of the atlas: on the open shelf of its height class, or a new one; 0 when the atlas is full. */
+static int tc_place(int w, int h, int *ax, int *ay) {
+    int c = 0;
+    while ((1 << c) < h) {
+        c++;
+    }
+    if (sTcShelf[c].y < 0 || sTcShelf[c].x + w > sTcW) {
+        if (sTcNextY + (1 << c) > sTcH) {
+            return 0;
+        }
+        sTcShelf[c].y = sTcNextY;
+        sTcShelf[c].x = 0;
+        sTcNextY += 1 << c;
+    }
+    *ax = sTcShelf[c].x;
+    *ay = sTcShelf[c].y;
+    sTcShelf[c].x += w;
+    return 1;
+}
+
+/* A textured primitive from GS memory reads its texture from the cache: s2.y of its state record (see kDrawVs), 0 when
+   it reads GS memory (the cache off, a texture in a target's pages, too large). Queued draws read an entry until the
+   next flush: one decoded again while they wait flushes them first (pages only change after a flush, so this is not
+   expected), and the atlas starts again only after a flush. */
+static uint32_t tc_lookup(const Draw *d, int palRow) {
+    uint32_t x0, y0, w, h, i, hash;
+    uint64_t k0 = (uint64_t)(d->tbp & 0x3FFF) | (uint64_t)(d->tbw & 63) << 14 | (uint64_t)(d->tpsm & 63) << 20;
+    uint64_t k1, k2 = 0;
+    TcSlot *t;
+    int stale = 0;
+
+    tc_axis(d->wms & 3, d->lw & 15, d->minu & 1023, d->maxu & 1023, &x0, &w);
+    tc_axis(d->wmt & 3, d->lh & 15, d->minv & 1023, d->maxv & 1023, &y0, &h);
+    k1 = (uint64_t)x0 | (uint64_t)y0 << 11 | (uint64_t)w << 22 | (uint64_t)h << 33;
+    if (d->tbits <= 8) { /* the CLUT row's entries (rows are made again for the same entries); made on the GPU: the row */
+        k2 = sPalGpu[palRow] ? 1ull << 63 | (uint64_t)sPalEpoch << 16 | (uint64_t)palRow : sPalSum[palRow] & ~(1ull << 63);
+    } else if (d->tbits != 32) {
+        k2 = (uint64_t)((d->ta0 & 255) | (d->ta1 & 255) << 8 | (d->aem & 1) << 16);
+    }
+    if (sTcLast.slot >= 0 && sTcLast.k0 == k0 && sTcLast.k1 == k1 && sTcLast.k2 == k2 && sTcLast.clock == sGenClock) {
+        t = &sTcSlot[sTcLast.slot];
+    } else {
+        hash = (uint32_t)((k0 ^ k0 >> 32) * 2654435761u ^ (k1 ^ k1 >> 32) * 2246822519u ^ (k2 ^ k2 >> 32) * 3266489917u);
+        t = &sTcSlot[(hash ^ hash >> 15) & (TC_SLOTS - 1)];
+        if (!t->used || t->k0 != k0 || t->k1 != k1 || t->k2 != k2) { /* new (another texture's slot: its rectangle stays
+                                                                         taken until the atlas starts again) */
+            memset(t, 0, sizeof *t);
+            t->used = 1;
+            t->k0 = k0;
+            t->k1 = k1;
+            t->k2 = k2;
+            Gs_PagesOf(t->pages, d->tbp, d->tbw, d->tpsm, x0, x0 + w - 1, y0, y0 + h - 1);
+            stale = 1;
+        } else if (t->checked != sGenClock) { /* are its pages unchanged? */
+            for (i = 0; i < 16 && !stale; i++) {
+                uint32_t bits = t->pages[i];
+                while (bits != 0) {
+                    int pg = (int)(i * 32 + (uint32_t)__builtin_ctz(bits));
+                    bits &= bits - 1;
+                    if (sPageGen[pg] > t->stamp) {
+                        stale = 1;
+                        break;
+                    }
+                }
+            }
+        }
+        if (stale) {
+            t->direct = 0;
+            for (i = 0; i < MAX_RT && !t->direct; i++) { /* drawn by the game: read as it changes, from GS memory */
+                t->direct = sRt[i].used && set_overlaps(sRt[i].pages, t->pages);
+            }
+            if (!t->direct && !t->placed) {
+                if (!tc_place((int)w, (int)h, &t->ax, &t->ay)) {
+                    TcSlot keep = *t;
+                    tc_reset();
+                    sTcStat.resets++;
+                    *t = keep;
+                    if (!tc_place((int)w, (int)h, &t->ax, &t->ay)) { /* larger than the atlas */
+                        t->direct = 1;
+                    }
+                }
+                t->placed = !t->direct;
+                t->w = (int)w;
+                t->h = (int)h;
+            }
+            if (!t->direct) {
+                if (t->flushes == sFlushes && sNv != 0) {
+                    flush();
+                }
+                push();
+                pal_upload();
+                gl.BindFramebuffer(GL_FRAMEBUFFER, sTcFbo);
+                gl.Viewport(0, 0, sTcW, sTcH);
+                gl.UseProgram(sProgTexDecode);
+                plain_state();
+                gl.Uniform4uiv(uTexDecode.arg, 1, (const GLuint[]){(GLuint)k0, (GLuint)palRow,
+                                                                   (GLuint)((d->ta0 & 255) | (d->ta1 & 255) << 8 | (d->aem & 1) << 16), x0 | y0 << 16});
+                gl.Uniform2i(uTexDecode.org, t->ax, t->ay);
+                rect_pass(uTexDecode.rect, uTexDecode.target, t->ax, t->ay, t->ax + t->w, t->ay + t->h, sTcW, sTcH);
+                sTcStat.decodes++;
+                sTcStat.texels += (uint64_t)w * h;
+            }
+            t->stamp = sGenClock;
+        }
+        t->checked = sGenClock;
+        sTcLast.k0 = k0;
+        sTcLast.k1 = k1;
+        sTcLast.k2 = k2;
+        sTcLast.clock = sGenClock;
+        sTcLast.slot = (int)(t - sTcSlot);
+    }
+    if (t->direct) {
+        sTcStat.direct++;
+        return 0;
+    }
+    sTcStat.hits += !stale;
+    t->flushes = sFlushes;
+    return 1u << 31 | (uint32_t)(t->ax - (int)x0 + 1024) | (uint32_t)(t->ay - (int)y0 + 1024) << 13;
+}
+
 /* A sprite that covers the first or the last pixel of a widescreen target's row (w wide, margins m) goes on to the
    margin's edge; with UV (a copy of a widescreen target) U goes on at the same rate (negative U: the snapshot's left
    margin). 1 when it changed (o: the two vertices). */
@@ -2232,7 +2525,7 @@ static void prim(const Cmd *c) {
     int outcome = 0, newState, zneed = (d->ztest && d->ztst != 1) || d->zwrite, rt, zrt = -1, palRow = 0, need = c->type == CMD_SPRITE ? 6 : 3;
     int src = -1, wide = 0, present = 0;
     GLuint repl = 0;
-    uint32_t replS[2] = {0, 0};
+    uint32_t replS[2] = {0, 0}, tc = 0;
     Key k;
     Vtx ext[2];
     uint32_t fpsm = d->fpsm;
@@ -2272,6 +2565,9 @@ static void prim(const Cmd *c) {
         }
         if (sTpSlot != NULL && src < 0) {
             repl = tp_lookup(d, palRow, &replS[0], &replS[1]);
+        }
+        if (sTcOn && src < 0 && repl == 0) {
+            tc = tc_lookup(d, palRow);
         }
     }
     /* The game's flicker filter: its frame (448 lines) copied into the display buffer (224) by UV sprites, two lines
@@ -2344,6 +2640,20 @@ static void prim(const Cmd *c) {
     key_of(d, rt, zrt, kind, outcome, &k);
     k.src = src;
     k.repl = repl;
+    k.prog = !d->tex || tc != 0 ? PROG_CACHED : src >= 0 ? PROG_SNAP : 0;
+    if (!d->blend) {
+        k.blend = 0; /* weights 1 and 0: the same as no blending */
+        k.prog |= PROG_SINGLE;
+    } else if (d->csel == 0 && !d->fba && !d->pabe && k.blend != 4) {
+        /* C = As and the alpha stored is As (no FBA), blended on every pixel (no PABE): the destination's weight
+           |a As + b| as GL reads it from the source alpha (1 - As is negative for As above 0x80, as on the GS) */
+        int a = (d->asel == 1) - (d->bsel == 1), b = d->dsel == 1;
+        int w = a == 0 ? (b ? 2 : 1) : !b ? 3 : a < 0 ? 4 : 0;
+        if (w != 0) {
+            k.blend |= w << 4;
+            k.prog |= PROG_SINGLE;
+        }
+    }
     if (k.cmask == 0 && !k.dwrite) {
         return; /* writes nothing (every pixel fails, KEEP) */
     }
@@ -2362,6 +2672,8 @@ static void prim(const Cmd *c) {
     if (src >= 0) {
         st[0] |= 1u << 31; /* from the snapshot of target src */
         st[9] = (uint32_t)sRt[src].m;
+    } else if (tc != 0) {
+        st[9] = tc; /* from the texture cache */
     }
     if (repl != 0) {
         st[10] = replS[0]; /* from the replacement (uRepl) */
@@ -3056,16 +3368,27 @@ int Gl_Init(void *(*getproc)(const char *name), char *why, int whylen) {
     }
     ver = gl.GetString(GL_VERSION);
     ren = gl.GetString(GL_RENDERER);
-    sProgDraw = program(kDrawVs, kDrawFs, kLib, why, whylen);
-    sProgResolve = sProgDraw ? program(kRectVs, kResolveFs, NULL, why, whylen) : 0;
+    { /* the variants (Key.prog; 3 and 7 are none) */
+        static const char *const kind[3] = {"", "#define CACHED\n", "#define SNAP\n"};
+        static char fs[8][sizeof kDrawFs + 40];
+        GLuint ok = 1;
+        for (k = 0; k < 8 && ok; k++) {
+            if ((k & 3) != 3) {
+                snprintf(fs[k], sizeof fs[k], "%s%s%s", kind[k & 3], k & PROG_SINGLE ? "#define SINGLE\n" : "", kDrawFs);
+                ok = sProgDraw[k] = program(kDrawVs, fs[k], kLib, why, whylen);
+            }
+        }
+    }
+    sProgResolve = sProgDraw[6] ? program(kRectVs, kResolveFs, NULL, why, whylen) : 0;
     sProgLoad = sProgResolve ? program(kRectVs, kLoadFs, kLib, why, whylen) : 0;
     sProgStage = sProgLoad ? program(kRectVs, kStageFs, NULL, why, whylen) : 0;
     sProgDisplay = sProgStage ? program(kRectVs, kDisplayFs, kLib, why, whylen) : 0;
+    sProgTexDecode = sProgDisplay ? program(kRectVs, kTexDecodeFs, kLib, why, whylen) : 0;
     {
         static char loadFs[sizeof kClutLib + sizeof kClutLoadFs], expandFs[sizeof kClutLib + sizeof kClutExpandFs];
         snprintf(loadFs, sizeof loadFs, "%s%s", kClutLib, kClutLoadFs);
         snprintf(expandFs, sizeof expandFs, "%s%s", kClutLib, kClutExpandFs);
-        sProgClutLoad = sProgDisplay ? program(kRectVs, loadFs, kLib, why, whylen) : 0;
+        sProgClutLoad = sProgTexDecode ? program(kRectVs, loadFs, kLib, why, whylen) : 0;
         sProgClutExpand = sProgClutLoad ? program(kRectVs, expandFs, kLib, why, whylen) : 0;
     }
     if (sProgClutExpand == 0) {
@@ -3084,17 +3407,27 @@ int Gl_Init(void *(*getproc)(const char *name), char *why, int whylen) {
         uClutLoad.arg = gl.GetUniformLocation(sProgClutLoad, "uLd");
         uClutExpand.arg = gl.GetUniformLocation(sProgClutExpand, "uEx");
     }
-    samplers(sProgDraw);
+    for (k = 0; k < 8; k++) {
+        if ((k & 3) == 3) {
+            continue;
+        }
+        samplers(sProgDraw[k]);
+        uDraw[k].size = gl.GetUniformLocation(sProgDraw[k], "uSize");
+        uDraw[k].zbits = gl.GetUniformLocation(sProgDraw[k], "uZBits");
+        uDraw[k].zmax = gl.GetUniformLocation(sProgDraw[k], "uZMax");
+        uDraw[k].pass = gl.GetUniformLocation(sProgDraw[k], "uPass");
+        uDraw[k].scale = gl.GetUniformLocation(sProgDraw[k], "uScale");
+        uDraw[k].marg = gl.GetUniformLocation(sProgDraw[k], "uMarg");
+    }
     samplers(sProgResolve);
     samplers(sProgLoad);
     samplers(sProgStage);
     samplers(sProgDisplay);
-    uDraw.size = gl.GetUniformLocation(sProgDraw, "uSize");
-    uDraw.zbits = gl.GetUniformLocation(sProgDraw, "uZBits");
-    uDraw.zmax = gl.GetUniformLocation(sProgDraw, "uZMax");
-    uDraw.pass = gl.GetUniformLocation(sProgDraw, "uPass");
-    uDraw.scale = gl.GetUniformLocation(sProgDraw, "uScale");
-    uDraw.marg = gl.GetUniformLocation(sProgDraw, "uMarg");
+    samplers(sProgTexDecode);
+    uTexDecode.rect = gl.GetUniformLocation(sProgTexDecode, "uRect");
+    uTexDecode.target = gl.GetUniformLocation(sProgTexDecode, "uTarget");
+    uTexDecode.arg = gl.GetUniformLocation(sProgTexDecode, "uTd");
+    uTexDecode.org = gl.GetUniformLocation(sProgTexDecode, "uTo");
     uResolve.sm = gl.GetUniformLocation(sProgResolve, "uSM");
     uLoad.sm = gl.GetUniformLocation(sProgLoad, "uSM");
     uDisp.tex = gl.GetUniformLocation(sProgDisplay, "uTex");
@@ -3186,6 +3519,29 @@ int Gl_Init(void *(*getproc)(const char *name), char *why, int whylen) {
     gl.ActiveTexture(GL_TEXTURE0 + U_VRAM);
     sVramTex = texture(GL_RGBA8UI, 1024, 1024, GL_RGBA_INTEGER, GL_UNSIGNED_BYTE, Gs_Vram());
     sVramFbo = fbo_of(sVramTex, 0);
+    { /* the texture cache: TTT_GS_TEXCACHE=0 turns it off, TTT_GS_TEXCHECK=1 counts the pixels it changes */
+        const char *e = getenv("TTT_GS_TEXCACHE");
+        GLint max = 0;
+        gl.GetIntegerv(GL_MAX_TEXTURE_SIZE, &max);
+        sTcW = sTcH = max >= 4096 ? 4096 : 2048;
+        sTcOn = (e == NULL || strcmp(e, "0") != 0) && max >= 2048;
+        e = getenv("TTT_GS_TEXCHECK");
+        sTcCheck = sTcOn && e != NULL && atoi(e) > 0;
+        memset(&sTcStat, 0, sizeof sTcStat);
+        memset(sTcSlot, 0, sizeof sTcSlot);
+        for (k = 0; k < 11; k++) {
+            sTcShelf[k].y = -1;
+        }
+        sTcNextY = 0;
+        sTcLast.slot = -1;
+        if (sTcOn) {
+            gl.ActiveTexture(GL_TEXTURE0 + U_TCACHE);
+            sTcTex = texture(GL_RGBA8UI, sTcW, sTcH, GL_RGBA_INTEGER, GL_UNSIGNED_BYTE, NULL);
+            sTcFbo = fbo_of(sTcTex, 0);
+            gl.GenQueries(1, &sTcQuery);
+            gl.ActiveTexture(GL_TEXTURE0 + U_VRAM);
+        }
+    }
 
     gl.GenVertexArrays(1, &sEmptyVao);
     gl.GenVertexArrays(1, &sVao);
@@ -3261,6 +3617,9 @@ void Gl_Report(void) {
                sGlStat.clutGpu, sGlStat.shows, sGlStat.date, sGlStat.ad, sGlStat.fbmsk, sGlStat.colclamp, sGlStat.pabe, sGlStat.overlapZ);
         printf("ttt: gl: resolves by texture %u clut %u upload %u show %u target %u; read back by texture %u clut %u upload %u show %u target %u\n",
                sResBy[0], sResBy[1], sResBy[2], sResBy[3], sResBy[4], sRbBy[0], sRbBy[1], sRbBy[2], sRbBy[3], sRbBy[4]);
+        printf("ttt: gl: texture cache: %s, %u decodes (%llu texels), %u hits, %u in targets' pages, %u atlas resets; checked %u batches, "
+               "%u differing pixels\n", sTcOn ? "on" : "off", sTcStat.decodes, (unsigned long long)sTcStat.texels, sTcStat.hits,
+               sTcStat.direct, sTcStat.resets, sTcStat.checked, sTcStat.differing);
         printf("ttt: gl: snapshots: %llu copies, %llu target pixels copied; checked whole %u, differing %u\n",
                (unsigned long long)sSnapCopies, (unsigned long long)sSnapPixels, sSnapChecks, sSnapMismatch);
         if (sStates[0] + sStates[1] != 0) { /* F07 (a save's resolves and read backs count as "target" above) */

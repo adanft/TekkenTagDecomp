@@ -3,7 +3,11 @@
 A primitive that samples the snapshot of the target it draws into (the frame bent by a mesh of triangles, at scale 2 and
 above) neither resolves that target into GS memory nor copies whole rows of it: only the rectangle drawn since the last
 copy. Two-pass alpha-tested primitives (FB_ONLY) share a batch when they cover different pixels, and a batch starts with
-the masks the last one left, so depth writes are not switched twice per primitive."""
+the masks the last one left, so depth writes are not switched twice per primitive. A texture from GS memory is decoded
+once into the texture cache and decoded again only when its pages, or what its texels depend on (TEXA), change; a
+texture in a target's pages is read from GS memory as before. A batch runs the smallest program variant that draws it:
+one colour output when GL can read the destination's weight from the source alpha."""
+import os
 from pathlib import Path
 import re
 import shutil
@@ -71,13 +75,80 @@ static void alpha_batches(void) {
     flush();
     draw_log = 0;
 }
+static void cache_line(void) {
+    printf("decodes %u cached %u direct %u\n", sTcStat.decodes, sS[sNs - 1][9] >> 31, sTcStat.direct);
+}
+static void tex_cache(void) {
+    Cmd c = {0}, u = {0};
+    Draw *d = &c.u.prim.d;
+    static uint8_t px[4] = {1, 2, 3, 4};
+    c.type = CMD_TRIANGLE;
+    d->prim = 3; d->ctx = 1; d->fbp = 32; d->fbw = 1; d->fbits = 32;
+    d->scx1 = 63; d->scy1 = 31; d->colclamp = 1; d->zmax = UINT32_MAX;
+    for (int k = 0; k < 3; k++) c.u.prim.v[k].rgba = 0x80808080;
+    tri(&c, 0, 0, 64, 0, 0, 32);                  /* the target: page 1 */
+    d->tex = d->fst = 1; d->tbp = 1024; d->tbw = 1; d->tbits = 32; d->tw = 64; d->th = 32; d->lw = 6; d->lh = 5;
+    d->wms = d->wmt = 1;
+    tri(&c, 0, 0, 8, 0, 0, 8);                    /* a texture in page 32: decoded */
+    cache_line();
+    tri(&c, 8, 0, 16, 0, 8, 8);                   /* the same texture: from the cache */
+    cache_line();
+    u.type = CMD_UPLOAD;                          /* one texel of it uploaded: decoded again */
+    u.u.upload.bitbltbuf = 1024ull << 32 | 1ull << 48;
+    u.u.upload.tw = u.u.upload.th = 1;
+    u.u.upload.bytes = 4;
+    u.u.upload.data = px;
+    Gl_Exec(&u);
+    tri(&c, 0, 0, 8, 0, 0, 8);
+    cache_line();
+    d->tpsm = 0x02; d->tbits = 16; d->ta0 = 0x80; /* 16 bits: TEXA is part of its texels */
+    tri(&c, 0, 0, 8, 0, 0, 8);
+    cache_line();
+    d->ta0 = 0x40;
+    tri(&c, 0, 0, 8, 0, 0, 8);
+    cache_line();
+    d->ta0 = 0x80;                                /* the first TEXA again: still cached */
+    tri(&c, 0, 0, 8, 0, 0, 8);
+    cache_line();
+    d->tpsm = 0; d->tbits = 32; d->tbp = 32;      /* the target's own page: GS memory, as before */
+    tri(&c, 0, 0, 8, 0, 0, 8);
+    cache_line();
+}
+static void variant(Cmd *c) {
+    tri(c, 0, 0, 8, 0, 0, 8);
+    printf("prog %d blend %d\n", sB[sNb - 1].k.prog, sB[sNb - 1].k.blend);
+}
+static void variants(void) {
+    Cmd c = {0};
+    Draw *d = &c.u.prim.d;
+    c.type = CMD_TRIANGLE;
+    d->prim = 3; d->ctx = 1; d->fbp = 32; d->fbw = 1; d->fbits = 32;
+    d->scx1 = 63; d->scy1 = 31; d->colclamp = 1; d->zmax = UINT32_MAX;
+    for (int k = 0; k < 3; k++) c.u.prim.v[k].rgba = 0x80808080;
+    variant(&c);                                  /* no blending: one output, blending off */
+    d->blend = 1;
+    d->asel = 0; d->bsel = 1; d->csel = 0; d->dsel = 1;
+    variant(&c);                                  /* (Cs - Cd) As + Cd: weight 1 - As */
+    d->asel = 1; d->bsel = 2; d->csel = 0; d->dsel = 2;
+    variant(&c);                                  /* Cd As: weight As */
+    d->asel = 0; d->bsel = 2; d->csel = 0; d->dsel = 1;
+    variant(&c);                                  /* Cs As + Cd: weight 1 */
+    d->asel = 1; d->bsel = 0; d->csel = 0; d->dsel = 1;
+    variant(&c);                                  /* (Cd - Cs) As + Cd: weight 1 + As, two outputs */
+    d->asel = 0; d->bsel = 1; d->csel = 2; d->dsel = 1;
+    variant(&c);                                  /* C = FIX: two outputs */
+    d->csel = 0; d->fba = 1;
+    variant(&c);                                  /* FBA: the alpha stored is not As, two outputs */
+    d->fba = 0; d->pabe = 1;
+    variant(&c);                                  /* PABE: per pixel, two outputs */
+}
 int main(int argc, char **argv) {
     char why[128];
     Cmd c = {0};
     Draw *d = &c.u.prim.d;
     assert(Gl_Init(getproc, why, sizeof why));
     if (argc > 1) {
-        alpha_batches();
+        if (!strcmp(argv[1], "texcache")) tex_cache(); else if (!strcmp(argv[1], "variants")) variants(); else alpha_batches();
         return 0;
     }
     sScale = 2;
@@ -154,6 +225,16 @@ class SnapshotReads(unittest.TestCase):
         log = p.stdout.splitlines()
         draws = [i for i, l in enumerate(log) if l.startswith("draw ")]
         cls.alpha = log[draws[0]:draws[-1] + 1] if draws else log
+        cls.cache = cls.run_mode("texcache")
+        cls.cache_off = cls.run_mode("texcache", TTT_GS_TEXCACHE="0")
+        cls.variants = cls.run_mode("variants", prefix="prog ")
+
+    @classmethod
+    def run_mode(cls, mode, prefix="decodes ", **env):
+        p = subprocess.run([str(cls.exe), mode], capture_output=True, text=True, timeout=10, env={**os.environ, **env})
+        if p.returncode or p.stderr:
+            raise AssertionError(p.stdout + p.stderr)
+        return [l for l in p.stdout.splitlines() if l.startswith(prefix)]
 
     @classmethod
     def tearDownClass(cls):
@@ -170,6 +251,30 @@ class SnapshotReads(unittest.TestCase):
         # without. D overlaps A: a new batch, which E (apart from D) joins; it starts with the failing pixels, whose
         # masks the last batch left, so depth writes switch once, not twice
         self.assertEqual(self.alpha, ["draw 9", "depth 0", "draw 9", "draw 6", "depth 1", "draw 6"])
+
+    def test_a_texture_is_decoded_once_until_its_pages_or_texa_change(self):
+        self.assertEqual(self.cache, ["decodes 1 cached 1 direct 0",   # decoded
+                                      "decodes 1 cached 1 direct 0",   # reused
+                                      "decodes 2 cached 1 direct 0",   # its page uploaded: decoded again
+                                      "decodes 3 cached 1 direct 0",   # 16 bits, TEXA 0x80
+                                      "decodes 4 cached 1 direct 0",   # TEXA 0x40: another entry
+                                      "decodes 4 cached 1 direct 0",   # TEXA 0x80 again: the first one
+                                      "decodes 4 cached 0 direct 1"])  # in the target's page: GS memory
+
+    def test_the_cache_turns_off(self):
+        self.assertEqual(self.cache_off, ["decodes 0 cached 0 direct 0"] * 7)
+
+    def test_a_batch_has_one_colour_output_when_gl_reads_the_weight_from_the_source_alpha(self):
+        # prog: 1 cached (untextured here) | 4 one output; blend: equation (1 add) | the destination's weight << 4
+        # (0 the second output, 1 zero, 2 one, 3 As, 4 1 - As)
+        self.assertEqual(self.variants, ["prog 5 blend 0",    # no blending: blending off
+                                         "prog 5 blend 65",   # 1 - As
+                                         "prog 5 blend 49",   # As
+                                         "prog 5 blend 33",   # 1
+                                         "prog 1 blend 3",    # 1 + As (Cs subtracted: reverse subtract)
+                                         "prog 1 blend 1",    # FIX
+                                         "prog 1 blend 1",    # FBA
+                                         "prog 1 blend 1"])   # PABE
 
     def test_reading_its_own_snapshot_does_not_resolve_and_leaves_it_dirty(self):
         counts = [l for l in self.lines if l.startswith("resolves ")]

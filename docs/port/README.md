@@ -428,6 +428,8 @@ Switches:
 | `TTT_RESOLUTION=1..8`, `TTT_ASPECT=4:3 / 16:9 / 21:9`, `TTT_DEFLICKER=0`, `TTT_SMOOTH=0`, `TTT_LOW_LATENCY=1` | The GL back end's video options (T37, [video.md](video.md)): internal resolution, widescreen, the game's flicker filter off, nearest scaling into the window, low input lag. Presentation only (the state is the same). |
 | `TTT_TEXTURE_DUMP=1`, `TTT_TEXTURE_REPLACE=1`, `TTT_TEXTURES=<folder>` | Texture packs (T39, [textures.md](textures.md)), GL only: write each new texture as `<folder>/SLUS-20001/dumps/<name>.png`, draw `replacements/<name>.png` instead, PCSX2's names (XXH3 of the texture's data and CLUT, format bits). Presentation only (the state is the same). `TTT_SELFTEST=texpack` checks the names. |
 | `TTT_RENDERER=gl / sw` | In a window: the GS draws on the GPU (`gl`, default; falls back to `sw` when no OpenGL 3.3 core context can be made) or with the software rasteriser (`sw`). Headless runs and dumps without a window are always `sw`. |
+| `TTT_GS_TEXCACHE=0` | The GL back end reads every texture from GS memory instead of its texture cache ([GL back end](#gl-back-end)). |
+| `TTT_GS_TEXCHECK=1` | The GL back end counts, per batch, the pixels whose cached texels differ from GS memory's (`ttt: gl: texture cache:` line; slow: one blocking query per batch). |
 | `TTT_WINDOW_HIDDEN=1` | The window stays hidden (tests, measurements; with `SDL_VIDEO_DRIVER=offscreen` no display is needed). |
 | `TTT_GS_ASYNC=0 / 1 / 2` | The GS threads ([Speed](#speed)): 1 one GS thread, 2 two (VIF1 / VU1, then the GIF / GS front end). Default 2 with GL, 1 with raster threads, 0 for traces and self-tests. The same results in every mode (`tests/test_port_gl.py`). |
 | `TTT_SELFTEST=gl` | The GL back end's rules on made-up primitives, no GL context: the alpha test's outcome over a primitive's alpha range, the shared depth write, the texels a UV primitive reads, the CLUT halves of a load (`tests/test_port_gl.py`). |
@@ -775,6 +777,20 @@ throttles the whole slice when hot, so wall times move by 10-20% between runs; C
   channel, under 0.05% of the pixels more than 24 levels off (edges, the title's lightning glow); the game's state is
   the same. Not modelled (counted in the `ttt: gl:` report line, all 0 on that path): DATE, C = Ad on a 32 / 16-bit
   frame, partial FBMSK bytes, COLCLAMP 0, PABE with a subtracting equation.
+- **Integrated GPUs.** Two changes keep the shader small where most pixels are drawn (Intel UHD 770, GPU time of
+  the draws per fight frame: 13.3 -> 7.4 ms at 1x, 25.5 -> 15.6 ms at 2x; the pictures are the same):
+  - *Texture cache.* A texture from GS memory is decoded once (its CLUT row's entries or TEXA applied) into a
+    rectangle of a 4096 x 4096 RGBA8UI atlas, and the primitives read one texel per tap from it. An entry is decoded
+    again when a page it reads changes (the game uploads its textures again every frame) and is never overwritten
+    while queued draws read it; textures in a target's pages (drawn by the game) and snapshots read as before.
+    `TTT_GS_TEXCACHE=0` turns it off; `TTT_GS_TEXCHECK=1` counts the pixels whose texels differ from GS memory's (the
+    `ttt: gl: texture cache:` report line; 0 on the fight at 1x and 2x).
+  - *Program variants.* A batch whose textures are all cached (or snapshots) runs a program without the other paths,
+    and one whose destination weight GL can read from the source alpha (no blending, or 0 / 1 / As / 1 - As: the
+    lighting passes and the usual alpha blend) runs one with a single colour output. Intel's compiler runs a large
+    program, or one with two colour outputs (dual-source blending), on 8 pixels at a time instead of 16. Targets keep
+    alpha as the GS's blend reads it (0x80 = 1.0) for that. 1 - As above 0x80 is now negative, as on the GS and in the
+    software rasteriser (dual-source took its absolute value).
 - **Video options (T37, [video.md](video.md)).** Internal resolution 1x-8x (GS memory stays 1x: resolves read each
   pixel's first sample; textures that are colour targets in the same format sample a full-resolution snapshot),
   widescreen 16:9 / 21:9 (margins on 640-wide targets: the 3D scene the VU1 programs already clip at the guard band,
