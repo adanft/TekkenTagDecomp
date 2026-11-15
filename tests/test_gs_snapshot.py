@@ -2,7 +2,8 @@
 
 A primitive that samples the snapshot of the target it draws into (the frame bent by a mesh of triangles, at scale 2 and
 above) neither resolves that target into GS memory nor copies whole rows of it: only the rectangle drawn since the last
-copy."""
+copy. Two-pass alpha-tested primitives (FB_ONLY) share a batch when they cover different pixels, and a batch starts with
+the masks the last one left, so depth writes are not switched twice per primitive."""
 from pathlib import Path
 import re
 import shutil
@@ -14,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 DRIVER = r'''
 #include <assert.h>
-static unsigned blit_log;
+static unsigned blit_log, draw_log;
 #include "gs_gl.c"
 int gPortStateNoGs;
 void Gs_AsyncDrain(void) {}
@@ -44,11 +45,41 @@ static void tri(Cmd *c, int x0, int y0, int x1, int y1, int x2, int y2) {
     c->u.prim.v[2].x = x2 * 16; c->u.prim.v[2].y = y2 * 16;
     Gl_Exec(c);
 }
+/* FB_ONLY alpha test with depth writes: the vertices' alpha straddles AREF, so both passes draw. */
+static void alpha_tri(Cmd *c, uint32_t aref, int x0, int y0, int x1, int y1, int x2, int y2) {
+    Draw *d = &c->u.prim.d;
+    d->aref = aref;
+    c->u.prim.v[0].rgba = 0x00808080; c->u.prim.v[1].rgba = 0x80808080; c->u.prim.v[2].rgba = 0xFF808080;
+    tri(c, x0, y0, x1, y1, x2, y2);
+}
+static void alpha_batches(void) {
+    Cmd c = {0};
+    Draw *d = &c.u.prim.d;
+    c.type = CMD_TRIANGLE;
+    d->prim = 3; d->ctx = 1; d->fbp = 32; d->fbw = 1; d->fbits = 32; d->gouraud = 1;
+    d->scx1 = 63; d->scy1 = 31; d->colclamp = 1; d->zmax = UINT32_MAX;
+    d->zbp = 96; d->zpsm = 0x30; d->zwrite = 1; d->ztest = 1; d->ztst = 1;
+    tri(&c, 0, 0, 64, 0, 0, 32);                  /* makes the colour and depth targets (their loads draw too) */
+    flush();
+    d->atest = 1; d->atst = 5; d->afail = 1;
+    draw_log = 1;
+    alpha_tri(&c, 0x80, 0, 0, 10, 0, 0, 10);      /* A */
+    alpha_tri(&c, 0x81, 30, 0, 40, 0, 30, 10);    /* B: a new state record, apart from A: joins */
+    alpha_tri(&c, 0x80, 40, 0, 30, 10, 40, 10);   /* C: shares B's edge only: joins */
+    alpha_tri(&c, 0x81, 2, 2, 8, 2, 2, 8);        /* D: inside A: a batch of its own */
+    alpha_tri(&c, 0x80, 31, 1, 33, 1, 31, 3);     /* E: on top of B (drawn already), apart from D: joins D */
+    flush();
+    draw_log = 0;
+}
 int main(int argc, char **argv) {
     char why[128];
     Cmd c = {0};
     Draw *d = &c.u.prim.d;
     assert(Gl_Init(getproc, why, sizeof why));
+    if (argc > 1) {
+        alpha_batches();
+        return 0;
+    }
     sScale = 2;
     c.type = CMD_TRIANGLE;
     d->prim = 3; d->ctx = 1; d->fbp = 32; d->fbw = 1; d->fbits = 32;
@@ -90,7 +121,10 @@ class SnapshotReads(unittest.TestCase):
                   "CheckFramebufferStatus": "return GL_FRAMEBUFFER_COMPLETE;",
                   "GetIntegerv": "*a1 = 1000000;",
                   "BlitFramebuffer": 'if (blit_log) printf("blit %d %d %d %d\\n", a0, a1, a2, a3);',
-                  "ReadPixels": "memset(a6, 0, (size_t)a2 * a3 * 4);"}
+                  "ReadPixels": "memset(a6, 0, (size_t)a2 * a3 * 4);",
+                  "DrawArrays": 'if (draw_log) printf("draw %d\\n", a2);',
+                  "DepthMask": 'if (draw_log) printf("depth %d\\n", a0);',
+                  "ColorMask": 'if (draw_log) printf("color %d%d%d%d\\n", a0, a1, a2, a3);'}
         for name in ("GenTextures", "GenFramebuffers", "GenBuffers", "GenVertexArrays"):
             bodies[name] = "static unsigned objects; for (int i=0; i<a0; i++) a1[i] = ++objects;"
         stubs, mapping = [], []
@@ -114,6 +148,12 @@ class SnapshotReads(unittest.TestCase):
         if p.returncode or p.stderr:
             raise AssertionError(p.stdout + p.stderr)
         cls.lines = p.stdout.splitlines()
+        p = subprocess.run([str(cls.exe), "alpha"], capture_output=True, text=True, timeout=10)
+        if p.returncode or p.stderr:
+            raise AssertionError(p.stdout + p.stderr)
+        log = p.stdout.splitlines()
+        draws = [i for i, l in enumerate(log) if l.startswith("draw ")]
+        cls.alpha = log[draws[0]:draws[-1] + 1] if draws else log
 
     @classmethod
     def tearDownClass(cls):
@@ -124,6 +164,12 @@ class SnapshotReads(unittest.TestCase):
         # 2x: the first copy is whole (128 x 64); then the union of both triangles drawn after it, x 40..47 and
         # y 20..23, with one pixel more each side in x: x 39..48 -> 78..98, y 20..23 -> 40..48
         self.assertEqual(blits, [(0, 0, 128, 64), (78, 40, 98, 48)])
+
+    def test_two_pass_primitives_on_different_pixels_share_a_batch(self):
+        # A, B and C (apart, or sharing one edge) in one batch: passing pixels with depth writes, then failing ones
+        # without. D overlaps A: a new batch, which E (apart from D) joins; it starts with the failing pixels, whose
+        # masks the last batch left, so depth writes switch once, not twice
+        self.assertEqual(self.alpha, ["draw 9", "depth 0", "draw 9", "draw 6", "depth 1", "draw 6"])
 
     def test_reading_its_own_snapshot_does_not_resolve_and_leaves_it_dirty(self):
         counts = [l for l in self.lines if l.startswith("resolves ")]

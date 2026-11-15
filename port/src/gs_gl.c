@@ -760,10 +760,57 @@ static uint32_t sVbBase, sStBase, sStRing; /* where the next flush writes in the
 typedef struct Batch {
     Key k;
     uint32_t first, count;
+    int disjoint;           /* two-pass: its primitives cover different pixels (sShape), so drawn in any order */
 } Batch;
 #define MAX_BATCHES 32768
 static Batch *sB;
 static uint32_t sNb;
+
+/* The primitives of the last two-pass batch, to tell whether a new one covers a pixel of theirs: a triangle (12.4
+   window coordinates) or, for other kinds, only a box (GS pixels, one more each side). */
+typedef struct Shape {
+    int32_t x[3], y[3];
+    int tri, bx0, bx1, by0, by1;
+} Shape;
+#define MAX_SHAPES 32
+static Shape sShape[MAX_SHAPES];
+static int sShapes;
+
+/* Whether edge e of triangle a has all of b on its outer side: strictly, or along that same edge (both triangles have
+   its two vertices; GL draws the pixels of a shared edge once). */
+static int edge_apart(const Shape *a, int e, const Shape *b) {
+    int p = e, q = (e + 1) % 3, r = (e + 2) % 3, i, on = 0, ends = 0;
+    int64_t nx = -(int64_t)(a->y[q] - a->y[p]), ny = (int64_t)(a->x[q] - a->x[p]);
+    int64_t side = nx * (a->x[r] - a->x[p]) + ny * (a->y[r] - a->y[p]);
+    for (i = 0; i < 3; i++) {
+        int64_t t = nx * (b->x[i] - a->x[p]) + ny * (b->y[i] - a->y[p]);
+        if (side > 0 ? t > 0 : t < 0) {
+            return 0;
+        }
+        if (t == 0) {
+            on++;
+            ends += (b->x[i] == a->x[p] && b->y[i] == a->y[p]) || (b->x[i] == a->x[q] && b->y[i] == a->y[q]);
+        }
+    }
+    return on == 0 || (on == 2 && ends == 2);
+}
+
+/* Whether shapes a and b cover no pixel in common (conservative). */
+static int shapes_apart(const Shape *a, const Shape *b) {
+    int e;
+    if (a->bx1 < b->bx0 || b->bx1 < a->bx0 || a->by1 < b->by0 || b->by1 < a->by0) {
+        return 1;
+    }
+    if (!a->tri || !b->tri) {
+        return 0;
+    }
+    for (e = 0; e < 3; e++) {
+        if (edge_apart(a, e, b) || edge_apart(b, e, a)) {
+            return 1;
+        }
+    }
+    return 0;
+}
 static struct { uint64_t tex0, clamp; uint32_t pages[16]; int valid; } sTexPages;
 /* The geometry of a primitive for same_depth(): type, vertex positions and Z, scissor. */
 typedef struct Geo {
@@ -1376,6 +1423,19 @@ static void flush(void) {
         if (k->blend != curBlend) {
             blend_state(k->blend);
             curBlend = k->blend;
+        }
+        if (k->pass == 2 && sB[i].disjoint && k->fmask == curCmask && (k->fdwrite != 0) == curDmask) {
+            /* A pixel of the batch's primitives either passes or fails, and they cover different pixels: either order
+               draws the same, and starting with the failing ones when the masks already are theirs saves two mask
+               changes. Switching depth writes for every batch (an alpha-tested stage) stalls the GPU at 4x. */
+            gl.Uniform1i(uDraw.pass, 2);
+            gl.DrawArrays(mode, (GLint)(sVbBase + sB[i].first), (GLsizei)sB[i].count);
+            set_masks(k->cmask, k->dwrite, &curCmask, &curDmask);
+            gl.Uniform1i(uDraw.pass, 1);
+            curPass = 1;
+            gl.DrawArrays(mode, (GLint)(sVbBase + sB[i].first), (GLsizei)sB[i].count);
+            sGlStat.draws += 2;
+            continue;
         }
         set_masks(k->cmask, k->dwrite, &curCmask, &curDmask);
         if ((k->pass != 0) != curPass) {
@@ -2309,13 +2369,46 @@ static void prim(const Cmd *c) {
         sTpStat.replaced++;
     }
     newState = sNs == 0 || memcmp(st, sS[sNs - 1], sizeof st) != 0;
-    if (sNb == 0 || memcmp(&k, &sB[sNb - 1].k, sizeof k) != 0 || (k.pass == 2 && newState)) {
-        sB[sNb].k = k;
-        sB[sNb].first = sNv;
-        sB[sNb].count = 0;
-        sNb++;
+    { /* A two-pass batch draws all its passing pixels, then all its failing ones. A primitive with a new state record
+         joins it only where it meets none of the batch's pixels, so that order changes nothing; FB_ONLY alpha-tested
+         stages then draw in a few batches, not one per primitive with depth writes switched twice each. */
+        int n = c->type == CMD_TRIANGLE ? 3 : c->type == CMD_POINT ? 1 : 2, i, apart = 0;
+        Batch *b = sNb > 0 ? &sB[sNb - 1] : NULL;
+        Shape sh;
+        if (k.pass == 2) {
+            sh.tri = c->type == CMD_TRIANGLE;
+            sh.bx0 = v[0].x >> 4, sh.bx1 = (v[0].x + 15) >> 4, sh.by0 = v[0].y >> 4, sh.by1 = (v[0].y + 15) >> 4;
+            for (i = 0; i < n; i++) {
+                sh.x[i] = v[i].x, sh.y[i] = v[i].y;
+                sh.bx0 = (v[i].x >> 4) < sh.bx0 ? v[i].x >> 4 : sh.bx0;
+                sh.bx1 = ((v[i].x + 15) >> 4) > sh.bx1 ? (v[i].x + 15) >> 4 : sh.bx1;
+                sh.by0 = (v[i].y >> 4) < sh.by0 ? v[i].y >> 4 : sh.by0;
+                sh.by1 = ((v[i].y + 15) >> 4) > sh.by1 ? (v[i].y + 15) >> 4 : sh.by1;
+            }
+            sh.bx0--, sh.bx1++, sh.by0--, sh.by1++;
+            if (b != NULL && b->disjoint && sShapes < MAX_SHAPES && memcmp(&k, &b->k, sizeof k) == 0) {
+                for (apart = 1, i = 0; i < sShapes && apart; i++) {
+                    apart = shapes_apart(&sh, &sShape[i]);
+                }
+            }
+        }
+        if (b == NULL || memcmp(&k, &b->k, sizeof k) != 0 || (k.pass == 2 && newState && !apart)) {
+            b = &sB[sNb++];
+            b->k = k;
+            b->first = sNv;
+            b->count = 0;
+            b->disjoint = 1;
+            sShapes = 0;
+            apart = 1;
+        }
+        if (k.pass == 2) {
+            b->disjoint &= apart;
+            if (b->disjoint) {
+                sShape[sShapes++] = sh;
+            }
+        }
+        b->count += (uint32_t)need;
     }
-    sB[sNb - 1].count += (uint32_t)need;
     if (newState) {
         memcpy(sS[sNs++], st, sizeof st);
     }
