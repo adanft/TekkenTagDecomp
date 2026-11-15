@@ -5391,8 +5391,6 @@ s32 func_003850B8(void) {
     return n;
 }
 
-#if 0
-/* NON_MATCHING: 16 lines: register allocation of the random value and the CPU level (a0 / v1), and the sum kept in s1 before the return (the caller passes gCpu, unused here) */
 s32 func_00384988(CpuCand *c);
 s32 func_003847D8(CpuCand *c);
 s32 func_00384708(CpuCand *c);
@@ -5401,7 +5399,6 @@ s32 func_00385178(CpuState *unused) {
     CpuState *c = gCpu;
     s32 n = 0;
     s32 r = (rand() >> 1) & 0xFFF;
-    s32 (*f)(CpuCand *);
 
     switch (c->unk20) {
     case 1:
@@ -5418,16 +5415,12 @@ s32 func_00385178(CpuState *unused) {
         break;
     }
     if (gCpu->unk33C.w & 1) {
-        f = func_003847D8;
+        n += Cpu_PickCands(func_003847D8);
     } else {
-        f = func_00384708;
+        n += Cpu_PickCands(func_00384708);
     }
-    n += Cpu_PickCands(f);
     return n;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_00385178);
-#endif
 
 /* Commits the CPU to the command c: its move (D_005F6C00 by the fighter's slot unk20) counts in unkFC when it has flag
  * 0x400000; an attack (window unk2C) sets the wait unk94 to unk34C[0] plus one of unk34C[1..4] at random, and resets
