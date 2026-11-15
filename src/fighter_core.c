@@ -2748,8 +2748,6 @@ s32 func_003AFFB8(s32 i, s32 a);
 
 /* The pad bits of both team members of side *p (D_00415718 by func_003AFFB8) into D_004318C8: held unk6 / unk8, newly
  * pressed unkA, released unkC [V code; I meaning]. */
-#if 0
-/* NON_MATCHING: 12 lines differ: the original loads the second table entry first and keeps old ^ new in v0 */
 void func_0037FA78(u8 *p) {
     Unk4318C8 *s = &D_004318C8;
     u8 side = *p;
@@ -2757,14 +2755,11 @@ void func_0037FA78(u8 *p) {
     u16 held = D_00415718[func_003AFFB8(side, f->unk0)] | D_00415718[func_003AFFB8(side, f->unk2)];
     u16 diff = s->unk8 ^ held;
 
-    s->unkC = ~held & diff;
     s->unkA = held & diff;
     s->unk6 = held;
+    s->unkC = ~held & (s->unk8 ^ held);
     s->unk8 = held;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/fighter_core", func_0037FA78);
-#endif
 
 void func_0036C448(Fighter *f);
 
