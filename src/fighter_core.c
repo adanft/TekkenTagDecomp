@@ -1520,38 +1520,33 @@ s32 func_0037D518(Fighter *f, u32 i) {
     return gPracCmdLists[f->unk22].unk3E94[i];
 }
 
-#if 0
-/* NON_MATCHING: 19 lines: loop registers (t5 / t6 swapped) and the count reload scheduled into the loop; statement order from autoswap2 */
 void Prac_LoadCmdIntoTrack(Fighter *f, s32 i) {
     CmdRecorder *r = &gPracRecorder[f->unk1E];
     CmdList *p = &gPracCmdLists[f->unk22];
     CmdListEntry *e = &p->unk8[i];
     CmdListStep *s = &p->unk1FBE[e->unk2];
-    u16 *t = r->unk26;
     CmdStep *d = r->unkA28[0].unk10;
+    u16 *t = r->unk26;
     s32 n = 0;
 
     gPracReset.unk8 = e->unkA;
     gPracReset.unkC = e->unkC;
     gPracReset.unk10 = e->unkE;
     gPracReset.unk14 = e->unk10;
-    if (e->unk0 != 0) {
-        do {
-            n++;
-            d->unk2 = s->unk2;
-            d->unk0 = s->unk0;
-            *t = s->unk4;
-            s++;
-            d++;
-            t++;
-        } while (n < e->unk0);
+    while (n < e->unk0) {
+        n++;
+        d->unk0 = s->unk0;
+        d->unk2 = s->unk2;
+        /* Going through the dead list pointer is what makes the original reload e->unk0 on every pass. */
+        p = (CmdList *)s;
+        *t = ((CmdListStep *)p)->unk4;
+        s++;
+        d++;
+        t++;
     }
     r->unkA28[0].unk0 = 0;
     r->unkA28[0].unk4 = e->unk0;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/fighter_core", Prac_LoadCmdIntoTrack);
-#endif
 
 void func_0037D630(void) {
     Unk8B7EF0 *p = D_008B7EF0;
