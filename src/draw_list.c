@@ -215,17 +215,20 @@ s32 func_00356EE8(s32 side) {
     return 0;
 }
 
-/* NON_MATCHING: 7 lines: the original tests x ^ 1 with movn into the return register */
-#if 0
 s32 func_00356F48(s32 x) {
+    s32 r;
+
+    /* Setting r in both branches, one through a do-while, is what keeps the original register use. */
+    if (x != 0) {
+        do { r = 2; } while (0);
+    } else {
+        r = 2;
+    }
     if (x == 0) {
-        return 2;
+        return r;
     }
     return (x == 1) ? 3 : 2;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/draw_list", func_00356F48);
-#endif
 
 void func_00356F68(MdlSlot *s, u32 i, MdlTable *t, s32 a, s32 kind) {
     u32 n;

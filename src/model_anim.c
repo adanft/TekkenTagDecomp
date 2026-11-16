@@ -844,10 +844,8 @@ void func_003D1920(void) {
     }
 }
 
-#if 0
-/* NON_MATCHING: 2 store order: the scheduler hoists sw zero,0x2C(numFloats) where the original keeps it last */
-/* Resets one node. */
 void func_003D1980(ModelNode *n) {
+
     n->unkC = 1;
     n->scale = 1.0f;
     n->unk10 = 2;
@@ -860,12 +858,11 @@ void func_003D1980(ModelNode *n) {
     n->unk8 = 0;
     n->rot[0] = n->rot[1] = n->rot[2] = 0.0f;
     n->trans[0] = n->trans[1] = n->trans[2] = 0.0f;
+    /* The empty do-while is what keeps the original store order. */
+    do { } while (0);
     n->update = NULL;
     n->numFloats = n->numWords = 0;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/model_anim", func_003D1980);
-#endif
 
 /* Resets the draw object pool. */
 void func_003D19E8(void) {

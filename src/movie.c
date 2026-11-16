@@ -1838,9 +1838,6 @@ s32 func_0039FCE8(MovieViBuf *f, MovieTs *ts) {
     return r;
 }
 
-/* NON_MATCHING: 8 lines: the original loads wtTs and computes wtTs - count after the count > 0 test (loop pre-header); here
- * they are computed before it (written inside the loop, the load is not hoisted: the ts stores may alias it) */
-#if 0
 s32 func_0039FDF8(MovieViBuf *f, MovieTs *ts) {
     s32 isEnd = 0;
     u32 madr = *(volatile u32 *)0x1000B410;
@@ -1858,9 +1855,10 @@ s32 func_0039FDF8(MovieViBuf *f, MovieTs *ts) {
     ts->dts = -1;
     count = f->countTs;
     pos = (madr + (last >> 3) + size - (u32)f->data) % size;
-    start = f->wtTs - count;
+    start = f->wtTs;
     for (i = 0; i < count && isEnd == 0; i++) {
-        s32 j = (start + f->nTs + i) % f->nTs;
+        /* Subtracting count here instead of in start keeps the original instruction order. */
+        s32 j = (start - count + f->nTs + i) % f->nTs;
 
         if ((s32)(pos + size - f->ts[j].pos) % (s32)size < f->ts[j].len) {
             isEnd = 1;
@@ -1874,9 +1872,6 @@ s32 func_0039FDF8(MovieViBuf *f, MovieTs *ts) {
     SignalSema(f->sema);
     return 1;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/movie", func_0039FDF8);
-#endif
 
 void func_0039FFA0(MovieVoBuf *f, u8 *data, u8 *tag, s32 size) {
     s32 i;

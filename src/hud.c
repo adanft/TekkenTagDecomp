@@ -187,16 +187,14 @@ static inline s32 Hud_IsBlinkOn(HudSide *h) {
     return h->unk20 != 0;
 }
 
-/* NON_MATCHING: 1 line: in `if (k == n) h->unk10 = n;` the original stores n's register (s3), this C k's (s2); every
- * other instruction matches with the first loop on `ix` and the blink test through an inline (decomp-permuter, the
- * inline marked fake). D_0043B855 / D_0043B84A are D_0043B7F8 + 0x5D / + 0x52. */
+/* The first loop on `ix` and the blink test through an inline come from decomp-permuter (the inline marked fake).
+ * D_0043B855 / D_0043B84A are D_0043B7F8 + 0x5D / + 0x52. */
 /* Round / team markers [V]: game type 2 (D_0043B7F8[0] == 2, team battle [I]) draws one square per team member
  * (sprite 0x49 / clut 0x4A, 20 x 25 at y 60, mirrored on side 1), grey for members still standing (option byte
  * D_0043B7F8[0x52 + side * 0x1E + i] != 2) and red for the lost ones, the newest loss blinking. Then for each side the
  * extra icon (sprite 0x47 / clut 0x48 at x 13 / 595, y 400, Z 0xFFF00) when D_005F5CC8[side] != 0, and, when more than
  * one round is needed (D_005F5C70 >= 2), the round-win markers (sprite 0x43 / clut 0x44 won, 0x45 / 0x46 empty) every
  * 22 px from x 250 leftwards (side 0) or 364 rightwards (side 1) at y 60 - HudSide.unk24, the newest win blinking. */
-#if 0
 void Hud_DrawMarkers(void) {
     s32 p;
     s32 i;
@@ -230,7 +228,7 @@ void Hud_DrawMarkers(void) {
                 }
             }
             if (k == n) {
-                h->unk10 = n;
+                h->unk10 = k;
             } else if (k < h->unk10) {
                 h->unkC = 1;
                 h->unk10 = k;
@@ -307,11 +305,10 @@ void Hud_DrawMarkers(void) {
             }
         }
     }
-    Sprite_SetFilter(0, 1);
+    /* Passing n (cleared) instead of a literal 0 matches the original register use. */
+    n = 0;
+    Sprite_SetFilter(n, 1);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/hud", Hud_DrawMarkers);
-#endif
 
 /* NON_MATCHING: 235 lines: register allocation and stack slots (frame 0xF0 against 0xE0), every block in place */
 /* Draws one life bar (side, member, fade = offset of a tag-in slide, partner = 1 for the second bar of the side) [V]:
