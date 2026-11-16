@@ -129,6 +129,11 @@ static void variants(void) {
     d->blend = 1;
     d->asel = 0; d->bsel = 1; d->csel = 0; d->dsel = 1;
     variant(&c);                                  /* (Cs - Cd) As + Cd: weight 1 - As */
+    for (int k = 0; k < 3; k++) c.u.prim.v[k].rgba = 0xFF808080;
+    variant(&c);                                  /* As above 0x80: 1 - As would be negative, two outputs */
+    d->asel = 1; d->bsel = 2; d->csel = 0; d->dsel = 2;
+    variant(&c);                                  /* Cd As, As above 0x80: weight As, one output */
+    for (int k = 0; k < 3; k++) c.u.prim.v[k].rgba = 0x80808080;
     d->asel = 1; d->bsel = 2; d->csel = 0; d->dsel = 2;
     variant(&c);                                  /* Cd As: weight As */
     d->asel = 0; d->bsel = 2; d->csel = 0; d->dsel = 1;
@@ -142,13 +147,55 @@ static void variants(void) {
     d->fba = 0; d->pabe = 1;
     variant(&c);                                  /* PABE: per pixel, two outputs */
 }
+/* The texture of tex_cache: page 32, read from the cache. */
+static void cached_tex(Cmd *c) {
+    Draw *d = &c->u.prim.d;
+    c->type = CMD_TRIANGLE;
+    d->prim = 3; d->ctx = 1; d->fbp = 32; d->fbw = 1; d->fbits = 32;
+    d->scx1 = 63; d->scy1 = 31; d->colclamp = 1; d->zmax = UINT32_MAX;
+    for (int k = 0; k < 3; k++) c->u.prim.v[k].rgba = 0x80808080;
+    tri(c, 0, 0, 64, 0, 0, 32);
+    d->tex = d->fst = 1; d->tbp = 1024; d->tbw = 1; d->tbits = 32; d->tw = 64; d->th = 32; d->lw = 6; d->lh = 5;
+    d->wms = d->wmt = 1;
+    tri(c, 0, 0, 8, 0, 0, 8);
+}
+/* A long session: the page clock past 32 bits still marks a texture whose page changed. */
+static void clock_wrap(void) {
+    Cmd c = {0}, u = {0};
+    static uint8_t px[4] = {1, 2, 3, 4};
+    cached_tex(&c);
+    sGenClock = 0xFFFFFFFFu;
+    u.type = CMD_UPLOAD;
+    u.u.upload.bitbltbuf = 1024ull << 32 | 1ull << 48;
+    u.u.upload.tw = u.u.upload.th = 1;
+    u.u.upload.bytes = 4;
+    u.u.upload.data = px;
+    Gl_Exec(&u);
+    tri(&c, 0, 0, 8, 0, 0, 8);
+    cache_line();
+}
+/* A batch full right after the lookup: the primitive waits in the next flush window, and an entry decoded again while
+   it waits flushes it first (a page change without a flush stands for any such invalidation). */
+static void flush_guard(void) {
+    Cmd c = {0};
+    uint32_t f0;
+    cached_tex(&c);
+    f0 = sFlushes;
+    while (sFlushes == f0) tri(&c, 0, 0, 8, 0, 0, 8);
+    sPageGen[32] = ++sGenClock;
+    f0 = sFlushes;
+    tri(&c, 0, 0, 8, 0, 0, 8);
+    printf("flushes %u decodes %u\n", sFlushes - f0, sTcStat.decodes);
+}
 int main(int argc, char **argv) {
     char why[128];
     Cmd c = {0};
     Draw *d = &c.u.prim.d;
     assert(Gl_Init(getproc, why, sizeof why));
     if (argc > 1) {
-        if (!strcmp(argv[1], "texcache")) tex_cache(); else if (!strcmp(argv[1], "variants")) variants(); else alpha_batches();
+        if (!strcmp(argv[1], "texcache")) tex_cache(); else if (!strcmp(argv[1], "variants")) variants();
+        else if (!strcmp(argv[1], "clockwrap")) clock_wrap(); else if (!strcmp(argv[1], "flushguard")) flush_guard();
+        else alpha_batches();
         return 0;
     }
     sScale = 2;
@@ -228,6 +275,8 @@ class SnapshotReads(unittest.TestCase):
         cls.cache = cls.run_mode("texcache")
         cls.cache_off = cls.run_mode("texcache", TTT_GS_TEXCACHE="0")
         cls.variants = cls.run_mode("variants", prefix="prog ")
+        cls.clock_wrap = cls.run_mode("clockwrap")
+        cls.flush_guard = cls.run_mode("flushguard", prefix="flushes ")
 
     @classmethod
     def run_mode(cls, mode, prefix="decodes ", **env):
@@ -269,12 +318,20 @@ class SnapshotReads(unittest.TestCase):
         # (0 the second output, 1 zero, 2 one, 3 As, 4 1 - As)
         self.assertEqual(self.variants, ["prog 5 blend 0",    # no blending: blending off
                                          "prog 5 blend 65",   # 1 - As
+                                         "prog 1 blend 1",    # 1 - As, As above 0x80: two outputs
+                                         "prog 5 blend 49",   # As, As above 0x80
                                          "prog 5 blend 49",   # As
                                          "prog 5 blend 33",   # 1
                                          "prog 1 blend 3",    # 1 + As (Cs subtracted: reverse subtract)
                                          "prog 1 blend 1",    # FIX
                                          "prog 1 blend 1",    # FBA
                                          "prog 1 blend 1"])   # PABE
+
+    def test_a_page_changed_after_the_clock_passes_32_bits_still_decodes_again(self):
+        self.assertEqual(self.clock_wrap, ["decodes 2 cached 1 direct 0"])
+
+    def test_an_entry_decoded_again_flushes_draws_queued_after_a_full_batch(self):
+        self.assertEqual(self.flush_guard, ["flushes 1 decodes 2"])
 
     def test_reading_its_own_snapshot_does_not_resolve_and_leaves_it_dirty(self):
         counts = [l for l in self.lines if l.startswith("resolves ")]

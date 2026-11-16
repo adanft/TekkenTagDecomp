@@ -910,14 +910,14 @@ static struct { uint32_t batches, draws, resolves, loads, pushes, readbacks, rts
    the CPU copy or the mirror of a page changes). */
 typedef struct TpSlot {
     uint64_t k0, k1, k2;    /* TEX0's texture fields and CLAMP's; TEXA (16 / 24 bits); the CLUT's XXH3 (indexed) */
-    uint32_t stamp;         /* sGenClock when named */
+    uint64_t stamp;         /* sGenClock when named */
     uint32_t pages[16];
     int used, named, repl;  /* repl: the replacement's index, -1 none */
     uint32_t s10, s11;      /* the state record's s2.z / s2.w with the replacement: the texels it stands for */
 } TpSlot;
 #define TP_SLOTS 4096
 static TpSlot *sTpSlot;
-static uint32_t sPageGen[512], sGenClock = 1;
+static uint64_t sPageGen[512], sGenClock = 1; /* 64 bits: never wraps, so a changed page is always newer */
 static uint8_t sPageDrawn[512]; /* bytes of the page's words the GPU wrote (resolves) since the CPU wrote them (uploads, copies) */
 static int sTpDump, sTpRepl;
 static GLuint *sTpTex;      /* per replacement: its GL texture (0: not uploaded yet) */
@@ -932,8 +932,8 @@ static struct { uint32_t named, drawn, other, gpuClut, uploads, replaced; } sTpS
    instead of the page table, the mirror and the CLUT row: most of a frame's cost on an integrated GPU. */
 typedef struct TcSlot {
     uint64_t k0, k1, k2;    /* TEX0's texture fields; the rectangle; the CLUT row's entries (indexed) or TEXA */
-    uint32_t stamp;         /* sGenClock when decoded (or found in a target's pages) */
-    uint32_t checked;       /* sGenClock when last found current */
+    uint64_t stamp;         /* sGenClock when decoded (or found in a target's pages) */
+    uint64_t checked;       /* sGenClock when last found current */
     uint32_t flushes;       /* sFlushes when last drawn: queued draws read it until the next flush */
     uint32_t pages[16];
     int used, placed, direct; /* placed: it has a rectangle; direct: in a target's pages, read from GS memory */
@@ -941,7 +941,8 @@ typedef struct TcSlot {
 } TcSlot;
 #define TC_SLOTS 4096
 static TcSlot sTcSlot[TC_SLOTS];
-static struct { uint64_t k0, k1, k2; uint32_t clock; int slot; } sTcLast = {0, 0, 0, 0, -1};
+static struct { uint64_t k0, k1, k2, clock; int slot; } sTcLast = {0, 0, 0, 0, -1};
+static TcSlot *sTcDrawn;    /* the entry tc_lookup last returned: prim marks it drawn once the primitive is queued */
 static int sTcOn, sTcCheck, sTcW, sTcH, sTcNextY;
 static struct { int y, x; } sTcShelf[11];  /* per height class (1 << c rows): the open shelf (y < 0: none) */
 static GLuint sTcTex, sTcFbo, sTcQuery, sProgTexDecode;
@@ -1789,6 +1790,27 @@ static void alpha_range(const Draw *d, const Vtx *v, int type, int palRow, uint3
     *hi = th > 255 ? 255 : th;
 }
 
+/* The destination's weight GL can read from the source alpha (blend_state bits 4-6: 1 zero, 2 one, 3 As, 4 1 - As),
+   0 when the draw needs the shader's second output. Only when C = As and the alpha stored is As (no FBA), blended on
+   every pixel (no PABE): the weight is |a As + b|. 1 - As only while As stays at or below 0x80 (ahi: the primitive's
+   highest alpha): above it the GS's weight is negative and the GS clamps the sum, which one output into a float target
+   cannot give (the source term is clamped first and a negative sum is stored), so those draws keep two outputs. */
+static int dst_weight(const Draw *d, uint32_t ahi) {
+    int a, b;
+    if (d->csel != 0 || d->fba || d->pabe) {
+        return 0;
+    }
+    a = (d->asel == 1) - (d->bsel == 1);
+    b = d->dsel == 1;
+    if (a == 0) {
+        return b ? 2 : 1;
+    }
+    if (!b) {
+        return 3;
+    }
+    return a < 0 && ahi <= 0x80 ? 4 : 0;
+}
+
 /* The alpha test's outcome over alpha range lo..hi: 1 every pixel passes, -1 every pixel fails, 0 it depends. */
 static int alpha_outcome(uint32_t atst, uint32_t aref, uint32_t lo, uint32_t hi) {
     switch (atst & 7) {
@@ -2186,7 +2208,7 @@ static GLuint tp_texture(int i) {
 /* The texture pack's part in a textured primitive from GS memory: the texture named (dumped when new) and its
    replacement's GL texture, 0 none. Only reads GS memory's CPU copy; textures in pages the GPU drew are not named. */
 static GLuint tp_lookup(const Draw *d, int palRow, uint32_t *s10, uint32_t *s11) {
-    static struct { uint64_t k0, k1, k2; uint32_t clock; GLuint tex; int slot; } last;
+    static struct { uint64_t k0, k1, k2, clock; GLuint tex; int slot; } last;
     uint64_t k0 = (uint64_t)(d->tbp & 0x3FFF) | (uint64_t)(d->tbw & 63) << 14 | (uint64_t)(d->tpsm & 63) << 20 |
                   (uint64_t)(d->lw & 15) << 26 | (uint64_t)(d->lh & 15) << 30 | (uint64_t)(d->wms & 3) << 34 | (uint64_t)(d->wmt & 3) << 36 |
                   (uint64_t)(d->minu & 1023) << 38 | (uint64_t)(d->maxu & 1023) << 48;
@@ -2428,7 +2450,7 @@ static uint32_t tc_lookup(const Draw *d, int palRow) {
         return 0;
     }
     sTcStat.hits += !stale;
-    t->flushes = sFlushes;
+    sTcDrawn = t;
     return 1u << 31 | (uint32_t)(t->ax - (int)x0 + 1024) | (uint32_t)(t->ay - (int)y0 + 1024) << 13;
 }
 
@@ -2525,7 +2547,7 @@ static void prim(const Cmd *c) {
     int outcome = 0, newState, zneed = (d->ztest && d->ztst != 1) || d->zwrite, rt, zrt = -1, palRow = 0, need = c->type == CMD_SPRITE ? 6 : 3;
     int src = -1, wide = 0, present = 0;
     GLuint repl = 0;
-    uint32_t replS[2] = {0, 0}, tc = 0;
+    uint32_t replS[2] = {0, 0}, tc = 0, alo = 0, ahi = 255;
     Key k;
     Vtx ext[2];
     uint32_t fpsm = d->fpsm;
@@ -2629,10 +2651,11 @@ static void prim(const Cmd *c) {
             }
         }
     }
+    if (d->atest || d->blend) {
+        alpha_range(d, v, c->type, palRow, &alo, &ahi);
+    }
     if (d->atest) {
-        uint32_t lo, hi;
-        alpha_range(d, v, c->type, palRow, &lo, &hi);
-        outcome = alpha_outcome(d->atst, d->aref, lo, hi);
+        outcome = alpha_outcome(d->atst, d->aref, alo, ahi);
         if (repl != 0 && d->tcc) {
             outcome = 0; /* the replacement's alpha is not known here: tested per pixel */
         }
@@ -2644,11 +2667,8 @@ static void prim(const Cmd *c) {
     if (!d->blend) {
         k.blend = 0; /* weights 1 and 0: the same as no blending */
         k.prog |= PROG_SINGLE;
-    } else if (d->csel == 0 && !d->fba && !d->pabe && k.blend != 4) {
-        /* C = As and the alpha stored is As (no FBA), blended on every pixel (no PABE): the destination's weight
-           |a As + b| as GL reads it from the source alpha (1 - As is negative for As above 0x80, as on the GS) */
-        int a = (d->asel == 1) - (d->bsel == 1), b = d->dsel == 1;
-        int w = a == 0 ? (b ? 2 : 1) : !b ? 3 : a < 0 ? 4 : 0;
+    } else if (k.blend != 4) {
+        int w = dst_weight(d, repl != 0 && d->tcc ? 255 : ahi); /* a replacement's alpha is not known here */
         if (w != 0) {
             k.blend |= w << 4;
             k.prog |= PROG_SINGLE;
@@ -2659,6 +2679,9 @@ static void prim(const Cmd *c) {
     }
     if (sNv + (uint32_t)need > MAX_VERTS || sNs >= MAX_STATES || sNb >= MAX_BATCHES) {
         flush();
+    }
+    if (tc != 0) {
+        sTcDrawn->flushes = sFlushes; /* after the last flush: the primitive waits in this window */
     }
     same_depth(c, &k);
     state_of(d, palRow, st);
