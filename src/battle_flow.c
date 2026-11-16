@@ -4362,8 +4362,6 @@ s32 func_0036F678(void) {
     }
 }
 
-#if 0
-/* NON_MATCHING: 16 lines: the winner / loser pointers of a draw are in a3 / a2 in the original (a1 / a2 here) and the -1 stores follow (D_0043B7FD is D_0043B7F8[5]'s own symbol) */
 extern u16 D_005F5C70;
 
 /* Counts the round: the side with the higher gauge unk408 wins it (unkB4 = 1 / -1, unk5A + 1); on a draw both get a
@@ -4397,8 +4395,7 @@ void func_0036F6B8(Fighter *a, Fighter *b) {
         }
         x->unk5A++;
         y->unk5A++;
-        y->unkB4 = -1;
-        x->unkB4 = -1;
+        y->unkB4 = x->unkB4 = -1;
         if (D_0043B7FD[0] != 0) {
             if (x->unk5A >= D_005F5C70 && y->unk5A < D_005F5C70) {
                 x->unkB4 = 1;
@@ -4408,7 +4405,8 @@ void func_0036F6B8(Fighter *a, Fighter *b) {
                 x->unkB4 = 1;
             }
             if (y->unk5A >= D_005F5C70) {
-                y->unk5A--;
+                /* The empty do-while is what keeps the original block layout for this decrement. */
+                do { y->unk5A--; } while (0);
             }
         }
     }
@@ -4417,9 +4415,6 @@ void func_0036F6B8(Fighter *a, Fighter *b) {
     }
     func_0036F860(a, b);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_0036F6B8);
-#endif
 
 s32 func_0036F678(void);
 
