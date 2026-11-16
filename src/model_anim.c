@@ -844,8 +844,8 @@ void func_003D1920(void) {
     }
 }
 
+/* Resets one node. */
 void func_003D1980(ModelNode *n) {
-
     n->unkC = 1;
     n->scale = 1.0f;
     n->unk10 = 2;
