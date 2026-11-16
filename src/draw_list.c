@@ -272,8 +272,6 @@ u32 func_00357128(s32 i, void *rec, u32 base) {
     return func_00356D78(rec, base, D_01FC4590 + i * 0x50);
 }
 
-/* NON_MATCHING: 16 lines: id / slot / value take s2 / s0 / s1 here, s0 / s1 / s2 in the original */
-#if 0
 void func_00357160(s32 id, s32 slot, MdlTable *t, s32 a) {
     s32 kinds[27];
     s32 k;
@@ -290,9 +288,6 @@ void func_00357160(s32 id, s32 slot, MdlTable *t, s32 a) {
     D_01FC4580[slot] = a;
     func_00357028(func_00356E38(slot), t, a, kinds);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/draw_list", func_00357160);
-#endif
 
 void func_00357230(s32 slot, MdlSlot *s, MdlTable *t, s32 a, s32 *kinds) {
     D_01FC4580[slot] = a;

@@ -329,8 +329,6 @@ s32 Rng_PickRandomEntry(u8 *table) {
     return 0;
 }
 
-#if 0
-/* NON_MATCHING: the fighter pointer and the flag are allocated to swapped saved registers (s0/s1). */
 void func_0035C850(Fighter *o, s32 flag) {
     u8 *table;
 
@@ -343,9 +341,6 @@ void func_0035C850(Fighter *o, s32 flag) {
     }
     o->unk28 = func_003AD8E0(Rng_PickRandomEntry(table) << 3);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/rng_misc", func_0035C850);
-#endif
 
 void func_0035C8D0(Fighter *o, s32 character, s32 costume) {
     s32 id = character * 8 + (costume & 7);
