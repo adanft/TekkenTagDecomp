@@ -521,7 +521,7 @@ void func_003A06F0(Effect *e) {
     FxSubX *s = (FxSubX *)&e->sub;
     FxFrame *fr = s->unk10;
     f32 cur[3];
-    f32 d[3];
+    f32 d[4]; /* Wind_Sample stores a whole quadword */
     f32 r;
 
     if (e->unk18 == 0) {
@@ -563,7 +563,7 @@ void func_003A08D8(Effect *e) {
     FxSubX *s = (FxSubX *)&e->sub;
     FxFrame *fr = s->unk10;
     f32 cur[3];
-    f32 d[3];
+    f32 d[4]; /* Wind_Sample stores a whole quadword */
     f32 r;
 
     if (e->unk18 == 0) {
