@@ -275,8 +275,7 @@ void func_00346600(void) {
 
 /* Per frame (main.c): frees the objects marked for it, runs every object's update and sorts the drawn ones into the
  * draw chains of their animation bank and frame. */
-/* NON_MATCHING: 12 lines: s (o + 0x20) lands in a0 instead of a1 and fr * 4 is computed before fr * 2 */
-#if 0
+/* The copies of D_005F6CD0, &o->slot, o->flags and tail in locals are what keep the original register use. */
 void func_00346608(void) {
     Obj *o;
     Obj *next;
@@ -286,16 +285,22 @@ void func_00346608(void) {
     Unk8BF8D0 *g;
     Obj **tail;
     ObjSub *s;
+    Obj **last;
+    u16 mask;
+    u32 flags;
+    Obj ***slot;
 
     func_003A4370();
     if (D_005F6CD2 != 0) {
         return;
     }
     for (o = D_008BF610.next; o != &D_008BF610; o = o->next) {
-        if ((o->flags & D_005F6CD0) || (o->flags & 0x10000)) {
+        mask = D_005F6CD0;
+        if ((o->flags & mask) || (o->flags & 0x10000)) {
+            slot = &o->slot;
             if (o->flags & 2) {
                 if (o->slot != 0) {
-                    *o->slot = 0;
+                    **slot = 0;
                 }
             }
             func_00346580(o);
@@ -312,7 +317,8 @@ void func_00346608(void) {
         if (D_005F5F10 != 0) {
             o->update(o);
         }
-        if (o->flags & 0x10) {
+        flags = o->flags;
+        if (flags & 0x10) {
             func_00346230(o);
         }
         s = &o->sub;
@@ -332,12 +338,13 @@ void func_00346608(void) {
                 g->unk170[fr]++;
                 tail = g->unkB8;
                 tail += fr;
+                last = tail;
                 if (*tail == 0) {
                     g->unk0[fr] = o;
                 } else {
                     (*tail)->unkC = o;
                 }
-                *tail = o;
+                *last = o;
             }
         }
         next = o->next;
@@ -348,9 +355,6 @@ void func_00346608(void) {
         o = next;
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/geometry", func_00346608);
-#endif
 
 /* The larger of two far distances (sprites beyond it are not drawn). */
 f32 func_00346808(void) {

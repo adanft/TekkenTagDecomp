@@ -693,11 +693,13 @@ s32 func_0039CDB8(void) {
     return 1;
 }
 
-/* NON_MATCHING: 17 lines: s0 / s1 swapped between &D_004365D0 and the gp value, two alignment nops */
+/* NON_MATCHING: 13 lines: s0 / s1 swapped between &D_004365D0 and the gp value. Reading the gp value into a local
+   first puts both in saved registers before the first call, as in the original. */
 #if 0
 s32 Movie_Open(s32 movie) {
     MovieThreadParam th;
     u32 status;
+    u8 *gp = D_005FD0F0;
 
     *(volatile u32 *)0x1000E000 |= 3;
     *(volatile u32 *)0x1000E010 = 4;
@@ -711,14 +713,14 @@ s32 Movie_Open(s32 movie) {
     th.stack = (void *)D_005F6C9C;
     th.stackSize = 0x800;
     th.initPriority = 0;
-    th.gpReg = D_005FD0F0;
+    th.gpReg = gp;
     th.option = 0;
     D_005F6CB8 = CreateThread(&th);
     StartThread(D_005F6CB8, NULL);
     th.entry = (void (*)(void *))func_0039EB78;
     th.stack = (void *)D_005F6CAC;
     th.stackSize = 0x4000;
-    th.gpReg = D_005FD0F0;
+    th.gpReg = gp;
     th.initPriority = 0;
     th.option = 0;
     D_005F6CB4 = CreateThread(&th);

@@ -1349,8 +1349,9 @@ void func_00366BD0(s32 angle, s32 r, s32 *x, s32 *z) {
     *z = r * gSinTable[angle + 0x400] >> 12;
 }
 
-/* NON_MATCHING: 9 lines: register allocation of the last (negative) division: the original holds the angle in a0 and 34 in a1 */
-#if 0
+/* Places D_005F6BBC / D_005F6BC0 at 0x1000 from D_00415808 along its heading (unk4) and returns the old position's
+ * angle minus the heading, divided by 34 and capped at 0xAA (0 when func_00393810 / func_0036E158 refuse, or when
+ * the heading moved by more than 0x10). */
 s32 func_00366C18(void) {
     s32 a;
     s16 d;
@@ -1390,12 +1391,11 @@ s32 func_00366C18(void) {
         }
         return q & 0xFFF;
     }
-    q = (((D_005F6BB0 - a) << 4) & 0xFFFF) / 34;
+    /* Building the difference in q before masking it is what keeps the original register use. */
+    q = (D_005F6BB0 - a) << 4;
+    q = (q & 0xFFFF) / 34;
     return -(q < 0xAB ? q : 0xAA) & 0xFFF;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/fighter_setup_b", func_00366C18);
-#endif
 
 void func_00366DB0(s32 n) {
     D_005F6BC4 = n;

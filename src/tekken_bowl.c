@@ -1776,18 +1776,20 @@ void Bowl_DrawSpeed(void) {
 }
 
 #if 0
-/* NON_MATCHING: 36 lines: register allocation (the character in a0, the table index added first, the 4 / 5 bytes
-   of the second branch); the stores are in reverse source order as in the original */
+/* NON_MATCHING: 8 lines: the table row is added index first (addu v0, v0, a0) in both branches, and m[1] of the
+   second branch is stored one slot later. Reading unk28 first keeps it in a0 as in the original. */
 s32 func_003EAE08(Fighter *f, s16 *out) {
+    s32 m = f->unk28;
+
     if (f->unk2A == 0x21) {
         return 0;
     }
-    if (f->unk28 == 6 || f->unk28 == 0x1E || f->unk28 == 0x16 || f->unk28 == 0xB || f->unk28 == 2) {
+    if (m == 6 || m == 0x1E || m == 0x16 || m == 0xB || m == 2) {
         if (D_01FC6350.unk12 == 1) {
+            D_01FC6350.unkD = 1;
             D_01FC6350.unkC = 0;
             D_01FC6350.unkE = 2;
             D_01FC6350.unkF = 3;
-            D_01FC6350.unkD = 1;
             if (D_00523618[f->unk2A][3]) {
                 D_01FC6350.unk10 = 0x6C;
                 D_01FC6350.unk11 = 0x70;
