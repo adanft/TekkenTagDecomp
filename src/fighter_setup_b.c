@@ -428,24 +428,31 @@ void func_003660A8(void);
 /* LZ decompression: a flag byte (bit 0 first, ended by the highest set bit) before each group of literal bytes and
  * 16-bit back references (11-bit distance, 0 = 0x800; 5-bit length, 0 = 32); a zero flag byte ends the data. Returns
  * the size written. */
-/* NON_MATCHING: 45 lines: the original keeps src and src + 1 in two registers (a0 / a3) through both loops; every loop form tried keeps one pointer */
+/* NON_MATCHING: 47 lines, same size and shape: with -fno-strength-reduce the second pointer (next = src + 1, a3) has to
+   be in the C. Left: src stays in a0 in the original (copied to t2 here), 0x800 / 0x20 are hoisted out of the outer
+   loop, and the back-reference temporaries use other registers. */
 #if 0
 s32 Lz_Decompress(u8 *src, u8 *dst) {
     u8 *start = dst;
-    u8 flags;
+    s32 flags;
+    u8 *next;
     s32 w;
     s32 dist;
     s32 len;
     s32 i;
     u8 *from;
 
-    for (flags = *src++; flags != 0; flags = *src++) {
-        for (; flags >= 2; flags >>= 1) {
+    flags = *src++;
+    while (flags != 0) {
+        next = src + 1;
+        while (flags >= 2) {
             if (flags & 1) {
-                *dst++ = *src++;
+                *dst++ = *src;
+                flags >>= 1;
+                src = next;
+                next++;
             } else {
-                w = (src[0] << 8) + src[1];
-                src += 2;
+                w = (src[0] << 8) + next[0];
                 dist = w & 0x7FF;
                 if (dist == 0) {
                     dist = 0x800;
@@ -455,11 +462,16 @@ s32 Lz_Decompress(u8 *src, u8 *dst) {
                 if (len == 0) {
                     len = 0x20;
                 }
+                src = next + 1;
                 for (i = 0; i < len; i++) {
                     *dst++ = *from++;
                 }
+                flags >>= 1;
+                next += 2;
             }
         }
+        flags = *src;
+        src = next;
     }
     return dst - start;
 }

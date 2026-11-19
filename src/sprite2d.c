@@ -794,33 +794,35 @@ void func_003CE508(s32 a, s32 tex, s32 clut, s32 x, s32 y, s32 w, s32 h, s32 du,
     Sprite_DrawCurrent(a);
 }
 
-/* NON_MATCHING: the constant header stores and the lq reload of the 9th argument are scheduled earlier than in the original (registers and spills already match), 45 lines */
-#if 0
+/* Queues a sprite packet drawing a four-corner textured strip: corners in pixels (converted to 12.4 with the 0x6C0 /
+ * 0x720 screen offset), depth D_005F6730 >> 4, tex the texture base. Reading D_005F6740 / D_005F6738 before the first
+ * store keeps the original's schedule. */
 void func_003CE5D8(s32 x0, s32 y0, s32 x1, s32 y1, s32 x2, s32 y2, s32 x3, s32 y3, s32 tex) {
     s32 z = D_005F6730 >> 4;
     u64 *p = Sprite_BeginPacket(1);
     u64 *q;
+    u64 g0;
+    u64 g1;
 
+    g0 = D_005F6740;
+    g1 = D_005F6738;
     p[0] = 0x2000000000000001;
     p[1] = 0xEE;
     p[2] = 0x5100D;
     p[3] = 0x48;
-    p[4] = D_005F6740;
+    p[4] = g0;
     p[5] = 0x43;
     q = p + 6;
     q[0] = 0x6400000000008001;
     q[1] = 0x555510;
     q[2] = ((s64)tex << 6) | 0x304;
-    q[3] = D_005F6738;
+    q[3] = g1;
     q[4] = (s64)(x0 * 16 + 0x6C00) | ((s64)(y0 * 16 + 0x7200) << 16) | ((s64)z << 32);
     q[5] = (s64)(x1 * 16 + 0x6C00) | ((s64)(y1 * 16 + 0x7200) << 16) | ((s64)z << 32);
     q[6] = (s64)(x2 * 16 + 0x6C00) | ((s64)(y2 * 16 + 0x7200) << 16) | ((s64)z << 32);
     q[7] = (s64)(x3 * 16 + 0x6C00) | ((s64)(y3 * 16 + 0x7200) << 16) | ((s64)z << 32);
     Sprite_EndPacket(1, p + 14);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/sprite2d", func_003CE5D8);
-#endif
 
 void func_003CE770(u32 x0, u32 y0, u64 c0, u32 x1, u32 y1, u64 c1, u32 x2, u32 y2, u64 c2, u32 x3, u32 y3, u64 c3) {
     s32 z = D_005F6730 >> 4;
@@ -1355,8 +1357,8 @@ void NameEntry_Init(S2bName *p, u16 a, u16 b, u16 c) {
 
 INCLUDE_RODATA("asm/nonmatchings/sprite2d", D_00520BE8);
 
-/* NON_MATCHING: 41 lines: the pad direction sum branches on bit 0x1000 as in the original; the pad words load in
- * another order and the registers differ */
+/* NON_MATCHING: 20 lines, same size: d + (b - 1) keeps the original's branch and add order, trig reads pad0 first.
+ * Left: the shift temporaries and d / b land in other registers and p->unk8 is not loaded in the branch delay slot. */
 #if 0
 s32 NameEntry_Step(S2bName *p, s32 mode) {
     u16 held;
@@ -1372,11 +1374,11 @@ s32 NameEntry_Step(S2bName *p, s32 mode) {
         return func_003D0290(p);
     case 0:
         held = (u16)D_00415738[p->pad0] | (u16)D_00415738[p->pad1];
-        trig = (u16)D_00415728[p->pad1] | (u16)D_00415728[p->pad0];
+        trig = (u16)D_00415728[p->pad0] | (u16)D_00415728[p->pad1];
         d = ((held >> 13) & 1) - (held >> 15);
         b = (held >> 14) & 1;
         if (held & 0x1000) {
-            d = d - 1 + b;
+            d = d + (b - 1);
         } else {
             d = d + b;
         }

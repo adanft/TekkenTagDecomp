@@ -3913,7 +3913,9 @@ s32 func_00393C78(u32 n) {
     return Cam_PresetIndex(n);
 }
 
-/* NON_MATCHING: the hoisted unkC4 loads and the shared return-1 block are placed differently (52 lines) */
+/* NON_MATCHING: 32 lines: unkC4 of both fighters read into locals before the loops as in the original. Left: a stays in
+ * t0 in the original (a3 here), the final return 1 is shared with the tb < ta branch, and the last branch becomes
+ * xori / sltu here instead of branches. */
 #if 0
 s32 func_00393CB8(Fighter *a, Fighter *b) {
     struct FighterMove *ma;
@@ -3923,6 +3925,8 @@ s32 func_00393CB8(Fighter *a, Fighter *b) {
     s32 ta;
     s32 tb;
     s32 r;
+    s32 ca;
+    s32 cb;
 
     if (a->unkE0 > 0 || b->unkE0 < 0) {
         ma = a->unkC0;
@@ -3934,19 +3938,21 @@ s32 func_00393CB8(Fighter *a, Fighter *b) {
             pa = (u16 *)ma->unk20;
             ta = -1;
             tb = -1;
+            cb = b->unkC4;
+            ca = a->unkC4;
             pb = (u16 *)mb->unk20;
             if (!(mb->unk4 & 0x400000)) {
                 if (pa != NULL) {
                     for (; pa[0] != 0; pa += 2) {
                         if ((pa[1] & 0xFF00) == 0xC00) {
-                            ta = pa[0] - a->unkC4;
+                            ta = pa[0] - ca;
                         }
                     }
                 }
                 if (pb != NULL) {
                     for (; pb[0] != 0; pb += 2) {
                         if ((pb[1] & 0xFF00) == 0xD00) {
-                            tb = pb[0] - b->unkC4;
+                            tb = pb[0] - cb;
                         }
                     }
                 }
@@ -3977,12 +3983,13 @@ s32 func_00393CB8(Fighter *a, Fighter *b) {
 INCLUDE_ASM("asm/nonmatchings/stage", func_00393CB8);
 #endif
 
-/* NON_MATCHING: one instruction short (37 lines): the original keeps &D_00433330 in s3 (one more saved register) and selects the fighter with movn where this has movz */
-#if 0
+/* Picks the camera reaction for the fighter which selects (a or b) and stores it in D_00433330 (preset in unk58, -1
+ * when the camera is already busy or nothing fits). Both endings return through one `return n`, which keeps n = 0 in a
+ * saved register across the calls as the original does. */
 s32 func_00393E08(Fighter *a, Fighter *b, s32 which, s32 side) {
     s32 idx;
     s16 n = 0;
-    Fighter *f = which != 0 ? b : a;
+    Fighter *f = which == 0 ? a : b;
     s32 k;
 
     if (D_00433330.unk54 >= 0) {
@@ -3997,21 +4004,20 @@ s32 func_00393E08(Fighter *a, Fighter *b, s32 which, s32 side) {
     }
     D_00433330.unk58 = Cam_PresetIndex(k);
     if (D_00433330.unk58 < 0) {
-        D_00433330.unk48 = 0;
         D_00433330.unk60 = f->unkC0;
-        return n;
+        D_00433330.unk48 = 0;
+        goto end;
     }
     if (D_00433330.unk58 > 0) {
         n = D_00508908[Cam_PresetIndex(D_00433330.unk54) - 1].unk0;
         D_00433330.unk60 = f->unkC0;
         D_00433330.unk48 = n < 2;
-        return n;
+        goto end;
     }
     return -1;
+end:
+    return n;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/stage", func_00393E08);
-#endif
 
 /* NON_MATCHING: same size (15 lines, mostly branch offsets): the k < 0 exit is a bgez over a jump to the shared return -1 where the original branches straight to the epilogue with -1 in the delay slot */
 #if 0
