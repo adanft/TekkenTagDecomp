@@ -258,6 +258,48 @@ def find_archives():
     return found
 
 
+class TestStateCheck(unittest.TestCase):
+    """release.state_check: the game program must reach the reference state hashes before anything is packaged."""
+
+    def fake_program(self, d, idle, fight):
+        """A stand-in for the game: prints a state line, the fight's hash when an input script is played."""
+        p = Path(d) / "ttt"
+        p.write_text("#!/bin/sh\n"
+                     f'if [ -n "$TTT_INPUT_PLAY" ]; then h={fight}; else h={idle}; fi\n'
+                     'echo "ttt: state: seed 0x1 spin 0x0 hash $h cycles 1"\n')
+        p.chmod(0o755)
+        return p
+
+    def state_check(self, exe, disc=Path("/disc")):
+        out = io.StringIO()
+        with patch.object(release, "find_disc", return_value=disc), redirect_stdout(out):
+            release.state_check(exe)
+        return out.getvalue()
+
+    def test_reference_hashes_pass(self):
+        idle, fight = release.state_references()[:2]
+        with tempfile.TemporaryDirectory() as d:
+            out = self.state_check(self.fake_program(d, idle, fight))
+        self.assertIn(f"idle run: {idle} (OK)", out)
+        self.assertIn(f"scripted fight: {fight} (OK)", out)
+
+    def test_changed_state_refuses_the_release(self):
+        idle, fight = release.state_references()[:2]
+        with tempfile.TemporaryDirectory() as d:
+            exe = self.fake_program(d, idle, "0x0123456789abcdef")
+            with self.assertRaises(SystemExit) as e:
+                self.state_check(exe)
+        self.assertIn(f"scripted fight: 0x0123456789abcdef, expected {fight} (tests/test_port_clang.py FIGHT_HASH)",
+                      str(e.exception.code))
+        self.assertIn("If the change is intended", str(e.exception.code))
+
+    def test_without_the_disc_it_is_skipped(self):
+        with tempfile.TemporaryDirectory() as d:
+            exe = self.fake_program(d, "0x0", "0x0")
+            out = self.state_check(exe, disc=None)
+        self.assertIn("release: state check skipped (no disc", out)
+
+
 ARCHIVES = {}
 
 

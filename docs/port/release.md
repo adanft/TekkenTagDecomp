@@ -26,6 +26,14 @@ refuses (and deletes) an archive in which its check finds any of them.
    The build steps are the usual ones (`port/tools/build.py`, `TTT_CC=win64 port/tools/build.py`,
    `port/tools/build_server.py [--win64]`); the Windows target needs clang and mingw-w64 ([windows.md](windows.md)).
    `--no-build` refuses programs whose embedded version is not the checkout's.
+
+   **State check.** Before anything is packaged, the Linux game program plays the idle run (2551 VBlanks) and the
+   scripted fight (1451 VBlanks) with `TTT_SEED=1`, headless, and must end in the tests' reference hashes
+   (`IDLE_HASH` in `tests/test_port_data.py`, `FIGHT_HASH` in `tests/test_port_clang.py`; [determinism.md](determinism.md)
+   "Values"). A different hash means the game's behaviour changed and no archive is made. Find the commit that
+   moved it. If the change is intended (an emulation fix, for example), update the reference in that commit with the
+   reason beside it; if not, fix the regression. Without the disc (CI) the check is skipped and says so, so run the
+   release locally before pushing a tag; `--targets windows` alone skips it too (it needs the Linux program).
 3. Check the result: the release prints the portability report, each archive's size and content check, and the
    SHA-256 of each archive (`dist/SHA256SUMS`, `sha256sum -c` format). Then
    `TTT_SLOW_TESTS=1 python3 -m unittest discover -s tests -p test_port_release.py` packages again into a temporary

@@ -10,6 +10,9 @@ any game data, and writes the archives and SHA256SUMS to dist/. Publishes nothin
     python3 port/tools/release.py --portability                the Linux / Windows portability report alone
     python3 port/tools/release.py --sdl3-dll PATH              ship this SDL3.dll in the Windows archive (CI release)
 
+Before packaging, the Linux game program must reach the tests' reference state hashes (the idle run and the scripted
+fight, docs/port/release.md "State check"): a different hash stops the release. Skipped, and said so, without the disc.
+
 The version is `git describe --always --dirty` of the checkout, the same text the build embeds (TTT_GIT: `ttt
 --version`, the crash report, the overlay's About); a tree with local changes is refused unless --allow-dirty.
 
@@ -556,6 +559,53 @@ def write_sums(out):
     return lines
 
 
+# ---------------------------------------------------------------------------------------------------- state check
+
+STATE_REMEDY = ("Find the commit that moved it (docs/port/determinism.md \"Values\"). If the change is intended, update\n"
+                "the reference in that commit with the reason beside it; if not, fix the regression. No archive was made.")
+
+
+def state_references():
+    """(idle hash, fight hash, fight input script, headless runner): from the tests, the one place they are kept."""
+    sys.path.insert(0, str(ROOT / "tests"))
+    from test_port_clang import FIGHT_HASH, run as run_headless
+    from test_port_data import IDLE_HASH
+    from test_port_input import IN_THE_FIGHT, TO_THE_FIGHT, stream
+    return IDLE_HASH, FIGHT_HASH, stream(*TO_THE_FIGHT, *IN_THE_FIGHT), run_headless
+
+
+def find_disc():
+    """The disc the tests use (TTT_DISC, else iso/), or None."""
+    sys.path.insert(0, str(ROOT / "tests"))
+    from test_port_platform import disc
+    return disc()
+
+
+def state_check(exe):
+    """The game program plays the idle run and the scripted fight (TTT_SEED=1, headless) to the reference state hashes
+    of the tests. A different hash means the game's behaviour changed: the release stops. Without the disc (CI) the
+    check is skipped and says so."""
+    if find_disc() is None:
+        print("release: state check skipped (no disc: TTT_DISC or iso/TEKKEN.BIN); run it before tagging", flush=True)
+        return
+    idle, fight, script, run_headless = state_references()
+    bad = []
+    with tempfile.TemporaryDirectory(prefix="ttt-state-") as d:
+        play = Path(d) / "fight.txt"
+        play.write_text(script)
+        for name, ref, where, env in (("idle run", idle, "tests/test_port_data.py IDLE_HASH", {"TTT_FRAMES": "2551"}),
+                                      ("scripted fight", fight, "tests/test_port_clang.py FIGHT_HASH",
+                                       {"TTT_FRAMES": "1451", "TTT_INPUT_PLAY": str(play)})):
+            r = run_headless(exe, os.path.join(d, "saves"), TTT_SEED="1", **env)
+            m = re.search(r"ttt: state: .* hash (0x[0-9a-f]+)", r.stdout)
+            got = m.group(1) if m else f"no state line (exit {r.returncode})"
+            print(f"release: state check: {name}: {got} ({'OK' if got == ref else 'expected ' + ref})", flush=True)
+            if got != ref:
+                bad.append(f"{name}: {got}, expected {ref} ({where})")
+    if bad:
+        sys.exit("release: the game's state changed:\n  " + "\n  ".join(bad) + "\n" + STATE_REMEDY)
+
+
 def program_paths(targets):
     out = []
     for t in targets:
@@ -611,6 +661,8 @@ def main():
     print("release: portability:\n  " + "\n  ".join(lines))
     if problems:
         sys.exit("release: portability problems:\n  " + "\n  ".join(problems))
+    if "linux" in targets:  # (it runs the Linux program: --targets windows alone skips it)
+        state_check(ROOT / TARGETS["linux"]["files"]["ttt"][0])
 
     sdl3 = None
     if a.sdl3_dll and "windows" in targets:
