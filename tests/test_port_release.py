@@ -27,7 +27,7 @@ sys.path.insert(0, str(ROOT / "port/tools"))
 import release  # noqa: E402
 
 SLOW = os.environ.get("TTT_SLOW_TESTS") == "1"
-IDLE_HASH = "0x61dc0b370ff7019b"  # tests/test_port_data.py
+IDLE_HASH = "0x90d60983435aa33b"  # tests/test_port_data.py
 ELF_SHA1 = "c7ad9a022bdc836827a0cc093f91b4281836f2bb"
 
 # What an archive may hold below its top folder (independent of release.py's own list).

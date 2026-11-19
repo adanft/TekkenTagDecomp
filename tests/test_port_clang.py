@@ -26,8 +26,9 @@ from test_port_platform import GCC_EXE as EXE, ROOT, disc
 CLANG = ROOT / "build/port-clang"
 CLANG_EXE = CLANG / "ttt"
 # The scripted fight (TO_THE_FIGHT + IN_THE_FIGHT, 1451 VBlanks), determinism.md. R2: 0xcce5eb554fa51395 before; its
-# 100 frames of forward walk no longer end in Yoshimitsu's fall (docs/port/README.md gotcha 33).
-FIGHT_HASH = "0xa1623a6d44cb57a6"
+# 100 frames of forward walk no longer end in Yoshimitsu's fall (docs/port/README.md gotcha 33). v0.1.3 (014296d):
+# 0xa1623a6d44cb57a6 before, as the idle run (tests/test_port_data.py).
+FIGHT_HASH = "0xfa64e7b274d7c846"
 SELFTESTS = ("hw", "rpc", "state", "mem", "pad", "gs", "vu1", "spu", "mc", "ee", "settings", "float", "window", "gl",
              "texpack")
 

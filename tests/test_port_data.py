@@ -25,7 +25,9 @@ LAYOUT = ROOT / "port/tools/data_layout.txt"
 # d9e628faa2fc1641224b77af0ad0f13da8a0f6f1 before. R2 (2026-10-29): 0x8ba37caeb2bacfa8 before; the 94 data words that
 # are integers equal to a function's address (test_integer_words_keep_the_disc_value) keep the disc's value instead of
 # a host address, the only words of EE RAM that changed (same spin, cycles and pictures; docs/port/README.md gotcha 33).
-IDLE_HASH = "0x61dc0b370ff7019b"
+# v0.1.3 (014296d): 0x61dc0b370ff7019b before; the music stream voices' repeat address, which is hashed, is restored
+# after each buffer fill (docs/port/sound.md "Stream repeat-address correction").
+IDLE_HASH = "0x90d60983435aa33b"
 IDLE_PICTURES = "ad85b47ca328ddc43b05d2a1f1158219aee67b6e"
 
 

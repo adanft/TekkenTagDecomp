@@ -184,7 +184,7 @@ or Wine in the build environment); the README distinguishes that limitation from
   without `lang/` (English only: the catalogs come from beside the program), `TTT_SELFTEST=hw`, the first run with
   no disc and no window (exit 2, `ttt: no disc: ...`, no data file), `--setup` on an empty folder (exit 2);
 - `TTT_SLOW_TESTS=1` with the disc in `iso/`: `ttt --setup iso/` in the extracted folder, then the idle run
-  (`TTT_FRAMES=2551 TTT_SEED=1`, a picture every 150 VBlanks) ends in `0x61dc0b370ff7019b` with 17 pictures.
+  (`TTT_FRAMES=2551 TTT_SEED=1`, a picture every 150 VBlanks) ends in `0x90d60983435aa33b` with 17 pictures.
 
 ## Open
 
