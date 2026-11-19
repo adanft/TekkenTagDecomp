@@ -678,9 +678,6 @@ INCLUDE_ASM("asm/nonmatchings/battle_flow", Cmd_CheckCondition);
 #endif
 
 INCLUDE_RODATA("asm/nonmatchings/battle_flow", D_004FF8D0);
-#if 0
-/* NON_MATCHING: 2 lines differ: the original returns the | 0x20 value without the final andi 0xFF and masks only the
- * other path; no type or form tried gives both */
 /* A copy of the 9 bytes of D_004FF8D0 (a local array of the original, initialised from .rodata). */
 typedef struct {
     u8 b[9];
@@ -688,19 +685,13 @@ typedef struct {
 extern const Dir9 D_004FF8D0;
 
 /* One input history entry (func_0036C918) as a code: the D_004FF8D0 byte of its direction 1-9, or'ed with 0x20 when a
- * button is pressed [V code; I meaning]. */
+ * button is pressed [V code; I meaning]. c is an int so only the plain path gets the final andi 0xFF. */
 u8 func_00369188(u16 code) {
     Dir9 t = D_004FF8D0;
-    u8 c = t.b[(code & 0xF) - 1];
+    s32 c = t.b[(code & 0xF) - 1];
 
-    if (code & 0x1F0) {
-        return c + 0x20;
-    }
-    return c;
+    return (code & 0x1F0) ? c | 0x20 : c;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/battle_flow", func_00369188);
-#endif
 
 extern MoveCmd D_0047F780[];
 u8 func_00369188(u16 code);

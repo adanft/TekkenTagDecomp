@@ -4019,8 +4019,8 @@ end:
     return n;
 }
 
-/* NON_MATCHING: same size (15 lines, mostly branch offsets): the k < 0 exit is a bgez over a jump to the shared return -1 where the original branches straight to the epilogue with -1 in the delay slot */
-#if 0
+/* Like func_00393E08 for fighter f alone (Cam_Reset when unk54 < 0): picks the camera reaction, stores it in
+ * D_00433330 and returns the preset's n (0 when unk58 < 0, -1 on failure). */
 s32 func_00393F60(Fighter *f, Fighter *o, s32 side) {
     s32 idx;
     s16 n = 0;
@@ -4035,6 +4035,9 @@ s32 func_00393F60(Fighter *f, Fighter *o, s32 side) {
     D_00433330.unk54 = k;
     D_00433330.unk5C = idx;
     if (k < 0) {
+        if (n != 0) { /* fake: keeps this return apart from fail (found by the permuter) */
+            return -1;
+        }
         return -1;
     }
     D_00433330.unk58 = Cam_PresetIndex(k);
@@ -4051,9 +4054,6 @@ s32 func_00393F60(Fighter *f, Fighter *o, s32 side) {
 end:
     return n;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/stage", func_00393F60);
-#endif
 
 s32 func_003940B0(void) {
     return D_00508908[Cam_PresetIndex(D_00433330.unk54) - 1].unk2;
