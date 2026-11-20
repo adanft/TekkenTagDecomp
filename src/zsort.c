@@ -337,7 +337,7 @@ s32 func_00399DC8(f32 *in, s32 *out) {
     return 0;
 }
 
-/* NON_MATCHING: 44 lines: register allocation; the original keeps the row end x/y and adds 8 later where gcc here folds x + e[6] - 8 + 8 */
+/* NON_MATCHING: 1 line: the original adds e[7] to v in its own register (addu t0,t0,v0) where gcc here adds it to the v0 copy */
 #if 0
 void func_00399E50(u64 *p, s32 idx, s32 base) {
     const u16 *e = D_00518E38[idx];
@@ -355,8 +355,10 @@ void func_00399E50(u64 *p, s32 idx, s32 base) {
     for (rows = e[0]; rows > 0; rows--) {
         x0 = x;
         y0 = y;
-        x = x + e[6] - 8;
-        y = y + e[4] - 8;
+        x = x + e[6];
+        y = y + e[4];
+        x -= 8;
+        y -= 8;
         v = base << 4;
         u = e[3];
         for (cols = e[1]; cols > 0; cols--) {

@@ -4667,11 +4667,8 @@ INCLUDE_RODATA("asm/nonmatchings/stage", D_00509C10);
 INCLUDE_RODATA("asm/nonmatchings/stage", D_00509C20);
 INCLUDE_RODATA("asm/nonmatchings/stage", D_00509C2C);
 
-/* NON_MATCHING: the loop and the 0x5A / 0x78 choice are laid out differently (36 lines) */
-#if 0
+/* Sets the round-start camera timers (0x78 frames in round 1, else 0x5A), first repeating while D_00433330.unkB4 and D_00509C2C ask for it, then restarts the camera key. The stores sit in each branch: the original's shared tail comes from cross-jumping, not from a conditional move. */
 s32 func_00395400(s32 again, Fighter *a, Fighter *b) {
-    s16 t;
-
     if (again != 0) {
         do {
             D_008BC690.unk4 = 0;
@@ -4681,18 +4678,14 @@ s32 func_00395400(s32 again, Fighter *a, Fighter *b) {
         D_008BC690.unk4 = 0;
     }
     if (gRoundNumber == 1) {
-        t = 0x78;
+        D_008BC690.unk0 = D_008BC690.unk2 = 0x78;
     } else {
-        t = 0x5A;
+        D_008BC690.unk0 = D_008BC690.unk2 = 0x5A;
     }
-    D_008BC690.unk0 = D_008BC690.unk2 = t;
     func_00390FA8((s32)a, (s32)b, 1, D_00433330.unkA4 * 0x76C / 256);
     func_0038E408(&D_008BC698, 0);
     return 0;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/stage", func_00395400);
-#endif
 
 /* NON_MATCHING: 5 instructions short (74 lines): an s16 load and a compare are hoisted, and two branch-likely delay slots are filled otherwise */
 #if 0
