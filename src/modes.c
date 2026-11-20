@@ -996,14 +996,13 @@ s32 Game_UpdateContinue(s32 side) {
 s32 func_003BA750(s16 i) {
     return D_0051EA30[i];
 }
-/* NON_MATCHING: 18 lines, case 0 store is cross-jumped into the case 1 tail; the original keeps two `b` + `sw zero` blocks */
-#if 0
-/* NON_MATCHING: 18 lines, case 0 store is cross-jumped into the case 1 tail; the original keeps two `b` + `sw zero` blocks */
+/* Maps controller port 0-3 to a (port, multitap slot) pair: port 1 is a real port without a multitap, else slot 1 of port 0; ports 2 and 3 are multitap slots. */
 void func_003BA770(s32 port, s32 *slot, s32 *portOut) {
     *slot = 0;
     *portOut = 0;
     switch (port) {
     case 0:
+        *portOut = 0;
         *slot = 0;
         return;
     case 1:
@@ -1025,9 +1024,6 @@ void func_003BA770(s32 port, s32 *slot, s32 *portOut) {
         break;
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/modes", func_003BA770);
-#endif
 void func_003BA818(s32 i, s32 v) {
     PadAct *p = D_0043BC10;
     p[i].unk6 = v;
