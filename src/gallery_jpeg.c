@@ -1429,8 +1429,8 @@ u8 Jpeg_ClampByte(f32 x) {
     return (s32)x;
 }
 
-#if 0
-/* NON_MATCHING: 18 lines: the two line pointers (dst / dst2) take s1 / s0 the other way round */
+/* Converts one decoded 16x16 MCU (four Y blocks, shared 4:2:0 Cb/Cr) to RGB bytes in the 640-pixel-wide picture at
+ * D_005F7090 (1920-byte lines): dst writes the even lines and dst2 the odd ones. */
 void Jpeg_YccToRgb(s32 mx, s32 my) {
     s32 b, c, off, i, j;
     u8 *dst2, *dst;
@@ -1468,18 +1468,21 @@ void Jpeg_YccToRgb(s32 mx, s32 my) {
         cr = (f32 *)D_01FC4FA0 + c;
         dst2 = dst + 0x780;
         for (i = 4; i > 0; i--) {
-            for (j = 8; j > 0; j--) {
-                l = *y++ + 128.0f;
-                if ((j & 1) == 0) {
-                    vb = *cb++;
-                    vr = *cr++;
+            /* fake: the empty do-while is what gives dst s1 and dst2 s0 (found by the permuter) */
+            do {
+                for (j = 8; j > 0; j--) {
+                    l = *y++ + 128.0f;
+                    if ((j & 1) == 0) {
+                        vb = *cb++;
+                        vr = *cr++;
+                    }
+                    *dst++ = Jpeg_ClampByte(l + vr * 1.402f);
+                    *dst++ = Jpeg_ClampByte(l - vb * 0.34414f - vr * 0.71414f);
+                    *dst++ = Jpeg_ClampByte(l + vb * 1.772f);
                 }
-                *dst++ = Jpeg_ClampByte(l + vr * 1.402f);
-                *dst++ = Jpeg_ClampByte(l - vb * 0.34414f - vr * 0.71414f);
-                *dst++ = Jpeg_ClampByte(l + vb * 1.772f);
-            }
-            dst += 0xEE8;
-            cb -= 4;
+                dst += 0xEE8;
+                cb -= 4;
+            } while (0);
             cr -= 4;
             for (j = 8; j > 0; j--) {
                 l = *y++ + 128.0f;
@@ -1497,13 +1500,6 @@ void Jpeg_YccToRgb(s32 mx, s32 my) {
         }
     }
 }
-#else
-LIT4_WORD(D_005F595C, 0x3FB374BC);
-LIT4_WORD(D_005F5960, 0x3EB0331E);
-LIT4_WORD(D_005F5964, 0x3F36D1E1);
-LIT4_WORD(D_005F5968, 0x3FE2D0E5);
-INCLUDE_ASM("asm/nonmatchings/gallery_jpeg", Jpeg_YccToRgb);
-#endif
 
 s32 Jpeg_DecodeStrip(void) {
     s32 x, y;
