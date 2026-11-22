@@ -3787,8 +3787,6 @@ s32 Bowl_DrawMissFoul(void) {
     return 0;
 }
 
-#if 0
-/* NON_MATCHING: 30 lines: register allocation (t2 / a1) of the pin flag and the text x */
 s32 Bowl_DrawSpare(void) {
     BowlW2 w = *(BowlW2 *)D_005F69F0;
     BowlS2 s = *(BowlS2 *)D_005F6A00;
@@ -3797,6 +3795,7 @@ s32 Bowl_DrawSpare(void) {
     s32 x = 0;
     s32 half;
     u16 k;
+    s32 j; /* fake: reused for x and k, it moves the pin flag and the text x to the original registers (found by the permuter) */
     BowlBody *p = D_01FC5260;
 
     if ((D_01FC61E0[D_005F70AC].unk0 & 1) == 0) {
@@ -3820,12 +3819,13 @@ s32 Bowl_DrawSpare(void) {
             x = half;
         }
     } else {
-        x = D_005F70CE * 32 - w.v[k];
+        j = x = D_005F70CE * 32 - w.v[k];
         if (half < x) {
             x = half;
         }
     }
-    Text_Printf(D_005239A8, x, 0x168, 10, c.v[k], s.s[k]);
+    j = k;
+    Text_Printf(D_005239A8, x, 0x168, 10, c.v[j], s.s[D_005F70C6]);
     if (D_005F70CE == 0) {
         if (D_005F70C6 != 0) {
             Snd_PlaySe(0x10AF, 0);
@@ -3841,9 +3841,6 @@ s32 Bowl_DrawSpare(void) {
     Bgm_SetVolumeFade(0x80, 0x14);
     return 0;
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/tekken_bowl", Bowl_DrawSpare);
-#endif
 
 void func_003EF818(s32 n) {
     s32 save = D_005F6730;
