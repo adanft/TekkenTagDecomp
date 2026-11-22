@@ -337,8 +337,6 @@ s32 func_00399DC8(f32 *in, s32 *out) {
     return 0;
 }
 
-/* NON_MATCHING: 1 line: the original adds e[7] to v in its own register (addu t0,t0,v0) where gcc here adds it to the v0 copy */
-#if 0
 void func_00399E50(u64 *p, s32 idx, s32 base) {
     const u16 *e = D_00518E38[idx];
     s32 rows;
@@ -384,11 +382,12 @@ void func_00399E50(u64 *p, s32 idx, s32 base) {
             v -= 0x10;
             h[0x21] = v;
             *(u64 *)&h[20] = 0x356;
-            v += 0x10;
             h[25] = v0;
             h[29] = u0;
             h[24] = x0;
             h[28] = y0;
+            /* fake: adding 0x10 back after the stores keeps v in its own register (found by the permuter) */
+            v += 0x10;
             h[32] = x;
             h[36] = y;
             h[37] = u;
@@ -398,6 +397,3 @@ void func_00399E50(u64 *p, s32 idx, s32 base) {
         y += 8;
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/zsort", func_00399E50);
-#endif
