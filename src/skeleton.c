@@ -501,25 +501,23 @@ void func_0034FB48(Fighter *f) {
 }
 
 /* Copies the bone offsets of joints 5, 6, 18, 19, 20 (D_004FC668) into the replacement matrices D_008791A0[side]. */
-#if 0
-/* NON_MATCHING: 23 lines: the three joint addresses are computed from copies of the index with a mult each in the original; ours shares one */
 extern SkelJoint D_00879C70[]; /* gFighters[0]'s joints (unk630), read by their own symbol */
 
 void func_0034FBA0(s32 side) {
     S32x5 idx = D_004FC668;
     GteMatrix *m = D_008791A0[side];
     SkelJoint *j = (SkelJoint *)((u8 *)D_00879C70 + side * sizeof(Fighter));
+    GteMatrix **pm;
     s32 i;
 
     for (i = 0; i < 5; i++, m++) {
-        m->t[0] = j[idx.v[i]].unk4.t[0];
-        m->t[1] = j[idx.v[i]].unk4.t[1];
-        m->t[2] = j[idx.v[i]].unk4.t[2];
+        /* fake: going through m's address gives each joint address its own mult (found by the permuter) */
+        pm = &m;
+        (*pm)->t[0] = j[idx.v[i]].unk4.t[0];
+        (*pm)->t[1] = j[idx.v[i]].unk4.t[1];
+        (*pm)->t[2] = j[idx.v[i]].unk4.t[2];
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/skeleton", func_0034FBA0);
-#endif
 
 /* Replacement matrix k of a side. */
 GteMatrix *func_0034FC68(s32 side, s32 k) {
