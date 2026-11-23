@@ -828,6 +828,7 @@ static uint32_t sDirtyEpoch, sCheckedEpoch; /* bumped when a target becomes dirt
 static int sChecked;
 static uint64_t sSnapCopies, sSnapPixels; /* snapshot updates and the target pixels they copied (TTT_FRAMES report) */
 static uint32_t sSnapCheckEvery = UINT32_MAX, sSnapChecks, sSnapMismatch; /* TTT_GS_SNAPCHECK=n: every n-th update compared whole */
+static uint32_t sSelfSnaps; /* 1x: primitives that sampled the target they draw into from its snapshot (self_source) */
 static uint32_t sDirtyAny[16];     /* the CLUT buffer's content (64-bit FNV-1a of its words) */
 static uint16_t sClut[512];   /* the CLUT buffer, loaded in order with the primitives */
 static uint32_t (*sPal)[256];  /* CLUT rows waiting for the next draw call */
@@ -1975,13 +1976,15 @@ static void uv_span(uint32_t wm, int size, int mn, int mx, int cmin, int cmax, i
    do not resolve the buffers next to it. */
 /* `snap`: the target whose snapshot the primitive samples (-1: none). Its texels come from that snapshot, not GS
    memory: it is not resolved for this primitive and stays dirty, so a later reader of GS memory still resolves it. A
-   primitive that draws into the target it samples (the frame read back by triangles) then costs no resolve each. */
-static void texture_hazard(const Draw *d, const Cmd *c, int snap) {
+   primitive that draws into the target it samples (the frame read back by triangles) then costs no resolve each.
+   `self`: the target the primitive draws into, which it may sample from its snapshot (self_source): not resolved
+   either; 1 when it drew the texture's pages since its last resolve (then the snapshot is sampled). */
+static int texture_hazard(const Draw *d, const Cmd *c, int snap, int self) {
     uint64_t t0 = d->tex0 & 0x3FFFFFFFFull;
     uint64_t cl = (uint64_t)d->wms | (uint64_t)d->wmt << 2 | (uint64_t)d->minu << 4 | (uint64_t)d->maxu << 14 | (uint64_t)d->minv << 24 |
                   (uint64_t)d->maxv << 34;
     uint32_t mask = psm_bytes(d->tpsm);
-    int i;
+    int i, hit = 0;
 
     if ((c->type == CMD_SPRITE || c->type == CMD_TRIANGLE) && d->fst) {
         const Vtx *v = c->u.prim.v;
@@ -2028,13 +2031,18 @@ static void texture_hazard(const Draw *d, const Cmd *c, int snap) {
         sChecked = 1;
     }
     if (!set_overlaps(sDirtyAny, sTexPages.pages)) {
-        return;
+        return 0;
     }
     for (i = 0; i < MAX_RT; i++) {
         if (i != snap && drew_over(i, sTexPages.pages, mask)) {
-            resolve(i);
+            if (i == self) {
+                hit = 1;
+            } else {
+                resolve(i);
+            }
         }
     }
+    return hit;
 }
 
 /* Target i is drawn in columns x0..x1 (from -m), rows y0..y1. */
@@ -2153,6 +2161,85 @@ static int snap_source(const Draw *d) {
         }
     }
     return -1;
+}
+
+/* ---- issue 12: at 1x, primitives that sample the target they draw into ---- */
+
+/* Yoshimitsu's sword trail draws about 146 STQ triangles a frame that sample the frame they draw into, each reading
+   rows the one before drew: at 1x 4:3 a resolve before every one (about 290 per trail VBlank: the page rows drawn
+   since the last one, with the state switches around the pass). Such a primitive samples the target's snapshot
+   instead, as scaled and widescreen targets do: it copies only the rectangle the primitives before it drew. At 1x the
+   snapshot holds the values GS memory would and snap_texel samples as texel() does, while the texels lie inside the
+   target (beyond it GS memory goes on into other pages, where the snapshot's edge would be read): the same picture.
+   Each triangle still waits for the one before (it reads what that one drew); a texture barrier with the triangles
+   reading the target itself was tried and is not exact: the trail's texels lie among the pixels the same triangle
+   draws, in an order the GPU does not keep (and it was no faster). */
+
+/* One axis of the texels a primitive samples, from its vertices' coordinates c0..c1 (1/16 texel): texel c >> 4
+   (nearest), or (c - 8) >> 4 and the next one (bilinear), wrapped (CLAMP, REGION_CLAMP: clamped; REPEAT that does not
+   move them: as they are; else the wrap mode's whole range). known 0: the wrap mode's whole range. */
+static void self_axis(uint32_t wm, int size, int mn, int mx, int known, int c0, int c1, int linear, int *lo, int *hi) {
+    uint32_t r0, r1;
+    int a = linear ? (c0 - 8) >> 4 : c0 >> 4, b = linear ? ((c1 - 8) >> 4) + 1 : c1 >> 4;
+    Gs_TexRange(wm, size, mn, mx, &r0, &r1);
+    *lo = (int)r0;
+    *hi = (int)r1;
+    if (!known) {
+        return;
+    }
+    if (wm == 0 && a >= 0 && b <= size - 1) {
+        *lo = a;
+        *hi = b;
+    } else if (wm == 1 || wm == 2) {
+        int l = wm == 1 ? 0 : mn, h = wm == 1 ? size - 1 : mx;
+        *lo = a < l ? l : a > h ? h : a;
+        *hi = b < l ? l : b > h ? h : b;
+    }
+}
+
+/* Target rt when primitive c, drawing into it at 1x 4:3, may sample it from its snapshot (-1: no): the texture is rt in
+   a format that reads the same values (snap_source's match) and the texels it reads lie inside rt. They are bounded
+   for UV triangles and sprites by the vertices' UV, for STQ triangles by S / Q and T / Q of the vertices (with the Qs
+   of one sign the coordinates inside lie between the vertices'; two texels more each side for the rounding of the
+   per-pixel division); else by the wrap modes' whole ranges. */
+static int self_source(const Draw *d, const Cmd *c, int rt) {
+    const Rt *r = &sRt[rt];
+    const Vtx *v = c->u.prim.v;
+    int n = c->type == CMD_TRIANGLE ? 3 : 2, known = 0, i, u[2], t[2];
+    int32_t u0 = 0, u1 = 0, t0 = 0, t1 = 0;
+    if (snapping() || r->depth || d->tbits < 16 || r->bp != d->tbp || r->bw != (d->tbw != 0 ? d->tbw : 1) ||
+        !(r->psm == d->tpsm || (r->psm == 0x00 && d->tpsm == 0x01))) {
+        return -1;
+    }
+    if ((c->type == CMD_SPRITE || c->type == CMD_TRIANGLE) && d->fst) {
+        u0 = u1 = v[0].u;
+        t0 = t1 = v[0].v;
+        for (i = 1; i < n; i++) {
+            u0 = v[i].u < u0 ? v[i].u : u0;
+            u1 = v[i].u > u1 ? v[i].u : u1;
+            t0 = v[i].v < t0 ? v[i].v : t0;
+            t1 = v[i].v > t1 ? v[i].v : t1;
+        }
+        u0--, u1++, t0--, t1++; /* the GPU's interpolation */
+        known = 1;
+    } else if (c->type == CMD_TRIANGLE) {
+        int neg = 0;
+        known = 1;
+        for (i = 0; i < 3 && known; i++) {
+            int32_t a, b;
+            known = Gs_StqTexel(v[i].s, v[i].q, d->lw, &a) && Gs_StqTexel(v[i].t, v[i].q, d->lh, &b);
+            neg += (int)(v[i].q >> 31);
+            u0 = i == 0 || a < u0 ? a : u0;
+            u1 = i == 0 || a > u1 ? a : u1;
+            t0 = i == 0 || b < t0 ? b : t0;
+            t1 = i == 0 || b > t1 ? b : t1;
+        }
+        known = known && (neg == 0 || neg == 3);
+        u0 -= 32, u1 += 32, t0 -= 32, t1 += 32;
+    }
+    self_axis(d->wms, d->tw, d->minu, d->maxu, known, u0, u1, d->filter != 0, &u[0], &u[1]);
+    self_axis(d->wmt, d->th, d->minv, d->maxv, known, t0, t1, d->filter != 0, &t[0], &t[1]);
+    return u[0] >= 0 && u[1] <= r->w - 1 && t[0] >= 0 && t[1] <= (int)r->rows - 1 ? rt : -1;
 }
 
 /* ---- T39: texture packs ---- */
@@ -2577,8 +2664,13 @@ static void prim(const Cmd *c) {
         }
     }
     if (d->tex) {
+        int self;
         src = snap_source(d);
-        texture_hazard(d, c, src);
+        self = src < 0 ? self_source(d, c, rt) : -1;
+        if (texture_hazard(d, c, src, self)) {
+            src = self; /* its snapshot, not a resolve (issue 12) */
+            sSelfSnaps++;
+        }
         if (d->tbits <= 8) {
             palRow = pal_row(d);
         }
@@ -3657,8 +3749,9 @@ void Gl_Report(void) {
         printf("ttt: gl: texture cache: %s, %u decodes (%llu texels), %u hits, %u in targets' pages, %u atlas resets; checked %u batches, "
                "%u differing pixels\n", sTcOn ? "on" : "off", sTcStat.decodes, (unsigned long long)sTcStat.texels, sTcStat.hits,
                sTcStat.direct, sTcStat.resets, sTcStat.checked, sTcStat.differing);
-        printf("ttt: gl: snapshots: %llu copies, %llu target pixels copied; checked whole %u, differing %u\n",
-               (unsigned long long)sSnapCopies, (unsigned long long)sSnapPixels, sSnapChecks, sSnapMismatch);
+        printf("ttt: gl: snapshots: %llu copies, %llu target pixels copied; checked whole %u, differing %u; at 1x %u primitives "
+               "sampled the target they draw into\n", (unsigned long long)sSnapCopies, (unsigned long long)sSnapPixels,
+               sSnapChecks, sSnapMismatch, sSelfSnaps);
         if (sStates[0] + sStates[1] != 0) { /* F07 (a save's resolves and read backs count as "target" above) */
             printf("ttt: gl: state: %u saves, %u loads\n", sStates[0], sStates[1]);
         }

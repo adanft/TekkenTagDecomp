@@ -743,7 +743,8 @@ throttles the whole slice when hot, so wall times move by 10-20% between runs; C
   page tables as textures), so formats, CLUT tricks and reinterpretations read what the GS would.
 - **Targets.** FRAME / ZBUF buffers are RGBA16F / DEPTH32F textures, loaded from the mirror when made or grown and
   written back into it (a resolve) only when something reads the pages drawn since the last one: a texture (UV
-  primitives count only their texels), a CLUT load, the display, an upload, another target. A 24-bit target owns the
+  primitives count only their texels), a CLUT load, the display, an upload, another target; a primitive sampling the
+  target it draws into samples its snapshot instead (issue 12, [video.md](video.md)). A 24-bit target owns the
   low 3 bytes only: the game keeps PSMT8H / 4HL / 4HH fonts in its frame buffer's top byte. Per page the back end
   knows the bytes the CPU wrote (pushed before the next GPU use, masked) and the bytes the GPU wrote (read back
   before the CPU writes or reads them: in the fight about one CLUT load per VBlank reads the frame).

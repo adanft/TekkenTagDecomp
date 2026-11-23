@@ -2630,6 +2630,21 @@ void Gs_PagesOf(uint32_t set[16], uint32_t bp, uint32_t bw, uint32_t psm, uint32
 
 void Gs_TexRange(uint32_t wm, int size, int mn, int mx, uint32_t *lo, uint32_t *hi) { tex_range(wm, size, mn, mx, lo, hi); }
 
+/* S / Q of one STQ vertex in 1/16 texel of a 2^log2size texture (stq_texel, with the shift of these two floats); 0
+   when Q is zero. The GL back end bounds the texels an STQ triangle samples by its vertices' (issue 12). */
+int Gs_StqTexel(uint32_t s, uint32_t q, int log2size, int32_t *t) {
+    uint32_t f[2];
+    int sh;
+    if ((q & 0x7F800000u) == 0) {
+        return 0;
+    }
+    f[0] = s;
+    f[1] = q;
+    sh = stq_shift(f, 2);
+    *t = stq_texel(fix(s, sh), fix(q, sh), log2size);
+    return 1;
+}
+
 /* The pages an upload into x0..x1, y0..y1 of a buffer writes (`touched`, exact: pages_of also takes the pages between
    the rows) and those it writes whole (`full`). Buffer page k of a buffer at block bp holds GS memory blocks bp + 32 k
    .. bp + 32 k + 31: page bp / 32 + k from block bp % 32 on, and the next page before it. So that page is whole when

@@ -81,6 +81,7 @@ int Gs_PsmBits(uint32_t psm);
 const uint16_t *Gs_PageTable(int k);
 void Gs_PagesOf(uint32_t set[16], uint32_t bp, uint32_t bw, uint32_t psm, uint32_t x0, uint32_t x1, uint32_t y0, uint32_t y1);
 void Gs_TexRange(uint32_t wm, int size, int mn, int mx, uint32_t *lo, uint32_t *hi);
+int Gs_StqTexel(uint32_t s, uint32_t q, int log2size, int32_t *t); /* S / Q in 1/16 texel; 0: Q is zero */
 int Gs_UploadPages(uint32_t touched[16], uint32_t full[16], uint32_t bp, uint32_t bw, uint32_t psm, uint32_t x0, uint32_t x1,
                    uint32_t y0, uint32_t y1);
 void Gs_CpuUpload(const Cmd *c);                                 /* a CMD_UPLOAD into GS memory (frees the data) */

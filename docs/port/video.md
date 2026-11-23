@@ -101,10 +101,20 @@ now as many rows as the target has: a target that grows is written back and made
   it holds what GS memory would hold at that point. Sampling follows the GS's rules at the finer step: the texel
   `(u * N) >> 4` (nearest) or the four around it (bilinear, 4-bit fractions), wrap modes on the GS texel, and the GS's
   storage (16 bits: 5 bits per channel and the alpha bit) and TEXA.
+- **A primitive sampling the target it draws into** (issue 12: Yoshimitsu's sword trail, about 146 STQ triangles a
+  frame that sample the frame, each reading rows the one before drew) samples that target's snapshot at 1x 4:3 too,
+  when its texels lie inside the target (bounded by its vertices' UV, or S / Q and T / Q of an STQ triangle; beyond the
+  target GS memory goes on into other pages): the snapshot copies only the rectangle drawn since the last copy, where
+  GS memory needed a resolve of the page rows before each triangle (about 290 per trail VBlank). At 1x the snapshot
+  holds the values GS memory would and is sampled the same way: the pictures are the same. Each triangle still waits
+  for the one before. A texture barrier with the triangles sampling the target itself is not exact here (a trail
+  triangle's texels lie among its own pixels, which the GPU draws in no fixed order) and was no faster. Counted in the
+  `ttt: gl: snapshots:` report line (`at 1x N primitives sampled the target they draw into`).
 - **The display** of a scaled target reads the target (or a snapshot, below) at full resolution; other buffers read GS
   memory.
-- **Not scaled.** Lines and points stay one GL pixel wide. At 1x 4:3 with the flicker filter none of this is used: the
-  pictures are the T30 ones byte for byte.
+- **Not scaled.** Lines and points stay one GL pixel wide. At 1x 4:3 with the flicker filter none of this is used
+  (but for primitives sampling the target they draw into, above, with the same values): the pictures are the T30 ones
+  byte for byte.
 
 ## Widescreen
 
