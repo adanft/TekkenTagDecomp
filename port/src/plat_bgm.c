@@ -250,11 +250,17 @@ static void next_sector(uint8_t *sec) {
 /* Half `h` of both buffers gets the next sector, with SpuSt's flags; the last chunk ends in a silent loop block. */
 static void fill_half(int h) {
     uint8_t sec[2048];
-    int c;
+    int c, b;
     next_sector(sec);
     for (c = 0; c < 2; c++) {
         uint8_t *d = Spu2_Ram() + (c == 0 ? BUF_L : BUF_R) + (uint32_t)h * HALF;
         memcpy(d, sec + c * HALF, HALF);
+        /* Only the flags below may end or repeat the stream: a stray end flag inside the half (a type-3 track whose
+           memory was overwritten, as an arcade ending's third fighter does to slot 2) switched the voice off, so no
+           half was refilled and the engine never left state 4 (issue 13). Loop-start flags (4) stay. */
+        for (b = 0; b < HALF; b += 16) {
+            d[b + 1] &= ~3;
+        }
         d[1] = h == 0 ? 6 : 2;
         d[16 + 1] = 2;
         d[HALF - 16 + 1] = h == 0 ? 2 : 3;

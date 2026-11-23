@@ -166,6 +166,17 @@ or exact musical tempo. The host still uses NAX polling rather than the original
 Because loop addresses and their manual-write latches are hashed state, this correction changes stream-era hashes;
 old captures remain historical references, not hashes to silently replace or weaken. No saved fields are added.
 
+**Stray end flags (issue 13).** When the engine fills a half, it clears the end (1) and repeat (2) bits of every
+block before it sets its own flags. Loop-start flags (4) stay. The music data on the disc has no such bits inside a
+half, so normal tracks play exactly as before; the idle and fight state hashes are unchanged.
+
+The arcade ending is where they appear. Ending state 3 fades track 3 (type 3, streamed from fighter slot 2's memory)
+without stopping it. State 5 then loads the ending's third fighter into slot 2, which happens in endings 1, 4, 10, 14,
+22, 25 and 34 of `D_0051B488`. Before this fix, the overwritten data's end flags switched voice 22 off. With the voice
+off, no half was refilled and the final block was never reached, so the engine stayed in state 4. It then ignored
+every later request, and the music was gone until the game restarted. Now the overwritten data plays as noise under
+the fade, and the track stops as usual. The fixture case `garbage` in `tests/fixtures/bgm_stream.c` covers this.
+
 **Volume.** Every tick, `v = option * scale * fade >> 14`. In stereo, voice 22 gets (v, 0) and voice 23 gets (0, v).
 In mono, both get v * 65 / 100 on both sides.
 

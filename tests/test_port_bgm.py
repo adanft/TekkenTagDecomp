@@ -54,6 +54,12 @@ class StreamRepeatAddress(unittest.TestCase):
             with self.subTest(mode=mode):
                 self.check_case(mode)
 
+    def test_stray_end_flags_do_not_stall_the_stream(self):
+        """Issue 13: after an arcade ending with three fighters the music was gone for good. Track 3 streams from fighter
+        slot 2's memory, which the ending's third fighter overwrites; the stray end flags switched voice 22 off, so no
+        half was refilled and the engine stayed in its playing state, ignoring every later request."""
+        self.check_case("garbage")
+
     def test_registered_state_restores_repeat_traversal(self):
         self.check_case("restore")
 

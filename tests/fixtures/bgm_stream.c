@@ -16,7 +16,7 @@ uint32_t Port_BgmStatus(void);
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "line %d: %s\n", __LINE__, #x); exit(1); } } while (0)
 static const uint32_t base[2] = {0x1EE000, 0x1EE800};
 static struct { void *p; uint32_t n; uint8_t *saved; } regions[8];
-static int nr, marker, reads, piece = 128;
+static int nr, marker, garbage, reads, piece = 128;
 static uint32_t pcm = 2166136261u;
 void Port_StateAdd(const char *name, void *p, uint32_t n, int flags) {
     (void)name; (void)flags;
@@ -33,6 +33,9 @@ int Port_DiscRead(uint32_t sector, uint32_t offset, void *dst, uint32_t bytes) {
     for (int c = 0; c < 2; c++) for (int b = 0; b < 64; b++) {
         uint8_t *p = data + c * 1024 + b * 16;
         p[0] = 12; p[1] = marker && offset == 0 && b == 49 ? 4 : 0;
+        /* Issue 13: memory that is not ADPCM (an ending's fighter loaded over a type-3 track) has stray end (1) and
+           end + repeat (3) flags in the middle of a half. */
+        if (garbage && offset >= 2048 && b % 7 >= 5) p[1] = b % 7 == 5 ? 1 : 3;
         memset(p + 2, 0x11 * (1 + (offset / 2048 + b + c) % 7), 14);
     }
     memcpy(dst, data, bytes); reads++;
@@ -104,6 +107,7 @@ int main(int argc, char **argv) {
     CHECK(argc >= 2 && nr == 4);
     const char *mode = argv[1];
     marker = !strcmp(mode, "loop") || !strcmp(mode, "restore") || !strcmp(mode, "finite");
+    garbage = !strcmp(mode, "garbage");
     if (argc > 3) piece = atoi(argv[3]);
     CHECK(piece == 1 || piece == 128);
     Spu2_Reset(); Port_BgmInit();
@@ -133,6 +137,19 @@ int main(int argc, char **argv) {
         for (int i = 2000; i < 14000; i++) step(i);
         CHECK(Port_BgmStatus() == 0x40 && !gSpu2[0].v[22].keyed && !gSpu2[0].v[23].keyed);
         CHECK(reads <= 5);
+    } else if (!strcmp(mode, "garbage")) {
+        /* The voice keeps playing through the stray flags, the fade still stops the track, and the next one starts. */
+        start(8, 0, 0);
+        for (int i = 0; i < 4000; i++) {
+            step(i);
+            CHECK(gSpu2[0].v[22].phase != SPU2_OFF && gSpu2[0].v[22].nax - base[0] < 2048);
+        }
+        uint8_t fade[] = {0x44, 0, 1, 255};
+        Port_BgmQueue(fade);
+        for (int i = 4000; i < 16000; i++) step(i);
+        CHECK(Port_BgmStatus() == 0x40 && !gSpu2[0].v[22].keyed && !gSpu2[0].v[23].keyed);
+        garbage = 0; reads = 0;
+        start(2, 1, 0); traversal(2, 1);
     } else if (!strcmp(mode, "restore")) {
         start(8, 0, 0);
         for (int i = 0; i < 4000; i++) step(i);
