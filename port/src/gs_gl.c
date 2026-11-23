@@ -156,6 +156,9 @@ typedef char GLchar;
 #define GL_MAP_INVALIDATE_RANGE_BIT 0x0004
 #define GL_MAP_INVALIDATE_BUFFER_BIT 0x0008
 #define GL_MAP_UNSYNCHRONIZED_BIT 0x0020
+#define GL_COLOR_LOGIC_OP 0x0BF2
+#define GL_AND 0x1501
+#define GL_OR 0x1507
 
 static struct {
     GLenum (*GetError)(void);
@@ -164,6 +167,7 @@ static struct {
     void (*Disable)(GLenum);
     void (*Viewport)(GLint, GLint, GLsizei, GLsizei);
     void (*ColorMask)(GLboolean, GLboolean, GLboolean, GLboolean);
+    void (*LogicOp)(GLenum);
     void (*DepthMask)(GLboolean);
     void (*DepthFunc)(GLenum);
     void (*BlendFuncSeparate)(GLenum, GLenum, GLenum, GLenum);
@@ -230,7 +234,7 @@ static const struct {
     size_t offset;
 } kGlFuncs[] = {
 #define F(n) {"gl" #n, offsetof(__typeof__(gl), n)}
-    F(GetError), F(GetString), F(Enable), F(Disable), F(Viewport), F(ColorMask), F(DepthMask), F(DepthFunc),
+    F(GetError), F(GetString), F(Enable), F(Disable), F(Viewport), F(ColorMask), F(LogicOp), F(DepthMask), F(DepthFunc),
     F(BlendFuncSeparate), F(BlendEquationSeparate), F(ClearBufferfv), F(GenTextures), F(DeleteTextures), F(BindTexture),
     F(ActiveTexture), F(TexImage2D), F(TexSubImage2D), F(TexParameteri), F(TexBuffer), F(PixelStorei), F(GenFramebuffers),
     F(DeleteFramebuffers), F(BindFramebuffer), F(FramebufferTexture2D), F(CheckFramebufferStatus), F(DrawBuffer),
@@ -247,7 +251,7 @@ static const struct {
 /* ------------------------------------------------------------------------------------------------ shaders */
 
 /* Texture units */
-enum { U_VRAM, U_TAB, U_INV, U_PAL, U_STATES, U_SRC, U_STAGE, U_CLUT, U_SNAP, U_DSP0, U_DSP1, U_REPL, U_TCACHE };
+enum { U_VRAM, U_TAB, U_INV, U_PAL, U_STATES, U_SRC, U_STAGE, U_CLUT, U_SNAP, U_DSP0, U_DSP1, U_REPL, U_TCACHE, U_BITS };
 
 /* GS memory in the shader: the mirror and the page tables (gs_core.c's sIn32 / sIn16 / sIn16S / sIn8 / sIn4 at rows
    0 / 32 / 96 / 160 / 224 of a 128-wide R16UI texture), gs_read() = gs_core.c's vram_loc + vloc_read. */
@@ -626,6 +630,20 @@ static const char kStageFs[] =
     "out uvec4 oWord;\n"
     "void main() { oWord = texelFetch(uStage, ivec2(gl_FragCoord.xy), 0); }\n";
 
+/* Issue 11: the bits uploads wrote into pages the GPU drew, into the mirror with logic operations (push): pass 0 under
+   AND clears those bits, pass 1 under OR sets the CPU copy's there. The mirror's other bits stay the GPU's. */
+static const char kBitsFs[] =
+    "#version 330 core\n"
+    "uniform usampler2D uStage;\n"
+    "uniform usampler2D uBits;\n"
+    "uniform int uPass;\n"
+    "out uvec4 oWord;\n"
+    "void main() {\n"
+    "    ivec2 p = ivec2(gl_FragCoord.xy);\n"
+    "    uvec4 m = texelFetch(uBits, p, 0);\n"
+    "    oWord = uPass == 0 ? ~m & 255u : texelFetch(uStage, p, 0) & m;\n"
+    "}\n";
+
 /* The CLUT buffer on the GPU, for CLUT loads from pages the GPU drew (T30 batch 4: no read back). A row of a 512-wide
    R16UI texture holds the whole buffer (gs_core.c's clut[512] halves); the halves the CPU copy knows come as uniforms,
    the others from the previous GPU row. */
@@ -823,6 +841,15 @@ static uint8_t sCpuDirty[512]; /* bytes of the page the CPU wrote that the mirro
 static uint8_t sGpuNewer[512]; /* bytes of the page the GPU wrote (resolves) that the CPU copy lacks */
 static int sGpuPages;          /* pages with sGpuNewer bytes */
 static uint32_t sMemGen;       /* bumped whenever the CPU copy of GS memory changes (uploads, copies, read backs) */
+/* Issue 11: an upload into pages whose bytes the GPU wrote (sGpuNewer) reads nothing back. The CPU copy then holds the
+   GPU's bytes stale but the upload's bits current: sCpuBits keeps those bits (a word per GS memory word) while the
+   page is GPU-newer, and push sends the mirror only them (sBitsPush), so it ends up with both. A later read back still
+   brings the page back whole (it pushes first). Only resolves change bits of the mirror the CPU does not write. */
+static uint32_t sCpuBits[1 << 20];
+static uint8_t sBitsPush[512], sBitsAny[512]; /* per page: bits to push; sCpuBits not all zero */
+static int sBitsPushes;        /* pages with sBitsPush */
+static GLuint sBitsTex, sProgBits;
+static struct { GLint rect, target, pass; } uBits;
 static uint64_t sClutHash;
 static uint32_t sDirtyEpoch, sCheckedEpoch; /* bumped when a target becomes dirty: sDirtyAny is then made again */
 static int sChecked;
@@ -905,7 +932,7 @@ typedef struct Geo {
 } Geo;
 /* The last primitive that wrote depth wherever it passed its depth test (see same_depth()). */
 static struct { int valid, zrt; Geo g; } sLastZ;
-static struct { uint32_t batches, draws, resolves, loads, pushes, readbacks, rts, date, ad, fbmsk, colclamp, pabe, overlapZ, shows, clutGpu; } sGlStat;
+static struct { uint32_t batches, draws, resolves, loads, pushes, readbacks, rts, date, ad, fbmsk, colclamp, pabe, overlapZ, shows, clutGpu, uploadBits, bitPushes; } sGlStat;
 /* T39: texture packs (gs_texpack.c, docs/port/textures.md). A texture's name is computed once per its fields, its CLUT
    row and its pages' contents: a slot keeps the name until one of its pages changes (sPageGen, set from sGenClock when
    the CPU copy or the mirror of a page changes). */
@@ -1000,7 +1027,7 @@ static GLuint program(const char *vs, const char *fs, const char *fsLib, char *w
 static void samplers(GLuint p) {
     static const struct { const char *name; int unit; } k[] = {
         {"uVram", U_VRAM}, {"uTab", U_TAB}, {"uInv", U_INV}, {"uPal", U_PAL}, {"uStates", U_STATES}, {"uSrc", U_SRC}, {"uStage", U_STAGE},
-        {"uClut", U_CLUT}, {"uSnap", U_SNAP}, {"uDsp0", U_DSP0}, {"uDsp1", U_DSP1}, {"uRepl", U_REPL}, {"uTCache", U_TCACHE},
+        {"uClut", U_CLUT}, {"uSnap", U_SNAP}, {"uDsp0", U_DSP0}, {"uDsp1", U_DSP1}, {"uRepl", U_REPL}, {"uTCache", U_TCACHE}, {"uBits", U_BITS},
     };
     size_t i;
     gl.UseProgram(p);
@@ -1145,6 +1172,45 @@ static void push(void) {
         p = q;
     }
     gl.ColorMask(1, 1, 1, 1);
+    if (sBitsPushes != 0) { /* the bits uploads wrote into pages the GPU drew (sCpuBits) */
+        gl.BindFramebuffer(GL_FRAMEBUFFER, sVramFbo);
+        gl.Viewport(0, 0, 1024, 1024);
+        gl.UseProgram(sProgBits);
+        plain_state();
+        gl.Enable(GL_COLOR_LOGIC_OP);
+        for (p = 0; p < 512;) {
+            int q;
+            if (!sBitsPush[p]) {
+                p++;
+                continue;
+            }
+            for (q = p; q < 512 && sBitsPush[q]; q++) {
+            }
+            gl.ActiveTexture(GL_TEXTURE0 + U_STAGE);
+            gl.BindTexture(GL_TEXTURE_2D, sStageTex);
+            gl.TexSubImage2D(GL_TEXTURE_2D, 0, 0, p * 2, 1024, (q - p) * 2, GL_RGBA_INTEGER, GL_UNSIGNED_BYTE, vram + p * 2048);
+            gl.ActiveTexture(GL_TEXTURE0 + U_BITS);
+            gl.BindTexture(GL_TEXTURE_2D, sBitsTex);
+            gl.TexSubImage2D(GL_TEXTURE_2D, 0, 0, p * 2, 1024, (q - p) * 2, GL_RGBA_INTEGER, GL_UNSIGNED_BYTE, sCpuBits + p * 2048);
+            gl.LogicOp(GL_AND);
+            gl.Uniform1i(uBits.pass, 0);
+            rect_pass(uBits.rect, uBits.target, 0, p * 2, 1024, q * 2, 1024, 1024);
+            gl.LogicOp(GL_OR);
+            gl.Uniform1i(uBits.pass, 1);
+            rect_pass(uBits.rect, uBits.target, 0, p * 2, 1024, q * 2, 1024, 1024);
+            for (; p < q; p++) {
+                sBitsPush[p] = 0;
+                if (sGpuNewer[p] == 0) { /* (the upload covered the GPU's bytes after all: the CPU copy is whole) */
+                    memset(sCpuBits + p * 2048, 0, 2048 * 4);
+                    sBitsAny[p] = 0;
+                }
+            }
+            sGlStat.bitPushes++;
+            sMirrorGen++;
+        }
+        gl.Disable(GL_COLOR_LOGIC_OP);
+        sBitsPushes = 0;
+    }
     gl.ActiveTexture(GL_TEXTURE0 + U_VRAM);
     gl.BindTexture(GL_TEXTURE_2D, sVramTex);
 }
@@ -1174,6 +1240,10 @@ static void readback(const uint32_t *set, uint32_t mask) {
             gl.ReadPixels(0, p * 2, 1024, 2, GL_RGBA_INTEGER, GL_UNSIGNED_BYTE, vram + p * 2048);
             sGpuNewer[p] = 0;
             sGpuPages--;
+            if (sBitsAny[p]) { /* whole on the CPU now (push sent the bits first) */
+                memset(sCpuBits + p * 2048, 0, 2048 * 4);
+                sBitsAny[p] = 0;
+            }
             sPageGen[p] = ++sGenClock;
             sMemGen++;
             sGlStat.readbacks++;
@@ -1219,6 +1289,14 @@ static void resolve(int i) {
         sGpuNewer[p] |= (uint8_t)r->bytes;
         sPageGen[p] = ++sGenClock;
         sPageDrawn[p] |= (uint8_t)r->bytes;
+        if (sBitsAny[p]) { /* the resolve wrote those bytes of every word of the page: the CPU copy's are stale there */
+            uint32_t k, keep = (r->bytes & 1 ? 0 : 0xFFu) | (r->bytes & 2 ? 0 : 0xFF00u) | (r->bytes & 4 ? 0 : 0xFF0000u) |
+                               (r->bytes & 8 ? 0 : 0xFF000000u);
+            for (k = 0; k < 2048; k++) {
+                sCpuBits[p * 2048 + k] &= keep;
+            }
+            sBitsAny[p] = keep != 0;
+        }
     }
     sGlStat.resolves++;
     sResBy[sCause]++;
@@ -2361,6 +2439,11 @@ static GLuint tp_lookup(const Draw *d, int palRow, uint32_t *s10, uint32_t *s11)
         for (i = 0; i < MAX_RT && t->named; i++) { /* drawn by the game (render to texture), not a pack's */
             t->named = !drew_over(i, t->pages, psm_bytes(d->tpsm));
         }
+        if (t->named) { /* an upload into pages the GPU drew leaves its other bytes there (issue 11, sCpuBits) */
+            sCause = 0;
+            readback(t->pages, psm_bytes(d->tpsm));
+            t->stamp = sGenClock; /* (the read back changed nothing the name depends on) */
+        }
         if (!t->named) {
             sTpStat.drawn++;
         } else if (!Tp_Name(Gs_Vram(), d, pal, &n)) {
@@ -2900,8 +2983,8 @@ static void prim(const Cmd *c) {
 static void upload(const Cmd *c) {
     uint64_t bb = c->u.upload.bitbltbuf;
     uint32_t dbp = (bb >> 32) & 0x3FFF, dbw = (bb >> 48) & 0x3F, dpsm = (bb >> 56) & 0x3F, set[16] = {0}, mask = psm_bytes(dpsm);
-    uint32_t touched[16], full[16];
-    int p;
+    uint32_t touched[16], full[16], over[16] = {0}, w;
+    int p, anyOver = 0;
 
     flush();
     if (c->u.upload.tw == 0 || c->u.upload.th == 0) {
@@ -2924,15 +3007,39 @@ static void upload(const Cmd *c) {
             }
         }
     }
-    readback(set, mask);
+    /* Issue 11 (T3): the pages still holding GPU bytes the upload writes are not read back either (a wait for the GPU
+       each): the upload's bits go to sCpuBits and push sends only them. Xiaoyu's stage uploads 4-bit textures and 8x2
+       CLUTs from block offsets into pages drawn the same frame, none of them whole. */
+    for (w = 0; w < 16; w++) {
+        uint32_t bits = set[w];
+        while (bits != 0) {
+            p = (int)(w * 32 + (uint32_t)__builtin_ctz(bits));
+            bits &= bits - 1;
+            if (sGpuNewer[p] & mask) {
+                over[w] |= 1u << (p & 31);
+                set[w] &= ~(1u << (p & 31));
+                anyOver = 1;
+            }
+        }
+    }
+    if (anyOver) {
+        Gs_UploadBits(c, over, sCpuBits);
+        sGlStat.uploadBits++;
+    }
     Gs_CpuUpload(c);
     sMemGen++;
     for (p = 0; p < 512; p++) {
-        if ((set[p >> 5] >> (p & 31)) & 1) {
+        if ((over[p >> 5] >> (p & 31)) & 1) {
+            sBitsPushes += !sBitsPush[p];
+            sBitsPush[p] = 1;
+            sBitsAny[p] = 1;
+        } else if ((set[p >> 5] >> (p & 31)) & 1) {
             sCpuDirty[p] |= (uint8_t)mask;
-            sPageGen[p] = ++sGenClock;
-            sPageDrawn[p] &= (uint8_t)~mask;
+        } else {
+            continue;
         }
+        sPageGen[p] = ++sGenClock;
+        sPageDrawn[p] &= (uint8_t)~mask;
     }
     sTexPages.valid = 0;
 }
@@ -2995,6 +3102,9 @@ static void clut(const Cmd *c) {
                 gpu = sGpuNewer[w * 32 + (uint32_t)__builtin_ctz(bits)] != 0;
                 bits &= bits - 1;
             }
+        }
+        if (gpu && Gs_ClutKnown(t0, tc, sGpuNewer, sCpuBits)) {
+            gpu = 0; /* every bit it reads was uploaded since the GPU drew there (issue 11): the CPU copy has them */
         }
         clut_halves(cpsm, (uint32_t)(t0 >> 56) & 31, n, halves);
         if (gpu) { /* pages the GPU drew: the load runs on the GPU, from the mirror, instead of reading them back */
@@ -3412,7 +3522,13 @@ static void state_reset(void) {
     memset(sPageDrawn, 0, sizeof sPageDrawn);
     for (p = 0; p < 512; p++) {
         sPageGen[p] = ++sGenClock;
+        if (sBitsAny[p]) { /* (a load pushes whole pages: the uploads' bits are in them) */
+            memset(sCpuBits + p * 2048, 0, 2048 * 4);
+            sBitsAny[p] = 0;
+        }
     }
+    memset(sBitsPush, 0, sizeof sBitsPush);
+    sBitsPushes = 0;
     sMemGen++;
     sMirrorGen++;
     memset(sClutUnk, 0, sizeof sClutUnk);
@@ -3513,11 +3629,12 @@ int Gl_Init(void *(*getproc)(const char *name), char *why, int whylen) {
     sProgStage = sProgLoad ? program(kRectVs, kStageFs, NULL, why, whylen) : 0;
     sProgDisplay = sProgStage ? program(kRectVs, kDisplayFs, kLib, why, whylen) : 0;
     sProgTexDecode = sProgDisplay ? program(kRectVs, kTexDecodeFs, kLib, why, whylen) : 0;
+    sProgBits = sProgTexDecode ? program(kRectVs, kBitsFs, NULL, why, whylen) : 0;
     {
         static char loadFs[sizeof kClutLib + sizeof kClutLoadFs], expandFs[sizeof kClutLib + sizeof kClutExpandFs];
         snprintf(loadFs, sizeof loadFs, "%s%s", kClutLib, kClutLoadFs);
         snprintf(expandFs, sizeof expandFs, "%s%s", kClutLib, kClutExpandFs);
-        sProgClutLoad = sProgTexDecode ? program(kRectVs, loadFs, kLib, why, whylen) : 0;
+        sProgClutLoad = sProgBits ? program(kRectVs, loadFs, kLib, why, whylen) : 0;
         sProgClutExpand = sProgClutLoad ? program(kRectVs, expandFs, kLib, why, whylen) : 0;
     }
     if (sProgClutExpand == 0) {
@@ -3553,6 +3670,10 @@ int Gl_Init(void *(*getproc)(const char *name), char *why, int whylen) {
     samplers(sProgStage);
     samplers(sProgDisplay);
     samplers(sProgTexDecode);
+    samplers(sProgBits);
+    uBits.rect = gl.GetUniformLocation(sProgBits, "uRect");
+    uBits.target = gl.GetUniformLocation(sProgBits, "uTarget");
+    uBits.pass = gl.GetUniformLocation(sProgBits, "uPass");
     uTexDecode.rect = gl.GetUniformLocation(sProgTexDecode, "uRect");
     uTexDecode.target = gl.GetUniformLocation(sProgTexDecode, "uTarget");
     uTexDecode.arg = gl.GetUniformLocation(sProgTexDecode, "uTd");
@@ -3626,6 +3747,8 @@ int Gl_Init(void *(*getproc)(const char *name), char *why, int whylen) {
     }
     gl.ActiveTexture(GL_TEXTURE0 + U_STAGE);
     sStageTex = texture(GL_RGBA8UI, 1024, 1024, GL_RGBA_INTEGER, GL_UNSIGNED_BYTE, NULL);
+    gl.ActiveTexture(GL_TEXTURE0 + U_BITS);
+    sBitsTex = texture(GL_RGBA8UI, 1024, 1024, GL_RGBA_INTEGER, GL_UNSIGNED_BYTE, NULL);
     gl.ActiveTexture(GL_TEXTURE0 + U_STATES);
     {
         GLint maxTexels = 0;
@@ -3744,8 +3867,10 @@ void Gl_Report(void) {
                "approximated: %u DATE, %u C=Ad, %u FBMSK bytes, %u COLCLAMP 0, %u PABE, %u depth over frame\n",
                sGlStat.draws, sGlStat.batches, sGlStat.rts, sGlStat.loads, sGlStat.resolves, sGlStat.pushes, sGlStat.readbacks,
                sGlStat.clutGpu, sGlStat.shows, sGlStat.date, sGlStat.ad, sGlStat.fbmsk, sGlStat.colclamp, sGlStat.pabe, sGlStat.overlapZ);
-        printf("ttt: gl: resolves by texture %u clut %u upload %u show %u target %u; read back by texture %u clut %u upload %u show %u target %u\n",
-               sResBy[0], sResBy[1], sResBy[2], sResBy[3], sResBy[4], sRbBy[0], sRbBy[1], sRbBy[2], sRbBy[3], sRbBy[4]);
+        printf("ttt: gl: resolves by texture %u clut %u upload %u show %u target %u; read back by texture %u clut %u upload %u show %u target %u; "
+               "uploads without read back %u (%u bit pushes)\n",
+               sResBy[0], sResBy[1], sResBy[2], sResBy[3], sResBy[4], sRbBy[0], sRbBy[1], sRbBy[2], sRbBy[3], sRbBy[4],
+               sGlStat.uploadBits, sGlStat.bitPushes);
         printf("ttt: gl: texture cache: %s, %u decodes (%llu texels), %u hits, %u in targets' pages, %u atlas resets; checked %u batches, "
                "%u differing pixels\n", sTcOn ? "on" : "off", sTcStat.decodes, (unsigned long long)sTcStat.texels, sTcStat.hits,
                sTcStat.direct, sTcStat.resets, sTcStat.checked, sTcStat.differing);

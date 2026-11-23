@@ -110,6 +110,18 @@ now as many rows as the target has: a target that grows is written back and made
   for the one before. A texture barrier with the triangles sampling the target itself is not exact here (a trail
   triangle's texels lie among its own pixels, which the GPU draws in no fixed order) and was no faster. Counted in the
   `ttt: gl: snapshots:` report line (`at 1x N primitives sampled the target they draw into`).
+- **Uploads into pages the GPU drew** (issue 11: Nina's and Xiaoyu's stages upload textures and CLUTs every frame
+  into pages of a target drawn the same frame) read nothing back. Before, such an upload read those pages back first
+  (`glReadPixels`, a wait for the GPU each); then only for pages the upload does not write whole. Now the upload
+  writes the CPU copy and the back end keeps, per GS memory word of such a page, the bits it wrote (`Gs_UploadBits`:
+  exec_upload's own pixels, so 4-bit rows ending inside a block, a CLUT at a block offset and the fields inside a
+  32-bit pixel are exact to the nibble). The next push sends the mirror only those bits (two passes with logic
+  operations: AND with their complement, OR with the CPU copy's bits), so the mirror holds the GPU's bytes and the
+  upload's. The page stays GPU-newer: a later read back of it pushes first and brings the whole page back; a resolve
+  over it clears the bits it overwrote; a CLUT load whose bits all came from such uploads (`Gs_ClutKnown`) still runs
+  on the CPU copy, as it did after the read back. In the fight on stages 3, 9 and 18 this takes uploads' read backs
+  from 1945 - 5462 per 1500 VBlanks to 0, pictures the same byte for byte. Counted in the `ttt: gl: resolves by`
+  report line (`uploads without read back N (M bit pushes)`).
 - **The display** of a scaled target reads the target (or a snapshot, below) at full resolution; other buffers read GS
   memory.
 - **Not scaled.** Lines and points stay one GL pixel wide. At 1x 4:3 with the flicker filter none of this is used

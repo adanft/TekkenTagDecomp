@@ -2688,6 +2688,107 @@ int Gs_UploadPages(uint32_t touched[16], uint32_t full[16], uint32_t bp, uint32_
     }
     return 1;
 }
+
+/* Issue 11: the bits exec_upload writes (the same pixels: whole pixels of the data from tpos on, at vram_loc's places),
+   so the GL back end can send the GPU's copy of GS memory exactly those and keep the bytes the GPU drew around them,
+   down to the nibble (4-bit rows, partial blocks, 24-bit and PSMT8H / 4HL / 4HH fields). */
+void Gs_UploadBits(const Cmd *c, const uint32_t only[16], uint32_t *bits) {
+    uint64_t bb = c->u.upload.bitbltbuf;
+    uint32_t dbp = (bb >> 32) & 0x3FFF, dbw = (bb >> 48) & 0x3F, dpsm = (bb >> 56) & 0x3F;
+    uint32_t tx = c->u.upload.tx, ty = c->u.upload.ty, tw = c->u.upload.tw, total = tw * c->u.upload.th, t = c->u.upload.tpos, end, n;
+
+    if (tw == 0 || t >= total) {
+        return;
+    }
+    tables_init();
+    n = (uint32_t)((uint64_t)c->u.upload.bytes * 8 / (uint32_t)psm_bits(dpsm));
+    end = total - t < n ? total : t + n;
+#define UB_SET(w_, f_)                                                                                                 \
+    do {                                                                                                               \
+        uint32_t w__ = (w_), p__ = w__ >> 11;                                                                          \
+        if ((only[p__ >> 5] >> (p__ & 31)) & 1) {                                                                      \
+            bits[w__] |= (f_);                                                                                         \
+        }                                                                                                              \
+    } while (0)
+    if (dpsm == 0x00 || dpsm == 0x02 || dpsm == 0x0A || dpsm == 0x13 || dpsm == 0x14) { /* exec_upload's rows */
+        uint32_t bw = dbw ? dbw : 1;
+        while (t < end) {
+            uint32_t col = t % tw, y = (ty + t / tw) & 0x7FF, x = tx + col, run = tw - col, j;
+            if (run > end - t) {
+                run = end - t;
+            }
+            if (dpsm == 0x13) {
+                const uint16_t *in = sIn8[y & 63];
+                uint32_t base = (dbp + (y >> 6) * 32 * (bw >> 1)) << 8;
+                for (j = 0; j < run; j++, x++) {
+                    uint32_t b = (base + (((x & 0x7FF) >> 7) << 13) + in[x & 127]) & 0x3FFFFF;
+                    UB_SET(b >> 2, 0xFFu << (b & 3) * 8);
+                }
+            } else if (dpsm == 0x14) {
+                const uint16_t *in = sIn4[y & 127];
+                uint32_t base = (dbp + (y >> 7) * 32 * (bw >> 1)) << 9;
+                for (j = 0; j < run; j++, x++) {
+                    uint32_t a = (base + (((x & 0x7FF) >> 7) << 14) + in[x & 127]) & 0x7FFFFF;
+                    UB_SET(a >> 3, 0xFu << (a & 7) * 4);
+                }
+            } else if (dpsm == 0x00) {
+                const uint16_t *in = sIn32[y & 31];
+                uint32_t base = (dbp + (y >> 5) * 32 * bw) << 6;
+                for (j = 0; j < run; j++, x++) {
+                    UB_SET((base + (((x & 0x7FF) >> 6) << 11) + in[x & 63]) & 0xFFFFF, 0xFFFFFFFFu);
+                }
+            } else {
+                const uint16_t *in = sIn16[dpsm == 0x0A][y & 63];
+                uint32_t base = (dbp + (y >> 6) * 32 * bw) << 7;
+                for (j = 0; j < run; j++, x++) {
+                    uint32_t h = (base + (((x & 0x7FF) >> 6) << 12) + in[x & 63]) & 0x1FFFFF;
+                    UB_SET(h >> 1, 0xFFFFu << (h & 1) * 16);
+                }
+            }
+            t += run;
+        }
+    } else {
+        for (; t < end; t++) {
+            VLoc l = vram_loc(dbp, dbw, dpsm, tx + t % tw, ty + t / tw);
+            UB_SET((uint32_t)(l.w - sVram), l.mask << l.shift);
+        }
+    }
+#undef UB_SET
+}
+
+/* Issue 11: whether clut_fill reads only bits the CPU copy holds: outside the bytes the GPU wrote (`gpu`, per page),
+   or among `bits` (what uploads wrote there since). Xiaoyu's stage uploads its CLUTs into pages the GPU drew: the load
+   then still runs here, as before, instead of on the GPU. */
+int Gs_ClutKnown(uint64_t t0, uint64_t texclut, const uint8_t gpu[512], const uint32_t *bits) {
+    uint32_t psm = (t0 >> 20) & 0x3F, cbp = (t0 >> 37) & 0x3FFF, cpsm = (t0 >> 51) & 15, csm = (t0 >> 55) & 1;
+    uint32_t n = psm_bits(psm) == 8 ? 256 : 16, i;
+
+    tables_init();
+    for (i = 0; i < n; i++) { /* clut_fill's pixels */
+        uint32_t x, y, bw = 1, w, g, lack;
+        VLoc l;
+        if (csm) {
+            bw = (uint32_t)(texclut & 0x3F);
+            x = (uint32_t)((texclut >> 6) & 0x3F) * 16 + i;
+            y = (uint32_t)((texclut >> 12) & 0x3FF);
+        } else if (n == 256) {
+            uint32_t k = (i & 0xE7) | ((i & 8) << 1) | ((i & 0x10) >> 1);
+            x = k & 15;
+            y = k >> 4;
+        } else {
+            x = i & 7;
+            y = i >> 3;
+        }
+        l = vram_loc(cbp, bw, cpsm == 0 || cpsm == 1 ? 0 : cpsm, x, y);
+        w = (uint32_t)(l.w - sVram);
+        g = gpu[w >> 11];
+        lack = (g & 1 ? 0xFFu : 0) | (g & 2 ? 0xFF00u : 0) | (g & 4 ? 0xFF0000u : 0) | (g & 8 ? 0xFF000000u : 0);
+        if ((l.mask << l.shift) & lack & ~bits[w]) {
+            return 0;
+        }
+    }
+    return 1;
+}
 void Gs_CpuUpload(const Cmd *c) { exec_upload(c); }
 void Gs_CpuCopy(const Cmd *c) { exec_copy(c); }
 void Gs_ClutFill(uint16_t clut[512], uint64_t t0, uint64_t texclut) { clut_fill(clut, t0, texclut); }
@@ -3089,6 +3190,75 @@ static void selftest_upload_pages(void) {
            "upload pages block offset");
 }
 
+/* Issue 11: Gs_UploadBits gives the bits exec_upload writes. An upload of all-ones data into zeroed GS memory leaves
+   exactly those bits set: a CLUT at a block offset, 4-bit rows ending inside a block, a piece of a transfer from tpos
+   on, 24-bit, 16-bit, 8-bit and the fields inside a 32-bit pixel. */
+static void selftest_upload_bits(void) {
+    static const struct { uint32_t psm, bp, bw, tx, ty, tw, th, tpos, bytes; const char *what; } k[] = {
+        {0x00, 0x27, 1, 0, 0, 8, 2, 0, 64, "upload bits CLUT 8x2"},
+        {0x14, 0x2E, 2, 0, 0, 128, 193, 0, 128 * 193 / 2, "upload bits 4-bit 128x193"},
+        {0x14, 0x74, 2, 5, 3, 77, 40, 100, 333, "upload bits 4-bit piece"},
+        {0x01, 0x05, 1, 2, 1, 10, 5, 0, 150, "upload bits 24-bit"},
+        {0x13, 0x40, 2, 3, 1, 33, 17, 0, 33 * 17, "upload bits 8-bit"},
+        {0x02, 0x81, 1, 7, 9, 20, 11, 3, 200, "upload bits 16-bit"},
+        {0x0A, 0x90, 2, 0, 0, 70, 3, 0, 420, "upload bits 16S"},
+        {0x1B, 0xA3, 1, 1, 2, 9, 9, 0, 81, "upload bits 8H"},
+        {0x24, 0xB1, 1, 0, 0, 16, 4, 0, 32, "upload bits 4HL"},
+        {0x2C, 0xB1, 1, 0, 0, 16, 4, 0, 32, "upload bits 4HH"},
+        {0x31, 0xC0, 1, 0, 30, 64, 4, 0, 768, "upload bits Z24"},
+    };
+    uint32_t *bits = calloc(1u << 20, 4), all[16], i, w;
+    uint8_t gpu[512];
+    if (bits == NULL) {
+        expect(0, "upload bits memory");
+        return;
+    }
+    memset(all, 0xFF, sizeof all);
+    for (i = 0; i < sizeof k / sizeof k[0]; i++) {
+        Cmd c;
+        int same = 1;
+        memset(&c, 0, sizeof c);
+        c.type = CMD_UPLOAD;
+        c.u.upload.bitbltbuf = (uint64_t)k[i].bp << 32 | (uint64_t)k[i].bw << 48 | (uint64_t)k[i].psm << 56;
+        c.u.upload.tx = k[i].tx;
+        c.u.upload.ty = k[i].ty;
+        c.u.upload.tw = k[i].tw;
+        c.u.upload.th = k[i].th;
+        c.u.upload.tpos = k[i].tpos;
+        c.u.upload.bytes = k[i].bytes;
+        c.u.upload.data = malloc(k[i].bytes);
+        if (c.u.upload.data == NULL) {
+            expect(0, "upload bits memory");
+            break;
+        }
+        memset(c.u.upload.data, 0xFF, k[i].bytes);
+        memset(sVram, 0, sizeof sVram);
+        memset(bits, 0, 4u << 20);
+        Gs_UploadBits(&c, all, bits);
+        exec_upload(&c); /* (frees the data with raster threads) */
+        if (sThreads <= 0) {
+            free(c.u.upload.data);
+        }
+        for (w = 0; w < 1u << 20 && same; w++) {
+            same = sVram[w] == bits[w];
+        }
+        expect(same, k[i].what);
+    }
+    /* the CLUT of the first case: known when its page's GPU bytes are all among the uploaded bits */
+    memset(gpu, 0, sizeof gpu);
+    memset(bits, 0, 4u << 20);
+    expect(Gs_ClutKnown(0x14ull << 20 | 0x27ull << 37, 0, gpu, bits), "CLUT known: no GPU bytes");
+    gpu[1] = 0xF;
+    expect(!Gs_ClutKnown(0x14ull << 20 | 0x27ull << 37, 0, gpu, bits), "CLUT known: GPU bytes");
+    for (w = 0; w < 16; w++) {
+        bits[0x27 * 64 + w] = 0xFFFFFFFFu; /* PSMCT32 8x2 at a block's start: its first 16 words */
+    }
+    expect(Gs_ClutKnown(0x14ull << 20 | 0x27ull << 37, 0, gpu, bits), "CLUT known: uploaded");
+    expect(!Gs_ClutKnown(0x14ull << 20 | 0x26ull << 37, 0, gpu, bits), "CLUT known: elsewhere");
+    free(bits);
+    memset(sVram, 0, sizeof sVram);
+}
+
 void Port_GsSelfTest(void) {
     if (sThreads < 0) {
         sThreads = 0; /* the checks read GS memory right after drawing */
@@ -3098,6 +3268,7 @@ void Port_GsSelfTest(void) {
     selftest_draw();
     selftest_display();
     selftest_upload_pages();
+    selftest_upload_bits();
     sFails += Port_GsVifSelfTest();
     memset(sVram, 0, sizeof sVram);
     Gs_Reset();

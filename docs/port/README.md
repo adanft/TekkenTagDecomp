@@ -747,7 +747,8 @@ throttles the whole slice when hot, so wall times move by 10-20% between runs; C
   target it draws into samples its snapshot instead (issue 12, [video.md](video.md)). A 24-bit target owns the
   low 3 bytes only: the game keeps PSMT8H / 4HL / 4HH fonts in its frame buffer's top byte. Per page the back end
   knows the bytes the CPU wrote (pushed before the next GPU use, masked) and the bytes the GPU wrote (read back
-  before the CPU writes or reads them: in the fight about one CLUT load per VBlank reads the frame).
+  before the CPU writes or reads them: in the fight about one CLUT load per VBlank reads the frame). An upload into pages the
+  GPU drew reads nothing back: the mirror gets only the bits it wrote (issue 11, [video.md](video.md)).
 - **Primitives** become integer vertices and a state record in a texture buffer; the shader does the GS's per-pixel
   work in integers (addressing, wrap modes, CLUT, TEXA, bilinear with 4-bit fractions, TFX / TCC, fog, alpha test,
   scissor, FBA); blending is dual-source with the batch's equation (Cs * |ks| + Cd * |kd|, add / subtract / reverse),
