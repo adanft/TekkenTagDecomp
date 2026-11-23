@@ -2629,6 +2629,50 @@ void Gs_PagesOf(uint32_t set[16], uint32_t bp, uint32_t bw, uint32_t psm, uint32
 }
 
 void Gs_TexRange(uint32_t wm, int size, int mn, int mx, uint32_t *lo, uint32_t *hi) { tex_range(wm, size, mn, mx, lo, hi); }
+
+/* The pages an upload into x0..x1, y0..y1 of a buffer writes (`touched`, exact: pages_of also takes the pages between
+   the rows) and those it writes whole (`full`). Buffer page k of a buffer at block bp holds GS memory blocks bp + 32 k
+   .. bp + 32 k + 31: page bp / 32 + k from block bp % 32 on, and the next page before it. So that page is whole when
+   buffer pages k and k - 1 are (k alone when bp is a page's start). 0 for what it does not model (the 32-bit fields
+   PSMT8H / 4HL / 4HH, a rectangle out of order, pages past GS memory's end): the caller then takes pages_of's. */
+int Gs_UploadPages(uint32_t touched[16], uint32_t full[16], uint32_t bp, uint32_t bw, uint32_t psm, uint32_t x0, uint32_t x1,
+                   uint32_t y0, uint32_t y1) {
+    uint32_t bits, pw, ph, bwp, base = bp >> 5, off = bp & 31, px, py;
+    memset(touched, 0, 64);
+    memset(full, 0, 64);
+    if (psm == 0x1B || psm == 0x24 || psm == 0x2C || x1 < x0 || y1 < y0 || x1 > 0x7FF || y1 > 0x7FF) {
+        return 0;
+    }
+    bits = (uint32_t)psm_bits(psm);
+    pw = bits >= 16 ? 64 : 128;
+    ph = bits == 32 || bits == 24 ? 32 : bits == 4 ? 128 : 64;
+    bwp = bits >= 16 ? (bw ? bw : 1) : (bw ? bw : 1) >> 1;
+    if (bwp == 0) {
+        return 0;
+    }
+    for (py = y0 / ph; py <= y1 / ph; py++) {
+        for (px = x0 / pw; px <= x1 / pw; px++) {
+            uint32_t k = py * bwp + px, q = base + k;
+            int whole = x0 <= px * pw && x1 >= px * pw + pw - 1 && y0 <= py * ph && y1 >= py * ph + ph - 1;
+            if (q + (off != 0) >= 512 || px >= bwp) {
+                return 0;
+            }
+            touched[q >> 5] |= 1u << (q & 31);
+            if (off != 0) {
+                touched[(q + 1) >> 5] |= 1u << ((q + 1) & 31);
+            }
+            if (whole) { /* buffer page k is whole: page q is whole when the page before k is too (off 0: always) */
+                uint32_t prev = k - 1, pqx = prev % bwp, pqy = prev / bwp;
+                int prevWhole = off == 0 || (k > 0 && x0 <= pqx * pw && x1 >= pqx * pw + pw - 1 && y0 <= pqy * ph &&
+                                             y1 >= pqy * ph + ph - 1);
+                if (prevWhole) {
+                    full[q >> 5] |= 1u << (q & 31);
+                }
+            }
+        }
+    }
+    return 1;
+}
 void Gs_CpuUpload(const Cmd *c) { exec_upload(c); }
 void Gs_CpuCopy(const Cmd *c) { exec_copy(c); }
 void Gs_ClutFill(uint16_t clut[512], uint64_t t0, uint64_t texclut) { clut_fill(clut, t0, texclut); }
@@ -3015,6 +3059,21 @@ static void selftest_display(void) {
 
 int Port_GsVifSelfTest(void); /* gs_vif1.c */
 
+/* Issue 11: the pages an upload writes, and those it writes whole (no read back of the GPU's copy is needed). */
+static void selftest_upload_pages(void) {
+    uint32_t touched[16], full[16];
+    /* 32 bits, page 64 x 32, bw 10: the page at (0, 0) whole; a page one row short is touched, not whole */
+    expect(Gs_UploadPages(touched, full, 0, 10, 0x00, 0, 63, 0, 31) && touched[0] == 1 && full[0] == 0x1, "upload pages whole");
+    expect(Gs_UploadPages(touched, full, 0, 10, 0x00, 0, 63, 0, 30) && touched[0] == 1 && full[0] == 0, "upload pages short");
+    /* 128 x 64 in the same buffer: pages 0, 1 and 10, 11 (the next page row), not 2..9 between them */
+    expect(Gs_UploadPages(touched, full, 0, 10, 0x00, 0, 127, 0, 63) && touched[0] == 0xC03 && full[0] == 0xC03,
+           "upload pages rows");
+    /* 4 bits, page 128 x 128, bw 4 (2 pages a row), at page 2 block 5: buffer page k covers pages 2 + k and 3 + k, so
+       a page is whole when buffer pages k and k - 1 are */
+    expect(Gs_UploadPages(touched, full, 2 * 32 + 5, 4, 0x14, 0, 255, 0, 255) && touched[0] == 0x7C && full[0] == 0x38,
+           "upload pages block offset");
+}
+
 void Port_GsSelfTest(void) {
     if (sThreads < 0) {
         sThreads = 0; /* the checks read GS memory right after drawing */
@@ -3023,6 +3082,7 @@ void Port_GsSelfTest(void) {
     selftest_swizzle();
     selftest_draw();
     selftest_display();
+    selftest_upload_pages();
     sFails += Port_GsVifSelfTest();
     memset(sVram, 0, sizeof sVram);
     Gs_Reset();

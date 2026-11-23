@@ -2808,6 +2808,7 @@ static void prim(const Cmd *c) {
 static void upload(const Cmd *c) {
     uint64_t bb = c->u.upload.bitbltbuf;
     uint32_t dbp = (bb >> 32) & 0x3FFF, dbw = (bb >> 48) & 0x3F, dpsm = (bb >> 56) & 0x3F, set[16] = {0}, mask = psm_bytes(dpsm);
+    uint32_t touched[16], full[16];
     int p;
 
     flush();
@@ -2818,6 +2819,19 @@ static void upload(const Cmd *c) {
     Gs_PagesOf(set, dbp, dbw, dpsm, c->u.upload.tx, c->u.upload.tx + c->u.upload.tw - 1, c->u.upload.ty, c->u.upload.ty + c->u.upload.th - 1);
     sCause = 2;
     drop_over(set, mask, -1);
+    if (Gs_UploadPages(touched, full, dbp, dbw, dpsm, c->u.upload.tx, c->u.upload.tx + c->u.upload.tw - 1, c->u.upload.ty,
+                       c->u.upload.ty + c->u.upload.th - 1)) {
+        /* Issue 11: only the pages the upload writes come back, and not those it writes whole where the GPU's newer
+           bytes are all the upload's: their GPU copy is stale now. Nina's and Xiaoyu's stages upload textures over
+           pages drawn the same frame: before, each upload read back 6 to 12 pages (each a wait for the GPU). */
+        memcpy(set, touched, sizeof set);
+        for (p = 0; p < 512; p++) {
+            if (((full[p >> 5] >> (p & 31)) & 1) && sGpuNewer[p] != 0 && !(sGpuNewer[p] & ~mask)) {
+                sGpuNewer[p] = 0;
+                sGpuPages--;
+            }
+        }
+    }
     readback(set, mask);
     Gs_CpuUpload(c);
     sMemGen++;

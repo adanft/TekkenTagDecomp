@@ -81,6 +81,8 @@ int Gs_PsmBits(uint32_t psm);
 const uint16_t *Gs_PageTable(int k);
 void Gs_PagesOf(uint32_t set[16], uint32_t bp, uint32_t bw, uint32_t psm, uint32_t x0, uint32_t x1, uint32_t y0, uint32_t y1);
 void Gs_TexRange(uint32_t wm, int size, int mn, int mx, uint32_t *lo, uint32_t *hi);
+int Gs_UploadPages(uint32_t touched[16], uint32_t full[16], uint32_t bp, uint32_t bw, uint32_t psm, uint32_t x0, uint32_t x1,
+                   uint32_t y0, uint32_t y1);
 void Gs_CpuUpload(const Cmd *c);                                 /* a CMD_UPLOAD into GS memory (frees the data) */
 void Gs_CpuCopy(const Cmd *c);                                   /* a CMD_COPY inside GS memory */
 void Gs_ClutFill(uint16_t clut[512], uint64_t t0, uint64_t texclut);
