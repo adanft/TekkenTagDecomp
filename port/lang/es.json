@@ -214,6 +214,7 @@
   "overlay.video.scale_fmt": "%dx (640x448 cada una)",
   "overlay.video.smooth": "Escalado suave a la ventana",
   "overlay.video.software": "Software",
+  "overlay.video.stretch": "Estirar para llenar la ventana",
   "overlay.video.texture_dump": "Volcar texturas (las nuevas, como PNG)",
   "overlay.video.texture_folder": "Carpeta: %s",
   "overlay.video.texture_note": "(replacements/ se lee una vez por ejecución; video.texture_dir o TTT_TEXTURES cambian su ubicación en el próximo inicio)",

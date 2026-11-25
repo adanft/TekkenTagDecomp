@@ -754,6 +754,7 @@ static void page_video(void) {
     }
     check(Tr("overlay.video.deflicker", "Game's flicker filter (half height, blurred)"), "video.deflicker");
     check(Tr("overlay.video.smooth", "Smooth scaling to the window"), "video.smooth");
+    check(Tr("overlay.video.stretch", "Stretch to fill the window"), "video.stretch");
     check(Tr("overlay.video.low_latency", "Low input lag"), "video.low_latency");
     /* T39: texture packs (gs_texpack.c, docs/port/textures.md), PCSX2's folder layout and names */
     ImGui::SeparatorText(Tr("overlay.video.texture_packs", "Texture packs"));

@@ -792,6 +792,7 @@ static int sScale = 1;     /* internal resolution: a GS pixel of a target is sSc
 static int sMarg;          /* widescreen: GS pixels added left and right of 640-wide targets and of the picture */
 static int sDeflicker = 1; /* 0: the frame the game blurs into its half-height display buffer is shown instead */
 static int sSmooth = 1;    /* the picture scaled into the window bilinear (1) or nearest (0) */
+static int sStretch;       /* the picture over the whole window, its shape not kept (video.stretch, issue 8) */
 static int sLowLat;        /* low input lag: present a frame when the game copies it, glFinish after the swap */
 static uint32_t sFrame = 2; /* window pictures (margins drawn in this one or the last are shown) */
 static uint32_t sSnapGen;
@@ -3260,21 +3261,32 @@ static uint64_t pace_pct(const Pace *p, unsigned q) {
    plat_window.c); low latency waits until the GPU is done (the driver queues no frame). `since`: the queue time of the
    VBlank after which the shown frame was complete (0: unknown), for the report's latency. */
 static int sShownW, sShownH; /* the last picture shown in the window */
+void Gl_WindowFit(int ww, int wh, int w, int h, int stretch, int r[4]) {
+    if (stretch) {
+        r[2] = ww;
+        r[3] = wh;
+    } else if ((int64_t)ww * h > (int64_t)wh * w) {
+        r[3] = wh;
+        r[2] = (int)((int64_t)wh * w / h);
+    } else {
+        r[2] = ww;
+        r[3] = (int)((int64_t)ww * h / w);
+    }
+    r[0] = (ww - r[2]) / 2;
+    r[1] = (wh - r[3]) / 2;
+}
+
 static void window_blit(int w, int h, uint64_t since) {
-    int ww = 0, wh = 0, dw, dh, x0, y0;
+    int ww = 0, wh = 0, dw, dh, x0, y0, r[4];
     Port_WindowGlSize(&ww, &wh);
     if (ww <= 0 || wh <= 0) {
         return;
     }
-    if ((int64_t)ww * h > (int64_t)wh * w) {
-        dh = wh;
-        dw = (int)((int64_t)wh * w / h);
-    } else {
-        dw = ww;
-        dh = (int)((int64_t)ww * h / w);
-    }
-    x0 = (ww - dw) / 2;
-    y0 = (wh - dh) / 2;
+    Gl_WindowFit(ww, wh, w, h, sStretch, r);
+    x0 = r[0];
+    y0 = r[1];
+    dw = r[2];
+    dh = r[3];
     gl.BindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
     gl.DrawBuffer(GL_BACK);
     gl.Viewport(0, 0, ww, wh);
@@ -3427,6 +3439,7 @@ static void apply_settings(void) {
     marg = Gl_AspectMargin(a);
     sDeflicker = Settings_GetInt("video.deflicker");
     sSmooth = Settings_GetInt("video.smooth");
+    sStretch = Settings_GetInt("video.stretch");
     sLowLat = Settings_GetInt("video.low_latency");
     { /* T39: texture packs; a change names every texture again */
         int dump = Settings_GetInt("video.texture_dump"), repl = Settings_GetInt("video.texture_replace");
@@ -4086,6 +4099,17 @@ int Gl_SelfTest(void) {
     /* T37: the widescreen margins, a sprite going on into them, sprite edges on whole pixels at a finer scale */
     gl_expect(Gl_AspectMargin("4:3") == 0 && Gl_AspectMargin("16:9") == 78 && Gl_AspectMargin("21:9") == 203 && Gl_AspectMargin("x") == 0,
               "aspect margins (796 and 1046 x 448)");
+    { /* issue 8: the picture letterboxed in the window, or stretched over all of it (video.stretch) */
+        int r[4];
+        Gl_WindowFit(1920, 1080, 640, 448, 0, r);
+        gl_expect(r[0] == 189 && r[1] == 0 && r[2] == 1542 && r[3] == 1080, "letterbox: pillars each side");
+        Gl_WindowFit(640, 900, 640, 448, 0, r);
+        gl_expect(r[0] == 0 && r[1] == 226 && r[2] == 640 && r[3] == 448, "letterbox: bars above and below");
+        Gl_WindowFit(1920, 1080, 640, 448, 1, r);
+        gl_expect(r[0] == 0 && r[1] == 0 && r[2] == 1920 && r[3] == 1080, "stretch: the whole window");
+        Gl_WindowFit(640, 900, 796, 448, 1, r);
+        gl_expect(r[0] == 0 && r[1] == 0 && r[2] == 640 && r[3] == 900, "stretch: the whole window, 16:9 picture");
+    }
     {
         Vtx sv[2], o[2];
         int32_t x0 = 0, x1 = 1016, u0 = 8, u1 = 1024;

@@ -48,6 +48,7 @@ static const Def kDefs[] = {
     {"video.aspect", "TTT_ASPECT", 0, 0, 0, "4:3", 0},
     {"video.deflicker", "TTT_DEFLICKER", 0, 1, 1, NULL, 0},
     {"video.smooth", "TTT_SMOOTH", 0, 1, 1, NULL, 0},
+    {"video.stretch", "TTT_STRETCH", 0, 1, 0, NULL, 0},
     {"video.low_latency", "TTT_LOW_LATENCY", 0, 1, 0, NULL, 0},
     {"video.texture_dump", "TTT_TEXTURE_DUMP", 0, 1, 0, NULL, 0},
     {"video.texture_replace", "TTT_TEXTURE_REPLACE", 0, 1, 0, NULL, 0},
@@ -675,20 +676,22 @@ void Settings_SelfTest(void) {
 
     /* the video options (T37) */
     expect(Settings_GetInt("video.resolution") == 1 && Settings_GetInt("video.deflicker") == 1 && Settings_GetInt("video.smooth") == 1 &&
-               Settings_GetInt("video.low_latency") == 0,
+               Settings_GetInt("video.low_latency") == 0 && Settings_GetInt("video.stretch") == 0,
            "video defaults");
     Settings_GetStr("video.aspect", s, sizeof s);
     expect(strcmp(s, "4:3") == 0, "aspect default 4:3");
     expect(Settings_SetInt("video.resolution", 12) && Settings_SetStr("video.aspect", "21:9") && Settings_SetInt("video.deflicker", 0) &&
-               Settings_SetInt("video.low_latency", 1),
+               Settings_SetInt("video.low_latency", 1) && Settings_SetInt("video.stretch", 1),
            "video options written");
     Settings_Load();
     Settings_GetStr("video.aspect", s, sizeof s);
     expect(Settings_GetInt("video.resolution") == 8 && strcmp(s, "21:9") == 0 && Settings_GetInt("video.deflicker") == 0 &&
-               Settings_GetInt("video.low_latency") == 1,
+               Settings_GetInt("video.low_latency") == 1 && Settings_GetInt("video.stretch") == 1,
            "video options read back (resolution clamped to 8)");
     file_text(cfg, text, sizeof text);
-    expect(strstr(text, "video.resolution = 8\n") != NULL && strstr(text, "video.aspect = 21:9\n") != NULL, "video lines in the file");
+    expect(strstr(text, "video.resolution = 8\n") != NULL && strstr(text, "video.aspect = 21:9\n") != NULL &&
+               strstr(text, "video.stretch = 1\n") != NULL,
+           "video lines in the file");
 
     /* rebinding: one button per key (the two swap), F1 / Escape refused */
     Settings_DefaultBindings(d);

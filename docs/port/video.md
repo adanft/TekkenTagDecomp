@@ -14,6 +14,7 @@ Code: `port/src/gs_gl.c` (everything, and the frame-pacing report of T38: [Frame
 | `video.aspect` | `4:3` / `16:9` / `21:9` | `4:3` | `TTT_ASPECT` | The 3D scene widened to that shape; the HUD and menus stay 4:3 in the middle. |
 | `video.deflicker` | 0 / 1 | 1 | `TTT_DEFLICKER` | 0: the game's frame is shown at its full 448 lines, without the game's vertical blur. |
 | `video.smooth` | 0 / 1 | 1 | `TTT_SMOOTH` | The picture scaled into the window bilinear (1) or nearest (0, sharp pixels). |
+| `video.stretch` | 0 / 1 | 0 | `TTT_STRETCH` | 1: the picture stretched over the whole window, its shape not kept; 0: letterboxed, black bars where the window's shape differs (issue 8). The software renderer honours it too. |
 | `video.low_latency` | 0 / 1 | 0 | `TTT_LOW_LATENCY` | A frame is presented as soon as the game has finished it, and the driver queues no frame. |
 
 All of them apply at once (at the next picture). A new resolution or aspect writes every target back into GS memory

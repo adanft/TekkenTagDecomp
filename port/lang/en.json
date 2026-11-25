@@ -214,6 +214,7 @@
   "overlay.video.scale_fmt": "%dx (640x448 each)",
   "overlay.video.smooth": "Smooth scaling to the window",
   "overlay.video.software": "Software",
+  "overlay.video.stretch": "Stretch to fill the window",
   "overlay.video.texture_dump": "Dump textures (new ones as PNG)",
   "overlay.video.texture_folder": "Folder: %s",
   "overlay.video.texture_note": "(replacements/ is read once a run; video.texture_dir or TTT_TEXTURES moves it, on the next start)",

@@ -92,6 +92,7 @@ int Port_GpuFallback(void); /* undo only our automatic GPU request */
 #define SDL_KEY_REPEAT_OFFSET 37 /* SDL_KeyboardEvent.repeat */
 #define SDL_WINDOW_FULLSCREEN 0x1ull
 #define SDL_LOGICAL_PRESENTATION_DISABLED 0
+#define SDL_LOGICAL_PRESENTATION_STRETCH 1
 #define SDL_SCANCODE_ESCAPE 41u
 
 static struct {
@@ -913,6 +914,7 @@ static int gl_open(uint64_t flags, int vsync, int scale) {
 static void *window_main(void *arg) {
     void *tex = NULL;
     uint32_t tw = 0, th = 0, seen = 0;
+    int fit, shownFit = -1; /* SDL_LOGICAL_PRESENTATION_LETTERBOX, or _STRETCH with video.stretch */
     uint8_t *pic = NULL;
     const char *rs = getenv("TTT_RENDERER"), *hs = getenv("TTT_WINDOW_HIDDEN");
     int v, ready, vsync = Settings_GetInt("video.vsync"), scale = Settings_GetInt("video.scale"); /* TTT_VSYNC / TTT_SCALE */
@@ -1041,6 +1043,11 @@ static void *window_main(void *arg) {
         if (!fresh && !(tex != NULL && Overlay_Open() && now_ns() - sLastPresent > 16000000)) {
             continue; /* nothing new; with the overlay open the last picture is drawn again (the game may be paused) */
         }
+        fit = Settings_GetInt("video.stretch") ? SDL_LOGICAL_PRESENTATION_STRETCH : SDL_LOGICAL_PRESENTATION_LETTERBOX;
+        if (tex != NULL && fit != shownFit) { /* video.stretch changed (issue 8): the picture over the whole window or not */
+            sdl.SetRenderLogicalPresentation(sRenderer, (int)tw, (int)th, fit);
+            shownFit = fit;
+        }
         if (tex == NULL || w != tw || h != th) {
             if (tex != NULL) {
                 sdl.DestroyTexture(tex);
@@ -1050,7 +1057,8 @@ static void *window_main(void *arg) {
                 continue;
             }
             sdl.SetTextureScaleMode(tex, SDL_SCALEMODE_LINEAR);
-            sdl.SetRenderLogicalPresentation(sRenderer, (int)w, (int)h, SDL_LOGICAL_PRESENTATION_LETTERBOX);
+            sdl.SetRenderLogicalPresentation(sRenderer, (int)w, (int)h, fit);
+            shownFit = fit;
             tw = w;
             th = h;
         }
@@ -1062,7 +1070,7 @@ static void *window_main(void *arg) {
         if (Overlay_Visible()) { /* the overlay in window pixels, outside the picture's letterbox */
             sdl.SetRenderLogicalPresentation(sRenderer, 0, 0, SDL_LOGICAL_PRESENTATION_DISABLED);
             overlay_draw();
-            sdl.SetRenderLogicalPresentation(sRenderer, (int)tw, (int)th, SDL_LOGICAL_PRESENTATION_LETTERBOX);
+            sdl.SetRenderLogicalPresentation(sRenderer, (int)tw, (int)th, fit);
         }
         sdl.RenderPresent(sRenderer);
         sLastPresent = now_ns();

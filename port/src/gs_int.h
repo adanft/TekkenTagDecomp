@@ -124,6 +124,9 @@ int Gs_ThreadsWanted(void);
 int Gl_Init(void *(*getproc)(const char *name), char *why, int whylen); /* on the thread with the GL context */
 int Gl_Redisplay(void); /* the last window picture again, presented (window thread; 0: none yet) */
 int Gl_AspectMargin(const char *aspect); /* video.aspect ("4:3", "16:9", "21:9"): GS pixels added each side of 640 x 448 */
+/* Where a w x h picture goes in a ww x wh window: r = {x, y, width, height}, letterboxed (its shape kept, centred) or,
+   with `stretch` (video.stretch, issue 8), over the whole window. */
+void Gl_WindowFit(int ww, int wh, int w, int h, int stretch, int r[4]);
 void Gl_Exec(const Cmd *c);                                     /* one command, in order */
 void Gl_Report(void);
 int Gl_SelfTest(void);                                         /* TTT_SELFTEST=gl: fails */
