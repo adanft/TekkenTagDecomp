@@ -122,6 +122,16 @@ now as many rows as the target has: a target that grows is written back and made
   on the CPU copy, as it did after the read back. In the fight on stages 3, 9 and 18 this takes uploads' read backs
   from 1945 - 5462 per 1500 VBlanks to 0, pictures the same byte for byte. Counted in the `ttt: gl: resolves by`
   report line (`uploads without read back N (M bit pushes)`).
+  Such a page stays GPU-newer until a read back, so a page drawn once keeps every later upload and CLUT load on this
+  path: in the Heihachi-stage trail fight, 44258 uploads where the read backs were 187. Its costs there were on the
+  CPU, not the GPU: `Gs_ClutKnown` ran for every CLUT load (the game sends TEX0 with CLD 1 before every batch), 7% of
+  the frame on an Intel iGPU, and each resolve of the 24-bit frame cleared the same pages' bits again. The answer is
+  now kept per CLUT load while its pages are unchanged (`clut_known`, stamped with `sPageGen`), and `sBitsAny` holds
+  the bytes a page's bits may be in, so a resolve clears only bytes that still have some. VBlanks 900-1500 on the
+  Intel iGPU, three interleaved runs each: trail fight 6.3 - 7.0 s (T1+T2 7.0 - 7.1, before both 7.0, T3 alone
+  6.7 - 7.7); Xiaoyu 5.2 - 6.1 s (T3 alone 5.9 - 6.7, T1+T2 7.5 - 7.8); Nina A 5.7 - 6.6 s (6.0 - 7.0, 7.1 - 7.3).
+  On an RTX 4060, against T3 alone: trail 6.3 - 6.7 s (6.7 - 7.3), Xiaoyu 5.4 - 6.0 (6.2 - 6.7), Nina A 5.3 - 6.2
+  (6.4 - 6.9). The pictures are the same byte for byte.
 - **The display** of a scaled target reads the target (or a snapshot, below) at full resolution; other buffers read GS
   memory.
 - **Not scaled.** Lines and points stay one GL pixel wide. At 1x 4:3 with the flicker filter none of this is used

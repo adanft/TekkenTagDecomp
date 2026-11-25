@@ -846,7 +846,10 @@ static uint32_t sMemGen;       /* bumped whenever the CPU copy of GS memory chan
    page is GPU-newer, and push sends the mirror only them (sBitsPush), so it ends up with both. A later read back still
    brings the page back whole (it pushes first). Only resolves change bits of the mirror the CPU does not write. */
 static uint32_t sCpuBits[1 << 20];
-static uint8_t sBitsPush[512], sBitsAny[512]; /* per page: bits to push; sCpuBits not all zero */
+static uint8_t sBitsPush[512]; /* per page: bits to push */
+/* per page: the bytes of its words sCpuBits may have bits in (0: none). A 24-bit target's resolves (the trail fight's
+   frame) leave the top byte's bits: without this, each one cleared the other bytes of those pages' words again. */
+static uint8_t sBitsAny[512];
 static int sBitsPushes;        /* pages with sBitsPush */
 static GLuint sBitsTex, sProgBits;
 static struct { GLint rect, target, pass; } uBits;
@@ -1289,13 +1292,13 @@ static void resolve(int i) {
         sGpuNewer[p] |= (uint8_t)r->bytes;
         sPageGen[p] = ++sGenClock;
         sPageDrawn[p] |= (uint8_t)r->bytes;
-        if (sBitsAny[p]) { /* the resolve wrote those bytes of every word of the page: the CPU copy's are stale there */
+        if (sBitsAny[p] & r->bytes) { /* the resolve wrote those bytes of every word of the page: the CPU copy's are stale */
             uint32_t k, keep = (r->bytes & 1 ? 0 : 0xFFu) | (r->bytes & 2 ? 0 : 0xFF00u) | (r->bytes & 4 ? 0 : 0xFF0000u) |
                                (r->bytes & 8 ? 0 : 0xFF000000u);
             for (k = 0; k < 2048; k++) {
                 sCpuBits[p * 2048 + k] &= keep;
             }
-            sBitsAny[p] = keep != 0;
+            sBitsAny[p] &= (uint8_t)~r->bytes;
         }
     }
     sGlStat.resolves++;
@@ -3032,7 +3035,7 @@ static void upload(const Cmd *c) {
         if ((over[p >> 5] >> (p & 31)) & 1) {
             sBitsPushes += !sBitsPush[p];
             sBitsPush[p] = 1;
-            sBitsAny[p] = 1;
+            sBitsAny[p] |= (uint8_t)mask;
         } else if ((set[p >> 5] >> (p & 31)) & 1) {
             sCpuDirty[p] |= (uint8_t)mask;
         } else {
@@ -3083,6 +3086,46 @@ static uint64_t clut_hash(void) {
     return h & 0x7FFFFFFFFFFFFFFFull; /* the top bit: a buffer the GPU holds part of */
 }
 
+/* Gs_ClutKnown for a CLUT load over pages the GPU drew, kept per load (the fields it reads) while its pages `set` are
+   unchanged: each of their changes (resolves, uploads, read backs, loads: everything that changes sGpuNewer or
+   sCpuBits there) stamps the page newer than the answer (sPageGen). The game sends TEX0 with CLD 1 before every batch
+   and the check walks every entry through GS memory's addressing: without this, 7% of the trail fight's time on an
+   integrated GPU, whose texture pages stay GPU-newer for hundreds of VBlanks (issue 11, T4). */
+static int clut_known(uint64_t t0, uint64_t tc, const uint32_t set[16]) {
+    static struct { uint64_t key, ktc, stamp; int known, valid; } memo[8];
+    static uint32_t next;
+    uint64_t key = t0 & 0x00FFFFE003F00000ull, ktc = (t0 >> 55) & 1 ? tc & 0x3FFFFF : 0; /* PSM, CBP, CPSM, CSM; TEXCLUT */
+    int k;
+    for (k = 0; k < 8; k++) {
+        if (memo[k].valid && memo[k].key == key && memo[k].ktc == ktc) {
+            uint32_t w, fresh = 1;
+            for (w = 0; w < 16 && fresh; w++) {
+                uint32_t bits = set[w];
+                while (bits != 0) {
+                    if (sPageGen[w * 32 + (uint32_t)__builtin_ctz(bits)] > memo[k].stamp) {
+                        fresh = 0;
+                        break;
+                    }
+                    bits &= bits - 1;
+                }
+            }
+            if (fresh) {
+                return memo[k].known;
+            }
+            break;
+        }
+    }
+    if (k == 8) {
+        k = (int)(next++ & 7);
+    }
+    memo[k].valid = 1;
+    memo[k].key = key;
+    memo[k].ktc = ktc;
+    memo[k].stamp = sGenClock;
+    memo[k].known = Gs_ClutKnown(t0, tc, sGpuNewer, sCpuBits);
+    return memo[k].known;
+}
+
 static void clut(const Cmd *c) {
     uint64_t t0 = c->u.clut.t0, tc = c->u.clut.texclut;
     uint32_t set[16] = {0}, cbp = (t0 >> 37) & 0x3FFF, cpsm = (t0 >> 51) & 15, csm = (t0 >> 55) & 1;
@@ -3103,7 +3146,7 @@ static void clut(const Cmd *c) {
                 bits &= bits - 1;
             }
         }
-        if (gpu && Gs_ClutKnown(t0, tc, sGpuNewer, sCpuBits)) {
+        if (gpu && clut_known(t0, tc, set)) {
             gpu = 0; /* every bit it reads was uploaded since the GPU drew there (issue 11): the CPU copy has them */
         }
         clut_halves(cpsm, (uint32_t)(t0 >> 56) & 31, n, halves);
