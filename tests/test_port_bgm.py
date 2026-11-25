@@ -60,6 +60,11 @@ class StreamRepeatAddress(unittest.TestCase):
         half was refilled and the engine stayed in its playing state, ignoring every later request."""
         self.check_case("garbage")
 
+    def test_play_request_swaps_the_playing_track(self):
+        """Issue 14: in the music player another song only played after stopping the current one. The player only
+        queues a play request; the driver ends the playing track itself and starts the new one."""
+        self.check_case("swap")
+
     def test_registered_state_restores_repeat_traversal(self):
         self.check_case("restore")
 

@@ -125,16 +125,22 @@ void Port_BgmQueue(const uint8_t *q) {
     int i = 0;
     while (i < 48 && q[i] != 0xFF) {
         switch (q[i]) {
-        case 0x40: {
-            int n = q[i + 1];
-            if (n & 0x80) {
-                sB.req = n & 0x7F;
-                sB.hold = 1;
-            } else if ((sB.state == 2 || sB.state == 3) && sB.cur == n) {
-                sB.hold = 0;
+        case 0x40: { /* RSPU2DRV 0xCE8-0xD7C */
+            int n = q[i + 1], id = n & 0x7F;
+            if (sB.cur >= 0 && sB.cur == id) { /* the current track again: a release, never a second play */
+                if (n & 0x80) {
+                    sB.req = -1;
+                } else {
+                    sB.req = sB.stopReq ? id : -1; /* (already ending: it plays again after the stop) */
+                    sB.hold = 0;
+                }
+            } else if (sB.cur >= 0) { /* another track: the current one ends (stop flag) and the request waits */
+                sB.req = id;
+                sB.hold = (n & 0x80) != 0;
+                sB.stopReq = 1;
             } else {
-                sB.req = n;
-                sB.hold = 0;
+                sB.req = id;
+                sB.hold = (n & 0x80) != 0;
             }
             i += 2;
             break;

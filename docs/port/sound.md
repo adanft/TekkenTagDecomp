@@ -110,7 +110,7 @@ Each track also has:
 
 | Code | Effect |
 |---|---|
-| `40 n` | Play track n. With bit 7 set, the track loads and holds; a later `40 n` for the same track releases it. |
+| `40 n` | Play track n. With bit 7 set, the track loads and holds; a later `40 n` for the same track releases it. Another track while one is current stops it first (issue 14). |
 | `43` | Stop. |
 | `44 v t` | Fade to v over t * 4 ticks; with t = 0, set at once. |
 | `45 v` | Option volume, 0 to 128. |
@@ -176,6 +176,19 @@ without stopping it. State 5 then loads the ending's third fighter into slot 2, 
 off, no half was refilled and the final block was never reached, so the engine stayed in state 4. It then ignored
 every later request, and the music was gone until the game restarted. Now the overwritten data plays as noise under
 the fade, and the track stops as usual. The fixture case `garbage` in `tests/fixtures/bgm_stream.c` covers this.
+
+**Play while playing (issue 14).** The music player (`Mode_MusicPlayer`, `src/theater_b.c`) only queues `40 n` when a
+song is picked; it never stops the one playing. The driver's handler (RSPU2DRV 0xCE8-0xD7C) does that itself:
+- Another track while one is current: it sets the stop flag (0xD40 / 0xD68) and keeps the request. A stream ends with
+  the half already loaded, a resident track keys off at once, and state 5 -> 1 starts the new track. The last request
+  before the stop completes wins.
+- The current track again: the request is dropped (0xD30 / 0xD5C), so it does not play a second time. A plain one also
+  releases the hold. If the track is already stopping, the request is kept and the track plays again.
+- Nothing current: the request is only stored, as before.
+
+Before this fix the port started a request only in state 1, so a looping song played on until the player pressed
+stop. Measured in the music player, a switch between two disc streams is heard about 11 VBlanks after the press. The
+fixture case `swap` covers this.
 
 **Volume.** Every tick, `v = option * scale * fade >> 14`. In stereo, voice 22 gets (v, 0) and voice 23 gets (0, v).
 In mono, both get v * 65 / 100 on both sides.

@@ -12,6 +12,8 @@ void Port_BgmQueue(const uint8_t *q);
 void Port_BgmTick(void);
 void Port_BgmService(void);
 uint32_t Port_BgmStatus(void);
+int Port_BgmNow(int *gain, int *stereo, int *loops);
+static int now(void) { int g, s, l; return Port_BgmNow(&g, &s, &l); }
 
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "line %d: %s\n", __LINE__, #x); exit(1); } } while (0)
 static const uint32_t base[2] = {0x1EE000, 0x1EE800};
@@ -150,6 +152,25 @@ int main(int argc, char **argv) {
         CHECK(Port_BgmStatus() == 0x40 && !gSpu2[0].v[22].keyed && !gSpu2[0].v[23].keyed);
         garbage = 0; reads = 0;
         start(2, 1, 0); traversal(2, 1);
+    } else if (!strcmp(mode, "swap")) {
+        /* Issue 14: a play request for another track while one plays ends the current one (RSPU2DRV 0xD40 sets the
+           stop flag) and starts the new one, as the music player expects. The same track asked again while it plays
+           is dropped (0xD30): it does not play a second time. */
+        uint32_t t12[] = {12, 1u | (1u << 8), 0x2000, 123, 0x350A + 2 * 2048, 0};
+        uint8_t play12[] = {0x40, 12, 255};
+        int i, swapped = -1;
+        start(8, 0, 0);
+        for (i = 0; i < 2000; i++) step(i);
+        CHECK(now() == 11);
+        Port_BgmTrack(t12); Port_BgmQueue(play12);
+        for (; i < 14000 && swapped < 0; i++) {
+            step(i);
+            if (now() == 12) swapped = i;
+        }
+        CHECK(swapped > 2000 && swapped < 10000);
+        Port_BgmQueue(play12);
+        for (; i < 40000; i++) step(i);
+        CHECK(Port_BgmStatus() == 0x40 && now() == -1 && !gSpu2[0].v[22].keyed);
     } else if (!strcmp(mode, "restore")) {
         start(8, 0, 0);
         for (int i = 0; i < 4000; i++) step(i);
